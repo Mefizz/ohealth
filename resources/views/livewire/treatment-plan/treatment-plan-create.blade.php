@@ -7,7 +7,7 @@
         </x-slot>
     </x-header-navigation>
 
-    <div class="form shift-content" wire:key="{{ time() }}">
+    <div class="form shift-content" wire:key="{{ time() }}" x-data="{ showSignatureModal: false }">
 
         @include('livewire.treatment-plan.parts.doctors')
         @include('livewire.treatment-plan.parts.patient_data')
@@ -32,11 +32,17 @@
                     </button>
                 @endif
 
-                <button type="button" wire:click="create" class="button-primary">
-                    {{ __('Створити план лікування') }}
+                <button type="button" @click="showSignatureModal = true" class="button-primary flex items-center gap-2">
+                    @icon('key', 'w-5 h-5')
+                    {{ __('forms.complete_the_interaction_and_sign') }}
+                    @icon('arrow-right', 'w-5 h-5')
                 </button>
             </div>
         </div>
+
+        <template x-if="showSignatureModal">
+            @include('livewire.treatment-plan.modals.signature')
+        </template>
     </div>
 
     <x-messages/>

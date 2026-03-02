@@ -6,6 +6,7 @@ namespace App\Classes\eHealth;
 
 use App\Classes\eHealth\Api\Address;
 use App\Classes\eHealth\Api\Auth;
+use App\Classes\eHealth\Api\CarePlan;
 use App\Classes\eHealth\Api\ContractRequest;
 use App\Classes\eHealth\Api\Declaration;
 use App\Classes\eHealth\Api\DeclarationRequest;
@@ -40,6 +41,11 @@ final class EHealth
     public static function license(): License
     {
         return app(License::class);
+    }
+
+    public static function carePlan(): CarePlan
+    {
+        return app(CarePlan::class);
     }
 
     public static function job(): Job

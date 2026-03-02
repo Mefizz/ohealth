@@ -9,6 +9,7 @@ use Livewire\Form;
 use Livewire\Component;
 use App\Rules\DateFormat;
 use Carbon\Carbon;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class TreatmentPlanForm extends Form
 {
@@ -30,6 +31,10 @@ class TreatmentPlanForm extends Form
         ]
     ];
 
+    public ?string $knedp = null;
+    public ?TemporaryUploadedFile $keyContainerUpload = null;
+    public ?string $password = null;
+
     /**
      * Define the validation rules dynamically for the component.
      */
@@ -49,6 +54,15 @@ class TreatmentPlanForm extends Form
                 'after_or_equal:period.during.startDate'
             ],
             'period.during.endTime' => ['nullable', 'date_format:H:i'],
+        ];
+    }
+
+    public function rulesForKepOnly(): array
+    {
+        return [
+            'knedp' => ['required', 'string'],
+            'password' => ['required', 'string'],
+            'keyContainerUpload' => ['required', 'file', 'extensions:dat,pfx,pk8,zs2,jks,p7s'],
         ];
     }
 

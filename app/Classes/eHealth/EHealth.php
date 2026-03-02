@@ -48,6 +48,11 @@ final class EHealth
         return app(CarePlan::class);
     }
 
+    public static function approval(): Approval
+    {
+        return app(Approval::class);
+    }
+
     public static function job(): Job
     {
         return app(Job::class);

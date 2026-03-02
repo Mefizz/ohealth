@@ -135,7 +135,7 @@ class EmployeeRequestIndex extends EmployeeComponent
             $response = EHealth::employeeRequest()
                 ->withToken($token)
                 ->getDetails($localRequest->uuid);
-
+dd($response->json('data'));
             // Expecting 'data' key. Note: User Token response DOES NOT contain 'employee_id'.
             $remoteData = $response->json('data');
 

@@ -88,7 +88,7 @@ class TreatmentPlanApprovalManager extends Component
             
             // Assuming response may contain a pending status and an OTP request
             $data = $response->getData();
-            dump($data);
+            Log::info('Approval Request Data: ', ['data' => $data]);
             if (($data['status'] ?? '') === 'new' && isset($data['id'])) {
                 $this->pendingApprovalId = $data['id'];
                 $this->showSmsModal = true;

@@ -95,7 +95,7 @@ class PartyEdit extends AbstractEmployeeFormManager
         // Data for Request Model (System fields)
         // Since PartyEdit view blocks position fields, preparedData has them from hydrate (which got them from Draft or Employee)
         $employeeRequestData = [
-            'user_id' => $employee->user_id,
+            'user_id' => $employee->party->users()->first()->id,
             'party_id' => $this->party->id,
             'employee_id' => $employee->id,
             'position' => $preparedData['position'] ?? $employee->position, // Use form data if present (from merged draft)

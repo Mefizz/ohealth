@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Classes\eHealth;
 
 use App\Classes\eHealth\Api\Address;
+use App\Classes\eHealth\Api\Approval;
 use App\Classes\eHealth\Api\Auth;
 use App\Classes\eHealth\Api\CarePlan;
 use App\Classes\eHealth\Api\ContractRequest;
@@ -43,14 +44,14 @@ final class EHealth
         return app(License::class);
     }
 
-    public static function carePlan(): CarePlan
-    {
-        return app(CarePlan::class);
-    }
-
     public static function approval(): Approval
     {
         return app(Approval::class);
+    }
+
+    public static function carePlan(): CarePlan
+    {
+        return app(CarePlan::class);
     }
 
     public static function job(): Job

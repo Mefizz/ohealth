@@ -59,14 +59,14 @@
                     </li>
                 @endif
 
-                @if($showEdit)
+
                     <li>
                         <a href="{{ $isEmployee ? route('employee.edit', ['legalEntity' => legalEntity()->id, 'employee' => $position->id]) : route('employee-request.edit', ['legalEntity' => legalEntity()->id, 'employee_request' => $position->id]) }}"
                            class="flex items-center gap-2 py-2 px-5 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
                             @icon('edit', 'w-5 h-5') {{ __('forms.edit') }}
                         </a>
                     </li>
-                @endif
+
 
                 @if($showDismiss || $showDelete)
                     <li class="border-t border-gray-100 dark:border-gray-600 mt-1 pt-1">

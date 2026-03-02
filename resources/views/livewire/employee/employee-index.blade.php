@@ -352,10 +352,7 @@
 
                                         // We check the possibility of editing personal data according to your rules:
                                         // 1. Not the owner 2. There is a tethered user 3. Not exempt
-                                        $canEditParty = $latestEmployee
-                                            && !$isOwner
-                                            && $hasUserLinked
-                                            && $latestEmployee->status !== \App\Enums\Status::DISMISSED;
+                                        $canEditParty = true
                                     @endphp
                                     @can('create', \App\Models\Employee\EmployeeRequest::class)
                                         {{-- Edit personal data button --}}

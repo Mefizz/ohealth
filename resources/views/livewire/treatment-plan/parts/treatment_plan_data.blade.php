@@ -5,41 +5,16 @@
 
     <div class="form-row-2">
         <div class="form-group group">
-            <label for="encounter" class="label">
-                Оберіть взаємодію (Encounter)
-            </label>
-            <select id="encounter"
-                    name="encounter"
-                    wire:model="form.encounter"
-                    class="input-select peer"
-                    required
-            >
-                <option value="">Оберіть взаємодію</option>
-                <option value="123e4567-e89b-12d3-a456-426614174000">Амбулаторна взаємодія (02.03.2026)</option>
-                <option value="123e4567-e89b-12d3-a456-426614174001">Стаціонарна взаємодія (01.03.2026)</option>
-            </select>
-            @error('form.encounter')
-            <p class="text-error">{{ $message }}</p>
-            @enderror
-        </div>
-    </div>
-
-    <div class="form-row-2 mt-5">
-        <div class="form-group group">
             <label for="category" class="label">
                 {{ __('treatment-plan.category') }}
             </label>
 
             <select id="category"
                     name="category"
-                    wire:model="form.category"
                     class="input-select peer"
                     type="text"
             >
-                <option value="">{{ __('treatment-plan.category') }}</option>
-                @foreach(\App\Enums\TreatmentPlan\Category::cases() as $cat)
-                    <option value="{{ $cat->value }}">{{ $cat->label() }}</option>
-                @endforeach
+                <option selected value="">{{ __('treatment-plan.category') }}</option>
             </select>
 
             @error('treatment-plan.category')
@@ -48,8 +23,7 @@
         </div>
         <div class="form-group group">
             <input type="text"
-                   name="nameTreatmentPlan"
-                   wire:model="form.nameTreatmentPlan"
+                   name="name_treatment_plan"
                    id="name_treatment_plan"
                    class="input-select peer"
                    placeholder=" "
@@ -74,14 +48,10 @@
 
             <select id="intention"
                     name="intention"
-                    wire:model="form.intention"
                     class="input-select peer"
                     type="text"
             >
-                <option value="">{{ __('forms.select') }}</option>
-                @foreach(\App\Enums\TreatmentPlan\Intention::cases() as $intent)
-                    <option value="{{ $intent->value }}">{{ $intent->label() }}</option>
-                @endforeach
+                <option selected value="">{{ __('forms.select') }}</option>
             </select>
 
             @error('treatment-plan.intention')
@@ -95,14 +65,10 @@
 
             <select id="terms_service"
                     name="terms_service"
-                    wire:model="form.termsService"
                     class="input-select peer"
                     type="text"
             >
-                <option value="">{{ __('forms.select') }}</option>
-                @foreach(\App\Enums\TreatmentPlan\TermsService::cases() as $term)
-                    <option value="{{ $term->value }}">{{ $term->label() }}</option>
-                @endforeach
+                <option selected value="">{{ __('forms.select') }}</option>
             </select>
 
             @error('treatment-plan.terms_service')
@@ -113,7 +79,7 @@
 
     <div class="form-row-2 mt-5">
         <div class="form-group datepicker-wrapper relative w-full">
-            <input x-model="form.period.during.startDate"
+            <input x-model="period.during.startDate"
                    type="text"
                    name="start"
                    :id="'startDate"
@@ -158,7 +124,7 @@
                        class="input timepicker-uk text-gray-900 dark:text-white border-t-0 border-r-0 border-l-0 border-b border-gray-300 dark:border-gray-700 focus:ring-0 px-0 ps-8"
                        placeholder="00:00"
                        :id="'startTime-'+idx"
-                       x-model="form.period.during.startTime"
+                       x-model="period.during.startTime"
                        x-bind:disabled="isDisabled"
                 />
             </div>
@@ -167,7 +133,7 @@
 
     <div class="form-row-2">
         <div class="form-group datepicker-wrapper relative w-full">
-            <input x-model="form.period.during.endDate"
+            <input x-model="period.during.endDate"
                    type="text"
                    name="end"
                    :id="'endDate"
@@ -212,13 +178,13 @@
                        class="input timepicker-uk text-gray-900 dark:text-white border-t-0 border-r-0 border-l-0 border-b border-gray-300 dark:border-gray-700 focus:ring-0 px-0 ps-8"
                        placeholder="00:00"
                        :id="'endTime-'+idx"
-                       x-model="form.period.during.endTime"
+                       x-model="period.during.endTime"
                        x-bind:disabled="isDisabled"
                 />
             </div>
         </div>
     </div>
-    <div class="bg-red-100 rounded-lg mt-5" x-show="$wire.form.period.during.endDate" x-cloak>
+    <div class="bg-red-100 rounded-lg">
         <div class="p-4">
             <div class="flex items-center gap-2 mb-2">
                 @icon('alert-circle', 'w-5 h-5 text-red-700')

@@ -1,10 +1,14 @@
 <x-layouts.patient :id="$patientId" :patientFullName="$patientFullName">
     <div class="breadcrumb-form p-4 shift-content">
-        <button wire:click.prevent=""
-                class="button-primary mb-10"
-        >
-            {{ __('patients.get_access_to_medical_data') }}
-        </button>
+        <div class="flex gap-4 mb-10">
+            <button wire:click.prevent="" class="button-primary">
+                {{ __('patients.get_access_to_medical_data') }}
+            </button>
+
+            <a href="{{ route('treatmentPlan.create', ['legalEntity' => request()->route('legalEntity')]) }}" class="button-primary">
+                {{ __('Створити план лікування') }}
+            </a>
+        </div>
 
         <div id="accordion-open" data-accordion="open">
             <h2 id="accordion-open-heading-1">

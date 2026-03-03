@@ -1,3 +1,5 @@
+@use('App\Livewire\Person\PersonUpdate')
+
 {{-- Auth Drawer Overlay --}}
 <div x-show="showAuthDrawer"
      x-transition:enter="transition ease-out duration-300"
@@ -44,10 +46,10 @@
 >
     <div class="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-4">
         <h2 class="text-xl font-bold text-gray-900 dark:text-white">
-            @if($authDrawerMode === 'create')
+            @if($authDrawerMode === PersonUpdate::AUTH_DRAWER_MODE_CREATE)
                 {{ __('patients.authentication_SMS') }}
-            @elseif($authDrawerMode === 'deactivate')
-                {{ __('patients.deactivate_authentication_method') }}
+            @elseif($authDrawerMode === PersonUpdate::AUTH_DRAWER_MODE_DEACTIVATE)
+                {{ __('patients.deactivate_relationship') }}
             @else
                 {{ __('patients.authentication_SMS') }}
             @endif
@@ -60,7 +62,8 @@
         @foreach($this->uploadedDocuments as $key => $document)
             <div class="pb-4 flex" wire:key="{{ $key }}">
                 <div class="flex-grow">
-                    <label class="block mb-3 text-sm font-medium text-gray-900 dark:text-white" for="fileInput-{{ $key }}">
+                    <label class="block mb-3 text-sm font-medium text-gray-900 dark:text-white"
+                           for="fileInput-{{ $key }}">
                         {{ __('patients.documents.' . Str::afterLast($document['type'], '.')) }}
                     </label>
                     <div class="flex items-center gap-4">
@@ -123,32 +126,21 @@
                 {{ __('forms.back') }}
             </button>
 
-            @if($authDrawerMode === 'create')
-                <div>
-                    <button type="button"
-                            @click="showDocumentDrawer = false; showConfidantPersonDrawer = false; showSignatureDrawer = true"
-                            class="button-outline-primary"
-                    >
-                        {{ __('patients.to_authentication_methods') }}
-                    </button>
-
-                    <button type="button"
-                            wire:click.prevent="approveConfidantPersonRelationshipRequest"
-                            class="button-primary"
-                    >
-                        {{ __('forms.confirm') }}
-                    </button>
-                </div>
-            @endif
-
-            @if($authDrawerMode === 'deactivate')
+            <div>
                 <button type="button"
-                        wire:click.prevent="approveDeactivatingAuthMethod"
-                        class="button-danger"
+                        @click="showDocumentDrawer = false; showConfidantPersonDrawer = false; showSignatureDrawer = true"
+                        class="button-outline-primary"
                 >
-                    {{ __('patients.confirm_deactivation') }}
+                    {{ __('patients.to_authentication_methods') }}
                 </button>
-            @endif
+
+                <button type="button"
+                        wire:click.prevent="approveConfidantPersonRelationshipRequest"
+                        class="button-primary"
+                >
+                    {{ __('forms.confirm') }}
+                </button>
+            </div>
         </div>
     </div>
 </div>

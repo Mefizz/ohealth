@@ -69,4 +69,10 @@
     </div>
 
     <x-forms.loading />
+
+    <hr class="my-8">
+    <div class="mt-8 p-4 border-t border-gray-200">
+        <h3 class="text-xl font-bold mb-4">Epic 3: Care Plan Activities Preview</h3>
+        <livewire:treatment-plan.activities.treatment-plan-activity-create treatmentPlanId="1" />
+    </div>
 </x-layouts.patient>

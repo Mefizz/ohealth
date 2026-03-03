@@ -7,6 +7,7 @@ namespace App\Models\TreatmentPlan;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Class TreatmentPlan
@@ -71,4 +72,9 @@ class TreatmentPlan extends Model
         'supportingInfo' => 'array',
         'validationDetails' => 'array',
     ];
+
+    public function activities(): HasMany
+    {
+        return $this->hasMany(TreatmentPlanActivity::class, 'treatment_plan_id');
+    }
 }

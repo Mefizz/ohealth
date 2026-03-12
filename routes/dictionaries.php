@@ -9,6 +9,7 @@ use App\Livewire\Dictionary\ServiceCatalog;
 use App\Livewire\Dictionary\ServiceProgram;
 use App\Livewire\Dictionary\ConditionDiagnose;
 use App\Livewire\Dictionary\SensitiveGroup;
+use App\Livewire\Dictionary\MedicalDevice;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,4 +40,7 @@ Route::prefix('dictionaries')->name('dictionaries.')
 
         Route::get('/sensitive-group', SensitiveGroup::class)
             ->name('sensitive-group.index');
+
+        Route::get('/medical-device', MedicalDevice::class)
+            ->name('medical-device.index');
     });

@@ -35,4 +35,3 @@
         @include('components.signature-modal', ['method' => 'sign'])
     </div>
 </section>
-

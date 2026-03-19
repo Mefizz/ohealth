@@ -18,16 +18,31 @@ class DeviceDefinition extends Request
     /**
      * Search all active device definitions in the system.
      *
-     * @param  $query
+     * @param  array{
+     *     classification_type_system?: string,  // The system of Classification type that corresponds to dictionary name
+     *     classification_type_code?: string, // The code of Classification type that corresponds to dictionary value
+     *     model_number?: string,  // Model number for the device
+     *     name?: string,  // Device name
+     *     name_type?: string,  // Device name type. Dictionary device_name_type
+     *     medical_program_id?: string,
+     *     is_active?: bool,
+     *     page?: int,
+     *     page_size?: int
+     * }  $filters
      * @return PromiseInterface|EHealthResponse
      * @throws ConnectionException|EHealthValidationException|EHealthResponseException
+     *
+     * @see https://ehealthmisapi1.docs.apiary.io/#reference/public.-devices/get-device-definitions-v2/get-device-definitions-v2
      */
-    public function getMany($query = null): PromiseInterface|EHealthResponse
+    public function getMany(array $filters = []): PromiseInterface|EHealthResponse
     {
-        $query = array_merge([
-            self::QUERY_PARAM_PAGE_SIZE => config('ehealth.api.page_size')
-        ], $query ?? []);
+        $this->setDefaultPageSize();
 
-        return $this->get(self::URL, $query);
+        $mergedQuery = array_merge(
+            $this->options['query'] ?? [],
+            $filters
+        );
+
+        return $this->get(self::URL, $mergedQuery);
     }
 }

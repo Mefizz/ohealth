@@ -4,19 +4,19 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Classes\eHealth\EHealthRequest;
+use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\ConnectionException;
 
-class DiagnoseGroup extends EHealthRequest
+class DiagnoseGroup extends Request
 {
     public const string URL = '/api/diagnoses_groups';
 
     /**
-     * Receives a catalog of all active Groups of Diagnoses .
+     * Receives a catalog of all active Groups of Diagnoses.
      *
      * @param  array{
      *     diagnoses_group_name?: string,
@@ -49,6 +49,8 @@ class DiagnoseGroup extends EHealthRequest
      * @param  string  $uuid
      * @return PromiseInterface|EHealthResponse
      * @throws ConnectionException|EHealthValidationException|EHealthResponseException
+     *
+     * @see https://ehealthmisapi1.docs.apiary.io/#reference/public.-groups-of-diagnoses/get-group-of-diagnoses-details/get-group-of-diagnoses-details
      */
     public function getDetails(string $uuid): PromiseInterface|EHealthResponse
     {

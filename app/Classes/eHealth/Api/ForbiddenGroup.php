@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Classes\eHealth\EHealthRequest;
+use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\ConnectionException;
 
-class ForbiddenGroup extends EHealthRequest
+class ForbiddenGroup extends Request
 {
     protected const string URL = '/api/forbidden_groups';
 

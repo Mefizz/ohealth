@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Policies\DeviceDefinitionPolicy;
 use App\Policies\DrugPolicy;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -43,6 +44,7 @@ class AuthServiceProvider extends ServiceProvider
         });
 
         // Register policies for dictionary access
-        Gate::define('drugs', [DrugPolicy::class, 'view']);
+        Gate::define('view-drugs', [DrugPolicy::class, 'view']);
+        Gate::define('view-device-definitions', [DeviceDefinitionPolicy::class, 'view']);
     }
 }

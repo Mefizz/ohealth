@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Classes\eHealth\EHealthRequest;
+use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\ConnectionException;
 
-class MedicalProgram extends EHealthRequest
+class MedicalProgram extends Request
 {
     public const string URL = '/api/medical_programs';
 

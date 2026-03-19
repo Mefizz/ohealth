@@ -33,7 +33,8 @@ class UpdateDictionaryCache implements ShouldQueue
      */
     public function __construct(
         private readonly string $dictionaryKey,
-        private readonly int $pageNumber = 1
+        private readonly int $pageNumber = 1,
+        public ?string $bearerToken = null
     ) {
     }
 
@@ -43,6 +44,10 @@ class UpdateDictionaryCache implements ShouldQueue
     public function handle(): void
     {
         try {
+            if ($this->bearerToken) {
+                session()->put(config('ehealth.api.oauth.bearer_token'), $this->bearerToken);
+            }
+
             $response = DictionaryManager::fetchDictionaryPage($this->dictionaryKey, $this->pageNumber);
             $paging = $response->getPaging();
             $currentPageData = $response->getData();

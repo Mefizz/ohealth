@@ -9,12 +9,14 @@ use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Jobs\UpdateDictionaryCache;
 use App\Services\Dictionary\Collections\BasicDictionaryCollection;
+use App\Services\Dictionary\Collections\DeviceDefinitionCollection;
 use App\Services\Dictionary\Collections\DiagnoseGroupCollection;
 use App\Services\Dictionary\Collections\DrugCollection;
 use App\Services\Dictionary\Collections\ForbiddenGroupCollection;
 use App\Services\Dictionary\Collections\MedicalProgramCollection;
 use App\Services\Dictionary\Collections\ServiceCollection;
 use App\Services\Dictionary\Dictionaries\BasicDictionary;
+use App\Services\Dictionary\Dictionaries\DeviceDefinitionDictionary;
 use App\Services\Dictionary\Dictionaries\DiagnoseGroupDictionary;
 use App\Services\Dictionary\Dictionaries\DrugDictionary;
 use App\Services\Dictionary\Dictionaries\ForbiddenGroupDictionary;
@@ -112,6 +114,16 @@ class DictionaryManager
     }
 
     /**
+     * Get device definitions dictionary collection.
+     *
+     * @return DeviceDefinitionCollection Collection with device definition data
+     */
+    public function deviceDefinitions(): DeviceDefinitionCollection
+    {
+        return new DeviceDefinitionCollection($this->get(DeviceDefinitionDictionary::KEY));
+    }
+
+    /**
      * Get cached dictionary data by key.
      *
      * @param  string  $key  Dictionary key
@@ -187,7 +199,11 @@ class DictionaryManager
     private function triggerBackgroundRefresh(DictionaryInterface $dictionary): void
     {
         try {
-            UpdateDictionaryCache::dispatch($dictionary->getKey(), 1);
+            $token = $dictionary instanceof RequiresAuthentication
+                ? session()->get(config('ehealth.api.oauth.bearer_token'))
+                : null;
+
+            UpdateDictionaryCache::dispatch($dictionary->getKey(), 1, $token);
         } catch (Exception $exception) {
             Log::error("Failed to trigger background refresh", [
                 'dictionary' => $dictionary->getKey(),
@@ -213,6 +229,7 @@ class DictionaryManager
             DrugDictionary::KEY => new DrugDictionary(),
             DiagnoseGroupDictionary::KEY => new DiagnoseGroupDictionary(),
             ForbiddenGroupDictionary::KEY => new ForbiddenGroupDictionary(),
+            DeviceDefinitionDictionary::KEY => new DeviceDefinitionDictionary(),
             default => throw new InvalidArgumentException("Unknown dictionary key: $dictionaryKey")
         };
 

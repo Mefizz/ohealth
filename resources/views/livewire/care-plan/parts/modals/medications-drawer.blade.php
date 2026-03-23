@@ -1,7 +1,15 @@
 {{-- Medications Drawer --}}
 <template x-teleport="body">
-    <div id="medications-drawer-right"
-         class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto transition-transform translate-x-full bg-white w-4/5 dark:bg-gray-800"
+    <div>
+        <div x-show="showMedicationDrawer" class="fixed inset-0 z-30 bg-gray-900 bg-opacity-50" x-transition.opacity style="display: none;" @click="showMedicationDrawer = false"></div>
+        <div x-show="showMedicationDrawer"
+             x-transition:enter="transition-transform ease-out duration-300"
+             x-transition:enter-start="translate-x-full"
+             x-transition:enter-end="translate-x-0"
+             x-transition:leave="transition-transform ease-in duration-300"
+             x-transition:leave-start="translate-x-0"
+             x-transition:leave-end="translate-x-full"
+             class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto bg-white w-4/5 dark:bg-gray-800"
          style="z-index: 40;"
          tabindex="-1"
          aria-labelledby="medications-drawer-label"
@@ -36,17 +44,14 @@
             <div class="mt-6 flex justify-start gap-3">
                 <button type="button"
                         class="button-minor"
-                        data-drawer-hide="medications-drawer-right"
-                        aria-controls="medications-drawer-right"
+                        aria-controls=""
+                        @click="showMedicationDrawer = false"
                 >
                     {{ __('forms.cancel') }}
                 </button>
 
                 <button type="button"
                         class="button-primary"
-                        data-drawer-target="medication-search-drawer-right"
-                        data-drawer-show="medication-search-drawer-right"
-                        data-drawer-placement="right"
                         aria-controls="medication-search-drawer-right"
                         @click="showMedicationSearchDrawer = true"
                 >
@@ -54,5 +59,6 @@
                 </button>
             </div>
         </form>
+    </div>
     </div>
 </template>

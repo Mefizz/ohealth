@@ -1,7 +1,15 @@
 {{-- Medical Devices Drawer --}}
 <template x-teleport="body">
-    <div id="medical-devices-drawer-right"
-         class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto transition-transform translate-x-full bg-white w-4/5 dark:bg-gray-800"
+    <div>
+        <div x-show="showMedicalDeviceDrawer" class="fixed inset-0 z-30 bg-gray-900 bg-opacity-50" x-transition.opacity style="display: none;" @click="showMedicalDeviceDrawer = false"></div>
+        <div x-show="showMedicalDeviceDrawer"
+             x-transition:enter="transition-transform ease-out duration-300"
+             x-transition:enter-start="translate-x-full"
+             x-transition:enter-end="translate-x-0"
+             x-transition:leave="transition-transform ease-in duration-300"
+             x-transition:leave-start="translate-x-0"
+             x-transition:leave-end="translate-x-full"
+             class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto bg-white w-4/5 dark:bg-gray-800"
          style="z-index: 40;"
          tabindex="-1"
          aria-labelledby="medical-devices-drawer-label"
@@ -36,8 +44,8 @@
             <div class="mt-6 flex justify-start gap-3">
                 <button type="button"
                         class="button-minor"
-                        data-drawer-hide="medical-devices-drawer-right"
-                        aria-controls="medical-devices-drawer-right"
+                        aria-controls=""
+                        @click="showMedicalDeviceDrawer = false"
                 >
                     {{ __('forms.cancel') }}
                 </button>
@@ -50,5 +58,6 @@
                 </button>
             </div>
         </form>
+    </div>
     </div>
 </template>

@@ -32,7 +32,7 @@
             <a href="{{ route('persons.patient-data', [legalEntity(), 'id' => $id]) }}"
                :class="activeTab === 'patient-data' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
                @click.prevent="activeTab = 'patient-data'; window.location.href = this.href"
-               class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+               class="summary-tab"
             >
                 {{ __('patients.patient_data') }}
             </a>
@@ -40,7 +40,7 @@
             <button type="button"
                     @click.prevent="activeTab = 'summary'"
                     :class="activeTab === 'summary' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                    class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+                    class="summary-tab"
             >
                 {{ __('patients.summary') }}
             </button>
@@ -49,7 +49,7 @@
                     wire:click.once="getDiagnoses"
                     @click.prevent="activeTab = 'diagnoses'"
                     :class="activeTab === 'diagnoses' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                    class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+                    class="summary-tab"
             >
                 {{ __('patients.diagnoses') }}
             </button>
@@ -58,7 +58,7 @@
                     wire:click.once="getObservations"
                     @click.prevent="activeTab = 'observations'"
                     :class="activeTab === 'observations' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                    class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+                    class="summary-tab"
             >
                 {{ __('patients.observation') }}
             </button>
@@ -66,7 +66,7 @@
             <button type="button"
                     @click.prevent="activeTab = 'vaccinations'"
                     :class="activeTab === 'vaccinations' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                    class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+                    class="summary-tab"
             >
                 {{ __('patients.vaccinations') }}
             </button>
@@ -74,7 +74,7 @@
             <button type="button"
                     @click.prevent="activeTab = 'procedures'"
                     :class="activeTab === 'procedures' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                    class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+                    class="summary-tab"
             >
                 {{ __('patients.procedures') }}
             </button>
@@ -82,7 +82,7 @@
             <button type="button"
                     @click.prevent="activeTab = 'prescriptions'"
                     :class="activeTab === 'prescriptions' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                    class="inline-flex items-center px-2.5 xl:px-3 py-1.5 font-medium rounded-lg whitespace-nowrap transition-colors"
+                    class="summary-tab"
             >
                 {{ __('patients.prescriptions') }}
             </button>
@@ -136,7 +136,7 @@
                     <button @if($item['action']) wire:click.once="{{ $item['action'] }}" @endif
                             @click="activeSection = '{{ $item['id'] }}'"
                             type="button"
-                            class="w-full flex items-center justify-between p-5 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-md hover:bg-gray-50 dark:hover:bg-gray-700/80 transition-all"
+                            class="summary-card-btn"
                     >
                         <div class="flex items-center gap-4 text-gray-900 dark:text-gray-100 font-medium text-[15px]">
                             <span class="w-6 h-6 flex items-center justify-center shrink-0">
@@ -157,7 +157,7 @@
                             @click="activeSection = '{{ $item['id'] }}'"
                             type="button"
                             :class="activeSection === '{{ $item['id'] }}' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-800 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'"
-                            class="w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-sm font-medium"
+                            class="summary-sidebar-btn"
                     >
                         <span class="w-5 h-5 flex items-center justify-center shrink-0">
                             @icon($item['icon'], 'w-5 h-5')

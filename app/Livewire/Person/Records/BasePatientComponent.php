@@ -36,7 +36,7 @@ abstract class BasePatientComponent extends Component
      *
      * @var string
      */
-    protected string $uuid;
+    public string $uuid;
 
     public function boot(): void
     {
@@ -48,6 +48,7 @@ abstract class BasePatientComponent extends Component
     public function mount(LegalEntity $legalEntity, int $id): void
     {
         $this->id = $id;
+        $this->loadPatientData();
         $this->initializeComponent();
     }
 

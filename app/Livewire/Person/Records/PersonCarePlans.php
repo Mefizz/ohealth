@@ -18,7 +18,7 @@ class PersonCarePlans extends BasePatientComponent
     {
         /** @var CarePlanRepository $repository */
         $repository = app(CarePlanRepository::class);
-        $this->carePlans = $repository->getByPersonId((int) $this->patientId);
+        $this->carePlans = $repository->getByPersonId($this->id);
     }
 
     public function render(): View

@@ -33,19 +33,19 @@ class CarePlanShow extends Component
 
     // Activity Form state
     public array $activityForm = [
-        'kind'                     => 'service_request',
-        'program'                  => '',
-        'quantity'                 => '',
-        'quantity_system'          => '',
-        'quantity_code'            => '',
-        'daily_amount'             => '',
-        'reason_code'              => '',
-        'reason_reference'         => '',
-        'goal'                     => '',
-        'description'              => '',
-        'scheduled_period_start'   => '',
-        'scheduled_period_end'     => '',
-        'product_reference'        => '',
+        'kind' => 'service_request',
+        'program' => '',
+        'quantity' => '',
+        'quantity_system' => '',
+        'quantity_code' => '',
+        'daily_amount' => '',
+        'reason_code' => '',
+        'reason_reference' => '',
+        'goal' => '',
+        'description' => '',
+        'scheduled_period_start' => '',
+        'scheduled_period_end' => '',
+        'product_reference' => '',
         'product_codeable_concept' => '',
     ];
 
@@ -66,10 +66,10 @@ class CarePlanShow extends Component
     protected function rulesForSigning(): array
     {
         return [
-            'statusReason'       => 'required|string',
-            'knedp'              => 'required|string',
+            'statusReason' => 'required|string',
+            'knedp' => 'required|string',
             'keyContainerUpload' => 'required|file|max:1024',
-            'password'           => 'required|string',
+            'password' => 'required|string',
         ];
     }
 
@@ -103,20 +103,20 @@ class CarePlanShow extends Component
         }
 
         $repository->create([
-            'care_plan_id'             => $this->carePlan->id,
-            'author_id'                => Auth::user()?->activeEmployee()?->id,
-            'status'                   => 'NEW',
-            'kind'                     => $validated['activityForm']['kind'],
-            'quantity'                 => $validated['activityForm']['quantity'] ?? null,
-            'description'              => $validated['activityForm']['description'] ?? null,
-            'product_reference'        => $validated['activityForm']['product_reference'] ?? null,
-            'scheduled_period_start'   => convertToYmd($validated['activityForm']['scheduled_period_start']),
-            'scheduled_period_end'     => !empty($this->activityForm['scheduled_period_end'])
-                                            ? convertToYmd($this->activityForm['scheduled_period_end']) : null,
+            'care_plan_id' => $this->carePlan->id,
+            'author_id' => Auth::user()?->activeEmployee()?->id,
+            'status' => 'NEW',
+            'kind' => $validated['activityForm']['kind'],
+            'quantity' => $validated['activityForm']['quantity'] ?? null,
+            'description' => $validated['activityForm']['description'] ?? null,
+            'product_reference' => $validated['activityForm']['product_reference'] ?? null,
+            'scheduled_period_start' => convertToYmd($validated['activityForm']['scheduled_period_start']),
+            'scheduled_period_end' => !empty($this->activityForm['scheduled_period_end'])
+                ? convertToYmd($this->activityForm['scheduled_period_end']) : null,
         ]);
 
         $this->carePlan->refresh();
-        Session::flash('success', 'Чернетку призначення успішно збережено.');
+        Session::flash('success', __('care-plan.activity_draft_saved'));
 
         // Close drawers
         $this->dispatch('close-drawers');
@@ -139,7 +139,7 @@ class CarePlanShow extends Component
         }
 
         if (empty($this->carePlan->uuid)) {
-            Session::flash('error', 'Цей план лікування ще не синхронізовано з ЕСОЗ.');
+            Session::flash('error', __('care-plan.care_plan_not_synced'));
             $this->showSignatureModal = false;
             return;
         }
@@ -184,7 +184,7 @@ class CarePlanShow extends Component
 
             $this->carePlan->refresh();
 
-            Session::flash('success', 'План лікування успішно оновлено в ЕСОЗ.');
+            Session::flash('success', __('care-plan.care_plan_updated'));
             $this->showSignatureModal = false;
 
         } catch (ConnectionException $exception) {
@@ -208,14 +208,14 @@ class CarePlanShow extends Component
     private function signActivity(CarePlanActivityRepository $activityRepository): void
     {
         if (!$this->activityToSign) {
-            Session::flash('error', 'Не вказано призначення для підпису.');
+            Session::flash('error', __('care-plan.no_activity_selected'));
             $this->showSignatureModal = false;
             return;
         }
 
         $activity = $activityRepository->findById($this->activityToSign);
         if (!$activity) {
-            Session::flash('error', 'Призначення не знайдено.');
+            Session::flash('error', __('care-plan.activity_not_found'));
             $this->showSignatureModal = false;
             return;
         }
@@ -229,7 +229,7 @@ class CarePlanShow extends Component
                 'description' => $activity->description ?: null,
                 'scheduled_period' => array_filter([
                     'start' => $activity->scheduled_period_start ? convertToYmd($activity->scheduled_period_start->format('d.m.Y')) : null,
-                    'end'   => $activity->scheduled_period_end ? convertToYmd($activity->scheduled_period_end->format('d.m.Y')) : null,
+                    'end' => $activity->scheduled_period_end ? convertToYmd($activity->scheduled_period_end->format('d.m.Y')) : null,
                 ]),
             ]),
             'program' => $activity->program ? ['identifier' => ['value' => $activity->program]] : null,
@@ -247,7 +247,7 @@ class CarePlanShow extends Component
             $eHealthResponse = EHealth::carePlanActivity()->create(
                 $this->carePlan->uuid,
                 [
-                    'signed_content'          => $signedContent,
+                    'signed_content' => $signedContent,
                     'signed_content_encoding' => 'base64',
                 ]
             );
@@ -255,12 +255,12 @@ class CarePlanShow extends Component
             $responseData = $eHealthResponse->getData();
 
             $activityRepository->updateById($activity->id, [
-                'uuid'   => $responseData['id'] ?? null,
+                'uuid' => $responseData['id'] ?? null,
                 'status' => $responseData['status'] ?? 'scheduled',
             ]);
 
             $this->carePlan->refresh();
-            Session::flash('success', 'Призначення успішно підписано та створено в ЕСОЗ.');
+            Session::flash('success', __('care-plan.activity_signed'));
             $this->showSignatureModal = false;
 
         } catch (ConnectionException $exception) {

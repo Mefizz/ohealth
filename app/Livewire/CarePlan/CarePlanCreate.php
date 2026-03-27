@@ -31,19 +31,19 @@ class CarePlanCreate extends Component
 
     // Care Plan form data
     public array $form = [
-        'patient'     => '',
+        'patient' => '',
         'medical_number' => '',
-        'author'      => '',
-        'coAuthors'   => [],
-        'category'    => '',
-        'title'       => '',
-        'intent'      => 'order',
+        'author' => '',
+        'coAuthors' => [],
+        'category' => '',
+        'title' => '',
+        'intent' => 'order',
         'period_start' => '',
-        'period_end'   => '',
-        'encounter'    => '',
-        'description'  => '',
-        'note'        => '',
-        'inform_with'  => '',
+        'period_end' => '',
+        'encounter' => '',
+        'description' => '',
+        'note' => '',
+        'inform_with' => '',
         'supporting_info' => [],
     ];
 
@@ -101,14 +101,14 @@ class CarePlanCreate extends Component
     protected function rules(): array
     {
         return [
-            'form.category'         => 'required|string',
-            'form.title'            => 'required|string',
-            'form.period_start'     => 'required|string',
-            'form.period_end'       => 'nullable|string',
-            'form.encounter'        => 'required|string',
-            'form.description'      => 'nullable|string',
-            'form.note'             => 'nullable|string',
-            'form.inform_with'      => 'nullable|string',
+            'form.category' => 'required|string',
+            'form.title' => 'required|string',
+            'form.period_start' => 'required|string',
+            'form.period_end' => 'nullable|string',
+            'form.encounter' => 'required|string',
+            'form.description' => 'nullable|string',
+            'form.note' => 'nullable|string',
+            'form.inform_with' => 'nullable|string',
         ];
     }
 
@@ -118,9 +118,9 @@ class CarePlanCreate extends Component
     protected function rulesForSigning(): array
     {
         return array_merge($this->rules(), [
-            'knedp'              => 'required|string',
+            'knedp' => 'required|string',
             'keyContainerUpload' => 'required|file|max:1024',
-            'password'           => 'required|string',
+            'password' => 'required|string',
         ]);
     }
 
@@ -130,12 +130,7 @@ class CarePlanCreate extends Component
     public function updatedFormPeriodEnd(): void
     {
         if (!empty($this->form['period_end'])) {
-            Session::flash('warning',
-                'Увага! Ви зазначаєте кінцевий термін періоду дійсності ' .
-                'плану лікування. Зауважте, що отримання пацієнтом медичних послуг, ' .
-                'медичних виробів або лікарських засобів за призначенням з цього ' .
-                'плану лікування після цієї дати будуть неможливі!'
-            );
+            Session::flash('warning', __('care-plan.period_end_warning'));
         }
     }
 
@@ -145,7 +140,7 @@ class CarePlanCreate extends Component
     public function save(CarePlanRepository $repository): void
     {
         if (Auth::user()?->cannot('create', CarePlan::class)) {
-            Session::flash('error', 'У вас немає дозволу на створення плану лікування.');
+            Session::flash('error', __('care-plan.no_permission_create'));
             return;
         }
 
@@ -162,23 +157,23 @@ class CarePlanCreate extends Component
         $encounterData = $this->resolveEncounterData();
 
         $repository->create([
-            'person_id'       => $this->resolvePersonId(),
-            'author_id'       => Auth::user()?->activeEmployee()?->id,
+            'person_id' => $this->resolvePersonId(),
+            'author_id' => Auth::user()?->activeEmployee()?->id,
             'legal_entity_id' => $legalEntity?->id,
-            'status'          => 'NEW',
-            'category'        => $validated['form']['category'],
-            'title'           => $validated['form']['title'],
-            'period_start'    => convertToYmd($validated['form']['period_start']),
-            'period_end'      => !empty($validated['form']['period_end'])
+            'status' => 'NEW',
+            'category' => $validated['form']['category'],
+            'title' => $validated['form']['title'],
+            'period_start' => convertToYmd($validated['form']['period_start']),
+            'period_end' => !empty($validated['form']['period_end'])
                 ? convertToYmd($validated['form']['period_end']) : null,
-            'encounter_id'    => $encounterData['id'],
-            'addresses'       => $encounterData['addresses'],
-            'description'     => $validated['form']['description'] ?? null,
-            'note'            => $validated['form']['note'] ?? null,
-            'inform_with'     => $validated['form']['inform_with'] ?? null,
+            'encounter_id' => $encounterData['id'],
+            'addresses' => $encounterData['addresses'],
+            'description' => $validated['form']['description'] ?? null,
+            'note' => $validated['form']['note'] ?? null,
+            'inform_with' => $validated['form']['inform_with'] ?? null,
         ]);
 
-        Session::flash('success', 'Чернетку плану лікування успішно збережено.');
+        Session::flash('success', __('care-plan.draft_saved'));
         $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
     }
 
@@ -207,21 +202,21 @@ class CarePlanCreate extends Component
 
         // Build eHealth payload
         $carePlanPayload = removeEmptyKeys([
-            'intent'          => 'order',
-            'status'          => 'new',
-            'category'        => $this->form['category'],
-            'title'           => $this->form['title'],
-            'period'          => array_filter([
+            'intent' => 'order',
+            'status' => 'new',
+            'category' => $this->form['category'],
+            'title' => $this->form['title'],
+            'period' => array_filter([
                 'start' => convertToYmd($this->form['period_start']),
-                'end'   => !empty($this->form['period_end'])
+                'end' => !empty($this->form['period_end'])
                     ? convertToYmd($this->form['period_end']) : null,
             ]),
-            'addresses'       => $encounterData['addresses'],
-            'encounter'       => ['identifier' => ['value' => $this->form['encounter']]],
-            'care_manager'    => ['identifier' => ['value' => Auth::user()?->activeEmployee()?->uuid]],
-            'description'     => $this->form['description'] ?: null,
-            'note'            => $this->form['note'] ?: null,
-            'inform_with'     => $this->form['inform_with'] ?: null,
+            'addresses' => $encounterData['addresses'],
+            'encounter' => ['identifier' => ['value' => $this->form['encounter']]],
+            'care_manager' => ['identifier' => ['value' => Auth::user()?->activeEmployee()?->uuid]],
+            'description' => $this->form['description'] ?: null,
+            'note' => $this->form['note'] ?: null,
+            'inform_with' => $this->form['inform_with'] ?: null,
         ]);
 
         try {
@@ -234,7 +229,7 @@ class CarePlanCreate extends Component
             );
 
             $eHealthResponse = EHealth::carePlan()->create([
-                'signed_content'          => $signedContent,
+                'signed_content' => $signedContent,
                 'signed_content_encoding' => 'base64',
             ]);
 
@@ -242,25 +237,25 @@ class CarePlanCreate extends Component
 
             // Store eHealth response locally
             $repository->create([
-                'uuid'            => $responseData['id'] ?? null,
-                'person_id'       => $this->resolvePersonId(),
-                'author_id'       => Auth::user()?->activeEmployee()?->id,
+                'uuid' => $responseData['id'] ?? null,
+                'person_id' => $this->resolvePersonId(),
+                'author_id' => Auth::user()?->activeEmployee()?->id,
                 'legal_entity_id' => $legalEntity?->id,
-                'status'          => $responseData['status'] ?? 'new',
-                'category'        => $this->form['category'],
-                'title'           => $this->form['title'],
-                'period_start'    => convertToYmd($this->form['period_start']),
-                'period_end'      => !empty($this->form['period_end'])
+                'status' => $responseData['status'] ?? 'new',
+                'category' => $this->form['category'],
+                'title' => $this->form['title'],
+                'period_start' => convertToYmd($this->form['period_start']),
+                'period_end' => !empty($this->form['period_end'])
                     ? convertToYmd($this->form['period_end']) : null,
-                'requisition'     => $responseData['requisition'] ?? null,
+                'requisition' => $responseData['requisition'] ?? null,
             ]);
 
-            Session::flash('success', 'План лікування успішно підписано та відправлено до ЕСОЗ.');
+            Session::flash('success', __('care-plan.signed_and_sent'));
             $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
 
         } catch (ConnectionException $exception) {
             Log::error('CarePlan: connection error: ' . $exception->getMessage());
-            Session::flash('error', "Виникла помилка. Відсутній зв'язок із ЕСОЗ.");
+            Session::flash('error', __('care-plan.connection_error'));
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             Log::error('CarePlan: eHealth error: ' . $exception->getMessage());
@@ -271,7 +266,7 @@ class CarePlanCreate extends Component
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage());
-            Session::flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+            Session::flash('error', __('care-plan.unexpected_error'));
             $this->showSignatureModal = false;
         }
     }

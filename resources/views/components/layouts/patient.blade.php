@@ -38,6 +38,7 @@
                                 'patient-data' => 'patients.patient_data',
                                 'summary' => 'patients.summary',
                                 'episodes' => 'patients.episodes',
+                                'care-plans' => 'care-plan.care_plans',
                             ];
                     @endphp
                     {{-- Mobile version --}}

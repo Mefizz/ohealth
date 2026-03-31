@@ -54,7 +54,7 @@ class PatientSummary extends BasePatientComponent
     public function syncEpisodes(): void
     {
         try {
-            $response = EHealth::patient()->getShortEpisodes($this->uuid);
+            $response = EHealth::episode()->getShortEpisodes($this->uuid);
             $validatedData = $response->validate();
 
             try {
@@ -183,7 +183,10 @@ class PatientSummary extends BasePatientComponent
     public function getObservations(): void
     {
         try {
-            $response = EHealth::patient()->getObservations($this->uuid, ['managing_organization_id' => legalEntity()->uuid]);
+            $response = EHealth::observation()->getBySearchParams(
+                $this->uuid,
+                ['managing_organization_id' => legalEntity()->uuid]
+            );
             $validatedData = $response->validate();
 
             try {
@@ -218,7 +221,6 @@ class PatientSummary extends BasePatientComponent
         try {
             $response = EHealth::patient()->getConditions($this->uuid);
             $validatedData = $response->validate();
-
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting conditions');
 
@@ -239,7 +241,6 @@ class PatientSummary extends BasePatientComponent
         try {
             $response = EHealth::patient()->getDiagnosticReports($this->uuid);
             $validatedData = $response->validate();
-
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting diagnostic reports');
 
@@ -260,7 +261,6 @@ class PatientSummary extends BasePatientComponent
         try {
             $response = EHealth::patient()->getAllergyIntolerances($this->uuid);
             $validatedData = $response->validate();
-
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting allergy intolerances');
 
@@ -273,7 +273,6 @@ class PatientSummary extends BasePatientComponent
         try {
             $response = EHealth::patient()->getRiskAssessments($this->uuid);
             $validatedData = $response->validate();
-
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting risk assessments');
 
@@ -286,7 +285,6 @@ class PatientSummary extends BasePatientComponent
         try {
             $response = EHealth::patient()->getDevices($this->uuid);
             $validatedData = $response->validate();
-
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting devices');
 
@@ -299,7 +297,6 @@ class PatientSummary extends BasePatientComponent
         try {
             $response = EHealth::patient()->getMedicationStatements($this->uuid);
             $validatedData = $response->validate();
-
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting medication statements');
 

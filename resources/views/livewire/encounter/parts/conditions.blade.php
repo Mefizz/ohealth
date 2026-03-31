@@ -177,6 +177,31 @@
                         <form>
                             <div class="form-row-modal">
                                 <div>
+                                    <label for="codingSystem" class="label-modal">
+                                        {{ __('patients.coding_system') }}
+                                    </label>
+                                    <select x-model="modalCondition.conditions.code.coding[0].system"
+                                            @change="
+                                                modalCondition.conditions.code.coding[0].code = '';
+                                                modalCondition.conditions.code.coding = [modalCondition.conditions.code.coding[0]];
+                                            "
+                                            id="codingSystem"
+                                            class="input-modal"
+                                            required
+                                    >
+                                        <option value="">{{ __('forms.select') }} {{ __('patients.coding_system') }}*</option>
+                                        <option value="eHealth/ICPC2/condition_codes">ICPC-2</option>
+                                        <option value="eHealth/ICD10_AM/condition_codes">ICD-10 AM</option>
+                                    </select>
+                                    <p class="text-error text-xs"
+                                       x-show="!modalCondition.conditions.code.coding[0].system"
+                                    >
+                                        {{ __('forms.field_empty') }}
+                                    </p>
+                                </div>
+
+                                <!-- ICPC2 Code Selection -->
+                                <div x-show="modalCondition.conditions.code.coding[0].system === 'eHealth/ICPC2/condition_codes'">
                                     <label for="conditionReasonCode" class="label-modal">
                                         {{ __('patients.icpc-2_status_code') }}
                                     </label>
@@ -185,20 +210,22 @@
                                                id="conditionReasonCode"
                                     />
                                     <p class="text-error text-xs"
-                                       x-show="!Object.keys(conditionCodesDictionary).includes(modalCondition.conditions.code.coding[0].code)"
+                                       x-show="modalCondition.conditions.code.coding[0].system === 'eHealth/ICPC2/condition_codes' && !modalCondition.conditions.code.coding[0].code"
                                     >
                                         {{ __('forms.field_empty') }}
                                     </p>
                                 </div>
 
-                                <div x-data="{
+                                <!-- ICD10 Code Search -->
+                                <div x-show="modalCondition.conditions.code.coding[0].system === 'eHealth/ICD10_AM/condition_codes'"
+                                     x-data="{
                                         selected: null,
                                         results: $wire.entangle('results'),
                                         showResults: false
                                     }"
                                      class="relative"
                                 >
-                                    <label for="reasonCode" class="label-modal">
+                                    <label for="icd10Code" class="label-modal">
                                         {{ __('patients.icd-10') }}
                                     </label>
                                     <input type="text"
@@ -211,9 +238,9 @@
                                                    showResults = true;
                                                }
                                            "
-                                           @focus="if ((modalCondition.conditions.code.coding[1].code?.length ?? 0) >= 1) showResults = true"
+                                           @focus="if ((modalCondition.conditions.code.coding[0].code?.length ?? 0) >= 1) showResults = true"
                                            @click.away="showResults = false"
-                                           x-model="modalCondition.conditions.code.coding[1].code"
+                                           x-model="modalCondition.conditions.code.coding[0].code"
                                            id="icd10Code"
                                            class="input-modal"
                                            placeholder="{{ __('forms.select') }}"
@@ -228,7 +255,7 @@
                                                 <li class="group flex w-full cursor-pointer items-center rounded-md px-2 py-1.5 transition-colors dark:bg-gray-800 dark:text-white"
                                                     @click="
                                                         selected = result;
-                                                        modalCondition.conditions.code.coding[1].code = result.code;
+                                                        modalCondition.conditions.code.coding[0].code = result.code;
                                                         showResults = false;
                                                     "
                                                 >
@@ -240,6 +267,12 @@
 
                                     <p x-show="showResults && results.length == 0" class="px-2 py-1.5 text-gray-600">
                                         {{ __('forms.nothing_found') }}
+                                    </p>
+
+                                    <p class="text-error text-xs"
+                                       x-show="modalCondition.conditions.code.coding[0].system === 'eHealth/ICD10_AM/condition_codes' && !modalCondition.conditions.code.coding[0].code"
+                                    >
+                                        {{ __('forms.field_empty') }}
                                     </p>
 
                                     <x-forms.loading />
@@ -607,8 +640,7 @@
             },
             code: {
                 coding: [
-                    { system: 'eHealth/ICPC2/condition_codes', code: '' },
-                    { system: 'eHealth/ICD10_AM/condition_codes', code: '' }
+                    { system: '', code: '' }
                 ]
             },
             clinicalStatus: '',

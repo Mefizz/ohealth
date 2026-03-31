@@ -49,6 +49,17 @@ if (!function_exists('convertToISO8601')) {
     }
 }
 
+if (!function_exists('convertToEHealthISO8601')) {
+    function convertToEHealthISO8601(?string $dateString): string
+    {
+        if (empty($dateString)) {
+            return '';
+        }
+
+        return CarbonImmutable::parse($dateString)->utc()->toIso8601ZuluString();
+    }
+}
+
 if (!function_exists('convertToAppDateFormat')) {
     function convertToAppDateFormat(?string $dateString): string
     {

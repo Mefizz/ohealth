@@ -557,52 +557,31 @@ class EncounterComponent extends Component
         try {
             switch ($type) {
                 case 'encounter':
-                    $params = EncounterRequestApi::buildGetEncountersBySearchParams(
-                        episodeUuid: $episodeId,
-                        managingOrganizationUuid: legalEntity()->uuid
-                    );
-
-                    $this->encounters = PatientApi::getEncountersBySearchParams(
+                    $this->encounters = EHealth::patient()->getEncounterBySearchParams(
                         $this->patientUuid,
-                        $params
-                    )['data'];
+                        ['episode_id' => $episodeId, 'managing_organization_id' => legalEntity()->uuid]
+                    )->getData();
                     break;
 
                 case 'procedure':
-                    $params = EncounterRequestApi::buildGetProceduresBySearchParams(
+                    $this->procedures = EHealth::procedure()->getBySearchParams(
                         $this->patientUuid,
-                        episodeUuid: $episodeId,
-                        managingOrganizationUuid: legalEntity()->uuid
-                    );
-                    $this->procedures = PatientApi::getProceduresBySearchParams(
-                        $this->patientUuid,
-                        $params
-                    )['data'];
+                        ['episode_id' => $episodeId, 'managing_organization_id' => legalEntity()->uuid]
+                    )->getData();
                     break;
 
                 case 'diagnosticReport':
-                    $params = EncounterRequestApi::buildGetDiagnosticReportsBySearchParams(
-                        originEpisodeUuid: $episodeId,
-                        managingOrganizationUuid: legalEntity()->uuid
-                    );
-                    $this->diagnosticReports = PatientApi::getDiagnosticReportsBySearchParams(
+                    $this->diagnosticReports = EHealth::diagnosticReport()->getBySearchParams(
                         $this->patientUuid,
-                        $params
-                    )['data'];
+                        ['origin_episode_id' => $episodeId, 'managing_organization_id' => legalEntity()->uuid]
+                    )->getData();
                     break;
 
                 default:
                     break;
             }
-        } catch (eHealthApiException $e) {
-            Log::channel('e_health_errors')
-                ->error("Error while searching for $type in Encounter Component", [
-                    'exception' => $e->getMessage(),
-                    'type' => $type,
-                    'episodeId' => $episodeId
-                ]);
-
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, "Error while searching for $type in Encounter Component");
         }
     }
 
@@ -690,8 +669,8 @@ class EncounterComponent extends Component
     protected function getEpisodes(): void
     {
         try {
-            $this->episodes = EHealth::patient()
-                ->getEpisodes($this->patientUuid, ['managing_organization_id' => legalEntity()->uuid])
+            $this->episodes = EHealth::episode()
+                ->getBySearchParams($this->patientUuid, ['managing_organization_id' => legalEntity()->uuid])
                 ->getData();
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting episodes');

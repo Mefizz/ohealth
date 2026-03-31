@@ -37,7 +37,6 @@ class Observation extends Model
         'comment',
         'body_site_id',
         'method_id',
-        'value_quantity_id',
         'value_codeable_concept_id',
         'value_string',
         'value_boolean',
@@ -68,7 +67,6 @@ class Observation extends Model
         'performer_id',
         'report_origin_id',
         'interpretation_id',
-        'value_quantity_id',
         'value_codeable_concept_id',
         'body_site_id',
         'method_id',
@@ -166,9 +164,9 @@ class Observation extends Model
         return $this->belongsTo(CodeableConcept::class, 'method_id');
     }
 
-    public function valueQuantity(): BelongsTo
+    public function valueQuantity(): MorphOne
     {
-        return $this->belongsTo(Quantity::class, 'value_quantity_id');
+        return $this->morphOne(Quantity::class, 'quantifiable');
     }
 
     public function valueCodeableConcept(): BelongsTo

@@ -21,13 +21,14 @@ class ImmunizationRepository extends BaseRepository
      * Store condition in DB.
      *
      * @param  array  $data
+     * @param  int  $personId
      * @param  int  $encounterId
      * @return void
      * @throws Throwable
      */
-    public function store(array $data, int $encounterId): void
+    public function store(array $data, int $personId, int $encounterId): void
     {
-        DB::transaction(function () use ($data, $encounterId) {
+        DB::transaction(function () use ($data, $personId, $encounterId) {
             try {
                 foreach ($data as $datum) {
                     $vaccineCode = Repository::codeableConcept()->store($datum['vaccineCode']);
@@ -55,6 +56,7 @@ class ImmunizationRepository extends BaseRepository
                     /** @var Immunization $immunization */
                     $immunization = $this->model::create([
                         'uuid' => $datum['uuid'] ?? $datum['id'],
+                        'person_id' => $personId,
                         'encounter_id' => $encounterId,
                         'status' => $datum['status'],
                         'not_given' => $datum['notGiven'],

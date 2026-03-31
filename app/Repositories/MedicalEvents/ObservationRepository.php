@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories\MedicalEvents;
 
 use App\Classes\eHealth\Api\PatientApi;
+use App\Core\Arr;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\ObservationComponent;
@@ -131,14 +132,15 @@ class ObservationRepository extends BaseRepository
      * Store observation in DB.
      *
      * @param  array  $data
+     * @param  int  $personId
      * @param  int|null  $encounterId
      * @param  int|null  $diagnosticReportId
      * @return void
      * @throws Throwable
      */
-    public function store(array $data, ?int $encounterId = null, ?int $diagnosticReportId = null): void
+    public function store(array $data, int $personId, ?int $encounterId = null, ?int $diagnosticReportId = null): void
     {
-        DB::transaction(function () use ($data, $encounterId, $diagnosticReportId) {
+        DB::transaction(function () use ($data, $personId, $encounterId, $diagnosticReportId) {
             try {
                 foreach ($data as $datum) {
                     if ($diagnosticReportId) {
@@ -170,14 +172,15 @@ class ObservationRepository extends BaseRepository
                         $method = Repository::codeableConcept()->store($datum['method']);
                     }
 
+                    $valueQuantity = null;
                     if (isset($datum['valueQuantity'])) {
-                        $valueQuantity = Quantity::create([
+                        $valueQuantity = [
                             'value' => $datum['valueQuantity']['value'],
                             'comparator' => $datum['valueQuantity']['comparator'] ?? null,
                             'unit' => $datum['valueQuantity']['unit'] ?? null,
                             'system' => $datum['valueQuantity']['system'] ?? null,
                             'code' => $datum['valueQuantity']['code'] ?? null
-                        ]);
+                        ];
                     }
 
                     if (isset($datum['valueCodeableConcept'])) {
@@ -192,6 +195,7 @@ class ObservationRepository extends BaseRepository
                     /** @var Observation $observation */
                     $observation = $this->model::create([
                         'uuid' => $datum['uuid'] ?? $datum['id'],
+                        'person_id' => $personId,
                         'encounter_id' => $encounterId,
                         'status' => $datum['status'],
                         'diagnostic_report_id' => $diagnosticReport->id ?? null,
@@ -205,13 +209,17 @@ class ObservationRepository extends BaseRepository
                         'comment' => $datum['comment'] ?? null,
                         'body_site_id' => $bodySite->id ?? null,
                         'method_id' => $method->id ?? null,
-                        'value_quantity_id' => $valueQuantity->id ?? null,
                         'value_codeable_concept_id' => $valueCodeableConcept->id ?? null,
                         'value_string' => $datum['valueString'] ?? null,
                         'value_boolean' => $datum['valueBoolean'] ?? null,
                         'value_date_time' => $datum['valueDateTime'] ?? null,
                         'context_id' => $context->id ?? null
                     ]);
+
+                    // Create polymorphic quantity relationship if needed
+                    if ($valueQuantity) {
+                        $observation->valueQuantity()->create($valueQuantity);
+                    }
 
                     $categoriesIds = [];
 
@@ -397,9 +405,9 @@ class ObservationRepository extends BaseRepository
                 // Create or update main observation
                 $observation = $this->model::updateOrCreate(
                     ['uuid' => $data['uuid']],
-                    [
+                    array_merge(
+                        [
                         'person_id' => $personId,
-                        'status' => $data['status'],
                         'code_id' => $code->id,
                         'context_id' => $context?->id,
                         'performer_id' => $performer?->id,
@@ -409,15 +417,21 @@ class ObservationRepository extends BaseRepository
                         'device_id' => $device?->id,
                         'interpretation_id' => $interpretation?->id,
                         'body_site_id' => $bodySite?->id,
-                        'method_id' => $method?->id,
-                        'effective_date_time' => $data['effective_date_time'] ?? null,
-                        'issued' => $data['issued'],
-                        'ehealth_inserted_at' => $data['ehealth_inserted_at'],
-                        'ehealth_updated_at' => $data['ehealth_updated_at'],
-                        'primary_source' => $data['primary_source'],
-                        'comment' => $data['comment'] ?? null,
-                        'explanatory_letter' => $data['explanatory_letter'] ?? null
-                    ]
+                        'method_id' => $method?->id
+                    ],
+                        Arr::except($data, [
+                            'code',
+                            'context',
+                            'performer',
+                            'report_origin',
+                            'diagnostic_report',
+                            'specimen',
+                            'device',
+                            'interpretation',
+                            'body_site',
+                            'method'
+                        ])
+                    )
                 );
 
                 // Sync categories (many-to-many relationship)

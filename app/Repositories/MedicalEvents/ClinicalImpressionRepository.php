@@ -21,14 +21,15 @@ class ClinicalImpressionRepository extends BaseRepository
      * Store clinical impression in DB.
      *
      * @param  array  $data
+     * @param  int  $personId
      * @param  int  $createdEncounterId
      * @return void
      * @throws Throwable
      */
-    public function store(array $data, int $createdEncounterId): void
+    public function store(array $data, int $personId, int $createdEncounterId): void
     {
         try {
-            DB::transaction(function () use ($data, $createdEncounterId) {
+            DB::transaction(function () use ($data, $personId, $createdEncounterId) {
                 foreach ($data as $datum) {
                     $code = Repository::codeableConcept()->store($datum['code']);
 
@@ -46,6 +47,7 @@ class ClinicalImpressionRepository extends BaseRepository
                     /** @var ClinicalImpression $clinicalImpression */
                     $clinicalImpression = $this->model::create([
                         'uuid' => $datum['uuid'] ?? $datum['id'],
+                        'person_id' => $personId,
                         'encounter_internal_id' => $createdEncounterId,
                         'status' => $datum['status'],
                         'description' => $datum['description'] ?? null,

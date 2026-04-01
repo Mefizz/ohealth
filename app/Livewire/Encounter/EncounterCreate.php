@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter;
 
-use App\Classes\eHealth\Api\PatientApi;
-use App\Classes\eHealth\Exceptions\ApiException;
+use App\Classes\Cipher\Api\CipherRequest;
+use App\Classes\Cipher\Exceptions\CipherApiException;
+use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Encounter\Forms\Api\EncounterRequestApi;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
@@ -16,22 +19,27 @@ use App\Models\MedicalEvents\Sql\Procedure;
 use App\Repositories\MedicalEvents\Repository;
 use App\Traits\HandlesReasonReferences;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
+use JsonException;
 use Throwable;
 
 class EncounterCreate extends EncounterComponent
 {
     use HandlesReasonReferences;
 
-    public function mount(LegalEntity $legalEntity, int $patientId): void
+    public function mount(LegalEntity $legalEntity, int $id): void
     {
-        $this->initializeComponent($patientId);
+        $this->initializeComponent($id);
 
-        $this->form->encounter['performer']['identifier']['value'] = Auth::user()->uuid;
-        $this->form->episode['careManager']['identifier']['value'] = Auth::user()->uuid;
+        $uuid = Auth::user()->party->employees()->whereStatus('APPROVED')->first()->uuid;
+
+        $this->form->encounter['performer']['identifier']['value'] = $uuid;
+        $this->form->episode['careManager']['identifier']['value'] = $uuid;
 
         $this->setDefaultDate();
     }
@@ -44,15 +52,24 @@ class EncounterCreate extends EncounterComponent
      */
     public function save(): void
     {
-        if (Auth::user()?->cannot('create', Encounter::class)) {
-            session()?->flash('error', 'У вас немає дозволу на створення взаємодії.');
+        if (Auth::user()->cannot('create', Encounter::class)) {
+            Session::flash('error', 'У вас немає дозволу на створення взаємодії.');
 
             return;
         }
 
+        try {
+            $this->form->validate();
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        // Prepare and format data after validation
         $formattedData = $this->prepareFormattedData();
 
-        $this->validateFormatted($formattedData);
         $this->storeValidatedData($formattedData);
     }
 
@@ -64,40 +81,66 @@ class EncounterCreate extends EncounterComponent
      */
     public function sign(): void
     {
-        if (Auth::user()?->cannot('create', Encounter::class)) {
-            session()?->flash('error', 'У вас немає дозволу на створення взаємодії.');
+        if (Auth::user()->cannot('create', Encounter::class)) {
+            Session::flash('error', 'У вас немає дозволу на створення взаємодії.');
+
+            return;
+        }
+
+        // First validate the encounter data
+        try {
+            $this->form->validate();
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        // Then validate signing requirements
+        try {
+            $validated = $this->form->validate($this->form->signingRules());
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
 
             return;
         }
 
         $formattedData = $this->prepareFormattedData();
+        $formattedData = Arr::toSnakeCase($formattedData);
 
-        $this->validateFormatted($formattedData);
         $this->storeValidatedData($formattedData);
 
         if ($this->episodeType === 'new') {
             $this->createEpisode($formattedData['episode']);
         }
 
-        $base64EncryptedData = $this->sendEncryptedData(
-            Arr::toSnakeCase($formattedData),
-            Auth::user()->party->taxId
-        );
+        try {
+            $signedContent = new CipherRequest()->signData(
+                $formattedData,
+                $validated['knedp'],
+                $validated['keyContainerUpload'],
+                $validated['password'],
+                Auth::user()->party->taxId
+            );
+        } catch (ConnectionException|CipherApiException|JsonException $exception) {
+            $this->handleCipherExceptions($exception, 'Error when signing data with Cipher');
+
+            return;
+        }
 
         $signedSubmitEncounter = EncounterRequestApi::buildSubmitEncounterPackage(
-            $formattedData['encounter'],
-            $base64EncryptedData
+            $formattedData,
+            $signedContent->getBase64Data()
         );
 
         try {
-            PatientApi::submitEncounter($this->patientUuid, $signedSubmitEncounter);
-        } catch (ApiException $e) {
-            Log::channel('e_health_errors')->error('Error while submitting encounter', [
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+            $resp = EHealth::patient()->submitEncounter($this->patientUuid, $signedSubmitEncounter);
+
+            dd($resp->getData());
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error while submitting encounter');
 
             return;
         }
@@ -162,61 +205,6 @@ class EncounterCreate extends EncounterComponent
     }
 
     /**
-     * Validate formatted data.
-     *
-     * @param  array  $formattedData
-     * @return void
-     */
-    protected function validateFormatted(array $formattedData): void
-    {
-        try {
-            $this->form->validateForm('encounter', $formattedData['encounter']);
-
-            if (isset($formattedData['episode'])) {
-                $this->form->validateForm('episode', $formattedData['episode']);
-            }
-
-            foreach ($formattedData['conditions'] as $formattedCondition) {
-                $this->form->validateForm('conditions', $formattedCondition);
-            }
-
-            if (isset($formattedData['immunizations'])) {
-                foreach ($formattedData['immunizations'] as $formattedImmunization) {
-                    $this->form->validateForm('immunizations', $formattedImmunization);
-                }
-            }
-
-            if (isset($formattedData['diagnosticReports'])) {
-                foreach ($formattedData['diagnosticReports'] as $formattedDiagnosticReport) {
-                    $this->form->validateForm('diagnosticReports', $formattedDiagnosticReport);
-                }
-            }
-
-            if (isset($formattedData['observations'])) {
-                foreach ($formattedData['observations'] as $formattedObservation) {
-                    $this->form->validateForm('observations', $formattedObservation);
-                }
-            }
-
-            if (isset($formattedData['procedures'])) {
-                foreach ($formattedData['procedures'] as $formattedProcedure) {
-                    $this->form->validateForm('procedures', $formattedProcedure);
-                }
-            }
-
-            if (isset($formattedData['clinicalImpressions'])) {
-                foreach ($formattedData['clinicalImpressions'] as $formattedClinicalImpression) {
-                    $this->form->validateForm('clinicalImpressions', $formattedClinicalImpression);
-                }
-            }
-        } catch (ValidationException $e) {
-            session()?->flash('error', $e->validator->errors()->first());
-
-            return;
-        }
-    }
-
-    /**
      * Store validated formatted data into DB.
      *
      * @param  array  $formattedData
@@ -230,13 +218,17 @@ class EncounterCreate extends EncounterComponent
                 $createdEncounterId = Repository::encounter()->store($formattedData['encounter'], $this->patientId);
 
                 if (isset($formattedData['episode'])) {
-                    Repository::episode()->store($formattedData['episode'], $createdEncounterId);
+                    Repository::episode()->store($formattedData['episode'], $this->patientId, $createdEncounterId);
                 }
 
                 Repository::condition()->store($formattedData['conditions'], $createdEncounterId);
 
                 if (isset($formattedData['immunizations'])) {
-                    Repository::immunization()->store($formattedData['immunizations'], $createdEncounterId);
+                    Repository::immunization()->store(
+                        $formattedData['immunizations'],
+                        $this->patientId,
+                        $createdEncounterId
+                    );
                 }
 
                 if (isset($formattedData['diagnosticReports'])) {
@@ -244,7 +236,11 @@ class EncounterCreate extends EncounterComponent
                 }
 
                 if (isset($formattedData['observations'])) {
-                    Repository::observation()->store($formattedData['observations'], $createdEncounterId);
+                    Repository::observation()->store(
+                        $formattedData['observations'],
+                        $this->patientId,
+                        $createdEncounterId
+                    );
                 }
 
                 if (isset($formattedData['procedures'])) {
@@ -258,7 +254,11 @@ class EncounterCreate extends EncounterComponent
                 }
 
                 if (isset($formattedData['clinicalImpressions'])) {
-                    Repository::clinicalImpression()->store($formattedData['clinicalImpressions'], $createdEncounterId);
+                    Repository::clinicalImpression()->store(
+                        $formattedData['clinicalImpressions'],
+                        $this->patientId,
+                        $createdEncounterId
+                    );
 
                     // Save the selected episode_of_care, procedure, diagnostic_report, encounter locally if they don't exist in our database.
                     foreach ($formattedData['clinicalImpressions'] as $clinicalImpression) {
@@ -272,7 +272,7 @@ class EncounterCreate extends EncounterComponent
                 'file' => $e->getFile(),
                 'line' => $e->getLine()
             ]);
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+            Session::flash('error', 'Виникла помилка. Зверніться до адміністратора.');
 
             return;
         }
@@ -287,9 +287,11 @@ class EncounterCreate extends EncounterComponent
     protected function createEpisode(array $formattedEpisode): void
     {
         try {
-            PatientApi::createEpisode($this->patientUuid, Arr::toSnakeCase($formattedEpisode));
-        } catch (ApiException) {
-            session()?->flash('error', 'Виникла помилка при створенні епізоду. Зверніться до адміністратора.');
+            EHealth::episode()->create($this->patientUuid, Arr::toSnakeCase($formattedEpisode));
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when sign person request');
+
+            return;
         }
     }
 
@@ -354,19 +356,20 @@ class EncounterCreate extends EncounterComponent
         }
 
         try {
-            $episodeData = PatientApi::getEpisodeById($this->patientUuid, $uuid);
+            $episodeData = EHealth::episode()->getById($this->patientUuid, $uuid)->getData();
 
-            if ($episodeData) {
-                Repository::episode()->store(Arr::toCamelCase($episodeData));
+            try {
+                Repository::episode()->store(Arr::toCamelCase($episodeData), $this->patientId);
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Failed to store episode');
+                Session::flash('error', __('messages.database_error'));
+
+                return;
             }
-        } catch (ApiException|Throwable $e) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Failed while ensuring diagnostic report existence');
 
-            Log::error('Failed while ensuring episode existence', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+            return;
         }
     }
 
@@ -383,19 +386,20 @@ class EncounterCreate extends EncounterComponent
         }
 
         try {
-            $procedureData = PatientApi::getProcedureById($this->patientUuid, $uuid);
+            $procedureData = EHealth::procedure()->getById($this->patientUuid, $uuid)->getData();
 
-            if ($procedureData) {
+            try {
                 Repository::procedure()->store([Arr::toCamelCase($procedureData)]);
-            }
-        } catch (ApiException|Throwable $e) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Failed to store procedure');
+                Session::flash('error', __('messages.database_error'));
 
-            Log::error('Failed while ensuring procedure existence', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+                return;
+            }
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Failed while ensuring procedure existence');
+
+            return;
         }
     }
 
@@ -412,19 +416,20 @@ class EncounterCreate extends EncounterComponent
         }
 
         try {
-            $diagnosticReportData = PatientApi::getDiagnosticReportById($this->patientUuid, $uuid);
+            $diagnosticReportData = EHealth::diagnosticReport()->getById($this->patientUuid, $uuid)->getData();
 
-            if ($diagnosticReportData) {
+            try {
                 Repository::diagnosticReport()->store([Arr::toCamelCase($diagnosticReportData)]);
-            }
-        } catch (ApiException|Throwable $e) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Failed to store diagnostic report');
+                Session::flash('error', __('messages.database_error'));
 
-            Log::error('Failed while ensuring diagnostic report existence', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+                return;
+            }
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Failed while ensuring diagnostic report existence');
+
+            return;
         }
     }
 }

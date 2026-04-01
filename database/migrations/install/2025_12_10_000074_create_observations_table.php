@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\Person\ObservationStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -16,8 +17,9 @@ return new class extends Migration
         Schema::create('observations', static function (Blueprint $table) {
             $table->id();
             $table->uuid()->unique();
+            $table->foreignId('person_id')->constrained('persons');
             $table->foreignId('encounter_id')->nullable()->constrained('encounters');
-            $table->enum('status', ['valid', 'entered_in_error'])->comment('dictionary - eHealth/observation_statuses');
+            $table->enum('status', ObservationStatus::values());
             $table->foreignId('diagnostic_report_id')->nullable()->constrained('identifiers');
             $table->foreignId('code_id')->constrained('codeable_concepts');
             $table->timestamp('effective_date_time')->nullable();
@@ -29,13 +31,18 @@ return new class extends Migration
             $table->text('comment')->nullable();
             $table->foreignId('body_site_id')->nullable()->constrained('codeable_concepts');
             $table->foreignId('method_id')->nullable()->constrained('codeable_concepts');
-            $table->foreignId('value_quantity_id')->nullable()->constrained('quantities');
             $table->foreignId('value_codeable_concept_id')->nullable()->constrained('codeable_concepts');
             $table->string('value_string')->nullable();
             $table->boolean('value_boolean')->nullable();
             $table->timestamp('value_date_time')->nullable();
             $table->foreignId('reaction_on_id')->nullable()->constrained('identifiers');
             $table->foreignId('context_id')->nullable()->constrained('identifiers');
+            $table->foreignId('specimen_id')->nullable()->constrained('identifiers');
+            $table->foreignId('device_id')->nullable()->constrained('identifiers');
+            $table->foreignId('based_on_id')->nullable()->constrained('identifiers');
+            $table->string('explanatory_letter')->nullable();
+            $table->timestamp('ehealth_inserted_at')->nullable();
+            $table->timestamp('ehealth_updated_at')->nullable();
             $table->timestamps();
         });
 
@@ -49,8 +56,10 @@ return new class extends Migration
         Schema::create('observation_components', static function (Blueprint $table) {
             $table->id();
             $table->foreignId('observation_id')->constrained('observations')->cascadeOnDelete();
-            $table->foreignId('codeable_concept_id')->constrained('codeable_concepts')->cascadeOnDelete();
+            $table->foreignId('code_id')->constrained('codeable_concepts');
+            $table->foreignId('codeable_concept_id')->nullable()->constrained('codeable_concepts')->cascadeOnDelete();
             $table->foreignId('interpretation_id')->nullable()->constrained('codeable_concepts')->cascadeOnDelete();
+            $table->foreignId('value_codeable_concept_id')->nullable()->constrained('codeable_concepts');
             $table->timestamps();
         });
     }

@@ -105,7 +105,7 @@ class EncounterEdit extends EncounterComponent
                 $this->form->encounter['episode']['identifier']['value']
             );
 
-            Repository::episode()->store(Arr::toCamelCase($episodeData), $this->encounterId);
+            Repository::episode()->store(Arr::toCamelCase($episodeData), $this->patientId, $this->encounterId);
 
             return Repository::episode()->get($this->encounterId);
         } catch (ApiException|Throwable) {

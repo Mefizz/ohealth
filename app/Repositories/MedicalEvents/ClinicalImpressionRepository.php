@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Core\Arr;
 use App\Models\MedicalEvents\Sql\ClinicalImpression;
 use App\Models\MedicalEvents\Sql\ClinicalImpressionFinding;
 use App\Models\MedicalEvents\Sql\ClinicalImpressionProblem;
 use App\Models\MedicalEvents\Sql\ClinicalImpressionSupportingInfo;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
 use Exception;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -20,14 +21,15 @@ class ClinicalImpressionRepository extends BaseRepository
      * Store clinical impression in DB.
      *
      * @param  array  $data
+     * @param  int  $personId
      * @param  int  $createdEncounterId
      * @return void
      * @throws Throwable
      */
-    public function store(array $data, int $createdEncounterId): void
+    public function store(array $data, int $personId, int $createdEncounterId): void
     {
         try {
-            DB::transaction(function () use ($data, $createdEncounterId) {
+            DB::transaction(function () use ($data, $personId, $createdEncounterId) {
                 foreach ($data as $datum) {
                     $code = Repository::codeableConcept()->store($datum['code']);
 
@@ -45,6 +47,7 @@ class ClinicalImpressionRepository extends BaseRepository
                     /** @var ClinicalImpression $clinicalImpression */
                     $clinicalImpression = $this->model::create([
                         'uuid' => $datum['uuid'] ?? $datum['id'],
+                        'person_id' => $personId,
                         'encounter_internal_id' => $createdEncounterId,
                         'status' => $datum['status'],
                         'description' => $datum['description'] ?? null,
@@ -287,5 +290,171 @@ class ClinicalImpressionRepository extends BaseRepository
 
             return $result;
         })->toArray();
+    }
+
+    /**
+     * Sync clinical impression data and related data by deleting and creating.
+     *
+     * @param  int  $personId
+     * @param  array  $validatedData
+     * @return void
+     * @throws Throwable
+     */
+    public function sync(int $personId, array $validatedData): void
+    {
+        DB::transaction(function () use ($personId, $validatedData) {
+            // Load existing clinical impressions with relations
+            $uuids = collect($validatedData)->pluck('uuid')->toArray();
+            $existingClinicalImpressions = $this->model::whereIn('uuid', $uuids)
+                ->withAllRelations()
+                ->get()
+                ->keyBy('uuid');
+
+            foreach ($validatedData as $data) {
+                $existing = $existingClinicalImpressions->get($data['uuid']);
+
+                // Store relationships
+                $code = Repository::codeableConcept()->store($data['code']);
+
+                $encounter = Repository::identifier()->store($data['encounter']['identifier']['value']);
+                Repository::codeableConcept()->attach($encounter, $data['encounter']);
+
+                $assessor = Repository::identifier()->store($data['assessor']['identifier']['value']);
+                Repository::codeableConcept()->attach($assessor, $data['assessor']);
+
+                $previous = null;
+                if (isset($data['previous'])) {
+                    $previous = Repository::identifier()->store($data['previous']['identifier']['value']);
+                    Repository::codeableConcept()->attach($previous, $data['previous']);
+                }
+
+                $clinicalImpression = $this->model::updateOrCreate(
+                    ['uuid' => $data['uuid']],
+                    array_merge(
+                        [
+                        'person_id' => $personId,
+                        'code_id' => $code->id,
+                        'encounter_id' => $encounter->id,
+                        'assessor_id' => $assessor->id,
+                        'previous_id' => $previous?->id,
+                    ],
+                        Arr::except($data, [
+                            'assessor',
+                            'code',
+                            'effective_period',
+                            'encounter',
+                            'findings',
+                            'previous',
+                            'problems',
+                            'supporting_info'
+                        ])
+                    )
+                );
+
+                // Sync effective period
+                if (isset($data['effective_period'])) {
+                    $clinicalImpression->effectivePeriod()->delete();
+                    $clinicalImpression->effectivePeriod()->create([
+                        'start' => $data['effective_period']['start'],
+                        'end' => $data['effective_period']['end']
+                    ]);
+                }
+
+                // Sync problems
+                if (isset($data['problems'])) {
+                    $problemIds = collect($data['problems'])->map(function (array $problem) {
+                        $identifier = Repository::identifier()->store($problem['identifier']['value']);
+                        Repository::codeableConcept()->attach($identifier, $problem);
+
+                        return $identifier->id;
+                    })->toArray();
+
+                    $clinicalImpression->problems()->sync($problemIds);
+                }
+
+                // Sync findings
+                if (isset($data['findings'])) {
+                    foreach ($data['findings'] as $finding) {
+                        $identifier = Repository::identifier()
+                            ->store($finding['item_reference']['identifier']['value']);
+                        Repository::codeableConcept()->attach($identifier, $finding['item_reference']);
+
+                        $clinicalImpression->findings()->create([
+                            'item_reference_id' => $identifier->id,
+                            'basis' => $finding['basis'] ?? null
+                        ]);
+                    }
+                }
+
+                // Sync supporting info
+                if (isset($data['supporting_info'])) {
+                    $supportingIds = collect($data['supporting_info'])->map(function (array $supporting) {
+                        $identifier = Repository::identifier()->store($supporting['identifier']['value']);
+                        Repository::codeableConcept()->attach($identifier, $supporting);
+
+                        return $identifier->id;
+                    })->toArray();
+
+                    $clinicalImpression->supportingInfo()->sync($supportingIds);
+                }
+
+                // Cleanup old relationships after all updates are done
+                if ($existing) {
+                    $this->cleanupRelations($existing);
+                }
+            }
+        });
+    }
+
+    /**
+     * Remove orphaned relations after clinical impression FK update.
+     *
+     * @param  ClinicalImpression  $existing
+     * @return void
+     */
+    private function cleanupRelations(ClinicalImpression $existing): void
+    {
+        if ($existing->code) {
+            $existing->code->coding()->delete();
+            $existing->code->delete();
+        }
+
+        if ($existing->encounter) {
+            $existing->encounter->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
+            $existing->encounter->type()->delete();
+            $existing->encounter->delete();
+        }
+
+        if ($existing->assessor) {
+            $existing->assessor->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
+            $existing->assessor->type()->delete();
+            $existing->assessor->delete();
+        }
+
+        if ($existing->previous) {
+            $existing->previous->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
+            $existing->previous->type()->delete();
+            $existing->previous->delete();
+        }
+
+        foreach ($existing->problems as $problem) {
+            $problem->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
+            $problem->type()->delete();
+            $problem->delete();
+        }
+
+        foreach ($existing->findings as $finding) {
+            if ($finding->itemReference) {
+                $finding->itemReference->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
+                $finding->itemReference->type()->delete();
+                $finding->itemReference->delete();
+            }
+        }
+
+        foreach ($existing->supportingInfo as $supportingInfo) {
+            $supportingInfo->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
+            $supportingInfo->type()->delete();
+            $supportingInfo->delete();
+        }
     }
 }

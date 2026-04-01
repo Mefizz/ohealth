@@ -17,13 +17,14 @@ class EpisodeRepository extends BaseRepository
      * Create episode for encounter in DB.
      *
      * @param  array  $data
+     * @param  int  $personId
      * @param  int|null  $encounterId
      * @return void
      * @throws Throwable
      */
-    public function store(array $data, ?int $encounterId = null): void
+    public function store(array $data, int $personId, ?int $encounterId = null): void
     {
-        DB::transaction(function () use ($data, $encounterId) {
+        DB::transaction(function () use ($data, $personId, $encounterId) {
             try {
                 $type = Repository::coding()->store($data['type']);
 
@@ -37,6 +38,7 @@ class EpisodeRepository extends BaseRepository
                 /** @var Episode $episode */
                 $episode = $this->model::create([
                     'uuid' => $data['id'],
+                    'person_id' => $personId,
                     'encounter_id' => $encounterId,
                     'episode_type_id' => $type->id,
                     'status' => $data['status'],

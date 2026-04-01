@@ -300,7 +300,7 @@ Route::middleware(['auth:web,ehealth', 'verified'])->group(function () {
                 });
 
                 Route::middleware('can:create,' . Encounter::class)->name('encounter.')->group(function () {
-                    Route::get('/{patientId}/encounter/create', EncounterCreate::class)->name('create');
+                    Route::get('/{id}/encounter/create', EncounterCreate::class)->name('create');
                     Route::get('/{patientId}/encounter/{encounterId}', EncounterEdit::class)->name('edit');
                 });
 

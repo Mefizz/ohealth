@@ -610,19 +610,8 @@ class PersonComponent extends Component
                 $validated['password'],
                 Auth::user()->party->taxId
             );
-        } catch (ConnectionException $exception) {
-            $this->logConnectionError($exception, 'Error connecting to Cipher when signing data');
-            Session::flash('error', __('messages.connection_exception'));
-
-            return;
-        } catch (CipherApiException $exception) {
-            $this->logCipherError($exception, 'Cipher API error when signing data');
-            Session::flash('error', $exception->getMessage());
-
-            return;
-        } catch (JsonException $exception) {
-            $this->logDatabaseErrors($exception, 'JSON encoding error when signing data');
-            Session::flash('error', __('patients.messages.data_processing_error'));
+        } catch (ConnectionException|CipherApiException|JsonException $exception) {
+            $this->handleCipherExceptions($exception, 'Error when signing data with Cipher');
 
             return;
         }

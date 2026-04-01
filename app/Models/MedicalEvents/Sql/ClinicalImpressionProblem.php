@@ -8,5 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class ClinicalImpressionProblem extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'clinical_impression_id',
+        'identifier_id'
+    ];
 }

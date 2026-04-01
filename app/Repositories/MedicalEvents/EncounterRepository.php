@@ -252,7 +252,7 @@ class EncounterRepository extends BaseRepository
     {
         $episode['id'] = $this->episodeUuid;
         $episode['managingOrganization']['identifier']['value'] = legalEntity()->uuid;
-        $episode['period']['start'] = convertToISO8601($encounterPeriod['date'] . $encounterPeriod['start']);
+        $episode['period']['start'] = convertToEHealthISO8601($encounterPeriod['date'] . ' ' . $encounterPeriod['start']);
 
         return schemaService()
             ->setDataSchema($episode, app(PatientApi::class))
@@ -304,10 +304,8 @@ class EncounterRepository extends BaseRepository
 
                 // convert dates
                 if (isset($condition['onsetTime'])) {
-                    $condition['onsetDate'] = convertToISO8601($condition['onsetDate'] . $condition['onsetTime']);
-                    $condition['assertedDate'] = convertToISO8601(
-                        $condition['assertedDate'] . $condition['assertedTime']
-                    );
+                    $condition['onsetDate'] = convertToEHealthISO8601($condition['onsetDate'] . ' ' . $condition['onsetTime']);
+                    $condition['assertedDate'] = convertToEHealthISO8601($condition['assertedDate'] . ' ' . $condition['assertedTime']);
                     unset($condition['onsetTime'], $condition['assertedTime'], $condition['diagnoses']);
                 }
 
@@ -391,13 +389,11 @@ class EncounterRepository extends BaseRepository
                 unset($immunization['doseQuantity']);
             }
 
-            $immunization['date'] = convertToISO8601($immunization['date'] . $immunization['time']);
+            $immunization['date'] = convertToEHealthISO8601($immunization['date'] . ' ' . $immunization['time']);
             unset($immunization['time']);
 
             if ($immunization['expirationDate']) {
-                $immunization['expirationDate'] = convertToISO8601(
-                    $immunization['expirationDate'] . now()->format('H:i')
-                );
+                $immunization['expirationDate'] = convertToEHealthISO8601($immunization['expirationDate'] . ' ' . now()->format('H:i'));
             }
 
             return removeEmptyKeys($immunization);
@@ -429,16 +425,14 @@ class EncounterRepository extends BaseRepository
                 unset($observation['dictionaryName']);
             }
 
-            $observation['effectiveDateTime'] = convertToISO8601(
-                $observation['effectiveDate'] . $observation['effectiveTime']
-            );
+            $observation['effectiveDateTime'] = convertToEHealthISO8601($observation['effectiveDate'] . ' ' . $observation['effectiveTime']);
             unset($observation['effectiveDate'], $observation['effectiveTime']);
 
             if (empty($observation['effectiveDateTime'])) {
                 unset($observation['effectiveDateTime']);
             }
 
-            $observation['issued'] = convertToISO8601($observation['issuedDate'] . $observation['issuedTime']);
+            $observation['issued'] = convertToEHealthISO8601($observation['issuedDate'] . ' ' . $observation['issuedTime']);
             unset($observation['issuedDate'], $observation['issuedTime']);
 
             $observation['context']['identifier']['type']['coding'][0] = [
@@ -474,7 +468,7 @@ class EncounterRepository extends BaseRepository
 
             // combine date&time
             if (isset($observation['valueDate'], $observation['valueTime'])) {
-                $observation['valueDateTime'] = convertToISO8601($observation['valueDate'] . $observation['valueTime']);
+                $observation['valueDateTime'] = convertToEHealthISO8601($observation['valueDate'] . ' ' . $observation['valueTime']);
                 unset($observation['valueDate'], $observation['valueTime']);
             }
 
@@ -539,17 +533,17 @@ class EncounterRepository extends BaseRepository
 
             $diagnosticReport['recordedBy']['identifier']['value'] = $this->employeeUuid;
 
-            $diagnosticReport['issued'] = convertToISO8601(
+            $diagnosticReport['issued'] = convertToEHealthISO8601(
                 $diagnosticReport['issuedDate'] . $diagnosticReport['issuedTime']
             );
             unset($diagnosticReport['issuedDate'], $diagnosticReport['issuedTime']);
 
-            $diagnosticReport['effectivePeriod']['start'] = convertToISO8601(
+            $diagnosticReport['effectivePeriod']['start'] = convertToEHealthISO8601(
                 $diagnosticReport['effectivePeriodStartDate'] . $diagnosticReport['effectivePeriodStartTime']
             );
             unset($diagnosticReport['effectivePeriodStartDate'], $diagnosticReport['effectivePeriodStartTime']);
 
-            $diagnosticReport['effectivePeriod']['end'] = convertToISO8601(
+            $diagnosticReport['effectivePeriod']['end'] = convertToEHealthISO8601(
                 $diagnosticReport['effectivePeriodEndDate'] . $diagnosticReport['effectivePeriodEndTime']
             );
             unset($diagnosticReport['effectivePeriodEndDate'], $diagnosticReport['effectivePeriodEndTime']);
@@ -638,12 +632,12 @@ class EncounterRepository extends BaseRepository
                 unset($procedure['performer']);
             }
 
-            $procedure['performedPeriod']['start'] = convertToISO8601(
+            $procedure['performedPeriod']['start'] = convertToEHealthISO8601(
                 $procedure['performedPeriodStartDate'] . $procedure['performedPeriodStartTime']
             );
             unset($procedure['performedPeriodStartDate'], $procedure['performedPeriodStartTime']);
 
-            $procedure['performedPeriod']['end'] = convertToISO8601(
+            $procedure['performedPeriod']['end'] = convertToEHealthISO8601(
                 $procedure['performedPeriodEndDate'] . $procedure['performedPeriodEndTime']
             );
             unset($procedure['performedPeriodEndDate'], $procedure['performedPeriodEndTime']);
@@ -736,12 +730,12 @@ class EncounterRepository extends BaseRepository
                 ]
             ];
 
-            $clinicalImpression['effectivePeriod']['start'] = convertToISO8601(
+            $clinicalImpression['effectivePeriod']['start'] = convertToEHealthISO8601(
                 $clinicalImpression['effectivePeriodStartDate'] . $clinicalImpression['effectivePeriodStartTime']
             );
             unset($clinicalImpression['effectivePeriodStartDate'], $clinicalImpression['effectivePeriodStartTime']);
 
-            $clinicalImpression['effectivePeriod']['end'] = convertToISO8601(
+            $clinicalImpression['effectivePeriod']['end'] = convertToEHealthISO8601(
                 $clinicalImpression['effectivePeriodEndDate'] . $clinicalImpression['effectivePeriodEndTime']
             );
             unset($clinicalImpression['effectivePeriodEndDate'], $clinicalImpression['effectivePeriodEndTime']);
@@ -853,8 +847,8 @@ class EncounterRepository extends BaseRepository
     public function formatPeriod(array $encounterForm): array
     {
         $encounterForm['period'] = [
-            'start' => convertToISO8601($encounterForm['period']['date'] . $encounterForm['period']['start']),
-            'end' => convertToISO8601($encounterForm['period']['date'] . $encounterForm['period']['end'])
+            'start' => convertToEHealthISO8601($encounterForm['period']['date'] . ' ' . $encounterForm['period']['start']),
+            'end' => convertToEHealthISO8601($encounterForm['period']['date'] . ' ' . $encounterForm['period']['end'])
         ];
         unset($encounterForm['period']['date']);
 

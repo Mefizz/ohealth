@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace App\Traits;
 
 use App\Classes\eHealth\Api\PatientApi;
+use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\Exceptions\ApiException;
 use App\Core\Arr;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Observation;
 use App\Repositories\MedicalEvents\Repository;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Throwable;
 
 trait HandlesReasonReferences
@@ -82,17 +87,16 @@ trait HandlesReasonReferences
         }
 
         try {
-            $encounterData = PatientApi::getEncounterById($this->patientUuid, $encounterUuid);
+            $encounterData = EHealth::patient()->getEncounterById($this->patientUuid, $encounterUuid)->getData();
 
             return Repository::encounter()->store($encounterData, $this->patientId);
-        } catch (ApiException|Throwable $e) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Failed while ensuring encounter existence');
+        } catch (Throwable $exception) {
+            $this->logDatabaseErrors($exception, 'Error while storing encounter');
+            Session::flash('error', __('messages.database_error'));
 
-            Log::error('Failed while ensuring encounter existence', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+            return null;
         }
 
         return null;
@@ -111,20 +115,21 @@ trait HandlesReasonReferences
         }
 
         try {
-            $observationData = PatientApi::getObservationById($this->patientUuid, $uuid);
+            $observationData = EHealth::observation()->getById($this->patientUuid, $uuid)->getData();
             $encounterId = $this->ensureEncounterExist($observationData['context']['identifier']['value']);
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Failed while ensuring encounter existence');
 
-            if ($encounterId) {
-                Repository::observation()->store([Arr::toCamelCase($observationData)], $encounterId);
-            }
-        } catch (ApiException|Throwable $e) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+            return;
+        }
 
-            Log::error('Failed while ensuring observation existence', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+        try {
+            Repository::observation()->store([Arr::toCamelCase($observationData)], $this->patientId, $encounterId);
+        } catch (Throwable $exception) {
+            $this->logDatabaseErrors($exception, 'Error while storing observation');
+            Session::flash('error', __('messages.database_error'));
+
+            return;
         }
     }
 }

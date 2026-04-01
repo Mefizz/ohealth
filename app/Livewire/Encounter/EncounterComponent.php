@@ -4,18 +4,20 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter;
 
-use App\Classes\Cipher\Exceptions\ApiException as CipherApiException;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\Exceptions\ApiException as eHealthApiException;
 use App\Classes\Cipher\Traits\Cipher;
 use App\Classes\eHealth\Api\PatientApi;
 use App\Classes\eHealth\Api\ServiceRequestApi;
 use App\Enums\User\Role;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Encounter\Forms\Api\EncounterRequestApi;
 use App\Models\Division;
 use App\Models\Employee\Employee;
 use App\Models\Person\Person;
 use App\Traits\FormTrait;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -34,6 +36,8 @@ class EncounterComponent extends Component
     use WithFileUploads;
 
     public Form $form;
+
+    public bool $showSignatureModal = false;
 
     /**
      * ID of the patient for which create an encounter.
@@ -316,22 +320,6 @@ class EncounterComponent extends Component
     }
 
     /**
-     * Open modal by provided model name.
-     *
-     * @param  string  $model
-     * @return void
-     */
-    public function create(string $model): void
-    {
-        $this->openModal($model);
-    }
-
-    public function updatedFile(): void
-    {
-        $this->keyContainerUpload = $this->file;
-    }
-
-    /**
      * Initialize the component data based on the patient ID.
      *
      * @param  int  $patientId
@@ -373,12 +361,6 @@ class EncounterComponent extends Component
         $this->setPatientData();
         $this->getDivisionData();
         $this->getEpisodes();
-
-        try {
-            $this->setCertificateAuthority();
-        } catch (CipherApiException) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
-        }
     }
 
     /**
@@ -575,52 +557,31 @@ class EncounterComponent extends Component
         try {
             switch ($type) {
                 case 'encounter':
-                    $params = EncounterRequestApi::buildGetEncountersBySearchParams(
-                        episodeUuid: $episodeId,
-                        managingOrganizationUuid: legalEntity()->uuid
-                    );
-
-                    $this->encounters = PatientApi::getEncountersBySearchParams(
+                    $this->encounters = EHealth::patient()->getEncounterBySearchParams(
                         $this->patientUuid,
-                        $params
-                    )['data'];
+                        ['episode_id' => $episodeId, 'managing_organization_id' => legalEntity()->uuid]
+                    )->getData();
                     break;
 
                 case 'procedure':
-                    $params = EncounterRequestApi::buildGetProceduresBySearchParams(
+                    $this->procedures = EHealth::procedure()->getBySearchParams(
                         $this->patientUuid,
-                        episodeUuid: $episodeId,
-                        managingOrganizationUuid: legalEntity()->uuid
-                    );
-                    $this->procedures = PatientApi::getProceduresBySearchParams(
-                        $this->patientUuid,
-                        $params
-                    )['data'];
+                        ['episode_id' => $episodeId, 'managing_organization_id' => legalEntity()->uuid]
+                    )->getData();
                     break;
 
                 case 'diagnosticReport':
-                    $params = EncounterRequestApi::buildGetDiagnosticReportsBySearchParams(
-                        originEpisodeUuid: $episodeId,
-                        managingOrganizationUuid: legalEntity()->uuid
-                    );
-                    $this->diagnosticReports = PatientApi::getDiagnosticReportsBySearchParams(
+                    $this->diagnosticReports = EHealth::diagnosticReport()->getBySearchParams(
                         $this->patientUuid,
-                        $params
-                    )['data'];
+                        ['origin_episode_id' => $episodeId, 'managing_organization_id' => legalEntity()->uuid]
+                    )->getData();
                     break;
 
                 default:
                     break;
             }
-        } catch (eHealthApiException $e) {
-            Log::channel('e_health_errors')
-                ->error("Error while searching for $type in Encounter Component", [
-                    'exception' => $e->getMessage(),
-                    'type' => $type,
-                    'episodeId' => $episodeId
-                ]);
-
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, "Error while searching for $type in Encounter Component");
         }
     }
 
@@ -708,22 +669,14 @@ class EncounterComponent extends Component
     protected function getEpisodes(): void
     {
         try {
-            $params = EncounterRequestApi::buildGetEpisodeBySearchParams(managingOrganizationId: legalEntity()->uuid);
-            $this->episodes = PatientApi::getEpisodeBySearchParams($this->patientUuid, $params)['data'];
-        } catch (eHealthApiException) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
-        }
-    }
+            $this->episodes = EHealth::episode()
+                ->getBySearchParams($this->patientUuid, ['managing_organization_id' => legalEntity()->uuid])
+                ->getData();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting episodes');
 
-    /**
-     * Get Certificate Authority from API.
-     *
-     * @return array
-     * @throws CipherApiException
-     */
-    protected function setCertificateAuthority(): array
-    {
-        return $this->getCertificateAuthority = $this->getCertificateAuthority();
+            return;
+        }
     }
 
     /**

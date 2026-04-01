@@ -4,27 +4,61 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
+use App\Enums\Person\ObservationStatus;
 use Eloquence\Behaviours\HasCamelCasing;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class Observation extends Model
 {
     use HasCamelCasing;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'uuid',
+        'person_id',
+        'encounter_id',
+        'based_on_id',
+        'status',
+        'diagnostic_report_id',
+        'code_id',
+        'effective_date_time',
+        'issued',
+        'primary_source',
+        'performer_id',
+        'report_origin_id',
+        'interpretation_id',
+        'comment',
+        'body_site_id',
+        'method_id',
+        'value_codeable_concept_id',
+        'value_string',
+        'value_boolean',
+        'value_date_time',
+        'reaction_on_id',
+        'context_id',
+        'specimen_id',
+        'device_id',
+        'ehealth_inserted_at',
+        'ehealth_updated_at',
+        'explanatory_letter'
+    ];
 
     protected $casts = [
         'issued' => 'immutable_datetime',
         'effective_date_time' => 'immutable_datetime',
+        'status' => ObservationStatus::class
     ];
 
     protected $hidden = [
         'id',
+        'person_id',
         'encounter_id',
         'diagnostic_report_id',
         'code_id',
@@ -33,12 +67,14 @@ class Observation extends Model
         'performer_id',
         'report_origin_id',
         'interpretation_id',
-        'value_quantity_id',
         'value_codeable_concept_id',
         'body_site_id',
         'method_id',
         'reaction_on_id',
         'context_id',
+        'specimen_id',
+        'device_id',
+        'based_on_id',
         'created_at',
         'updated_at'
     ];
@@ -128,9 +164,9 @@ class Observation extends Model
         return $this->belongsTo(CodeableConcept::class, 'method_id');
     }
 
-    public function valueQuantity(): BelongsTo
+    public function valueQuantity(): MorphOne
     {
-        return $this->belongsTo(Quantity::class, 'value_quantity_id');
+        return $this->morphOne(Quantity::class, 'quantifiable');
     }
 
     public function valueCodeableConcept(): BelongsTo
@@ -143,8 +179,59 @@ class Observation extends Model
         return $this->belongsTo(Identifier::class, 'reaction_on_id');
     }
 
+    public function context(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'context_id');
+    }
+
+    public function specimen(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'specimen_id');
+    }
+
+    public function device(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'device_id');
+    }
+
+    public function basedOn(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'based_on_id');
+    }
+
+    public function referenceRanges(): MorphMany
+    {
+        return $this->morphMany(ReferenceRange::class, 'referenceable');
+    }
+
     public function components(): HasMany
     {
         return $this->hasMany(ObservationComponent::class);
+    }
+
+    /**
+     * Scope to eager load all observation relationships.
+     */
+    #[Scope]
+    protected function withAllRelations(Builder $query): Builder
+    {
+        return $query->with([
+            'code.coding',
+            'categories.coding',
+            'performer.type.coding',
+            'interpretation.coding',
+            'bodySite.coding',
+            'method.coding',
+            'valueCodeableConcept.coding',
+            'context.type.coding',
+            'specimen.type.coding',
+            'device.type.coding',
+            'basedOn.type.coding',
+            'referenceRanges',
+            'components.code.coding',
+            'components.interpretation.coding',
+            'components.valueCodeableConcept.coding',
+            'components.referenceRanges'
+        ]);
     }
 }

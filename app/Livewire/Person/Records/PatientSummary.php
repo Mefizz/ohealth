@@ -7,8 +7,13 @@ namespace App\Livewire\Person\Records;
 use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Models\MedicalEvents\Sql\ClinicalImpression;
+use App\Models\MedicalEvents\Sql\Condition;
+use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\Immunization;
+use App\Models\MedicalEvents\Sql\Observation;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Client\ConnectionException;
@@ -21,9 +26,25 @@ class PatientSummary extends BasePatientComponent
 
     public array $encounters;
 
-    public array $diagnoses;
+    public array $clinicalImpressions;
+
+    public array $immunizations;
 
     public array $observations;
+
+    public array $diagnoses;
+
+    public array $conditions;
+
+    public array $diagnosticReports;
+
+    public array $allergyIntolerances;
+
+    public array $riskAssessments;
+
+    public array $devices;
+
+    public array $medicationStatements;
 
     /**
      * Sync patient episodes from eHealth API to database.
@@ -33,7 +54,7 @@ class PatientSummary extends BasePatientComponent
     public function syncEpisodes(): void
     {
         try {
-            $response = EHealth::patient()->getShortEpisodes($this->uuid);
+            $response = EHealth::episode()->getShortEpisodes($this->uuid);
             $validatedData = $response->validate();
 
             try {
@@ -46,7 +67,7 @@ class PatientSummary extends BasePatientComponent
                 return;
             }
 
-            // Refresh episodes data for display
+            // Refresh data for display
             $this->episodes = $validatedData;
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when syncing episodes');
@@ -76,7 +97,7 @@ class PatientSummary extends BasePatientComponent
                 return;
             }
 
-            // Refresh encounters data for display
+            // Refresh data for display
             $this->encounters = $validatedData;
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when syncing encounters');
@@ -93,50 +114,191 @@ class PatientSummary extends BasePatientComponent
             ->toArray();
     }
 
+    public function syncClinicalImpressions(): void
+    {
+        try {
+            $response = EHealth::patient()->getClinicalImpressions($this->uuid);
+            $validatedData = $response->validate();
+
+            try {
+                Repository::clinicalImpression()->sync($this->id, $validatedData);
+                Session::flash('success', __('patients.messages.clinical_impressions_synced_successfully'));
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Error while synchronizing clinical impressions');
+                Session::flash('error', __('messages.database_error'));
+
+                return;
+            }
+
+            // Refresh data for display
+            $this->clinicalImpressions = $validatedData;
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting clinical impressions');
+
+            return;
+        }
+    }
+
     public function getClinicalImpressions(): void
     {
-        try {
-            $response = EHealth::patient()->getShortEpisodes($this->uuid);
-
-            $this->episodes = $response->getData();
-        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
-            $this->handleEHealthExceptions($exception, 'Error when getting short episodes');
-
-            return;
-        }
+        $this->clinicalImpressions = ClinicalImpression::wherePersonId($this->id)
+            ->withAllRelations()
+            ->get()
+            ->toArray();
     }
 
-    /**
-     * Get patient diagnoses.
-     *
-     * @return void
-     */
-    public function getDiagnoses(): void
+    public function syncImmunizations(): void
     {
         try {
-            $response = EHealth::patient()->getActiveDiagnoses($this->uuid);
+            $response = EHealth::patient()->getImmunizations($this->uuid);
+            $validatedData = $response->validate();
 
-            $this->diagnoses = $response->getData();
+            try {
+                Repository::immunization()->sync($this->id, $validatedData);
+                Session::flash('success', __('patients.messages.immunizations_synced_successfully'));
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Error while synchronizing immunizations');
+                Session::flash('error', __('messages.database_error'));
+
+                return;
+            }
+
+            // Refresh data for display
+            $this->immunizations = $validatedData;
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
-            $this->handleEHealthExceptions($exception, 'Error when getting active diagnoses');
+            $this->handleEHealthExceptions($exception, 'Error when getting immunizations');
 
             return;
         }
     }
 
-    /**
-     * Get patient observations.
-     *
-     * @return void
-     */
+    public function getImmunizations(): void
+    {
+        $this->immunizations = Immunization::wherePersonId($this->id)
+            ->withAllRelations()
+            ->get()
+            ->toArray();
+    }
+
     public function getObservations(): void
     {
         try {
-            $response = EHealth::patient()->getObservations($this->uuid);
+            $response = EHealth::observation()->getBySearchParams(
+                $this->uuid,
+                ['managing_organization_id' => legalEntity()->uuid]
+            );
+            $validatedData = $response->validate();
 
-            $this->observations = $response->getData();
+            try {
+                Repository::observation()->sync($this->id, $validatedData);
+                Session::flash('success', __('patients.messages.observations_synced_successfully'));
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Error while synchronizing observations');
+                Session::flash('error', __('messages.database_error'));
+
+                return;
+            }
+
+            // Refresh data for display
+            $this->observations = $validatedData;
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting observations');
+
+            return;
+        }
+    }
+
+    public function syncObservations(): void
+    {
+        $this->observations = Observation::wherePersonId($this->id)
+            ->withAllRelations()
+            ->get()
+            ->toArray();
+    }
+
+    public function syncConditions(): void
+    {
+        try {
+            $response = EHealth::patient()->getConditions($this->uuid);
+            $validatedData = $response->validate();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting conditions');
+
+            return;
+        }
+    }
+
+    public function getConditions(): void
+    {
+        $this->conditions = Condition::wherePersonId($this->id)
+            ->withAllRelations()
+            ->get()
+            ->toArray();
+    }
+
+    public function syncDiagnosticReports(): void
+    {
+        try {
+            $response = EHealth::patient()->getDiagnosticReports($this->uuid);
+            $validatedData = $response->validate();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting diagnostic reports');
+
+            return;
+        }
+    }
+
+    public function getDiagnosticReports(): void
+    {
+        $this->diagnosticReports = DiagnosticReport::wherePersonId($this->id)
+            ->withAllRelations()
+            ->get()
+            ->toArray();
+    }
+
+    public function syncAllergyIntolerances(): void
+    {
+        try {
+            $response = EHealth::patient()->getAllergyIntolerances($this->uuid);
+            $validatedData = $response->validate();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting allergy intolerances');
+
+            return;
+        }
+    }
+
+    public function syncRiskAssessments(): void
+    {
+        try {
+            $response = EHealth::patient()->getRiskAssessments($this->uuid);
+            $validatedData = $response->validate();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting risk assessments');
+
+            return;
+        }
+    }
+
+    public function syncDevices(): void
+    {
+        try {
+            $response = EHealth::patient()->getDevices($this->uuid);
+            $validatedData = $response->validate();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting devices');
+
+            return;
+        }
+    }
+
+    public function syncMedicationStatements(): void
+    {
+        try {
+            $response = EHealth::patient()->getMedicationStatements($this->uuid);
+            $validatedData = $response->validate();
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when getting medication statements');
 
             return;
         }

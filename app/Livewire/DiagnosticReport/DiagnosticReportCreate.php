@@ -158,11 +158,11 @@ class DiagnosticReportCreate extends DiagnosticReportComponent
      */
     protected function storeValidatedData(array $formattedData): void
     {
-        DB::transaction(static function () use ($formattedData) {
+        DB::transaction(function () use ($formattedData) {
             $diagnosticReportId = Repository::diagnosticReport()->store([$formattedData['diagnosticReport']]);
 
             if (isset($formattedData['observations'])) {
-                Repository::observation()->store($formattedData['observations'], diagnosticReportId: $diagnosticReportId);
+                Repository::observation()->store($formattedData['observations'], $this->patientId, diagnosticReportId: $diagnosticReportId);
             }
         });
     }

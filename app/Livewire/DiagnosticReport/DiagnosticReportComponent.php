@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Livewire\DiagnosticReport;
 
 use App\Classes\Cipher\Traits\Cipher;
-use App\Classes\eHealth\Exceptions\ApiException as eHealthApiException;
 use App\Livewire\DiagnosticReport\Forms\DiagnosticReportForm as Form;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
@@ -195,7 +194,7 @@ class DiagnosticReportComponent extends Component
     protected function setPatientData(): void
     {
         $patient = Person::select(['uuid', 'first_name', 'last_name', 'second_name'])
-            ->where('id', $this->patientId)
+            ->whereId($this->patientId)
             ->firstOrFail();
 
         $this->patientUuid = $patient->uuid;
@@ -209,14 +208,10 @@ class DiagnosticReportComponent extends Component
      */
     protected function loadObservationDictionaries(): void
     {
-        try {
-            $this->dictionaries['eHealth/ICF/classifiers'] = dictionary()->basics()
-                ->byName('eHealth/ICF/classifiers')
-                ->flattenedChildValues()
-                ->toArray();
-        } catch (eHealthApiException) {
-            session()?->flash('error', 'Виникла помилка. Зверніться до адміністратора.');
-        }
+        $this->dictionaries['eHealth/ICF/classifiers'] = dictionary()->basics()
+            ->byName('eHealth/ICF/classifiers')
+            ->flattenedChildValues()
+            ->toArray();
 
         $this->observationCodeMap = config('ehealth.observation_category_codes');
         $this->observationValueMap = config('ehealth.observation_code_values');

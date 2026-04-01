@@ -14,9 +14,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('encounters', function (Blueprint $table) {
-            $table->foreignId('performer_speciality_id')->nullable()->after('performer_id')->constrained('codeable_concepts');
-            $table->foreignId('visit_id')->nullable()->change();
-            $table->foreignId('performer_id')->nullable()->change();
+            if (!Schema::hasColumn('encounters', 'performer_speciality_id')) {
+                $table->foreignId('performer_speciality_id')->nullable()->after('performer_id')->constrained('codeable_concepts');
+            }
+            if (Schema::hasColumn('encounters', 'visit_id')) {
+                $table->foreignId('visit_id')->nullable()->change();
+            }
+            if (Schema::hasColumn('encounters', 'performer_id')) {
+                $table->foreignId('performer_id')->nullable()->change();
+            }
         });
     }
 
@@ -26,10 +32,16 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('encounters', function (Blueprint $table) {
-            $table->dropForeign(['performer_speciality_id']);
-            $table->dropColumn('performer_speciality_id');
-            $table->foreignId('visit_id')->nullable(false)->change();
-            $table->foreignId('performer_id')->nullable(false)->change();
+            if (Schema::hasColumn('encounters', 'performer_speciality_id')) {
+                $table->dropForeign(['performer_speciality_id']);
+                $table->dropColumn('performer_speciality_id');
+            }
+            if (Schema::hasColumn('encounters', 'visit_id')) {
+                $table->foreignId('visit_id')->nullable(false)->change();
+            }
+            if (Schema::hasColumn('encounters', 'performer_id')) {
+                $table->foreignId('performer_id')->nullable(false)->change();
+            }
         });
     }
 };

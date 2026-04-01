@@ -198,7 +198,8 @@ return [
         'rejected' => 'Відхилений',
         'active' => 'Діючий',
         'closed' => 'Завершений',
-        'entered_in_error' => 'Внесений помилково'
+        'entered_in_error' => 'Внесений помилково',
+        'valid' => 'Дійсний'
     ],
 
     'source' => [
@@ -497,5 +498,8 @@ return [
         'sync_auth_methods_and_try_again' => 'Будь ласка, синхронізуйте методи автентифікації та спробуйте знову.',
         'episodes_synced_successfully' => 'Епізоди успішно синхронізовані',
         'encounters_synced_successfully' => 'Взаємодії успішно синхронізовані',
+        'clinical_impressions_synced_successfully' => 'Клінічні взаємодії успішно синхронізовані',
+        'immunizations_synced_successfully' => 'Вакцинації успішно синхронізовані',
+        'observations_synced_successfully' => 'Обстеження успішно синхронізовані',
     ]
 ];

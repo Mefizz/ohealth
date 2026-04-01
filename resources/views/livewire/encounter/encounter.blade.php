@@ -27,15 +27,12 @@
                 {{ __('forms.save') }}
             </button>
 
-            <button wire:click.prevent="create('signedContent')"
-                    type="button"
-                    class="button-sync flex items-center gap-2"
-            >
-                @icon('key', 'w-4 h-4')
-                {{ __('forms.complete_the_interaction_and_sign') }}
-                @icon('arrow-right', 'w-4 h-4')
+            <button type="submit" @click="$wire.showSignatureModal = true" class="button-primary">
+                {{ __('forms.save_and_send') }}
             </button>
         </div>
+
+        <x-signature-modal method="sign" />
     </form>
 
     <livewire:components.x-message :key="time()" />

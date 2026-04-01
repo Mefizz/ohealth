@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
+use App\Enums\Person\EncounterStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -40,6 +41,8 @@ class Encounter extends Model
         'created_at',
         'updated_at'
     ];
+
+    protected $casts = ['status' => EncounterStatus::class];
 
     public function period(): MorphOne
     {

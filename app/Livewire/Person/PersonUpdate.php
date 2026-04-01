@@ -1035,19 +1035,8 @@ class PersonUpdate extends PersonComponent
                 $validated['password'],
                 Auth::user()->party->taxId
             );
-        } catch (ConnectionException $exception) {
-            $this->logConnectionError($exception, 'Error connecting to Cipher when signing data');
-            Session::flash('error', __('validation.custom.connection_exception'));
-
-            return;
-        } catch (CipherApiException $exception) {
-            $this->logCipherError($exception, 'Cipher API error when signing data');
-            Session::flash('error', $exception->getMessage());
-
-            return;
-        } catch (JsonException $exception) {
-            $this->logDatabaseErrors($exception, 'JSON encoding error when signing data');
-            Session::flash('error', 'Помилка обробки даних. Зверніться до адміністратора.');
+        } catch (ConnectionException|CipherApiException|JsonException $exception) {
+            $this->handleCipherExceptions($exception, 'Error when signing data with Cipher');
 
             return;
         }

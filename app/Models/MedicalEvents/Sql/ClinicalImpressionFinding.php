@@ -9,7 +9,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ClinicalImpressionFinding extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'clinical_impression_id',
+        'item_reference_id',
+        'basis'
+    ];
 
     protected $hidden = [
         'id',

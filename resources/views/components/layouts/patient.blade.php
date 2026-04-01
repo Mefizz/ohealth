@@ -9,7 +9,7 @@
             {{ $headerActions }}
         @else
             @can('create', Encounter::class)
-                <a href="{{ route('encounter.create', [legalEntity(), 'patientId' => $id]) }}"
+                <a href="{{ route('encounter.create', [legalEntity(), 'id' => $id]) }}"
                    class="flex items-center gap-2 button-primary px-5 py-2 text-sm shadow-sm"
                 >
                     @icon('plus', 'w-4 h-4')
@@ -19,10 +19,12 @@
         @endif
 
         <x-slot name="description">
-            <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm font-semibold rounded-lg mt-1 border border-gray-100 dark:border-gray-700">
-                @icon('file-text', 'w-4 h-4 text-gray-400')
-                Декларація №1000000000000
-            </div>
+            @if($this->declarationNumber)
+                <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm font-semibold rounded-lg mt-1 border border-gray-100 dark:border-gray-700">
+                    @icon('file-text', 'w-4 h-4 text-gray-400')
+                    Декларація №{{ $this->declarationNumber }}
+                </div>
+            @endif
         </x-slot>
 
         <x-slot name="navigation">

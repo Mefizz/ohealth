@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Support\Collection;
+use JsonException;
 use Throwable;
 
 trait FormTrait
@@ -302,6 +303,35 @@ trait FormTrait
             ? $exception->getFormattedMessage()
             : __('patients.messages.ehealth_error', ['message' => $exception->getMessage()]);
         Session::flash('error', $errorMessage);
+    }
+
+    /**
+     * Handle Cipher API exceptions with message.
+     *
+     * @param  ConnectionException|CipherApiException|JsonException  $exception
+     * @param  string  $logMessage
+     * @return void
+     */
+    protected function handleCipherExceptions(
+        ConnectionException|CipherApiException|JsonException $exception,
+        string $logMessage
+    ): void {
+        if ($exception instanceof ConnectionException) {
+            $this->logConnectionError($exception, $logMessage);
+            Session::flash('error', __('messages.connection_exception'));
+
+            return;
+        }
+
+        if ($exception instanceof JsonException) {
+            $this->logDatabaseErrors($exception, $logMessage);
+            Session::flash('error', __('patients.messages.data_processing_error'));
+
+            return;
+        }
+
+        $this->logCipherError($exception, $logMessage);
+        Session::flash('error', $exception->getMessage());
     }
 
     /**

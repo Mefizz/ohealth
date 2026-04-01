@@ -9,17 +9,23 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Quantity extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'value',
+        'comparator',
+        'unit',
+        'system',
+        'code'
+    ];
 
     protected $hidden = [
         'id',
-        'quantityable_type',
-        'quantityable_id',
+        'quantifiable_type',
+        'quantifiable_id',
         'created_at',
         'updated_at'
     ];
 
-    public function quantityable(): MorphTo
+    public function quantifiable(): MorphTo
     {
         return $this->morphTo();
     }

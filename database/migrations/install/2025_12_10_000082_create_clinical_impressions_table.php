@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\Person\ClinicalImpressionStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -16,8 +17,9 @@ return new class extends Migration
         Schema::create('clinical_impressions', static function (Blueprint $table) {
             $table->id();
             $table->uuid()->unique();
+            $table->foreignId('person_id')->nullable()->constrained('persons');
             $table->foreignId('encounter_internal_id')->constrained('encounters');
-            $table->enum('status', ['completed', 'entered_in_error']);
+            $table->enum('status', ClinicalImpressionStatus::values());
             $table->text('description')->nullable()->comment('Some description of the clinical impression');
             $table->foreignId('code_id')->constrained('codeable_concepts');
             $table->foreignId('encounter_id')->constrained('identifiers');
@@ -25,6 +27,9 @@ return new class extends Migration
             $table->foreignId('previous_id')->nullable()->constrained('identifiers');
             $table->text('summary')->nullable()->comment('Some summary');
             $table->text('note')->nullable()->comment('Some note');
+            $table->string('explanatory_letter')->nullable();
+            $table->timestamp('ehealth_inserted_at')->nullable();
+            $table->timestamp('ehealth_updated_at')->nullable();
             $table->timestamps();
         });
 

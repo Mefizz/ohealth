@@ -10,5 +10,8 @@ class ClinicalImpressionSupportingInfo extends Model
 {
     protected $table = 'clinical_impression_supporting_info';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'clinical_impression_id',
+        'identifier_id'
+    ];
 }

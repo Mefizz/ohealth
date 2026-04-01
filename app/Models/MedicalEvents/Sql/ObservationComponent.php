@@ -7,6 +7,7 @@ namespace App\Models\MedicalEvents\Sql;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class ObservationComponent extends Model
 {
@@ -18,7 +19,9 @@ class ObservationComponent extends Model
         'id',
         'observation_id',
         'authority_id',
+        'code_id',
         'codeable_concept_id',
+        'value_codeable_concept_id',
         'interpretation_id',
         'created_at',
         'updated_at'
@@ -29,6 +32,11 @@ class ObservationComponent extends Model
         return $this->belongsTo(Observation::class);
     }
 
+    public function code(): BelongsTo
+    {
+        return $this->belongsTo(CodeableConcept::class, 'code_id');
+    }
+
     public function valueCodeableConcept(): BelongsTo
     {
         return $this->belongsTo(CodeableConcept::class, 'codeable_concept_id');
@@ -37,5 +45,10 @@ class ObservationComponent extends Model
     public function interpretation(): BelongsTo
     {
         return $this->belongsTo(CodeableConcept::class, 'interpretation_id');
+    }
+
+    public function referenceRanges(): MorphMany
+    {
+        return $this->morphMany(ReferenceRange::class, 'referenceable');
     }
 }

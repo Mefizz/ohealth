@@ -77,7 +77,7 @@
                     class="input-select peer @error('form.encounter.type.coding.code') input-error @enderror"
                     required
             >
-                <option selected>{{ __('forms.select') }} {{ mb_strtolower(__('patients.interaction_type'))  }}*
+                <option selected>{{ __('forms.select') }} {{ mb_strtolower(__('patients.interaction_type')) }}*
                 </option>
                 @foreach($this->dictionaries['eHealth/encounter_types'] as $key => $encounterType)
                     <option value="{{ $key }}">{{ $encounterType }}</option>

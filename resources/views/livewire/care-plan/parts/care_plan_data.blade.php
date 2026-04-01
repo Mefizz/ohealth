@@ -11,7 +11,7 @@
             <input type="text"
                    name="clinical_protocol"
                    id="clinical_protocol"
-                   class="input-select peer"
+                   class="input peer"
                    placeholder="R53.0"
                    wire:model="form.clinical_protocol"
             >

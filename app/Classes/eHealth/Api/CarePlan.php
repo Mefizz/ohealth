@@ -18,13 +18,14 @@ class CarePlan extends Request
     /**
      * Create a new Care Plan in eHealth.
      *
+     * @param string $patientId
      * @param array $payload
      * @return PromiseInterface|EHealthResponse
      * @throws ConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function create(array $payload): PromiseInterface|EHealthResponse
+    public function create(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        return $this->post(self::URL, $payload);
+        return $this->post("/api/patients/{$patientId}/care_plans", $payload);
     }
 
     /**

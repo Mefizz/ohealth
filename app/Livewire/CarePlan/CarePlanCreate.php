@@ -67,10 +67,10 @@ class CarePlanCreate extends Component
         if ($person) {
             $this->form['patient'] = trim($person->last_name . ' ' . $person->first_name . ' ' . ($person->second_name ?? ''));
             
-            // Load patient's authentication methods for "inform_with" dropdown
-            $this->authMethods = $person->authenticationMethods()->get()->map(fn($m) => [
-                'value' => $m->type,
-                'label' => \App\Enums\Person\AuthenticationMethod::tryFrom($m->type)?->label() ?? $m->type,
+            // Load abstract authentication methods for "inform_with" dropdown
+            $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn($m) => [
+                'value' => $m->value,
+                'label' => $m->label(),
             ])->toArray();
         }
 
@@ -183,9 +183,9 @@ class CarePlanCreate extends Component
 
         $person = \App\Models\Person\Person::where('uuid', $uuid)->first();
         if ($person) {
-            $this->authMethods = $person->authenticationMethods()->get()->map(fn($m) => [
-                'value' => $m->type,
-                'label' => \App\Enums\Person\AuthenticationMethod::tryFrom($m->type)?->label() ?? $m->type,
+            $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn($m) => [
+                'value' => $m->value,
+                'label' => $m->label(),
             ])->toArray();
         }
     }
@@ -400,9 +400,9 @@ class CarePlanCreate extends Component
                 Auth::user()->party->taxId
             );
 
-            $eHealthResponse = EHealth::carePlan()->create([
-                'signed_content' => $signedContent,
-                'signed_content_encoding' => 'base64',
+            $eHealthResponse = EHealth::carePlan()->create($this->patientUuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
             ]);
 
             $responseData = $eHealthResponse->getData();

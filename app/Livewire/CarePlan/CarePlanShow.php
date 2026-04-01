@@ -253,9 +253,9 @@ class CarePlanShow extends Component
                 Auth::user()->party->taxId
             );
 
-            $eHealthResponse = EHealth::carePlan()->create([
-                'signed_content' => $signedContent,
-                'signed_content_encoding' => 'base64',
+            $eHealthResponse = EHealth::carePlan()->create($this->carePlan->person->uuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
             ]);
 
             $responseData = $eHealthResponse->getData();
@@ -330,10 +330,11 @@ class CarePlanShow extends Component
             );
 
             $eHealthResponse = EHealth::carePlanActivity()->create(
+                $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [
-                    'signed_content' => $signedContent,
-                    'signed_content_encoding' => 'base64',
+                    'signed_data' => $signedContent,
+                    'signed_data_encoding' => 'base64',
                 ]
             );
 

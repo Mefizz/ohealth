@@ -18,14 +18,15 @@ class CarePlanActivity extends Request
     /**
      * Create a new Care Plan Activity in eHealth.
      *
+     * @param string $patientId
      * @param string $carePlanId
      * @param array $payload
      * @return PromiseInterface|EHealthResponse
      * @throws ConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function create(string $carePlanId, array $payload): PromiseInterface|EHealthResponse
+    public function create(string $patientId, string $carePlanId, array $payload): PromiseInterface|EHealthResponse
     {
-        return $this->post(self::URL . "/$carePlanId/activities", $payload);
+        return $this->post("/api/patients/{$patientId}/care_plans/{$carePlanId}/activities", $payload);
     }
 
     /**

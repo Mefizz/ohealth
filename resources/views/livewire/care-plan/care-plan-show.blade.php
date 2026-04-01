@@ -38,7 +38,7 @@
                 </span>
             </div>
             
-            @if(!$carePlan->uuid && in_array(strtoupper($status), ['NEW', 'DRAFT']))
+            @if(!$carePlan->uuid && in_array(strtoupper($status), ['NEW', 'DRAFT', 'PENDING']))
                 <a href="{{ route('care-plan.edit', [legalEntity(), $carePlan->id]) }}" 
                    class="button-secondary flex items-center gap-2"
                    wire:navigate>
@@ -193,7 +193,7 @@
 
         {{-- Action Buttons --}}
         <div class="mt-6 flex flex-row items-center gap-4 pt-6">
-            @if(!$carePlan->uuid && in_array(strtoupper($status), ['NEW', 'DRAFT']))
+            @if(!$carePlan->uuid && in_array(strtoupper($status), ['NEW', 'DRAFT', 'PENDING']))
                 {{-- Sign button for drafts --}}
                 <div class="flex items-center gap-3">
                     <button type="button"

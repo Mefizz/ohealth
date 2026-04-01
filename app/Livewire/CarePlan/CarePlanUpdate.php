@@ -58,12 +58,10 @@ class CarePlanUpdate extends CarePlanCreate
         ];
 
         // Load patient auth methods
-        if ($carePlan->person) {
-            $this->authMethods = $carePlan->person->authenticationMethods()->get()->map(fn($m) => [
-                'value' => $m->type,
-                'label' => \App\Enums\Person\AuthenticationMethod::tryFrom($m->type)?->label() ?? $m->type,
-            ])->toArray();
-        }
+        $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn($m) => [
+            'value' => $m->value,
+            'label' => $m->label(),
+        ])->toArray();
 
         // Load encounter diagnoses for UI
         if ($carePlan->encounter) {
@@ -214,9 +212,9 @@ class CarePlanUpdate extends CarePlanCreate
                 Auth::user()->party->taxId
             );
 
-            $eHealthResponse = EHealth::carePlan()->create([
-                'signed_content' => $signedContent,
-                'signed_content_encoding' => 'base64',
+            $eHealthResponse = EHealth::carePlan()->create($this->patientUuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
             ]);
 
             $responseData = $eHealthResponse->getData();

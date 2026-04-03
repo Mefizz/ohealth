@@ -170,12 +170,25 @@
                                     </span>
                                 </td>
                                 <td class="td-input text-right align-middle">
-                                    @if($activity->status === 'NEW')
+                                    @if(in_array(strtoupper($activityStatus), ['NEW', 'DRAFT']))
                                         <button type="button"
                                                 class="text-blue-600 hover:text-blue-800 text-sm font-medium"
                                                 wire:click="openSignatureModal('sign_activity', {{ $activity->id }})">
                                             {{ __('forms.sign') }}
                                         </button>
+                                    @elseif(in_array(strtoupper($activityStatus), ['ACTIVE', 'SCHEDULED', 'IN-PROGRESS', 'IN_PROGRESS', 'ON-HOLD']))
+                                        <div class="flex flex-col space-y-2 lg:flex-row lg:space-y-0 lg:space-x-3 items-end lg:items-center">
+                                            <button type="button"
+                                                    class="text-green-600 hover:text-green-800 text-sm font-medium"
+                                                    wire:click="openSignatureModal('complete_activity', {{ $activity->id }})">
+                                                Завершити
+                                            </button>
+                                            <button type="button"
+                                                    class="text-red-500 hover:text-red-700 text-sm font-medium"
+                                                    wire:click="openSignatureModal('cancel_activity', {{ $activity->id }})">
+                                                Скасувати
+                                            </button>
+                                        </div>
                                     @endif
                                 </td>
                             </tr>

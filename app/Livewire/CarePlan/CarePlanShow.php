@@ -27,7 +27,7 @@ class CarePlanShow extends Component
     public CarePlan $carePlan;
 
     public bool $showSignatureModal = false;
-    public string $actionType = ''; // 'cancel', 'complete', 'sign_activity'
+    public string $actionType = ''; // 'cancel', 'complete', 'sign_activity', 'complete_activity', 'cancel_activity'
     public string $statusReason = ''; // Used when cancelling or completing
     public ?int $activityToSign = null;
     public array $dictionaries = [];
@@ -145,6 +145,11 @@ class CarePlanShow extends Component
             return;
         }
 
+        if (in_array($this->actionType, ['complete_activity', 'cancel_activity'])) {
+            $this->signStatusActivity($activityRepository);
+            return;
+        }
+
         if (empty($this->carePlan->uuid)) {
             if ($this->actionType === 'sign_plan') {
                 $this->signPlan($repository);
@@ -179,18 +184,39 @@ class CarePlanShow extends Component
             $apiMethod = $this->actionType === 'complete' ? 'complete' : 'cancel';
             
             $eHealthResponse = EHealth::carePlan()->{$apiMethod}(
+                $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [
-                    'signed_content'          => $signedContent,
-                    'signed_content_encoding' => 'base64',
+                    'signed_data'          => $signedContent,
+                    'signed_data_encoding' => 'base64',
                 ]
             );
 
             $responseData = $eHealthResponse->getData();
+            $finalResponse = $responseData;
+
+            // Job Polling
+            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
+                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
+                $jobApi = new \App\Classes\eHealth\Api\Job();
+                $attempts = 0;
+                do {
+                    sleep(2);
+                    $finalResponse = $jobApi->getDetails($jobId)->getData();
+                    $attempts++;
+                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
+            }
+
+            // Extract status
+            $carePlanStatus = $finalResponse['status'] ?? $payload['status'];
+            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
+                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
+                $carePlanStatus = $entity['status'] ?? $carePlanStatus;
+            }
 
             // Update local state
             $repository->updateById($this->carePlan->id, [
-                'status' => $responseData['status'] ?? $payload['status'],
+                'status' => $carePlanStatus,
             ]);
 
             $this->carePlan->refresh();
@@ -306,19 +332,7 @@ class CarePlanShow extends Component
         }
 
         // Build Payload
-        $activityPayload = removeEmptyKeys([
-            'status' => 'scheduled',
-            'do_not_perform' => false,
-            'detail' => removeEmptyKeys([
-                'kind' => $activity->kind,
-                'description' => $activity->description ?: null,
-                'scheduled_period' => array_filter([
-                    'start' => $activity->scheduled_period_start ? convertToYmd($activity->scheduled_period_start->format('d.m.Y')) : null,
-                    'end' => $activity->scheduled_period_end ? convertToYmd($activity->scheduled_period_end->format('d.m.Y')) : null,
-                ]),
-            ]),
-            'program' => $activity->program ? ['identifier' => ['value' => $activity->program]] : null,
-        ]);
+        $activityPayload = $activityRepository->formatCarePlanActivityRequest($activity);
 
         try {
             $signedContent = signatureService()->signData(
@@ -339,10 +353,40 @@ class CarePlanShow extends Component
             );
 
             $responseData = $eHealthResponse->getData();
+            $finalResponse = $responseData;
+
+            // If it is an async job, poll it
+            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
+                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
+                $jobApi = new \App\Classes\eHealth\Api\Job();
+                $attempts = 0;
+                do {
+                    sleep(2);
+                    $finalResponse = $jobApi->getDetails($jobId)->getData();
+                    $attempts++;
+                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
+            }
+
+            // Extract the actual CarePlanActivity data
+            $activityUuid = $finalResponse['id'] ?? null;
+            $activityStatus = $finalResponse['status'] ?? 'new';
+            
+            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
+                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
+                $activityUuid = $entity['id'] ?? $activityUuid;
+                $activityStatus = $entity['status'] ?? 'active';
+            }
+
+            // Store to Mongo
+            try {
+                \App\Models\MedicalEvents\Mongo\CarePlanActivity::create($finalResponse);
+            } catch (\Exception $e) {
+                Log::warning('Failed to save CarePlanActivity to Mongo: ' . $e->getMessage());
+            }
 
             $activityRepository->updateById($activity->id, [
-                'uuid' => $responseData['id'] ?? null,
-                'status' => $responseData['status'] ?? 'scheduled',
+                'status' => $activityStatus,
+                'uuid' => $activityUuid,
             ]);
 
             $this->carePlan->refresh();
@@ -363,6 +407,83 @@ class CarePlanShow extends Component
         } catch (\Throwable $exception) {
             Log::error('CarePlanActivity: unexpected error: ' . $exception->getMessage());
             Session::flash('error', __('care-plan.unexpected_error'));
+            $this->showSignatureModal = false;
+        }
+    }
+
+    private function signStatusActivity(CarePlanActivityRepository $activityRepository): void
+    {
+        if (!$this->activityToSign) {
+            Session::flash('error', __('care-plan.no_activity_selected'));
+            $this->showSignatureModal = false;
+            return;
+        }
+
+        $activity = $activityRepository->findById($this->activityToSign);
+        if (!$activity) return;
+
+        $statusMap = [
+            'cancel_activity' => 'entered_in_error', // or cancelled
+            'complete_activity' => 'completed',
+        ];
+
+        $payload = [
+            'status' => $statusMap[$this->actionType] ?? 'cancelled',
+            'status_reason' => $this->statusReason,
+        ];
+
+        try {
+            $signedContent = signatureService()->signData(
+                Arr::toSnakeCase($payload),
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                Auth::user()->party->taxId
+            );
+
+            $apiMethod = $this->actionType === 'complete_activity' ? 'complete' : 'cancel';
+            
+            $eHealthResponse = EHealth::carePlanActivity()->{$apiMethod}(
+                $this->carePlan->person->uuid,
+                $this->carePlan->uuid,
+                $activity->uuid,
+                [
+                    'signed_data'          => $signedContent,
+                    'signed_data_encoding' => 'base64',
+                ]
+            );
+
+            $responseData = $eHealthResponse->getData();
+            $finalResponse = $responseData;
+
+            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
+                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
+                $jobApi = new \App\Classes\eHealth\Api\Job();
+                $attempts = 0;
+                do {
+                    sleep(2);
+                    $finalResponse = $jobApi->getDetails($jobId)->getData();
+                    $attempts++;
+                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
+            }
+
+            $activityStatus = $finalResponse['status'] ?? $payload['status'];
+            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
+                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
+                $activityStatus = $entity['status'] ?? $activityStatus;
+            }
+
+            $activityRepository->updateById($activity->id, [
+                'status' => $activityStatus,
+            ]);
+
+            $this->carePlan->refresh();
+            Session::flash('success', __('care-plan.activity_updated'));
+            $this->showSignatureModal = false;
+
+        } catch (\Throwable $exception) {
+            Log::error('CarePlanActivityStatus: error: ' . $exception->getMessage());
+            Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         }
     }

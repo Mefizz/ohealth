@@ -61,9 +61,9 @@ class CarePlan extends Request
      * @return PromiseInterface|EHealthResponse
      * @throws ConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function cancel(string $id, array $payload): PromiseInterface|EHealthResponse
+    public function cancel(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        return $this->patch(self::URL . "/$id/actions/cancel", $payload);
+        return $this->patch("/api/patients/$personId/care_plans/$id/actions/cancel", $payload);
     }
 
     /**
@@ -74,8 +74,8 @@ class CarePlan extends Request
      * @return PromiseInterface|EHealthResponse
      * @throws ConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function complete(string $id, array $payload): PromiseInterface|EHealthResponse
+    public function complete(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        return $this->patch(self::URL . "/$id/actions/complete", $payload);
+        return $this->patch("/api/patients/$personId/care_plans/$id/actions/complete", $payload);
     }
 }

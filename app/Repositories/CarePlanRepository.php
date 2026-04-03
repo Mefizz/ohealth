@@ -53,4 +53,33 @@ class CarePlanRepository
         }
         return $carePlan->update($data);
     }
+
+    /**
+     * Format Care Plan data into the proper FHIR schema for eHealth API requests.
+     */
+    public function formatCarePlanRequest(array $form, ?string $encounterUuid, array $encounterData, ?string $employeeUuid): array
+    {
+        return \App\Core\Arr::removeEmptyKeys([
+            'intent' => 'order',
+            'status' => 'new',
+            'category' => $form['category'],
+            'instantiates_protocol' => !empty($form['clinical_protocol']) ? [['display' => $form['clinical_protocol']]] : null,
+            'context' => !empty($form['context']) ? ['identifier' => ['type_code' => $form['context']]] : null,
+            'title' => $form['title'],
+            'period' => array_filter([
+                'start' => convertToYmd($form['period_start']),
+                'end' => !empty($form['period_end']) ? convertToYmd($form['period_end']) : null,
+            ]),
+            'addresses' => $encounterData['addresses'] ?? null,
+            'supporting_info' => array_merge(
+                array_map(fn($e) => ['display' => $e['name']], $form['episodes'] ?? []),
+                array_map(fn($m) => ['display' => $m['name']], $form['medical_records'] ?? [])
+            ),
+            'encounter' => !empty($form['encounter']) ? ['identifier' => ['value' => $form['encounter']]] : null,
+            'care_manager' => ['identifier' => ['value' => $employeeUuid]],
+            'description' => $form['description'] ?: null,
+            'note' => $form['note'] ?: null,
+            'inform_with' => $form['inform_with'] ?: null,
+        ]);
+    }
 }

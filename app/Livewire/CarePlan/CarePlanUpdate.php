@@ -178,30 +178,13 @@ class CarePlanUpdate extends CarePlanCreate
 
         $encounterData = $this->resolveEncounterData();
 
-        // Build eHealth payload
-        $carePlanPayload = removeEmptyKeys([
-            'intent' => 'order',
-            'status' => 'new',
-            'category' => $this->form['category'],
-            'instantiates_protocol' => $this->form['clinical_protocol'] ? [['display' => $this->form['clinical_protocol']]] : null,
-            'context' => $this->form['context'] ? ['identifier' => ['type_code' => $this->form['context']]] : null,
-            'title' => $this->form['title'],
-            'period' => array_filter([
-                'start' => convertToYmd($this->form['period_start']),
-                'end' => !empty($this->form['period_end'])
-                    ? convertToYmd($this->form['period_end']) : null,
-            ]),
-            'addresses' => $encounterData['addresses'],
-            'supporting_info' => array_merge(
-                array_map(fn($e) => ['display' => $e['name']], $this->form['episodes']),
-                array_map(fn($m) => ['display' => $m['name']], $this->form['medical_records'])
-            ),
-            'encounter' => $this->form['encounter'] ? ['identifier' => ['value' => $this->form['encounter']]] : null,
-            'care_manager' => ['identifier' => ['value' => Auth::user()?->activeEmployee()?->uuid]],
-            'description' => $this->form['description'] ?: null,
-            'note' => $this->form['note'] ?: null,
-            'inform_with' => $this->form['inform_with'] ?: null,
-        ]);
+        // Build eHealth payload via Repository
+        $carePlanPayload = $repository->formatCarePlanRequest(
+            $this->form,
+            $this->form['encounter'] ?? null,
+            $encounterData,
+            Auth::user()?->activeEmployee()?->uuid
+        );
 
         try {
             $signedContent = signatureService()->signData(
@@ -218,12 +201,44 @@ class CarePlanUpdate extends CarePlanCreate
             ]);
 
             $responseData = $eHealthResponse->getData();
+            $finalResponse = $responseData;
+
+            // If it is an async job, poll it
+            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
+                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
+                $jobApi = new \App\Classes\eHealth\Api\Job();
+                $attempts = 0;
+                do {
+                    sleep(2);
+                    $finalResponse = $jobApi->getDetails($jobId)->getData();
+                    $attempts++;
+                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
+            }
+
+            // Extract the actual CarePlan data
+            $carePlanUuid = $finalResponse['id'] ?? null;
+            $carePlanStatus = $finalResponse['status'] ?? 'new';
+            $carePlanRequisition = $finalResponse['requisition'] ?? null;
+            
+            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
+                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
+                $carePlanUuid = $entity['id'] ?? $carePlanUuid;
+                $carePlanStatus = $entity['status'] ?? 'active';
+                $carePlanRequisition = $entity['requisition'] ?? $carePlanRequisition;
+            }
+
+            // Store to Mongo
+            try {
+                \App\Models\MedicalEvents\Mongo\CarePlan::create($finalResponse);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to save CarePlan to Mongo: ' . $e->getMessage());
+            }
 
             // Update local model with eHealth response
             $repository->updateById($this->carePlan->id, [
-                'uuid' => $responseData['id'] ?? null,
-                'status' => $responseData['status'] ?? 'new',
-                'requisition' => $responseData['requisition'] ?? null,
+                'uuid' => $carePlanUuid,
+                'status' => $carePlanStatus,
+                'requisition' => $carePlanRequisition,
                 // Update other fields too just in case they were changed before signing
                 'category' => $this->form['category'],
                 'title' => $this->form['title'],

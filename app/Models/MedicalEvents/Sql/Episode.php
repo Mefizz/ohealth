@@ -38,7 +38,11 @@ class Episode extends Model
         'updated_at'
     ];
 
-    protected $casts = ['active' => EpisodeStatus::class];
+    protected $casts = [
+        'status' => EpisodeStatus::class,
+        'ehealth_inserted_at' => 'datetime',
+        'ehealth_updated_at' => 'datetime'
+    ];
 
     public function period(): MorphOne
     {

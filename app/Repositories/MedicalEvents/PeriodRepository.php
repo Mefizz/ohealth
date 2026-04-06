@@ -11,22 +11,31 @@ class PeriodRepository extends BaseRepository
     /**
      * Sync period data for a model.
      *
-     * @param  Model  $model
-     * @param  array  $periodData
+     * @param  Model  $periodable
+     * @param  null|array  $periodData
+     * @param  string  $relation
      * @return void
      */
-    public function sync(Model $model, array $periodData): void
+    public function sync(Model $periodable, ?array $periodData, string $relation = 'period'): void
     {
         if (empty($periodData)) {
-            // If no period data, remove existing period
-            $model->period()->delete();
+            $periodable->{$relation}()->delete();
 
             return;
         }
 
-        $model->period()->updateOrCreate([], [
-            'start' => $periodData['start'],
-            'end' => $periodData['end'] ?? null
-        ]);
+        $existing = $periodable->{$relation};
+
+        if ($existing) {
+            $existing->update([
+                'start' => $periodData['start'],
+                'end' => $periodData['end'] ?? null
+            ]);
+        } else {
+            $periodable->{$relation}()->create([
+                'start' => $periodData['start'],
+                'end' => $periodData['end'] ?? null
+            ]);
+        }
     }
 }

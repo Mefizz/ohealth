@@ -99,16 +99,56 @@ class EpisodeRepository extends BaseRepository
      *
      * @param  int  $personId
      * @param  array  $validatedData
+     * @throws Throwable
      */
     public function sync(int $personId, array $validatedData): void
     {
-        foreach ($validatedData as $data) {
-            $episode = $this->model::updateOrCreate(
-                ['uuid' => $data['uuid']],
-                array_merge(['person_id' => $personId], Arr::except($data, ['uuid', 'period']))
-            );
+        DB::transaction(function () use ($personId, $validatedData) {
+            $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
-            Repository::period()->sync($episode, $data['period']);
-        }
+            // Load existing episodes with relations
+            $existingEpisodes = $this->model::whereIn('uuid', $apiUuids)
+                ->with('period')
+                ->get()
+                ->keyBy('uuid');
+
+            // Delete episodes and relationships that exist in DB but not in API response
+            $this->deleteOrphaned($personId, $apiUuids);
+
+            foreach ($validatedData as $data) {
+                $existing = $existingEpisodes->get($data['uuid']);
+
+                $episodeData = array_merge(
+                    ['person_id' => $personId],
+                    Arr::except($data, ['uuid', 'period'])
+                );
+
+                if ($existing) {
+                    $existing->update($episodeData);
+                    $episode = $existing;
+                } else {
+                    $episode = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $episodeData)
+                    );
+                }
+
+                Repository::period()->sync($episode, $data['period']);
+            }
+        });
+    }
+
+    /**
+     * Remove episodes that are no longer in API response.
+     *
+     * @param  int  $personId
+     * @param  array  $apiUuids
+     * @return void
+     */
+    private function deleteOrphaned(int $personId, array $apiUuids): void
+    {
+        $this->model::where('person_id', $personId)
+            ->whereNotNull('uuid')
+            ->whereNotIn('uuid', $apiUuids)
+            ->delete();
     }
 }

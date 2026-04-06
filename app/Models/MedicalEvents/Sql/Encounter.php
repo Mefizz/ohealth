@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models\MedicalEvents\Sql;
 
 use App\Enums\Person\EncounterStatus;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -102,5 +104,31 @@ class Encounter extends Model
     public function performerSpeciality(): BelongsTo
     {
         return $this->belongsTo(CodeableConcept::class, 'performer_speciality_id');
+    }
+
+    /**
+     * Scope to load only sync-related relationships.
+     */
+    #[Scope]
+    protected function withSyncRelationships(Builder $query): Builder
+    {
+        return $query->with([
+            'class',
+            'type.coding',
+            'performerSpeciality.coding',
+            'episode'
+        ]);
+    }
+
+    /**
+     * Scope to filter by person ID and exclude specific UUIDs.
+     * Only includes encounters with UUIDs (from API), not local ones.
+     */
+    #[Scope]
+    protected function orphanedForPerson(Builder $query, int $personId, array $excludeUuids): Builder
+    {
+        return $query->where('person_id', $personId)
+            ->whereNotNull('uuid')
+            ->whereNotIn('uuid', $excludeUuids);
     }
 }

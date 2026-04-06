@@ -84,7 +84,7 @@ class PatientSummary extends BasePatientComponent
     public function syncEncounters(): void
     {
         try {
-            $response = EHealth::patient()->getShortEncounters($this->uuid);
+            $response = EHealth::encounter()->getShortBySearchParams($this->uuid);
             $validatedData = $response->validate();
 
             try {
@@ -117,7 +117,7 @@ class PatientSummary extends BasePatientComponent
     public function syncClinicalImpressions(): void
     {
         try {
-            $response = EHealth::patient()->getClinicalImpressions($this->uuid);
+            $response = EHealth::clinicalImpression()->getSummary($this->uuid);
             $validatedData = $response->validate();
 
             try {
@@ -150,7 +150,7 @@ class PatientSummary extends BasePatientComponent
     public function syncImmunizations(): void
     {
         try {
-            $response = EHealth::patient()->getImmunizations($this->uuid);
+            $response = EHealth::immunization()->getSummary($this->uuid);
             $validatedData = $response->validate();
 
             try {
@@ -180,7 +180,7 @@ class PatientSummary extends BasePatientComponent
             ->toArray();
     }
 
-    public function getObservations(): void
+    public function syncObservations(): void
     {
         try {
             $response = EHealth::observation()->getBySearchParams(
@@ -208,7 +208,7 @@ class PatientSummary extends BasePatientComponent
         }
     }
 
-    public function syncObservations(): void
+    public function getObservations(): void
     {
         $this->observations = Observation::wherePersonId($this->id)
             ->withAllRelations()
@@ -239,8 +239,19 @@ class PatientSummary extends BasePatientComponent
     public function syncDiagnosticReports(): void
     {
         try {
-            $response = EHealth::patient()->getDiagnosticReports($this->uuid);
+            $response = EHealth::diagnosticReport()->getBySearchParams(
+                $this->uuid,
+                ['managing_organization_id' => legalEntity()->uuid]
+            );
             $validatedData = $response->validate();
+
+            try {
+                Repository::diagnosticReport()->sync($this->id, $validatedData);
+                Session::flash('success', __('patients.messages.diagnostic_reports_synced_successfully'));
+            } catch (Throwable $exception) {
+                $this->logDatabaseErrors($exception, 'Error while synchronizing diagnostic reports');
+                Session::flash('error', __('messages.database_error'));
+            }
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting diagnostic reports');
 

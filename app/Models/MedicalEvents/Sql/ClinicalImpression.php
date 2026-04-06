@@ -49,7 +49,11 @@ class ClinicalImpression extends Model
         'updated_at'
     ];
 
-    protected $casts = ['status' => ClinicalImpressionStatus::class];
+    protected $casts = [
+        'status' => ClinicalImpressionStatus::class,
+        'ehealth_inserted_at' => 'datetime',
+        'ehealth_updated_at' => 'datetime'
+    ];
 
     protected $appends = [
         'effective_period_start_date',
@@ -139,7 +143,7 @@ class ClinicalImpression extends Model
 
     public function problems(): BelongsToMany
     {
-        return $this->belongsToMany(Identifier::class, 'clinical_impression_problems');
+        return $this->belongsToMany(Identifier::class, 'clinical_impression_problems')->withTimestamps();
     }
 
     public function findings(): HasMany
@@ -149,6 +153,6 @@ class ClinicalImpression extends Model
 
     public function supportingInfo(): BelongsToMany
     {
-        return $this->belongsToMany(Identifier::class, 'clinical_impression_supporting_info');
+        return $this->belongsToMany(Identifier::class, 'clinical_impression_supporting_info')->withTimestamps();
     }
 }

@@ -200,7 +200,8 @@ return [
         'active' => 'Діючий',
         'closed' => 'Завершений',
         'entered_in_error' => 'Внесений помилково',
-        'valid' => 'Дійсний'
+        'valid' => 'Дійсний',
+        'final' => 'Кінцева'
     ],
 
     'source' => [
@@ -506,5 +507,6 @@ return [
         'clinical_impressions_synced_successfully' => 'Клінічні взаємодії успішно синхронізовані',
         'immunizations_synced_successfully' => 'Вакцинації успішно синхронізовані',
         'observations_synced_successfully' => 'Обстеження успішно синхронізовані',
+        'diagnostic_reports_synced_successfully' => 'Діагностичні звіти успішно синхронізовані',
     ]
 ];

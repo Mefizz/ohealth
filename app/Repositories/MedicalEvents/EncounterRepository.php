@@ -8,9 +8,12 @@ use App\Classes\eHealth\Api\PatientApi;
 use App\Core\Arr;
 use App\Models\MedicalEvents\Mongo\Encounter as EncounterMongo;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\Coding;
 use App\Models\MedicalEvents\Sql\Condition;
+use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Encounter as EncounterSql;
 use App\Models\MedicalEvents\Sql\EncounterDiagnose;
+use App\Models\MedicalEvents\Sql\Identifier;
 use Exception;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
@@ -856,7 +859,7 @@ class EncounterRepository extends BaseRepository
     }
 
     /**
-     * Sync encounter data and related data by deleting and creating.
+     * Sync encounter data and related data by comparing existing data with API data.
      *
      * @param  int  $personId
      * @param  array  $validatedData
@@ -866,30 +869,28 @@ class EncounterRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
+            // Get UUIDs from API data
+            $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
+
             // Load existing encounters with relations
-            $uuids = collect($validatedData)->pluck('uuid')->toArray();
-            $existingEncounters = $this->model::whereIn('uuid', $uuids)
-                ->with([
-                    'class',
-                    'type.coding',
-                    'performerSpeciality.coding',
-                    'episode.type.coding'
-                ])
+            $existingEncounters = $this->model::whereIn('uuid', $apiUuids)
+                ->withSyncRelationships()
                 ->get()
                 ->keyBy('uuid');
+
+            // Delete encounters that exist in DB but not in API response
+            $this->deleteOrphaned($personId, $apiUuids);
 
             foreach ($validatedData as $data) {
                 $existing = $existingEncounters->get($data['uuid']);
 
-                // Store relationships
-                $class = Repository::coding()->store($data['class']);
+                // Sync relationships
+                $class = $this->syncCoding($existing, $data['class'], 'class');
+                $type = $this->syncCodeableConcept($existing, $data['type'], 'type');
+                $performerSpeciality = $this->syncCodeableConcept($existing, $data['performer_speciality'], 'performerSpeciality');
+                $episode = $this->syncIdentifier($existing, $data['episode'], 'episode');
 
-                $type = Repository::codeableConcept()->store($data['type']);
-                $performerSpeciality = Repository::codeableConcept()->store($data['performer_speciality']);
-
-                $episode = Repository::identifier()->store($data['episode']['identifier']['value']);
-                Repository::codeableConcept()->attach($episode, $data['episode']);
-
+                // Update or create encounter
                 $encounter = $this->model::updateOrCreate(
                     ['uuid' => $data['uuid']],
                     [
@@ -902,39 +903,54 @@ class EncounterRepository extends BaseRepository
                     ]
                 );
 
-                // Remove old relationships if exist
-                if ($existing) {
-                    $this->cleanupRelations([
-                        'class' => $existing->class,
-                        'type' => $existing->type,
-                        'performerSpeciality' => $existing->performerSpeciality,
-                        'episode' => $existing->episode
-                    ]);
-                }
-
                 Repository::period()->sync($encounter, $data['period']);
             }
         });
     }
 
     /**
-     * Remove orphaned relations after encounter FK update.
+     * Delete encounters that exist in DB but not in API response.
      *
-     * @param  array  $old
+     * @param  int  $personId
+     * @param  array  $apiUuids
      * @return void
      */
-    private function cleanupRelations(array $old): void
+    private function deleteOrphaned(int $personId, array $apiUuids): void
     {
-        $old['class']->delete();
+        $orphanedEncounters = $this->model::orphanedForPerson($personId, $apiUuids)
+            ->withSyncRelationships()
+            ->get();
 
-        $old['type']->coding()->delete();
-        $old['type']->delete();
+        if ($orphanedEncounters->isEmpty()) {
+            return;
+        }
 
-        $old['performerSpeciality']->coding()->delete();
-        $old['performerSpeciality']->delete();
+        DB::transaction(static function () use ($orphanedEncounters) {
+            $classIds = $orphanedEncounters->pluck('class_id')->filter()->toArray();
+            $typeIds = $orphanedEncounters->pluck('type_id')->filter()->toArray();
+            $performerSpecialityIds = $orphanedEncounters->pluck('performer_speciality_id')->filter()->toArray();
+            $episodeIds = $orphanedEncounters->pluck('episode_id')->filter()->toArray();
 
-        $old['episode']->type->each(fn (CodeableConcept $cc) => $cc->coding()->delete());
-        $old['episode']->type()->delete();
-        $old['episode']->delete();
+            $conceptIds = array_merge($typeIds, $performerSpecialityIds);
+
+            $episodeConceptIds = CodeableConcept::whereCodeableConceptableType(Identifier::class)
+                ->whereIn('codeable_conceptable_id', $episodeIds)
+                ->pluck('id')
+                ->toArray();
+
+            $orphanedEncounters->each->delete();
+
+            // Codeable concept
+            Coding::whereCodeableType(CodeableConcept::class)
+                ->whereIn('codeable_id', array_merge($conceptIds, $episodeConceptIds))
+                ->delete();
+            CodeableConcept::whereIn('id', array_merge($conceptIds, $episodeConceptIds))->delete();
+
+            // Identifier
+            Identifier::whereIn('id', $episodeIds)->delete();
+
+            // Coding
+            Coding::whereIn('id', $classIds)->delete();
+        });
     }
 }

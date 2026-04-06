@@ -22,6 +22,11 @@ class Period extends Model
         'updated_at'
     ];
 
+    protected $casts = [
+        'start' => 'datetime',
+        'end' => 'datetime'
+    ];
+
     public function periodable(): MorphTo
     {
         return $this->morphTo();

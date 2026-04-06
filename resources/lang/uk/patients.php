@@ -269,7 +269,7 @@ return [
 
     // Observations record
     'observations' => 'Обстеження',
-    'state_search' => 'Пошук станів',
+    'condition_search' => 'Пошук станів',
     'vaccination_search' => 'Пошук вакцинації',
 
     // Encounter

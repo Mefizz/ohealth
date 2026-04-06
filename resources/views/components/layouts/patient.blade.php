@@ -59,10 +59,10 @@
                     {{ __('patients.vaccinations') }}
                 </a>
 
-                <a href="{{ route('persons.state', [legalEntity(), 'id' => $id]) }}"
-                   class="summary-tab {{ request()->routeIs('persons.state') ? 'summary-tab-active' : 'summary-tab-inactive' }}"
+                <a href="{{ route('persons.condition', [legalEntity(), 'id' => $id]) }}"
+                   class="summary-tab {{ request()->routeIs('persons.condition') ? 'summary-tab-active' : 'summary-tab-inactive' }}"
                 >
-                    {{ __('patients.states') }}
+                    {{ __('patients.condition') }}
                 </a>
 
                 <a href="javascript:void(0)"

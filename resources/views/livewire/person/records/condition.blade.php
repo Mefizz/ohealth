@@ -15,7 +15,7 @@
             {{ __('patients.data_access') }}
         </button>
 
-        <button wire:click.prevent="syncVaccinations"
+        <button wire:click.prevent="syncConditions"
                 type="button"
                 class="button-sync flex items-center gap-2 whitespace-nowrap px-5 py-2 text-sm shadow-sm"
         >
@@ -28,21 +28,21 @@
         <div class="w-full mt-6" x-data="{ showAdditionalParams: $wire.entangle('showAdditionalParams') }">
             <div class="mb-4 flex items-center gap-1 font-semibold text-gray-900 dark:text-gray-100">
                 @icon('search-outline', 'w-4.5 h-4.5')
-                <p>{{ __('patients.vaccination_search') }}</p>
+                <p>{{ __('patients.condition_search') }}</p>
             </div>
 
             <div class="form-row-3 mb-6">
                 <div class="form-group group">
-                    <select wire:model="filterVaccine"
-                            name="filterVaccine"
-                            id="filterVaccine"
+                    <select wire:model="filterCode"
+                            name="filterCode"
+                            id="filterCode"
                             class="input-select peer w-full"
                     >
                         <option value="">{{ __('forms.select') }} ...</option>
-                        <option value="SarsCov2_Pr">SarsCov2_Pr</option>
+                        <option value="A08">A08 - Припухлість</option>
                     </select>
-                    <label for="filterVaccine" class="label">
-                        {{ __('patients.vaccine') }}
+                    <label for="filterCode" class="label">
+                        {{ __('patients.code_and_name') }}
                     </label>
                 </div>
 
@@ -135,7 +135,7 @@
                 </div>
             </div>
 
-            <div x-show="showAdditionalParams" x-transition x-cloak wire:key="vaccination-search-filters">
+            <div x-show="showAdditionalParams" x-transition x-cloak wire:key="condition-search-filters">
                 <div class="form-row-3 mb-6">
                     <div class="form-group group">
                         <div class="datepicker-wrapper">
@@ -154,42 +154,95 @@
                     </div>
 
                     <div class="form-group group">
+                        <select wire:model="filterClinicalStatus"
+                                name="filterClinicalStatus"
+                                id="filterClinicalStatus"
+                                class="input-select peer w-full"
+                        >
+                            <option value="">{{ __('forms.select') }} ...</option>
+                            <option value="active">{{ __('patients.active_status') }}</option>
+                        </select>
+                        <label for="filterClinicalStatus" class="label">
+                            {{ __('patients.status_clinical') }}
+                        </label>
+                    </div>
+
+                    <div class="form-group group">
+                        <select wire:model="filterSeverity"
+                                name="filterSeverity"
+                                id="filterSeverity"
+                                class="input-select peer w-full"
+                        >
+                            <option value="">{{ __('forms.select') }} ...</option>
+                            <option value="moderate">{{ __('patients.moderate_severity') }}</option>
+                        </select>
+                        <label for="filterSeverity" class="label">
+                            {{ __('patients.condition') }}
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-row-3 mb-6">
+                    <div class="form-group group">
                         <div class="datepicker-wrapper">
-                            <input wire:model="filterEnteredAtRange"
+                            <input wire:model="filterStartedAtRange"
                                    type="text"
-                                   name="filterEnteredAtRange"
-                                   id="filterEnteredAtRange"
+                                   name="filterStartedAtRange"
+                                   id="filterStartedAtRange"
                                    class="datepicker-input with-leading-icon input peer w-full"
                                    placeholder=" "
                                    autocomplete="off"
                             />
-                            <label for="filterEnteredAtRange" class="wrapped-label">
-                                {{ __('patients.date_entered') }}
+                            <label for="filterStartedAtRange" class="wrapped-label">
+                                {{ __('patients.start_date') }}
                             </label>
                         </div>
                     </div>
 
                     <div class="form-group group">
-                        <div class="relative">
-                            <select wire:model="filterPerformer"
-                                    name="filterPerformer"
-                                    id="filterPerformer"
-                                    class="input-select peer w-full"
-                            >
-                                <option value="">{{ __('forms.select') }} ...</option>
-                                <option value="1">Шевченко Т.Г.</option>
-                            </select>
-                            <label for="filterPerformer" class="label">
-                                {{ __('patients.performer') }}
-                            </label>
-                            <button type="button" wire:click="$set('filterPerformer', '')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" x-show="$wire.filterPerformer">
-                                @icon('close', 'w-4 h-4')
-                            </button>
-                        </div>
+                        <select wire:model="filterVerificationStatus"
+                                name="filterVerificationStatus"
+                                id="filterVerificationStatus"
+                                class="input-select peer w-full"
+                        >
+                            <option value="">{{ __('forms.select') }} ...</option>
+                            <option value="final">{{ __('patients.final') }}</option>
+                        </select>
+                        <label for="filterVerificationStatus" class="label">
+                            {{ __('patients.verification_status') }}
+                        </label>
+                    </div>
+
+                    <div class="form-group group">
+                        <select wire:model="filterBodyPart"
+                                name="filterBodyPart"
+                                id="filterBodyPart"
+                                class="input-select peer w-full"
+                        >
+                            <option value="">{{ __('forms.select') }} ...</option>
+                            <option value="head">{{ __('patients.head') }}</option>
+                        </select>
+                        <label for="filterBodyPart" class="label">
+                            {{ __('patients.body_part') }}
+                        </label>
                     </div>
                 </div>
 
-                <div class="form-row-3 mb-6">
+                <div class="form-row-3 mb-9">
+                    <div class="form-group group">
+                        <select wire:model="filterPerformer"
+                                name="filterPerformer"
+                                id="filterPerformer"
+                                class="input-select peer w-full"
+                        >
+                            <option value="">{{ __('forms.select') }} ...</option>
+                            <option value="1">Шевченко Т.Г.</option>
+                        </select>
+                        <label for="filterPerformer" class="label">
+                            {{ __('patients.doctor') }}
+                        </label>
+                    </div>
+
                     <div class="form-group group">
                         <select wire:model="filterSource"
                                 name="filterSource"
@@ -203,166 +256,6 @@
                             {{ __('patients.source_label') }}
                         </label>
                     </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterStatus"
-                                name="filterStatus"
-                                id="filterStatus"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="done">{{ __('patients.status_done') }}</option>
-                        </select>
-                        <label for="filterStatus" class="label">
-                            {{ __('patients.status_label') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterDosage"
-                                name="filterDosage"
-                                id="filterDosage"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="3ml">3 ML</option>
-                        </select>
-                        <label for="filterDosage" class="label">
-                            {{ __('patients.dosage') }}
-                        </label>
-                    </div>
-                </div>
-
-                <div class="form-row-3 mb-6">
-                    <div class="form-group group">
-                        <select wire:model="filterManufacturer"
-                                name="filterManufacturer"
-                                id="filterManufacturer"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="denmark">Данія (55998)</option>
-                        </select>
-                        <label for="filterManufacturer" class="label">
-                            {{ __('patients.manufacturer_and_batch') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterReason"
-                                name="filterReason"
-                                id="filterReason"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="calendar">Згідно календаря щеплень</option>
-                        </select>
-                        <label for="filterReason" class="label">
-                            {{ __('patients.reason') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterBodyPart"
-                                name="filterBodyPart"
-                                id="filterBodyPart"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="left_arm">Ліва рука</option>
-                        </select>
-                        <label for="filterBodyPart" class="label">
-                            {{ __('patients.body_part') }}
-                        </label>
-                    </div>
-                </div>
-
-                <div class="form-row-3 mb-6">
-                    <div class="form-group group">
-                        <select wire:model="filterWasPerformed"
-                                name="filterWasPerformed"
-                                id="filterWasPerformed"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="yes">Так</option>
-                        </select>
-                        <label for="filterWasPerformed" class="label">
-                            {{ __('patients.was_performed') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterTargetDisease"
-                                name="filterTargetDisease"
-                                id="filterTargetDisease"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="1">Кір</option>
-                        </select>
-                        <label for="filterTargetDisease" class="label">
-                            {{ __('patients.target_diseases') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterProtocolAuthor"
-                                name="filterProtocolAuthor"
-                                id="filterProtocolAuthor"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="1">Міністерство Охорони Здоров'я</option>
-                        </select>
-                        <label for="filterProtocolAuthor" class="label">
-                            {{ __('patients.protocol_author') }}
-                        </label>
-                    </div>
-                </div>
-
-                <div class="form-row-3 mb-9">
-                    <div class="form-group group">
-                        <select wire:model="filterDoseSequence"
-                                name="filterDoseSequence"
-                                id="filterDoseSequence"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="1">1</option>
-                        </select>
-                        <label for="filterDoseSequence" class="label">
-                            {{ __('patients.dose_sequence') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterDoseCount"
-                                name="filterDoseCount"
-                                id="filterDoseCount"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="1">1</option>
-                        </select>
-                        <label for="filterDoseCount" class="label">
-                            {{ __('patients.series_of_doses_by_protocol') }}
-                        </label>
-                    </div>
-
-                    <div class="form-group group">
-                        <select wire:model="filterImmunizationStage"
-                                name="filterImmunizationStage"
-                                id="filterImmunizationStage"
-                                class="input-select peer w-full"
-                        >
-                            <option value="">{{ __('forms.select') }} ...</option>
-                            <option value="1">1</option>
-                        </select>
-                        <label for="filterImmunizationStage" class="label">
-                            {{ __('patients.immunization_series') }}
-                        </label>
-                    </div>
                 </div>
             </div>
 
@@ -374,15 +267,15 @@
                         </div>
 
                         <div class="record-inner-column !pl-4 flex-1">
-                            <div class="record-inner-label">{{ __('patients.vaccine') }}</div>
-                            <div class="record-inner-value text-[17px] font-semibold text-gray-900 dark:text-gray-100">SarsCov2_Pr</div>
+                            <div class="record-inner-label">{{ __('patients.code_and_name') }}</div>
+                            <div class="record-inner-value text-[17px] font-semibold text-gray-900 dark:text-gray-100">A08 - Припухлість</div>
                         </div>
 
                         <div class="record-inner-column-bordered w-full md:w-[180px] shrink-0">
-                            <div class="record-inner-label">{{ __('patients.status_label') }}</div>
+                            <div class="record-inner-label">{{ __('patients.status_clinical') }}</div>
                             <div>
-                                <span class="record-inner-status-badge">
-                                    {{ __('patients.status_done') }}
+                                <span class="record-inner-status-badge text-[12px] px-2.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded-full font-medium">
+                                    {{ __('patients.active_status') }}
                                 </span>
                             </div>
                         </div>
@@ -442,126 +335,87 @@
                         </div>
                     </div>
 
-                    <div class="record-inner-body grid grid-cols-1 xl:grid-cols-[1.5fr_minmax(340px,1fr)_160px] divide-y xl:divide-y-0 xl:divide-x divide-gray-200 dark:divide-gray-700 !p-0">
+                    <div class="record-inner-body grid grid-cols-1 xl:grid-cols-[2.2fr_1.5fr_minmax(280px,1fr)] divide-y xl:divide-y-0 xl:divide-x divide-gray-200 dark:divide-gray-700 !p-0">
                         <div class="p-3.5 pl-4 overflow-hidden">
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3">
                                 <div class="space-y-2.5 min-w-0">
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.dosage') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold">3 ML</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.type') }}</div>
+                                        <div class="record-inner-value text-[14px] font-semibold">{{ __('patients.basic') }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.manufacturer_and_batch') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold break-words">Данія (55998)</div>
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.performer') }}</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.doctor') }}</div>
                                         <div class="record-inner-value text-[14px] font-semibold break-words">Шевченко Т.Г.</div>
                                     </div>
                                 </div>
 
                                 <div class="space-y-2.5 min-w-0">
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.route') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold break-words">Внутрішньом'язево</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.verification_status') }}</div>
+                                        <div class="record-inner-value text-[14px] font-semibold uppercase">{{ __('patients.final') }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.body_part') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold break-words">Праве плече</div>
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.date_time_entered') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold">12:00 03.04.2025</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.condition') }}</div>
+                                        <div class="record-inner-value text-[14px] font-semibold break-words">{{ __('patients.moderate_severity') }}</div>
                                     </div>
                                 </div>
 
                                 <div class="space-y-2.5 min-w-0">
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.reason') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold break-words">Згідно календаря щеплень</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.body_part') }}</div>
+                                        <div class="record-inner-value text-[14px] font-semibold break-words">{{ __('patients.head') }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.was_performed') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold">Так</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.start_date') }}</div>
+                                        <div class="record-inner-value text-[14px] font-semibold">02.02.2025</div>
                                     </div>
                                 </div>
 
                                 <div class="space-y-2.5 min-w-0">
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.reactions') }}</div>
-                                        <div class="record-inner-value text-[14px]">-</div>
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px]">{{ __('patients.date_time_performed') }}</div>
-                                        <div class="record-inner-value text-[14px] font-semibold">10:00 02.04.2025</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('patients.created') }}</div>
+                                        <div class="record-inner-value text-[14px] font-semibold">04.02.2026</div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="p-3.5 bg-gray-50/5 dark:bg-gray-800/20">
-                            <div class="record-inner-label font-bold text-gray-900 dark:text-gray-100 mb-2">{{ __('patients.vaccination_protocol') }}:</div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
-                                <ul class="space-y-2.5">
+                        <div class="p-4 bg-gray-50/5 dark:bg-gray-800/20">
+                            <div class="record-inner-label font-bold text-gray-900 dark:text-gray-100 mb-2.5 text-[12px]">{{ __('patients.evidence') }}:</div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                                <ul class="space-y-2">
                                     <li class="flex items-start gap-1.5 text-[13px] leading-tight">
                                         <span class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></span>
                                         <div class="min-w-0">
-                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0">{{ __('patients.target_diseases') }}:</div>
-                                            <div class="text-gray-800 dark:text-gray-200 font-semibold break-words">Кір, краснуха</div>
-                                        </div>
-                                    </li>
-                                    <li class="flex items-start gap-1.5 text-[13px] leading-tight">
-                                        <span class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></span>
-                                        <div class="min-w-0">
-                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0">{{ __('patients.protocol_author') }}:</div>
-                                            <div class="text-gray-800 dark:text-gray-200 font-semibold uppercase tracking-wide text-[11px] break-words">МОЗ України</div>
+                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0.5 uppercase">{{ __('patients.evidence_conditions') }}:</div>
+                                            <div class="text-gray-800 dark:text-gray-200 font-semibold break-words whitespace-normal">- A01 - Кома</div>
                                         </div>
                                     </li>
                                 </ul>
-                                <ul class="space-y-2.5">
+                                <ul class="space-y-2">
                                     <li class="flex items-start gap-1.5 text-[13px] leading-tight">
                                         <span class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></span>
                                         <div class="min-w-0">
-                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0">{{ __('patients.dose_sequence') }}:</div>
-                                            <div class="text-gray-800 dark:text-gray-200 font-semibold">1</div>
-                                        </div>
-                                    </li>
-                                    <li class="flex items-start gap-1.5 text-[13px] leading-tight">
-                                        <span class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></span>
-                                        <div class="min-w-0">
-                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0">{{ __('patients.immunization_series') }}:</div>
-                                            <div class="text-gray-800 dark:text-gray-200 font-semibold">1</div>
-                                        </div>
-                                    </li>
-                                </ul>
-                                <ul class="space-y-2.5">
-                                    <li class="flex items-start gap-1.5 text-[13px] leading-tight">
-                                        <span class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></span>
-                                        <div class="min-w-0">
-                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0">{{ __('patients.series_of_doses_by_protocol') }}:</div>
-                                            <div class="text-gray-800 dark:text-gray-200 font-semibold">1</div>
-                                        </div>
-                                    </li>
-                                    <li class="flex items-start gap-1.5 text-[13px] leading-tight">
-                                        <span class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></span>
-                                        <div class="min-w-0">
-                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0">{{ __('patients.protocol_description') }}:</div>
-                                            <div class="text-gray-800 dark:text-gray-200 font-semibold break-words">Опис</div>
+                                            <div class="text-gray-500 dark:text-gray-400 text-[10px] mb-0.5 uppercase">{{ __('patients.evidence_observations') }}:</div>
+                                            <div class="text-gray-800 dark:text-gray-200 font-semibold break-all leading-relaxed">
+                                                - 1231-adsadas-aqeqe-casdda<br>
+                                                - 1231-adsadas-aqeqe-casdda
+                                            </div>
                                         </div>
                                     </li>
                                 </ul>
                             </div>
                         </div>
 
-                        <div class="p-3.5 px-4 overflow-hidden">
-                            <div class="space-y-3.5">
+                        <div class="p-3.5 px-4 overflow-hidden flex flex-col justify-center">
+                            <div class="space-y-4">
                                 <div class="min-w-0">
-                                    <div class="record-inner-label text-[10px]">ID ECO3</div>
-                                    <div class="record-inner-id-value text-[13px] break-all whitespace-normal">1231-adsadas-aqeqe-casdda</div>
+                                    <div class="record-inner-label text-[10px] uppercase">ID ECO3</div>
+                                    <div class="record-inner-id-value text-[13px] break-all whitespace-normal leading-normal">1231-adsadas-aqeqe-casdda</div>
                                 </div>
                                 <div class="min-w-0">
-                                    <div class="record-inner-label text-[10px]">{{ __('patients.medical_record_id') }}</div>
-                                    <div class="record-inner-id-value text-[13px] break-all whitespace-normal">1231-adsadas-aqeqe-casdda</div>
+                                    <div class="record-inner-label text-[10px] uppercase">{{ __('patients.medical_record_id') }}</div>
+                                    <div class="record-inner-id-value text-[13px] break-all whitespace-normal leading-normal">1231-adsadas-aqeqe-casdda</div>
                                 </div>
                             </div>
                         </div>

@@ -28,7 +28,7 @@
 
 
 
-        <div class="w-full mt-6" x-data="{ showAdditionalParams: @entangle('showAdditionalParams') }">
+        <div class="w-full mt-6" x-data="{ showAdditionalParams: $wire.entangle('showAdditionalParams') }">
             <div class="mb-4 flex items-center gap-1 font-semibold text-gray-900 dark:text-gray-100">
                 @icon('search-outline', 'w-4.5 h-4.5')
                 <p>{{ __('patients.search_episode') }}</p>

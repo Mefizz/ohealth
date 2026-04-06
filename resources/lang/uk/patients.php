@@ -80,6 +80,7 @@ return [
     'updated' => 'Оновлено',
     'medical_record_id' => 'ID Мед. Запису',
     'state' => 'Стан',
+    'states' => 'Стани',
     'start_date' => 'Дата початку',
     'basic' => 'Основний',
     'final' => 'Заключний',
@@ -268,6 +269,7 @@ return [
 
     // Observations record
     'observations' => 'Обстеження',
+    'state_search' => 'Пошук станів',
     'vaccination_search' => 'Пошук вакцинації',
 
     // Encounter
@@ -308,8 +310,9 @@ return [
     'duplicate_code_warning' => 'Такий код вже існує',
 
     // Evidences
-    'evidence_conditions' => 'Докази - стани',
-    'evidence_observations' => 'Докази - медичні стани',
+    'evidence' => 'Докази',
+    'evidence_conditions' => 'Стани',
+    'evidence_observations' => 'Спостереження',
     'condition' => 'Стан',
 
     // Additional data

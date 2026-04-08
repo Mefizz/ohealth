@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
 use App\Livewire\Person\Records\BasePatientComponent;
+use App\Livewire\Encounter\Forms\EncounterForm as Form;
 use Livewire\WithFileUploads;
 use RuntimeException;
 
@@ -37,6 +38,7 @@ class EncounterComponent extends BasePatientComponent
     public Form $form;
 
     public bool $showSignatureModal = false;
+
 
 
     /**
@@ -298,8 +300,6 @@ class EncounterComponent extends BasePatientComponent
             ->toArray();
     }
 
-    /**
-     * Initialize the component data based on the patient ID.
      */
     protected function initializeComponent(): void
     {
@@ -325,7 +325,6 @@ class EncounterComponent extends BasePatientComponent
         })->toArray();
 
         $this->legalEntityType = legalEntity()->type->name;
-        $this->legalEntityType = legalEntity()->type->name;
         $this->role = $authUser->roles->first()->name;
         $this->divisions = legalEntity()->divisions->toArray();
 
@@ -335,6 +334,7 @@ class EncounterComponent extends BasePatientComponent
         $this->adjustEncounterClasses();
         $this->adjustEncounterTypes();
 
+        $this->patientUuid = $this->uuid;
         $this->getDivisionData();
         $this->getEpisodes();
     }

@@ -1,114 +1,92 @@
-<x-layouts.patient :id="$id" :uuid="$uuid" :patientFullName="$patientFullName">
-    <div x-data="{ activeSection: 'encounter' }" class="flex flex-col lg:flex-row gap-6 relative" @scroll.window.throttle.50ms="
-        const sections = ['encounter', 'patient_data', 'visit_info', 'diagnoses', 'referral'];
-        for (const section of sections) {
-            const el = document.getElementById(section);
-            if (el) {
-                const rect = el.getBoundingClientRect();
-                if (rect.top <= 150 && rect.bottom >= 150) {
-                    activeSection = section;
-                    break;
-                }
-            }
-        }
-    ">
-        {{-- Sidebar Navigation --}}
-        <div class="lg:w-1/4">
-            <div class="summary-sidebar sticky top-24">
-                <nav class="space-y-1">
-                    <a @click.prevent="document.getElementById('encounter').scrollIntoView({behavior: 'smooth'})"
-                       href="#encounter"
-                       class="summary-tab w-full text-left"
-                       :class="activeSection === 'encounter' ? 'summary-tab-active' : 'summary-tab-inactive'">
-                        {{ __('encounter.encounter') }}
-                    </a>
-                    <a @click.prevent="document.getElementById('patient_data').scrollIntoView({behavior: 'smooth'})"
-                       href="#patient_data"
-                       class="summary-tab w-full text-left"
-                       :class="activeSection === 'patient_data' ? 'summary-tab-active' : 'summary-tab-inactive'">
-                        {{ __('patients.patient_data') }}
-                    </a>
-                    <a @click.prevent="document.getElementById('visit_info').scrollIntoView({behavior: 'smooth'})"
-                       href="#visit_info"
-                       class="summary-tab w-full text-left"
-                       :class="activeSection === 'visit_info' ? 'summary-tab-active' : 'summary-tab-inactive'">
-                        {{ __('encounter.visit_info') }}
-                    </a>
-                    <a @click.prevent="document.getElementById('diagnoses').scrollIntoView({behavior: 'smooth'})"
-                       href="#diagnoses"
-                       class="summary-tab w-full text-left"
-                       :class="activeSection === 'diagnoses' ? 'summary-tab-active' : 'summary-tab-inactive'">
-                        {{ __('encounter.diagnoses') }}
-                    </a>
-                    <a @click.prevent="document.getElementById('referral').scrollIntoView({behavior: 'smooth'})"
-                       href="#referral"
-                       class="summary-tab w-full text-left"
-                       :class="activeSection === 'referral' ? 'summary-tab-active' : 'summary-tab-inactive'">
-                        {{ __('encounter.referral') }}
-                    </a>
-                </nav>
+<x-layouts.patient :id="$patientId" :patientFullName="$patientFullName">
+    <div class="breadcrumb-form p-4 shift-content">
+        <div x-data="{ activeSection: 'main-data' }" class="flex flex-col lg:flex-row gap-8 lg:gap-12">
+            
+            <!-- Main Content -->
+            <div class="flex-1 space-y-6">
+                <div id="main-data" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.main-data')
+                </div>
 
-                <div class="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700">
-                    <button type="button" @click="$wire.save()" class="w-full button-primary-outline flex items-center justify-center gap-2 mb-3">
-                        @icon('archive', 'w-4 h-4')
+                <div id="reasons" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.reasons')
+                </div>
+
+                <div id="conditions" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.conditions')
+                </div>
+
+                <div id="immunizations" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.immunizations')
+                </div>
+
+                <div id="diagnostic-reports" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.diagnostic-reports')
+                </div>
+
+                <div id="observations" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.observations')
+                </div>
+
+                <div id="procedures" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.procedures')
+                </div>
+
+                <div id="clinical-impressions" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
+                    @include('livewire.encounter.parts.clinical-impressions')
+                </div>
+
+                @include('livewire.encounter.parts.actions')
+                @include('livewire.encounter.parts.additional-data')
+
+                <div class="flex gap-4 pt-6 border-t border-gray-100 dark:border-gray-700">
+                    <button wire:click.prevent="" type="submit" class="button-minor">
+                        {{ __('forms.delete') }}
+                    </button>
+
+                    <button wire:click.prevent="save" type="submit" class="button-primary">
                         {{ __('forms.save') }}
                     </button>
-                    <button type="button" @click="$wire.set('showSignatureModal', true)" class="w-full button-primary flex items-center justify-center gap-2">
-                        @icon('edit-linear', 'w-4 h-4')
-                        {{ __('forms.sign_with_KEP') }}
+
+                    <button type="submit" @click="$wire.showSignatureModal = true" class="button-primary">
+                        {{ __('forms.save_and_send') }}
                     </button>
                 </div>
             </div>
-        </div>
 
-        {{-- Main Content --}}
-        <div class="lg:w-3/4 space-y-6 pb-24">
-            <div id="encounter" class="record-inner-card scroll-mt-24">
-                <div class="record-inner-header">
-                    <h3>@icon('pencil-clipboard', 'w-5 h-5 inline mr-2') {{ __('encounter.encounter') }}</h3>
-                </div>
-                <div class="p-6">
-                    @include('livewire.encounter.parts.encounter')
-                </div>
-            </div>
+            <!-- Right Sidebar Navigation -->
+            <div class="w-full lg:w-[280px] flex-shrink-0 space-y-1 mt-4 lg:mt-0 sticky top-6 self-start">
+                @php
+                    $navItems = [
+                        ['id' => 'main-data', 'label' => __('patients.main_data'), 'icon' => 'pie-chart'],
+                        ['id' => 'reasons', 'label' => __('patients.reasons_for_visit'), 'icon' => 'person'],
+                        ['id' => 'conditions', 'label' => __('patients.diagnoses'), 'icon' => 'file'],
+                        ['id' => 'immunizations', 'label' => __('patients.vaccinations'), 'icon' => 'shield'],
+                        ['id' => 'diagnostic-reports', 'label' => __('patients.diagnostic_reports'), 'icon' => 'activity'],
+                        ['id' => 'observations', 'label' => __('patients.observation'), 'icon' => 'heart'],
+                        ['id' => 'procedures', 'label' => __('patients.procedures'), 'icon' => 'settings'],
+                        ['id' => 'clinical-impressions', 'label' => __('patients.clinical_impressions'), 'icon' => 'check'],
+                    ];
+                @endphp
 
-            <div id="patient_data" class="record-inner-card scroll-mt-24">
-                <div class="record-inner-header">
-                    <h3>@icon('patients', 'w-5 h-5 inline mr-2') {{ __('patients.patient_data') }}</h3>
-                </div>
-                <div class="p-6">
-                    @include('livewire.encounter.parts.patient_data')
-                </div>
-            </div>
-
-            <div id="visit_info" class="record-inner-card scroll-mt-24">
-                <div class="record-inner-header">
-                    <h3>@icon('details', 'w-5 h-5 inline mr-2') {{ __('visti-info.label') }}</h3>
-                </div>
-                <div class="p-6">
-                    @include('livewire.encounter.parts.visit_info')
-                </div>
-            </div>
-
-            <div id="diagnoses" class="record-inner-card scroll-mt-24">
-                <div class="record-inner-header">
-                    <h3>@icon('alert-circle', 'w-5 h-5 inline mr-2') {{ __('encounter.diagnoses') }}</h3>
-                </div>
-                <div class="p-6">
-                    @include('livewire.encounter.parts.diagnoses')
-                </div>
-            </div>
-
-            <div id="referral" class="record-inner-card scroll-mt-24">
-                <div class="record-inner-header">
-                    <h3>@icon('hugeicons-contracts', 'w-5 h-5 inline mr-2') {{ __('encounter.referral') }}</h3>
-                </div>
-                <div class="p-6">
-                    @include('livewire.encounter.parts.referrals')
-                </div>
+                @foreach($navItems as $item)
+                    <button @click="
+                                activeSection = '{{ $item['id'] }}';
+                                document.getElementById('{{ $item['id'] }}').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            "
+                            type="button"
+                            :class="activeSection === '{{ $item['id'] }}' ? 'summary-sidebar-btn-active' : 'summary-sidebar-btn-inactive'"
+                            class="summary-sidebar-btn"
+                    >
+                        <span class="w-5 h-5 flex items-center justify-center shrink-0">
+                            @icon($item['icon'], 'w-5 h-5')
+                        </span>
+                        <span class="truncate">{{ $item['label'] }}</span>
+                    </button>
+                @endforeach
             </div>
         </div>
-
-        @include('components.signature-modal', ['method' => 'sign'])
     </div>
+
+    <x-signature-modal method="sign" />
 </x-layouts.patient>

@@ -34,7 +34,7 @@ class EncounterCreate extends EncounterComponent
 
     public function mount(LegalEntity $legalEntity, int $id): void
     {
-        parent::initializeComponent();
+        parent::mount($legalEntity, $id);
 
         $uuid = Auth::user()->party->employees()->whereStatus('APPROVED')->first()->uuid;
 

@@ -3,7 +3,6 @@
      Backdrop + panel must live in one wrapper or the panel never reaches body and the
      backdrop covers the page alone. --}}
 <template x-teleport="body">
-<<<<<<< HEAD
     <div x-show="showServiceDrawer"
          x-transition:enter="transition ease-out duration-300"
          x-transition:enter-start="opacity-0"
@@ -16,20 +15,6 @@
          style="z-index: 39;"
          role="dialog"
          aria-modal="true"
-=======
-    <div>
-        <div x-show="showServiceDrawer" class="fixed inset-0 z-30 bg-gray-900 bg-opacity-50" x-transition.opacity style="display: none;" @click="showServiceDrawer = false"></div>
-        <div x-show="showServiceDrawer"
-             x-transition:enter="transition-transform ease-out duration-300"
-             x-transition:enter-start="translate-x-full"
-             x-transition:enter-end="translate-x-0"
-             x-transition:leave="transition-transform ease-in duration-300"
-             x-transition:leave-start="translate-x-0"
-             x-transition:leave-end="translate-x-full"
-             class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto bg-white w-4/5 dark:bg-gray-800"
-         style="z-index: 40;"
-         tabindex="-1"
->>>>>>> f59619d (feat: complete CarePlanActivity integration and refactor drawers to Alpine)
          aria-labelledby="services-drawer-label"
     >
         {{-- Full-viewport scrim: dims main app; drawer panel stacks above (z-10) --}}
@@ -319,10 +304,7 @@
             <div class="mt-6 flex justify-start gap-3">
                 <button type="button"
                         class="button-minor"
-<<<<<<< HEAD
                         aria-controls="services-drawer-right"
-=======
->>>>>>> f59619d (feat: complete CarePlanActivity integration and refactor drawers to Alpine)
                         @click="showServiceDrawer = false"
                 >
                     {{ __('forms.cancel') }}

@@ -45,11 +45,14 @@ abstract class BasePatientComponent extends Component
         }
     }
 
-    public function mount(LegalEntity $legalEntity, int $id): void
+    public function mount(LegalEntity $legalEntity, ?int $id = null): void
     {
-        $this->id = $id;
-        $this->loadPatientData();
-        $this->initializeComponent();
+        $this->id = $id ?? (int) request()->query('id', 0);
+        
+        if ($this->id) {
+            $this->loadPatientData();
+            $this->initializeComponent();
+        }
     }
 
     /**

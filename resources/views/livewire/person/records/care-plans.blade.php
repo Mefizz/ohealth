@@ -1,90 +1,93 @@
 <x-layouts.patient :id="$id" :patientFullName="$patientFullName">
-    <div class="form shift-content">
-        <div class="flex items-center justify-between mb-6">
+    <div class="space-y-6">
+        <div class="flex items-center justify-between">
             <h2 class="title">{{ __('care-plan.care_plans') }}</h2>
-            <a href="{{ route('care-plan.create', [legalEntity(), 'patientUuid' => $uuid]) }}" class="button-primary">
-                + {{ __('care-plan.new_care_plan') }}
+            <a href="{{ route('care-plan.create', [legalEntity(), 'patientUuid' => $uuid]) }}" class="button-primary flex items-center gap-2">
+                @icon('plus', 'w-4 h-4')
+                {{ __('care-plan.new_care_plan') }}
             </a>
         </div>
 
-        <div class="table-container-responsive overflow-x-auto">
-            <fieldset class="p-4 sm:p-8 sm:pb-10 border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 w-full">
-                <legend class="legend">{{ __('care-plan.care_plans') }}</legend>
+        <div class="record-inner-card">
+            <div class="record-inner-header">
+                <h3>@icon('hugeicons-contracts', 'w-5 h-5 inline mr-2') {{ __('care-plan.care_plans') }}</h3>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs uppercase bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" class="px-6 py-4 font-medium">{{ __('care-plan.name_care_plan') }}</th>
+                            <th scope="col" class="px-6 py-4 font-medium">{{ __('care-plan.requisition') }}</th>
+                            <th scope="col" class="px-6 py-4 font-medium">{{ __('care-plan.category') }}</th>
+                            <th scope="col" class="px-6 py-4 font-medium">{{ __('forms.start_date') }}</th>
+                            <th scope="col" class="px-6 py-4 font-medium">{{ __('care-plan.author') }}</th>
+                            <th scope="col" class="px-6 py-4 font-medium">{{ __('forms.status.label') }}</th>
+                            <th scope="col" class="px-6 py-4 font-medium text-right">{{ __('forms.actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                        @forelse($carePlans as $plan)
+                            @php
+                                $status = is_array($plan->status) ? ($plan->status['coding'][0]['code'] ?? ($plan->status['text'] ?? '')) : $plan->status;
+                                $statusDisplay = is_array($plan->status) ? ($plan->status['text'] ?? ($plan->status['coding'][0]['display'] ?? $status)) : $status;
+                                
+                                $categoryCode = is_array($plan->category) 
+                                    ? ($plan->category['coding'][0]['code'] ?? null) 
+                                    : $plan->category;
 
-                <div class="flow-root mt-4">
-                    <div class="max-w-screen-xl overflow-x-auto">
-                        <table class="table-input w-full min-w-[1000px] text-sm">
-                            <thead class="thead-input">
-                                <tr>
-                                    <th scope="col" class="th-input text-left">{{ __('care-plan.name_care_plan') }}</th>
-                                    <th scope="col" class="th-input text-left w-32">{{ __('care-plan.requisition') }}</th>
-                                    <th scope="col" class="th-input text-left w-48">{{ __('care-plan.category') }}</th>
-                                    <th scope="col" class="th-input text-left w-28">{{ __('forms.start_date') }}</th>
-                                    <th scope="col" class="th-input text-left">{{ __('care-plan.author') }}</th>
-                                    <th scope="col" class="th-input text-left w-28">{{ __('forms.status.label') }}</th>
-                                    <th scope="col" class="th-input text-center w-24">{{ __('forms.actions') }}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($carePlans as $plan)
-                                    @php
-                                        $status = is_array($plan->status) ? ($plan->status['coding'][0]['code'] ?? ($plan->status['text'] ?? '')) : $plan->status;
-                                        $statusDisplay = is_array($plan->status) ? ($plan->status['text'] ?? ($plan->status['coding'][0]['display'] ?? $status)) : $status;
-                                        
-                                        $categoryCode = is_array($plan->category) 
-                                            ? ($plan->category['coding'][0]['code'] ?? null) 
-                                            : $plan->category;
-
-                                        $categoryLabel = $dictionaries['care_plan_categories'][$categoryCode] 
-                                            ?? (is_array($plan->category) 
-                                                ? ($plan->category['text'] ?? ($plan->category['coding'][0]['display'] ?? $categoryCode)) 
-                                                : $plan->category);
-                                    @endphp
-                                    <tr wire:key="care-plan-{{ $plan->id }}">
-                                        <td class="td-input break-words text-blue-600 font-medium">
-                                            <a href="{{ route('care-plan.show', [legalEntity(), $plan->id]) }}" class="hover:underline">
-                                                {{ $plan->title }}
-                                            </a>
-                                        </td>
-                                        <td class="td-input break-words">{{ $plan->requisition ?? '-' }}</td>
-                                        <td class="td-input break-words">{{ $categoryLabel ?? '-' }}</td>
-                                        <td class="td-input">{{ $plan->period_start?->format('d.m.Y') ?? '-' }}</td>
-                                        <td class="td-input break-words">{{ $plan->author?->party?->full_name ?? '-' }}</td>
-                                        <td class="td-input">
-                                            @if(in_array(strtoupper($status), ['ACTIVE', 'SUPLETED']))
-                                                <span class="badge-green">{{ $statusDisplay }}</span>
-                                            @elseif(in_array(strtoupper($status), ['NEW', 'DRAFT']))
-                                                <span class="badge-yellow">{{ $statusDisplay }}</span>
-                                            @else
-                                                <span class="badge-red">{{ $statusDisplay }}</span>
-                                            @endif
-                                        </td>
-                                        <td class="td-input text-center">
-                                            <a href="{{ route('care-plan.show', [legalEntity(), $plan->id]) }}" 
-                                               class="button-minor inline-flex items-center justify-center p-1.5"
-                                               title="{{ __('forms.show') }}"
-                                            >
-                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                </svg>
-                                            </a>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="7" class="td-input text-center py-10 text-gray-400 italic">
-                                            {{ __('care-plan.no_care_plans') }}
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </fieldset>
+                                $categoryLabel = $dictionaries['care_plan_categories'][$categoryCode] 
+                                    ?? (is_array($plan->category) 
+                                        ? ($plan->category['text'] ?? ($plan->category['coding'][0]['display'] ?? $categoryCode)) 
+                                        : $plan->category);
+                            @endphp
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" wire:key="care-plan-{{ $plan->id }}">
+                                <td class="px-6 py-4">
+                                    <a href="{{ route('care-plan.show', [legalEntity(), $plan->id]) }}" class="text-blue-600 dark:text-blue-400 font-semibold hover:underline">
+                                        {{ $plan->title }}
+                                    </a>
+                                </td>
+                                <td class="px-6 py-4 text-gray-600 dark:text-gray-400 font-mono text-xs">{{ $plan->requisition ?? '-' }}</td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                                        {{ $categoryLabel ?? '-' }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 text-gray-500 whitespace-nowrap">{{ $plan->period_start?->format('d.m.Y') ?? '-' }}</td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                                            {{ mb_substr($plan->author?->party?->full_name ?? '?', 0, 1) }}
+                                        </div>
+                                        <span class="text-gray-700 dark:text-gray-300">{{ $plan->author?->party?->full_name ?? '-' }}</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    @include('livewire.care-plan.parts.status-badge', ['status' => $status, 'display' => $statusDisplay])
+                                </td>
+                                <td class="px-6 py-4 text-right">
+                                    <a href="{{ route('care-plan.show', [legalEntity(), $plan->id]) }}" 
+                                       class="text-gray-400 hover:text-blue-600 transition-colors"
+                                       title="{{ __('forms.show') }}"
+                                    >
+                                        @icon('eye', 'w-5 h-5')
+                                    </a>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="px-6 py-12 text-center text-gray-400 italic">
+                                    <div class="flex flex-col items-center gap-2">
+                                        @icon('hugeicons-contracts', 'w-8 h-8 text-gray-200')
+                                        {{ __('care-plan.no_care_plans') }}
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
     <x-forms.loading />
 </x-layouts.patient>
-

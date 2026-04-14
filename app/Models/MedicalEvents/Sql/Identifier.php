@@ -4,12 +4,24 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
+use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Identifier extends Model
 {
+    use HasCamelCasing;
+
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::deleting(static function (Identifier $identifier) {
+            $identifier->type()->each(static fn (CodeableConcept $codeableConcept) => $codeableConcept->delete());
+        });
+    }
+
     protected $fillable = [
         'value',
         'display_value'

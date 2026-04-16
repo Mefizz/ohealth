@@ -29,7 +29,6 @@ use App\Jobs\DeclarationRequestDetailsSync;
 
 /**
  * Trait for querying batches by legal_entity_id
- *
  */
 trait BatchLegalEntityQueries
 {
@@ -39,7 +38,8 @@ trait BatchLegalEntityQueries
      * If returns true, synchronization cannot proceed; otherwise, it can be start/continue.
      * If returns true the sync entity button's got the "disabled" state.
      *
-     * @param  string  $entityStatus  The synchronization status of the entity to check
+     * @param  string|null  $entityStatus  The synchronization status of the entity to check
+     * @param  bool  $isLegalEntity
      * @return bool Returns true if the entity sync status is valid/successful for sync, false otherwise
      */
     protected function isEntitySyncIsInProgress(?string $entityStatus = null, bool $isLegalEntity = false): bool
@@ -145,7 +145,7 @@ trait BatchLegalEntityQueries
             ->where('legal_entity_id', $legalEntityId)
             ->whereNull('finished_at')
             ->whereNull('cancelled_at')
-            ->orderBy('created_at', 'desc')
+            ->orderByDesc('created_at')
             ->get();
     }
 

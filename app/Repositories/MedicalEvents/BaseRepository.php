@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Identifier;
 use Illuminate\Database\Eloquent\Model;
 
@@ -194,7 +195,7 @@ abstract class BaseRepository
     /**
      * Update an existing codeable concept with new data.
      */
-    protected function updateCodeableConcept(Model $codeableConcept, array $newData): void
+    protected function updateCodeableConcept(CodeableConcept $codeableConcept, array $newData): void
     {
         $codeableConcept->update(['text' => $newData['text'] ?? null]);
 

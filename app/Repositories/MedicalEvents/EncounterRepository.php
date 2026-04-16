@@ -27,7 +27,7 @@ class EncounterRepository extends BaseRepository
     protected array $diagnoseUuids;
     protected string $visitUuid;
     protected string $episodeUuid;
-    protected string $employeeUuid;
+    protected ?string $employeeUuid;
 
     public function __construct(Model $model)
     {
@@ -36,7 +36,7 @@ class EncounterRepository extends BaseRepository
         $this->encounterUuid = Str::uuid()->toString();
         $this->visitUuid = Str::uuid()->toString();
         $this->episodeUuid = Str::uuid()->toString();
-        $this->employeeUuid = Auth::user()?->getEncounterWriterEmployee()->uuid;
+        $this->employeeUuid = Auth::user()?->getEncounterWriterEmployee()?->uuid;
     }
 
     /**
@@ -868,7 +868,6 @@ class EncounterRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
-            // Get UUIDs from API data
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             // Load existing encounters with relations
@@ -883,21 +882,30 @@ class EncounterRepository extends BaseRepository
                 // Sync relationships
                 $class = $this->syncCoding($existing, $data['class'], 'class');
                 $type = $this->syncCodeableConcept($existing, $data['type'], 'type');
-                $performerSpeciality = $this->syncCodeableConcept($existing, $data['performer_speciality'], 'performerSpeciality');
+                $performerSpeciality = $this->syncCodeableConcept(
+                    $existing,
+                    $data['performer_speciality'],
+                    'performerSpeciality'
+                );
                 $episode = $this->syncIdentifier($existing, $data['episode'], 'episode');
 
-                // Update or create encounter
-                $encounter = $this->model::updateOrCreate(
-                    ['uuid' => $data['uuid']],
-                    [
-                        'person_id' => $personId,
-                        'status' => $data['status'],
-                        'class_id' => $class->id,
-                        'type_id' => $type->id,
-                        'performer_speciality_id' => $performerSpeciality->id,
-                        'episode_id' => $episode->id
-                    ]
-                );
+                $encounterData = [
+                    'person_id' => $personId,
+                    'status' => $data['status'],
+                    'class_id' => $class->id,
+                    'type_id' => $type->id,
+                    'performer_speciality_id' => $performerSpeciality->id,
+                    'episode_id' => $episode->id
+                ];
+
+                if ($existing) {
+                    $existing->update($encounterData);
+                    $encounter = $existing;
+                } else {
+                    $encounter = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $encounterData)
+                    );
+                }
 
                 Repository::period()->sync($encounter, $data['period']);
             }

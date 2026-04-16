@@ -116,7 +116,8 @@ class Encounter extends Model
             'class',
             'type.coding',
             'performerSpeciality.coding',
-            'episode.type.coding'
+            'episode.type.coding',
+            'period'
         ]);
     }
 

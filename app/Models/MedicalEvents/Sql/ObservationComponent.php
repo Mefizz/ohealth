@@ -39,7 +39,7 @@ class ObservationComponent extends Model
 
     public function valueCodeableConcept(): BelongsTo
     {
-        return $this->belongsTo(CodeableConcept::class, 'codeable_concept_id');
+        return $this->belongsTo(CodeableConcept::class, 'value_codeable_concept_id');
     }
 
     public function interpretation(): BelongsTo

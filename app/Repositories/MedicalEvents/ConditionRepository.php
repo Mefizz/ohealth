@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
-use App\Core\Arr;
 use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\ConditionEvidence;
 use Exception;
@@ -168,7 +167,7 @@ class ConditionRepository extends BaseRepository
     }
 
     /**
-     * Sync observation data and related data by deleting and creating.
+     * Sync condition data and related data by deleting and creating.
      *
      * @param  int  $personId
      * @param  array  $validatedData
@@ -178,9 +177,9 @@ class ConditionRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
-            // Get UUIDs from API data
-            $apiUuids = collect($validatedData)->pluck('uuid');
+            $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
+            // Load existing conditions with relations
             $existingConditions = $this->model::whereIn('uuid', $apiUuids)
                 ->withAllRelations()
                 ->get()
@@ -201,34 +200,32 @@ class ConditionRepository extends BaseRepository
                     'stageSummary'
                 );
 
-                // Create or update main observation
-                $condition = $this->model::updateOrCreate(
-                    ['uuid' => $data['uuid']],
-                    array_merge(
-                        [
-                            'person_id' => $personId,
-                            'asserter_id' => $asserter?->id,
-                            'report_origin_id' => $reportOrigin?->id,
-                            'context_id' => $context->id,
-                            'code_id' => $code->id,
-                            'severity_id' => $severity?->id,
-                            'stage_summary_id' => $stageSummary?->id
-                        ],
-                        Arr::except($data, [
-                            'asserter',
-                            'report_origin',
-                            'context',
-                            'code',
-                            'severity',
-                            'stage',
-                            'body_sites',
-                            'evidences'
-                        ])
-                    )
-                );
+                $conditionData = [
+                    'person_id' => $personId,
+                    'asserter_id' => $asserter?->id,
+                    'report_origin_id' => $reportOrigin?->id,
+                    'context_id' => $context->id,
+                    'code_id' => $code->id,
+                    'severity_id' => $severity?->id,
+                    'stage_summary_id' => $stageSummary?->id,
+                    'clinical_status' => $data['clinical_status'] ?? null,
+                    'verification_status' => $data['verification_status'] ?? null,
+                    'primary_source' => $data['primary_source'] ?? null,
+                    'onset_date' => $data['onset_date'] ?? null,
+                    'asserted_date' => $data['asserted_date'] ?? null
+                ];
+
+                if ($existing) {
+                    $existing->update($conditionData);
+                    $condition = $existing;
+                } else {
+                    $condition = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $conditionData)
+                    );
+                }
 
                 // Sync body sites
-                $categoryIds = $this->syncCodeableConcepts($existing, $data['body_sites'], 'bodySites');
+                $categoryIds = $this->syncCodeableConcepts($existing, $data['body_sites'] ?? [], 'bodySites');
                 $condition->bodySites()->sync($categoryIds);
 
                 // Sync evidences

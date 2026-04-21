@@ -1,5 +1,8 @@
-@use('App\Models\DeclarationRequest')
-@use('App\Models\MedicalEvents\Sql\Encounter')
+@php
+    use App\Models\DeclarationRequest;
+    use App\Models\MedicalEvents\Sql\Encounter;
+    use App\Models\Person\Person;
+@endphp
 
 <section>
     <x-header-navigation x-data="{ showFilter: true }" class="breadcrumb-form">
@@ -20,7 +23,8 @@
 
         <x-slot name="description">
             @if($this->declarationNumber)
-                <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm font-semibold rounded-lg mt-1 border border-gray-100 dark:border-gray-700">
+                <div
+                    class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm font-semibold rounded-lg mt-1 border border-gray-100 dark:border-gray-700">
                     @icon('file-text', 'w-4 h-4 text-gray-400')
                     Декларація №{{ $this->declarationNumber }}
                 </div>
@@ -36,11 +40,13 @@
                         {{ __('patients.patient_data') }}
                     </a>
 
-                    <a href="{{ route('persons.summary', [legalEntity(), 'id' => $id]) }}"
-                       class="summary-tab {{ request()->routeIs('persons.summary') ? 'summary-tab-active' : 'summary-tab-inactive' }}"
-                    >
-                        {{ __('patients.summary') }}
-                    </a>
+                    @can('view', Person::class)
+                        <a href="{{ route('persons.summary', [legalEntity(), 'id' => $id]) }}"
+                           class="summary-tab {{ request()->routeIs('persons.summary') ? 'summary-tab-active' : 'summary-tab-inactive' }}"
+                        >
+                            {{ __('patients.summary') }}
+                        </a>
+                    @endcan
 
                     <a href="{{ route('persons.episodes', [legalEntity(), 'id' => $id]) }}"
                        class="summary-tab {{ request()->routeIs('persons.episodes') ? 'summary-tab-active' : 'summary-tab-inactive' }}"

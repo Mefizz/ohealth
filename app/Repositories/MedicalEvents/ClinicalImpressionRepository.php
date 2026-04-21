@@ -303,7 +303,6 @@ class ClinicalImpressionRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
-            // Get UUIDs from API data
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             // Load existing clinical impressions with relations
@@ -321,28 +320,25 @@ class ClinicalImpressionRepository extends BaseRepository
                 $assessor = $this->syncIdentifier($existing, $data['assessor'], 'assessor');
                 $previous = $this->syncIdentifier($existing, $data['previous'], 'previous');
 
-                $clinicalImpression = $this->model::updateOrCreate(
-                    ['uuid' => $data['uuid']],
-                    array_merge(
-                        [
-                            'person_id' => $personId,
-                            'code_id' => $code->id,
-                            'encounter_id' => $encounter->id,
-                            'assessor_id' => $assessor->id,
-                            'previous_id' => $previous?->id
-                        ],
-                        Arr::except($data, [
-                            'assessor',
-                            'code',
-                            'effective_period',
-                            'encounter',
-                            'findings',
-                            'previous',
-                            'problems',
-                            'supporting_info'
-                        ])
-                    )
-                );
+                $clinicalImpressionData = [
+                    'person_id' => $personId,
+                    'status' => $data['status'],
+                    'description' => $data['description'] ?? null,
+                    'code_id' => $code->id,
+                    'encounter_id' => $encounter->id,
+                    'assessor_id' => $assessor->id,
+                    'previous_id' => $previous?->id,
+                    'note' => $data['note'] ?? null
+                ];
+
+                if ($existing) {
+                    $existing->update($clinicalImpressionData);
+                    $clinicalImpression = $existing;
+                } else {
+                    $clinicalImpression = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $clinicalImpressionData)
+                    );
+                }
 
                 $problemIds = $this->syncIdentifiers($existing, $data['problems'], 'problems');
                 $clinicalImpression->problems()->sync($problemIds);

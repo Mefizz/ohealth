@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Repositories\MedicalEvents;
 
 use App\Classes\eHealth\Api\PatientApi;
-use App\Core\Arr;
 use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\ObservationComponent;
 use App\Models\MedicalEvents\Sql\Quantity;
@@ -19,13 +18,13 @@ use Throwable;
 
 class ObservationRepository extends BaseRepository
 {
-    protected string $employeeUuid;
+    protected ?string $employeeUuid;
 
     public function __construct(Model $model)
     {
         parent::__construct($model);
 
-        $this->employeeUuid = Auth::user()?->getDiagnosticReportWriterEmployee()->uuid;
+        $this->employeeUuid = Auth::user()?->getDiagnosticReportWriterEmployee()?->uuid;
     }
 
     /**
@@ -73,7 +72,9 @@ class ObservationRepository extends BaseRepository
 
             if ($observation['primarySource']) {
                 unset($observation['reportOrigin']);
-                $observation['performer']['identifier']['value'] = $this->employeeUuid;
+                if ($this->employeeUuid) {
+                    $observation['performer']['identifier']['value'] = $this->employeeUuid;
+                }
             } else {
                 unset($observation['performer']);
             }
@@ -336,7 +337,6 @@ class ObservationRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
-            // Get UUIDs from API data
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             $existingObservations = $this->model::whereIn('uuid', $apiUuids)
@@ -367,40 +367,37 @@ class ObservationRepository extends BaseRepository
                 $bodySite = $this->syncCodeableConcept($existing, $data['body_site'] ?? null, 'bodySite');
                 $method = $this->syncCodeableConcept($existing, $data['method'] ?? null, 'method');
 
-                // Create or update main observation
-                $observation = $this->model::updateOrCreate(
-                    ['uuid' => $data['uuid']],
-                    array_merge(
-                        [
-                            'person_id' => $personId,
-                            'code_id' => $code->id,
-                            'context_id' => $context?->id,
-                            'performer_id' => $performer?->id,
-                            'report_origin_id' => $reportOrigin?->id,
-                            'diagnostic_report_id' => $diagnosticReport?->id,
-                            'specimen_id' => $specimen?->id,
-                            'device_id' => $device?->id,
-                            'interpretation_id' => $interpretation?->id,
-                            'body_site_id' => $bodySite?->id,
-                            'method_id' => $method?->id
-                        ],
-                        Arr::except($data, [
-                            'code',
-                            'context',
-                            'performer',
-                            'report_origin',
-                            'diagnostic_report',
-                            'specimen',
-                            'device',
-                            'interpretation',
-                            'body_site',
-                            'method',
-                            'reference_ranges',
-                            'categories',
-                            'components'
-                        ])
-                    )
-                );
+                $observationData = [
+                    'person_id' => $personId,
+                    'status' => $data['status'],
+                    'code_id' => $code->id,
+                    'context_id' => $context?->id,
+                    'performer_id' => $performer?->id,
+                    'report_origin_id' => $reportOrigin?->id,
+                    'diagnostic_report_id' => $diagnosticReport?->id,
+                    'specimen_id' => $specimen?->id,
+                    'device_id' => $device?->id,
+                    'interpretation_id' => $interpretation?->id,
+                    'body_site_id' => $bodySite?->id,
+                    'method_id' => $method?->id,
+                    'effective_date_time' => $data['effective_date_time'] ?? null,
+                    'issued' => $data['issued'] ?? null,
+                    'primary_source' => $data['primary_source'] ?? null,
+                    'comment' => $data['comment'] ?? null,
+                    'value_string' => $data['value_string'] ?? null,
+                    'value_boolean' => $data['value_boolean'] ?? null,
+                    'value_date_time' => $data['value_date_time'] ?? null,
+                    'value_codeable_concept_id' => $data['value_codeable_concept_id'] ?? null
+                ];
+
+                if ($existing) {
+                    $existing->update($observationData);
+                    $observation = $existing;
+                } else {
+                    $observation = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $observationData)
+                    );
+                }
 
                 // Sync categories
                 $categoryIds = $this->syncCodeableConcepts($existing, $data['categories'], 'categories');
@@ -429,10 +426,10 @@ class ObservationRepository extends BaseRepository
 
             // Sync component relationships
             if ($existingComponent) {
-                // Update existing component's relationships
-                $code = $existingComponent->code;
-                if ($code) {
-                    $this->updateCodeableConcept($code, $componentData['code']);
+                // Update existing component's relationships or create missing ones
+                if ($existingComponent->code) {
+                    $this->updateCodeableConcept($existingComponent->code, $componentData['code']);
+                    $code = $existingComponent->code;
                 } else {
                     $code = Repository::codeableConcept()->store($componentData['code']);
                 }
@@ -450,9 +447,12 @@ class ObservationRepository extends BaseRepository
                     }
                 }
 
-                $valueCodeableConcept = $existingComponent->valueCodeableConcept;
-                if ($valueCodeableConcept) {
-                    $this->updateCodeableConcept($valueCodeableConcept, $componentData['value_codeable_concept']);
+                if ($existingComponent->valueCodeableConcept) {
+                    $this->updateCodeableConcept(
+                        $existingComponent->valueCodeableConcept,
+                        $componentData['value_codeable_concept']
+                    );
+                    $valueCodeableConcept = $existingComponent->valueCodeableConcept;
                 } else {
                     $valueCodeableConcept = Repository::codeableConcept()->store(
                         $componentData['value_codeable_concept']

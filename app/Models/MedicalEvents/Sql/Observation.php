@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
+use App\Casts\EHealthTimestampCast;
 use App\Enums\Person\ObservationStatus;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -53,7 +54,9 @@ class Observation extends Model
     protected $casts = [
         'issued' => 'immutable_datetime',
         'effective_date_time' => 'immutable_datetime',
-        'status' => ObservationStatus::class
+        'status' => ObservationStatus::class,
+        'ehealth_inserted_at' => EHealthTimestampCast::class,
+        'ehealth_updated_at' => EHealthTimestampCast::class
     ];
 
     protected $hidden = [

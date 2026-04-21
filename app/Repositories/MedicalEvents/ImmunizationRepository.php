@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
-use App\Core\Arr;
-use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\Immunization;
 use App\Models\MedicalEvents\Sql\ImmunizationDoseQuantity;
 use App\Models\MedicalEvents\Sql\ImmunizationExplanation;
@@ -213,7 +211,6 @@ class ImmunizationRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
-            // Get UUIDs from API data
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             // Load existing immunizations with relations
@@ -233,31 +230,31 @@ class ImmunizationRepository extends BaseRepository
                 $site = $this->syncCodeableConcept($existing, $data['site'] ?? null, 'site');
                 $route = $this->syncCodeableConcept($existing, $data['route'] ?? null, 'route');
 
-                $immunization = $this->model::updateOrCreate(
-                    ['uuid' => $data['uuid']],
-                    array_merge(
-                        [
-                            'person_id' => $personId,
-                            'vaccine_code_id' => $vaccineCode->id,
-                            'context_id' => $context->id,
-                            'performer_id' => $performer?->id,
-                            'report_origin_id' => $reportOrigin?->id,
-                            'site_id' => $site?->id,
-                            'route_id' => $route?->id
-                        ],
-                        Arr::except($data, [
-                            'vaccine_code',
-                            'context',
-                            'report_origin',
-                            'site',
-                            'route',
-                            'dose_quantity',
-                            'explanation',
-                            'reactions',
-                            'vaccination_protocols'
-                        ])
-                    )
-                );
+                $immunizationData = [
+                    'person_id' => $personId,
+                    'status' => $data['status'],
+                    'not_given' => $data['not_given'],
+                    'vaccine_code_id' => $vaccineCode->id,
+                    'context_id' => $context->id,
+                    'date' => $data['date'] ?? null,
+                    'primary_source' => $data['primary_source'],
+                    'performer_id' => $performer?->id,
+                    'report_origin_id' => $reportOrigin?->id,
+                    'manufacturer' => $data['manufacturer'] ?? null,
+                    'lot_number' => $data['lot_number'] ?? null,
+                    'expiration_date' => $data['expiration_date'] ?? null,
+                    'site_id' => $site?->id,
+                    'route_id' => $route?->id
+                ];
+
+                if ($existing) {
+                    $existing->update($immunizationData);
+                    $immunization = $existing;
+                } else {
+                    $immunization = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $immunizationData)
+                    );
+                }
 
                 $this->syncDoseQuantity($immunization, $data['dose_quantity'] ?? null);
                 $this->syncExplanations($immunization, $existing, $data['explanation'] ?? []);
@@ -300,10 +297,10 @@ class ImmunizationRepository extends BaseRepository
         if (!empty($explanationData['reasons_not_given'])) {
             $existingRng = $existingExplanations->whereNotNull('reasons_not_given_id')->pluck('reasonsNotGiven')->values();
             foreach ($explanationData['reasons_not_given'] as $index => $rngData) {
-                $existingRng = $existingRng[$index] ?? null;
-                if ($existingRng) {
-                    $this->updateCodeableConcept($existingRng, $rngData);
-                    $rngIds[] = $existingRng->id;
+                $existingRngItem = $existingRng[$index] ?? null;
+                if ($existingRngItem) {
+                    $this->updateCodeableConcept($existingRngItem, $rngData);
+                    $rngIds[] = $existingRngItem->id;
                 } else {
                     $concept = Repository::codeableConcept()->store($rngData);
                     $rngIds[] = $concept->id;
@@ -311,18 +308,34 @@ class ImmunizationRepository extends BaseRepository
             }
         }
 
-        // Sync pivot
-        $immunization->explanations()->whereNotNull('reasons_id')
-            ->whereNotIn('reasons_id', $reasonIds)->delete();
-        $immunization->explanations()->whereNotNull('reasons_not_given_id')
-            ->whereNotIn('reasons_not_given_id', $rngIds)->delete();
+        // Only sync if this is an existing immunization with changes, or a new one
+        if (!$existing) {
+            // New immunization - just create all explanations
+            foreach ($reasonIds as $reasonId) {
+                $immunization->explanations()->create(['reasons_id' => $reasonId]);
+            }
+            foreach ($rngIds as $rngId) {
+                $immunization->explanations()->create(['reasons_not_given_id' => $rngId]);
+            }
+        } else {
+            // Existing immunization - check if we need to update
+            $currentReasonIds = $existingExplanations->whereNotNull('reasons_id')->pluck('reasons_id')->toArray();
+            $currentRngIds = $existingExplanations->whereNotNull('reasons_not_given_id')->pluck('reasons_not_given_id')->toArray();
 
-        foreach ($reasonIds as $reasonId) {
-            $immunization->explanations()->firstOrCreate(['reasons_id' => $reasonId]);
-        }
+            // Only update if there are actual changes
+            if (array_diff($currentReasonIds, $reasonIds) || array_diff($reasonIds, $currentReasonIds)) {
+                $immunization->explanations()->whereNotNull('reasons_id')->delete();
+                foreach ($reasonIds as $reasonId) {
+                    $immunization->explanations()->create(['reasons_id' => $reasonId]);
+                }
+            }
 
-        foreach ($rngIds as $rngId) {
-            $immunization->explanations()->firstOrCreate(['reasons_not_given_id' => $rngId]);
+            if (array_diff($currentRngIds, $rngIds) || array_diff($rngIds, $currentRngIds)) {
+                $immunization->explanations()->whereNotNull('reasons_not_given_id')->delete();
+                foreach ($rngIds as $rngId) {
+                    $immunization->explanations()->create(['reasons_not_given_id' => $rngId]);
+                }
+            }
         }
     }
 

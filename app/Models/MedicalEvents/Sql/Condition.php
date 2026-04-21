@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
-use App\Casts\EHealthDateCast;
+use App\Casts\EHealthTimestampCast;
 use App\Enums\Person\ConditionClinicalStatus;
 use App\Enums\Person\ConditionVerificationStatus;
 use Eloquence\Behaviours\HasCamelCasing;
@@ -42,10 +42,10 @@ class Condition extends Model
     protected $casts = [
         'clinical_status' => ConditionClinicalStatus::class,
         'verification_status' => ConditionVerificationStatus::class,
-        'onset_date' => EHealthDateCast::class,
-        'asserted_date' => EHealthDateCast::class,
-        'ehealth_inserted_at' => EHealthDateCast::class,
-        'ehealth_updated_at' => EHealthDateCast::class
+        'onset_date' => EHealthTimestampCast::class,
+        'asserted_date' => EHealthTimestampCast::class,
+        'ehealth_inserted_at' => EHealthTimestampCast::class,
+        'ehealth_updated_at' => EHealthTimestampCast::class
     ];
 
     protected $hidden = [

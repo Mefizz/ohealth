@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Jobs\ConditionSync;
+use App\Jobs\DiagnosticReportSync;
 use App\Jobs\EmployeeRoleSync;
 use App\Jobs\EncounterSync;
 use App\Jobs\EpisodeSync;
@@ -120,6 +122,31 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for(
             'ehealth-encounter-get',
             static fn (EncounterSync $job) => Limit::perMinute(config('ehealth.rate_limit.encounter'))->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'ehealth-clinical-impression-get',
+            static fn (EncounterSync $job) => Limit::perMinute(config('ehealth.rate_limit.clinical_impression'))->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'ehealth-immunization-get',
+            static fn (EncounterSync $job) => Limit::perMinute(config('ehealth.rate_limit.immunization'))->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'ehealth-observation-get',
+            static fn (EncounterSync $job) => Limit::perMinute(config('ehealth.rate_limit.observation'))->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'ehealth-condition-get',
+            static fn (ConditionSync $job) => Limit::perMinute(config('ehealth.rate_limit.condition'))->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'ehealth-diagnostic-report-get',
+            static fn (DiagnosticReportSync $job) => Limit::perMinute(config('ehealth.rate_limit.diagnostic_report'))->by($job->user->id)
         );
     }
 }

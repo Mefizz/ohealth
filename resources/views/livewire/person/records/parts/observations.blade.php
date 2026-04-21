@@ -47,13 +47,13 @@
                     <div>
                         <div class="record-inner-label">{{ __('patients.information_source') }}</div>
                         <div class="record-inner-subvalue">
-                            {{ data_get($this->dictionaries, 'eHealth/report_origins.' . data_get($observation, 'reportOrigin.coding.0.code')) }}
+                            {{ data_get($this->dictionaries, 'eHealth/report_origins.' . data_get($observation, 'reportOrigin.coding.0.code'), '-') }}
                         </div>
                     </div>
                     <div>
                         <div class="record-inner-label">{{ __('patients.method') }}</div>
                         <div class="record-inner-subvalue">
-                            {{ data_get($this->dictionaries, 'eHealth/observation_methods.' . data_get($observation, 'method.coding.0.code')) }}
+                            {{ data_get($this->dictionaries, 'eHealth/observation_methods.' . data_get($observation, 'method.coding.0.code'), '-') }}
                         </div>
                     </div>
                     <div>
@@ -86,7 +86,7 @@
                     <div>
                         <div class="record-inner-label">{{ __('patients.doctor') }}</div>
                         <div class="record-inner-subvalue">
-                            {{ data_get($observation, 'performer.displayValue', '-') }}
+                            {{ data_get($observation, 'performer.displayValue') ?? '-' }}
                         </div>
                     </div>
                     <div>

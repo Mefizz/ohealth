@@ -199,7 +199,7 @@ class ProcedureComponent extends Component
     public function getEpisodes(): void
     {
         try {
-            $response = EHealth::episode()->getManyBySearchParams(
+            $response = EHealth::episode()->getBySearchParams(
                 $this->patientUuid,
                 ['managing_organization_id' => legalEntity()->uuid]
             );

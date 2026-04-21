@@ -19,13 +19,13 @@ use Throwable;
 
 class DiagnosticReportRepository extends BaseRepository
 {
-    protected string $employeeUuid;
+    protected ?string $employeeUuid;
 
     public function __construct(Model $model)
     {
         parent::__construct($model);
 
-        $this->employeeUuid = Auth::user()?->getDiagnosticReportWriterEmployee()->uuid;
+        $this->employeeUuid = Auth::user()?->getDiagnosticReportWriterEmployee()?->uuid;
     }
 
     /**
@@ -326,9 +326,9 @@ class DiagnosticReportRepository extends BaseRepository
     public function sync(int $personId, array $validatedData): void
     {
         DB::transaction(function () use ($personId, $validatedData) {
-            // Get UUIDs from API data
-            $apiUuids = collect($validatedData)->pluck('uuid');
+            $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
+            // Load existing diagnostic reports with relations
             $existingDiagnosticReports = $this->model::whereIn('uuid', $apiUuids)
                 ->withAllRelations()
                 ->get()
@@ -361,63 +361,51 @@ class DiagnosticReportRepository extends BaseRepository
                     'cancellationReason'
                 );
 
-                // Create or update main diagnostic report
-                $diagnosticReport = $this->model::updateOrCreate(
-                    ['uuid' => $data['uuid']],
-                    array_merge(
-                        [
-                            'person_id' => $personId,
-                            'based_on_id' => $basedOn?->id,
-                            'code_id' => $code->id,
-                            'encounter_id' => $encounter?->id,
-                            'division_id' => $division?->id,
-                            'conclusion_code_id' => $conclusionCode?->id,
-                            'recorded_by_id' => $recordedBy->id,
-                            'managing_organization_id' => $managingOrganization?->id,
-                            'report_origin_id' => $reportOrigin?->id,
-                            'origin_episode_id' => $originEpisode?->id,
-                            'cancellation_reason_id' => $cancellationReason?->id
-                        ],
-                        Arr::except($data, [
-                            'based_on',
-                            'code',
-                            'encounter',
-                            'division',
-                            'conclusion_code',
-                            'recorded_by',
-                            'managing_organization',
-                            'report_origin',
-                            'origin_episode',
-                            'cancellation_reason',
-                            'paper_referral',
-                            'category',
-                            'effective_period',
-                            'performer',
-                            'results_interpreter',
-                            'specimens',
-                            'used_references'
-                        ])
-                    )
-                );
+                $diagnosticReportData = [
+                    'person_id' => $personId,
+                    'based_on_id' => $basedOn?->id,
+                    'code_id' => $code->id,
+                    'encounter_id' => $encounter?->id,
+                    'division_id' => $division?->id,
+                    'conclusion_code_id' => $conclusionCode?->id,
+                    'recorded_by_id' => $recordedBy->id,
+                    'managing_organization_id' => $managingOrganization?->id,
+                    'report_origin_id' => $reportOrigin?->id,
+                    'origin_episode_id' => $originEpisode?->id,
+                    'cancellation_reason_id' => $cancellationReason?->id,
+                    'status' => $data['status'] ?? null,
+                    'issued' => $data['issued'] ?? null,
+                    'conclusion' => $data['conclusion'] ?? null,
+                    'primary_source' => $data['primary_source'] ?? null
+                ];
+
+                if ($existing) {
+                    $existing->update($diagnosticReportData);
+                    $diagnosticReport = $existing;
+                } else {
+                    $diagnosticReport = $this->model::create(
+                        array_merge(['uuid' => $data['uuid']], $diagnosticReportData)
+                    );
+                }
 
                 if (isset($data['paper_referral'])) {
                     Repository::paperReferral()->sync($data['paper_referral'], $diagnosticReport, $existing);
                 }
 
                 // Sync categories
-                $categoriesIds = $this->syncCodeableConcepts($existing, $data['category'], 'category');
+                $categoriesIds = $this->syncCodeableConcepts($existing, $data['category'] ?? [], 'category');
                 $diagnosticReport->category()->sync($categoriesIds);
 
-                Repository::period()->sync($diagnosticReport, $data['effective_period'], 'effectivePeriod');
+                Repository::period()->sync($diagnosticReport, $data['effective_period'] ?? [], 'effectivePeriod');
 
                 $this->syncPerformer($existing, $data['performer'] ?? null, $diagnosticReport);
 
                 $this->syncResultsInterpreter($existing, $data['results_interpreter'] ?? null, $diagnosticReport);
 
-                $specimenIds = $this->syncIdentifiers($existing, $data['specimens'], 'specimens');
+                $specimenIds = $this->syncIdentifiers($existing, $data['specimens'] ?? [], 'specimens');
                 $diagnosticReport->specimens()->sync($specimenIds);
 
-                $usedReferencesIds = $this->syncIdentifiers($existing, $data['used_references'], 'usedReferences');
+                $usedReferencesIds = $this->syncIdentifiers($existing, $data['used_references'] ?? [], 'usedReferences');
                 $diagnosticReport->usedReferences()->sync($usedReferencesIds);
             }
         });

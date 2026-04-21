@@ -277,7 +277,7 @@ Route::middleware(['auth:web,ehealth', 'verified'])->group(function () {
                 Route::get('/{equipment}', EquipmentView::class)->name('view')->can('view', 'equipment');
             });
 
-            include __DIR__ . '/dictionaries.php';
+            require __DIR__ . '/dictionaries.php';
 
             Route::get('/declaration', DeclarationIndex::class)
                 ->name('declaration.index')
@@ -292,7 +292,7 @@ Route::middleware(['auth:web,ehealth', 'verified'])->group(function () {
 
                     Route::middleware('can:view,' . Person::class)->group(function () {
                         Route::get('/{id}/patient-data', PatientData::class)->name('patient-data');
-                        Route::get('/{id}/summary', PatientSummary::class)->name('summary');
+                        Route::get('/{id}/summary', PatientSummary::class)->can('view', Person::class)->name('summary');
                         Route::get('/{id}/episodes', PatientEpisodes::class)->name('episodes');
                         Route::get('/{id}/care-plans', \App\Livewire\Person\Records\PersonCarePlans::class)->name('care-plans');
                         Route::get('/{id}/observations', PatientObservation::class)->name('observations');

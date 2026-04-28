@@ -9,6 +9,7 @@ use App\Classes\eHealth\Exceptions\ApiException as eHealthApiException;
 use App\Classes\Cipher\Traits\Cipher;
 use App\Classes\eHealth\Api\PatientApi;
 use App\Classes\eHealth\Api\ServiceRequestApi;
+use App\Core\Arr;
 use App\Enums\User\Role;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
@@ -17,7 +18,6 @@ use App\Models\Employee\Employee;
 use App\Models\Person\Person;
 use App\Traits\FormTrait;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -108,13 +108,6 @@ class EncounterComponent extends Component
      * @var string
      */
     public string $employeeFullName;
-
-    /**
-     * KEP key.
-     *
-     * @var object|null
-     */
-    public ?object $file = null;
 
     /**
      * Patient UUID for API requests.
@@ -378,12 +371,19 @@ class EncounterComponent extends Component
         }
 
         try {
-            $this->evidenceDetails = collect(
-                EHealth::condition()->getBySearchParams(
-                    $this->patientUuid,
-                    ['managing_organization_id' => legalEntity()->uuid]
-                )->getData()
-            )->map(static fn (array $item) => array_merge($item, ['type' => 'condition']))->all();
+            $response = EHealth::condition()->getBySearchParams(
+                $this->patientUuid,
+                ['managing_organization_id' => legalEntity()->uuid]
+            );
+
+            // map for align with frontend flat structure
+            $this->evidenceDetails = collect($response->validate())->map(static fn (array $item) => [
+                'id' => data_get($item, 'id'),
+                'insertedAt' => data_get($item, 'inserted_at'),
+                'codeCode' => data_get($item, 'code.coding.0.code'),
+                'type' => 'condition'
+            ])
+                ->values()->all();
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error while getting evidence details');
 

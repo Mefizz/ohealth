@@ -10,12 +10,10 @@ use App\Rules\InDictionary;
 use App\Rules\OnlyOnePrimaryDiagnosis;
 use App\Rules\PastDateTime;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Fluent;
 use Illuminate\Validation\ConditionalRules;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\RequiredIf;
-use Illuminate\Validation\ValidationException;
 
 class EncounterForm extends BaseForm
 {
@@ -85,6 +83,7 @@ class EncounterForm extends BaseForm
             'episode.name' => ['nullable', 'string', new Cyrillic()],
 
             'conditions' => ['nullable', 'array'],
+            'conditions.*.uuid' => ['nullable', 'uuid'], // for edit page
             'conditions.*.primarySource' => ['required_with:conditions', 'boolean'],
             'conditions.*.reportOriginCode' => ['nullable', 'string', 'required_if:conditions.*.primarySource,false'],
             'conditions.*.codeCode' => [
@@ -118,6 +117,7 @@ class EncounterForm extends BaseForm
             'conditions.*.onsetTime' => ['required_with:conditions', 'date_format:H:i'],
             'conditions.*.assertedDate' => ['nullable', 'before:tomorrow', 'date'],
             'conditions.*.assertedTime' => ['nullable', 'date_format:H:i'],
+            'conditions.*.asserterText' => ['nullable', 'string'],
             'conditions.*.stageCode' => [
                 'nullable',
                 'string',
@@ -252,23 +252,6 @@ class EncounterForm extends BaseForm
         return [
             'encounter.divisionId.prohibited' => __('validation.custom.encounter.divisionId.prohibited')
         ];
-    }
-
-    /**
-     * Validate form by name.
-     *
-     * @param  string  $formName
-     * @param  array  $formData
-     * @return void
-     * @throws ValidationException
-     */
-    public function validateForm(string $formName, array $formData): void
-    {
-        $rules = $this->rulesForModel($formName)->toArray();
-
-        $this->customizeRulesForModel($formName, $rules);
-
-        Validator::make([$formName => $formData], $rules, $this->messages())->validate();
     }
 
     /**

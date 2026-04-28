@@ -216,14 +216,14 @@
                                                     <tr class="border-b dark:border-gray-700">
                                                         <th scope="row" class="table-cell-primary">
                                                             <div class="text-base"
-                                                                 x-text="new Date(condition.inserted_at).toLocaleDateString('uk-UA')"
+                                                                 x-text="condition.insertedAt ? new Date(condition.insertedAt).toLocaleDateString('uk-UA') : ''"
                                                             ></div>
                                                         </th>
                                                         <td class="td-input"
-                                                            x-text="`${ condition.code?.coding?.[0]?.code } - ${
-                                                                $wire.dictionaries['eHealth/LOINC/observation_codes'][condition.code?.coding?.[0]?.code] ||
-                                                                $wire.dictionaries['eHealth/ICF/classifiers'][condition.code?.coding?.[0]?.code] ||
-                                                                $wire.dictionaries['eHealth/ICPC2/condition_codes'][condition.code?.coding?.[0]?.code]
+                                                            x-text="`${ condition.codeCode } - ${
+                                                                $wire.dictionaries['eHealth/LOINC/observation_codes'][condition.codeCode] ||
+                                                                $wire.dictionaries['eHealth/ICF/classifiers'][condition.codeCode] ||
+                                                                $wire.dictionaries['eHealth/ICPC2/condition_codes'][condition.codeCode]
                                                             }`"
                                                         ></td>
                                                         <td class="td-input">
@@ -272,13 +272,7 @@
 
                                                 const newDetails = searchResults
                                                     .filter(detail => selectedEvidenceDetailIds.includes(detail.id) && !existingIds.includes(detail.id))
-                                                    .map(detail => ({
-                                                        id: detail.id,
-                                                        insertedAt: detail.inserted_at,
-                                                        codeCode: detail.code?.coding?.[0]?.code ?? '',
-                                                        type: detail.type,
-                                                        selectedEpisodeId: modalEvidenceDetail.selectedEpisodeId
-                                                    }));
+                                                    .map(detail => ({ ...detail, selectedEpisodeId: modalEvidenceDetail.selectedEpisodeId }));
 
                                                 modalCondition.evidenceDetails = modalCondition.evidenceDetails.concat(newDetails);
 

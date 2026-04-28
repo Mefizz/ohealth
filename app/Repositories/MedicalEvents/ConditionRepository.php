@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
+/**
+ * @property Condition $model
+ */
 class ConditionRepository extends BaseRepository
 {
     /**
@@ -18,6 +21,7 @@ class ConditionRepository extends BaseRepository
      *
      * @param  array  $data
      * @param  int  $encounterId
+     * @param  int  $personId
      * @return void
      * @throws Throwable
      */
@@ -48,8 +52,7 @@ class ConditionRepository extends BaseRepository
                         $severity = Repository::codeableConcept()->store($datum['severity']);
                     }
 
-                    /** @var Condition $condition */
-                    $condition = $this->model::create([
+                    $condition = $this->model->create([
                         'uuid' => $datum['id'],
                         'person_id' => $personId,
                         'primary_source' => $datum['primarySource'],
@@ -104,12 +107,12 @@ class ConditionRepository extends BaseRepository
     }
 
     /**
-     * Get condition data that is related to the encounter.
+     * Get conditions with all relationships needed for the edit form.
      *
-     * @param  int  $encounterId
-     * @return array|null
+     * @param  array  $uuids
+     * @return array
      */
-    public function get(int $encounterId): ?array
+    public function getByUuids(array $uuids): array
     {
         return $this->model::with([
             'asserter',
@@ -118,9 +121,53 @@ class ConditionRepository extends BaseRepository
             'code.coding',
             'severity.coding'
         ])
-            ->where('encounter_id', $encounterId)
+            ->whereIn('uuid', $uuids)
             ->get()
-            ?->toArray();
+            ->toArray();
+    }
+
+    /**
+     * Build a UUID => [insertedAt, codeCode] map for the given condition/observation UUIDs.
+     *
+     * @param  array  $uuids
+     * @return array
+     */
+    public function getDetailsMapByUuids(array $uuids): array
+    {
+        return collect($this->model->whereIn('uuid', $uuids)
+            ->with('code.coding')
+            ->get()
+            ->toArray())
+            ->mapWithKeys(fn (array $condition) => [
+                $condition['uuid'] => [
+                    'insertedAt' => $condition['ehealthInsertedAt'] ?? null,
+                    'codeCode' => data_get($condition, 'code.coding.0.code'),
+                    'type' => 'condition'
+                ]
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Build a UUID => [insertedAt, codeCode] map for evidence details across conditions and observations.
+     *
+     * @param  array  $conditions
+     * @return array
+     */
+    public function getDetailsMapForEvidences(array $conditions): array
+    {
+        $detailUuids = collect($conditions)
+            ->flatMap(fn (array $condition) => data_get($condition, 'evidences.0.details', []))
+            ->pluck('identifier.value')
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        return array_merge(
+            $this->getDetailsMapByUuids($detailUuids),
+            Repository::observation()->getDetailsMapByUuids($detailUuids)
+        );
     }
 
     /**
@@ -139,34 +186,6 @@ class ConditionRepository extends BaseRepository
     }
 
     /**
-     * Formatting for showing in frontend.
-     *
-     * @param  array  $conditions
-     * @param  array  $diagnoses
-     * @return array
-     */
-    public function formatForView(array $conditions, array $diagnoses): array
-    {
-        return collect($conditions)
-            ->map(function (array $condition, int $index) use ($diagnoses) {
-                // add diagnoses array to conditions
-                if (isset($diagnoses[$index])) {
-                    $condition['diagnoses'] = $diagnoses[$index];
-                }
-
-                if (empty($condition['code']['coding'][1]['code'])) {
-                    $condition['code']['coding'][1] = [
-                        'system' => 'eHealth/ICD10_AM/condition_codes',
-                        'code' => ''
-                    ];
-                }
-
-                return $condition;
-            })
-            ->toArray();
-    }
-
-    /**
      * Sync condition data and related data by deleting and creating.
      *
      * @param  int  $personId
@@ -180,7 +199,7 @@ class ConditionRepository extends BaseRepository
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             // Load existing conditions with relations
-            $existingConditions = $this->model::whereIn('uuid', $apiUuids)
+            $existingConditions = $this->model->whereIn('uuid', $apiUuids)
                 ->withAllRelations()
                 ->get()
                 ->keyBy('uuid');
@@ -208,10 +227,10 @@ class ConditionRepository extends BaseRepository
                     'code_id' => $code->id,
                     'severity_id' => $severity?->id,
                     'stage_summary_id' => $stageSummary?->id,
-                    'clinical_status' => $data['clinical_status'] ?? null,
-                    'verification_status' => $data['verification_status'] ?? null,
-                    'primary_source' => $data['primary_source'] ?? null,
-                    'onset_date' => $data['onset_date'] ?? null,
+                    'clinical_status' => $data['clinical_status'],
+                    'verification_status' => $data['verification_status'],
+                    'primary_source' => $data['primary_source'],
+                    'onset_date' => $data['onset_date'],
                     'asserted_date' => $data['asserted_date'] ?? null
                 ];
 
@@ -219,7 +238,7 @@ class ConditionRepository extends BaseRepository
                     $existing->update($conditionData);
                     $condition = $existing;
                 } else {
-                    $condition = $this->model::create(
+                    $condition = $this->model->create(
                         array_merge(['uuid' => $data['uuid']], $conditionData)
                     );
                 }

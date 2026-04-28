@@ -6,6 +6,7 @@ namespace App\Services\MedicalEvents\Mappers;
 
 use App\Enums\Person\EncounterStatus;
 use App\Services\MedicalEvents\FhirResource;
+use Carbon\CarbonImmutable;
 
 class EncounterMapper
 {
@@ -18,10 +19,33 @@ class EncounterMapper
      */
     public function fromFhir(array $encounter): array
     {
-        $encounter['classCode'] = data_get($encounter, 'class.code', '');
-        $encounter['typeCode'] = data_get($encounter, 'type.coding.0.code', '');
-
-        return $encounter;
+        return [
+            'classCode' => data_get($encounter, 'class.code'),
+            'typeCode' => data_get($encounter, 'type.coding.0.code'),
+            'divisionId' => data_get($encounter, 'division.identifier.value', ''),
+            'priorityCode' => data_get($encounter, 'priority.coding.0.code', ''),
+            'periodDate' => CarbonImmutable::parse(data_get($encounter, 'period.start'))->format('Y-m-d'),
+            'periodStart' => CarbonImmutable::parse(data_get($encounter, 'period.start'))->format('H:i'),
+            'periodEnd' => CarbonImmutable::parse(data_get($encounter, 'period.end'))->format('H:i'),
+            'actions' => collect(data_get($encounter, 'actions', []))
+                ->map(fn (array $action) => [
+                    'code' => data_get($action, 'coding.0.code', ''),
+                    'text' => data_get($action, 'text', '')
+                ])
+                ->toArray(),
+            'reasons' => collect(data_get($encounter, 'reasons', []))
+                ->map(fn (array $reason) => [
+                    'code' => data_get($reason, 'coding.0.code', ''),
+                    'text' => data_get($reason, 'text', '')
+                ])
+                ->toArray(),
+            'diagnoses' => collect(data_get($encounter, 'diagnoses', []))
+                ->map(fn (array $diagnosis) => [
+                    'roleCode' => data_get($diagnosis, 'role.coding.0.code', ''),
+                    'rank' => data_get($diagnosis, 'rank', '')
+                ])
+                ->toArray()
+        ];
     }
 
     /**
@@ -37,7 +61,7 @@ class EncounterMapper
     {
         // Required params
         $data = [
-            'id' => $uuids['encounter'],
+            'id' => $encounter['uuid'] ?? $uuids['encounter'],
             'status' => EncounterStatus::FINISHED->value,
             'period' => [
                 'start' => convertToEHealthISO8601($encounter['periodDate'] . ' ' . $encounter['periodStart']),

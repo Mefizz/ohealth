@@ -28,16 +28,6 @@ class EncounterRepository extends BaseRepository
             return $this->encounterUuid;
         }
     }
-    public string $visitUuid {
-        get {
-            return $this->visitUuid;
-        }
-    }
-    public string $episodeUuid {
-        get {
-            return $this->episodeUuid;
-        }
-    }
     public ?string $employeeUuid {
         get {
             return $this->employeeUuid;
@@ -49,8 +39,6 @@ class EncounterRepository extends BaseRepository
         parent::__construct($model);
 
         $this->encounterUuid = Str::uuid()->toString();
-        $this->visitUuid = Str::uuid()->toString();
-        $this->episodeUuid = Str::uuid()->toString();
         $this->employeeUuid = Auth::user()?->getEncounterWriterEmployee()?->uuid;
     }
 
@@ -151,32 +139,6 @@ class EncounterRepository extends BaseRepository
                 throw $e;
             }
         });
-    }
-
-    /**
-     * Get encounter data by encounter ID form URL.
-     *
-     * @param  int  $encounterId
-     * @return array|null
-     */
-    public function get(int $encounterId): ?array
-    {
-        return $this->model::with([
-            'period',
-            'visit',
-            'episode',
-            'class',
-            'type.coding',
-            'priority.coding',
-            'performer',
-            'reasons.coding',
-            'diagnoses',
-            'actions.coding',
-            'division'
-        ])
-            ->where('id', $encounterId)
-            ->first()
-            ?->toArray();
     }
 
     /**

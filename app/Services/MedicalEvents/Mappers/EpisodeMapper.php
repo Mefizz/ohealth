@@ -10,20 +10,6 @@ use App\Services\MedicalEvents\FhirResource;
 class EpisodeMapper
 {
     /**
-     * Populate flat form keys on $episode from its nested FHIR paths.
-     * Used when loading an existing episode for editing.
-     *
-     * @param  array  $episode
-     * @return array
-     */
-    public function fromFhir(array $episode): array
-    {
-        $episode['typeCode'] = data_get($episode, 'type.code', '');
-
-        return $episode;
-    }
-
-    /**
      * Build a FHIR episode structure ready for the repository or eHealth API.
      * Absorbs the logic previously in EncounterRepository::formatEpisodeRequest.
      *

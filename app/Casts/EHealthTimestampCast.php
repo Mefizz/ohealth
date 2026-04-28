@@ -19,7 +19,7 @@ class EHealthTimestampCast implements CastsAttributes
             return null;
         }
 
-        return Carbon::parse($value)->format(config('app.date_format'));
+        return Carbon::parse($value)->format('Y-m-d H:i');
     }
 
     /**

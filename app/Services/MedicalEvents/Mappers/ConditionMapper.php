@@ -21,7 +21,7 @@ class ConditionMapper
     {
         // Required params
         $data = [
-            'id' => Str::uuid()->toString(),
+            'id' => $condition['uuid'] ?? Str::uuid()->toString(),
             'primarySource' => $condition['primarySource'],
             'context' => FhirResource::make()->coding('eHealth/resources', 'encounter')->toIdentifier($uuids['encounter']),
             'code' => FhirResource::make()->coding($condition['codeSystem'], $condition['codeCode'])->toCodeableConcept(),
@@ -65,6 +65,7 @@ class ConditionMapper
                         ->coding($cc['system'] ?? 'eHealth/ICPC2/reasons', $cc['code'])
                         ->toCodeableConcept()
                 )
+                ->values()
                 ->toArray();
         }
 
@@ -75,6 +76,7 @@ class ConditionMapper
                         ->coding('eHealth/resources', $detail['type'])
                         ->toIdentifier($detail['id'])
                 )
+                ->values()
                 ->toArray();
         }
 
@@ -88,44 +90,47 @@ class ConditionMapper
     /**
      * Convert a FHIR condition (from DB) to a flat form structure.
      *
-     * @param  array  $fhir
+     * @param  array  $condition
+     * @param  array  $detailsMap  UUID => [insertedAt, codeCode] for evidence details
      * @return array
      */
-    public function fromFhir(array $fhir): array
+    public function fromFhir(array $condition, array $detailsMap = []): array
     {
-        $onsetRaw = data_get($fhir, 'onsetDate', '');
-        $assertedRaw = data_get($fhir, 'assertedDate', '');
-
-        $onset = !empty($onsetRaw) ? CarbonImmutable::parse($onsetRaw) : null;
-        $asserted = !empty($assertedRaw) ? CarbonImmutable::parse($assertedRaw) : null;
-
         return [
-            'primarySource' => data_get($fhir, 'primarySource', true),
-            'codeSystem' => data_get($fhir, 'code.coding.0.system', ''),
-            'codeCode' => data_get($fhir, 'code.coding.0.code', ''),
-            'clinicalStatus' => data_get($fhir, 'clinicalStatus', ''),
-            'verificationStatus' => data_get($fhir, 'verificationStatus', ''),
-            'onsetDate' => $onset?->toDateString() ?? '',
-            'onsetTime' => $onset?->format('H:i') ?? '',
-            'assertedDate' => $asserted?->toDateString() ?? '',
-            'assertedTime' => $asserted?->format('H:i') ?? '',
-            'severityCode' => data_get($fhir, 'severity.coding.0.code'),
-            'asserterText' => data_get($fhir, 'asserter.identifier.type.text', ''),
-            'reportOriginCode' => data_get($fhir, 'reportOrigin.coding.0.code', ''),
-            'evidenceCodes' => collect(data_get($fhir, 'evidences.0.codes', []))
-                ->map(fn (array $c) => [
-                    'code' => data_get($c, 'coding.0.code', ''),
-                    'system' => data_get($c, 'coding.0.system', 'eHealth/ICPC2/reasons')
+            'uuid' => data_get($condition, 'uuid'),
+            'primarySource' => data_get($condition, 'primarySource'),
+            'codeSystem' => data_get($condition, 'code.coding.0.system'),
+            'codeCode' => data_get($condition, 'code.coding.0.code'),
+            'clinicalStatus' => data_get($condition, 'clinicalStatus'),
+            'verificationStatus' => data_get($condition, 'verificationStatus'),
+            'onsetDate' => CarbonImmutable::parse(data_get($condition, 'onsetDate'))->format('Y-m-d'),
+            'onsetTime' => CarbonImmutable::parse(data_get($condition, 'onsetDate'))->format('H:i'),
+            'assertedDate' => data_get($condition, 'assertedDate')
+                ? CarbonImmutable::parse($condition['assertedDate'])->format('Y-m-d')
+                : null,
+            'assertedTime' => data_get($condition, 'assertedDate')
+                ? CarbonImmutable::parse($condition['assertedDate'])->format('H:i')
+                : null,
+            'severityCode' => data_get($condition, 'severity.coding.0.code', ''),
+            'asserterText' => data_get($condition, 'asserter.identifier.type.text', ''),
+            'reportOriginCode' => data_get($condition, 'reportOrigin.coding.0.code', ''),
+            'evidenceCodes' => collect(data_get($condition, 'evidences.0.codes', []))
+                ->map(fn (array $code) => [
+                    'code' => data_get($code, 'coding.0.code', ''),
+                    'system' => data_get($code, 'coding.0.system', 'eHealth/ICPC2/reasons')
                 ])
                 ->toArray(),
-            'evidenceDetails' => collect(data_get($fhir, 'evidences.0.details', []))
-                ->map(fn (array $d) => [
-                    'id' => data_get($d, 'identifier.value') ?? data_get($d, 'id', ''),
-                    'insertedAt' => data_get($d, 'inserted_at', ''),
-                    'codeCode' => data_get($d, 'code.coding.0.code', ''),
-                    'type' => data_get($d, 'identifier.type.coding.0.code', ''),
-                    'selectedEpisodeId' => ''
-                ])
+            'evidenceDetails' => collect(data_get($condition, 'evidences.0.details', []))
+                ->map(function (array $detail) use ($detailsMap) {
+                    $uuid = data_get($detail, 'identifier.value');
+
+                    return [
+                        'id' => $uuid,
+                        'insertedAt' => $detailsMap[$uuid]['insertedAt'] ?? '',
+                        'codeCode' => $detailsMap[$uuid]['codeCode'] ?? '',
+                        'type' => $detailsMap[$uuid]['type'] ?? ''
+                    ];
+                })
                 ->toArray()
         ];
     }

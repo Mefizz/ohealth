@@ -124,12 +124,14 @@ class Condition extends Model
                         ->with(['codes.coding'])
                         ->get()
                         ->filter(fn (ConditionEvidence $evidence) => $evidence->codes !== null)
+                        ->values()
                         ->map(fn (ConditionEvidence $evidence) => $evidence->codes->toArray())
                         ->toArray(),
                     'details' => $this->evidencesRelation()
                         ->with(['details.type.coding'])
                         ->get()
                         ->filter(fn (ConditionEvidence $evidence) => $evidence->details !== null)
+                        ->values()
                         ->map(fn (ConditionEvidence $evidence) => $evidence->details->toArray())
                         ->toArray()
                 ]

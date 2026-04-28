@@ -9,16 +9,15 @@ use App\Classes\eHealth\Exceptions\ApiException as eHealthApiException;
 use App\Classes\Cipher\Traits\Cipher;
 use App\Classes\eHealth\Api\PatientApi;
 use App\Classes\eHealth\Api\ServiceRequestApi;
+use App\Core\Arr;
 use App\Enums\User\Role;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Encounter\Forms\Api\EncounterRequestApi;
-use App\Models\Division;
 use App\Models\Employee\Employee;
 use App\Models\Person\Person;
 use App\Traits\FormTrait;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -109,13 +108,6 @@ class EncounterComponent extends Component
      * @var string
      */
     public string $employeeFullName;
-
-    /**
-     * KEP key.
-     *
-     * @var object|null
-     */
-    public ?object $file = null;
 
     /**
      * Patient UUID for API requests.
@@ -350,7 +342,7 @@ class EncounterComponent extends Component
         $this->personId = $personId;
         $this->legalEntityType = legalEntity()->type->name;
         $this->role = $authUser->roles->first()->name;
-        $this->divisions = legalEntity()->divisions->toArray();
+        $this->divisions = legalEntity()->divisions()->whereStatus('ACTIVE')->get()->toArray();
 
         $this->employeeFullName = $authUser->getEncounterWriterEmployee()->fullName;
 
@@ -379,10 +371,19 @@ class EncounterComponent extends Component
         }
 
         try {
-            $this->evidenceDetails = EHealth::condition()->getBySearchParams(
+            $response = EHealth::condition()->getBySearchParams(
                 $this->patientUuid,
                 ['managing_organization_id' => legalEntity()->uuid]
-            )->getData();
+            );
+
+            // map for align with frontend flat structure
+            $this->evidenceDetails = collect($response->validate())->map(static fn (array $item) => [
+                'id' => data_get($item, 'id'),
+                'insertedAt' => data_get($item, 'inserted_at'),
+                'codeCode' => data_get($item, 'code.coding.0.code'),
+                'type' => 'condition'
+            ])
+                ->values()->all();
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error while getting evidence details');
 
@@ -480,7 +481,7 @@ class EncounterComponent extends Component
      */
     public function searchComplicationDetails(): void
     {
-        $episodeId = $this->form->encounter['episode']['identifier']['value'] ?? null;
+        $episodeId = $this->form->episode['id'] ?: null;
 
         // If the episode is not selected, don't perform a search.
         if (!isset($episodeId)) {
@@ -623,7 +624,7 @@ class EncounterComponent extends Component
 
         // set default encounter class, if there is only one
         if (count($this->dictionaries['eHealth/encounter_classes']) === 1) {
-            $this->form->encounter['class']['code'] = array_key_first($this->dictionaries['eHealth/encounter_classes']);
+            $this->form->encounter['classCode'] = array_key_first($this->dictionaries['eHealth/encounter_classes']);
         }
     }
 

@@ -176,6 +176,8 @@ class Encounter extends Model
             'period',
             'reasons.coding',
             'actions.coding',
+            'diagnoses.condition.type.coding',
+            'diagnoses.role.coding',
             'actionReferences.type.coding',
             'participants.type.coding',
             'supportingInfo.type.coding',

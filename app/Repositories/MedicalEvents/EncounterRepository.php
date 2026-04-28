@@ -23,19 +23,22 @@ use Throwable;
  */
 class EncounterRepository extends BaseRepository
 {
-    protected string $encounterUuid;
-    protected array $diagnoseUuids;
-    protected string $visitUuid;
-    protected string $episodeUuid;
-    protected ?string $employeeUuid;
+    public string $encounterUuid {
+        get {
+            return $this->encounterUuid;
+        }
+    }
+    public ?string $employeeUuid {
+        get {
+            return $this->employeeUuid;
+        }
+    }
 
     public function __construct(Model $model)
     {
         parent::__construct($model);
 
         $this->encounterUuid = Str::uuid()->toString();
-        $this->visitUuid = Str::uuid()->toString();
-        $this->episodeUuid = Str::uuid()->toString();
         $this->employeeUuid = Auth::user()?->getEncounterWriterEmployee()?->uuid;
     }
 
@@ -139,32 +142,6 @@ class EncounterRepository extends BaseRepository
     }
 
     /**
-     * Get encounter data by encounter ID form URL.
-     *
-     * @param  int  $encounterId
-     * @return array|null
-     */
-    public function get(int $encounterId): ?array
-    {
-        return $this->model::with([
-            'period',
-            'visit',
-            'episode',
-            'class',
-            'type.coding',
-            'priority.coding',
-            'performer',
-            'reasons.coding',
-            'diagnoses',
-            'actions.coding',
-            'division'
-        ])
-            ->where('id', $encounterId)
-            ->first()
-            ?->toArray();
-    }
-
-    /**
      * Get the encounter for the clinical impression based on the provided UUID to display the selected supporting info.
      *
      * @param  string  $uuid
@@ -188,167 +165,6 @@ class EncounterRepository extends BaseRepository
             'periodStart' => $encounter->period->start,
             'code' => $condition?->code
         ];
-    }
-
-    /**
-     * Format encounter data before request.
-     *
-     * @param  array  $encounter
-     * @param  array  $conditions
-     * @param  bool  $isEpisodeNew
-     * @return array
-     */
-    public function formatEncounterRequest(array $encounter, array $conditions, bool $isEpisodeNew): array
-    {
-        $encounter['id'] = $this->encounterUuid;
-        $encounter['visit']['identifier']['value'] = $this->visitUuid;
-
-        if ($isEpisodeNew) {
-            $encounter['episode']['identifier']['value'] = $this->episodeUuid;
-        }
-
-        // add system if priority is provided or when it's required
-        if (isset($encounter['priority'])) {
-            $encounter['priority']['coding'][0]['system'] = 'eHealth/encounter_priority';
-        }
-
-        $encounter['diagnoses'] = array_map(function (array $diagnose) {
-            // Create a unique UUID for each diagnosis, and use them in condition
-            $diagnoseUuid = Str::uuid()->toString();
-            $diagnose['diagnoses']['condition']['identifier']['value'] = $diagnoseUuid;
-            $this->diagnoseUuids[] = $diagnoseUuid;
-
-            // delete rank if not provided
-            if ($diagnose['diagnoses']['rank'] === '') {
-                unset($diagnose['diagnoses']['rank']);
-            }
-
-            return $diagnose['diagnoses'];
-        }, $conditions);
-
-        if (isset($encounter['division']) && $encounter['division']['identifier']['value']) {
-            $encounter['division']['identifier']['type']['coding'][0] = [
-                'system' => 'eHealth/resources',
-                'code' => 'division'
-            ];
-        }
-
-        $encounterForm = $this->formatPeriod($encounter);
-
-        return schemaService()
-            ->setDataSchema(['encounter' => $encounterForm], app(PatientApi::class))
-            ->requestSchemaNormalize()
-            ->extractFirst()
-            ->getNormalizedData();
-    }
-
-    /**
-     * Format episode data before request.
-     *
-     * @param  array  $episode
-     * @param  array  $encounterPeriod
-     * @return array
-     */
-    public function formatEpisodeRequest(array $episode, array $encounterPeriod): array
-    {
-        $episode['id'] = $this->episodeUuid;
-        $episode['managingOrganization']['identifier']['value'] = legalEntity()->uuid;
-        $episode['period']['start'] = convertToEHealthISO8601(
-            $encounterPeriod['date'] . ' ' . $encounterPeriod['start']
-        );
-
-        return schemaService()
-            ->setDataSchema($episode, app(PatientApi::class))
-            ->requestSchemaNormalize('schemaEpisodeRequest')
-            ->camelCaseKeys()
-            ->getNormalizedData();
-    }
-
-    /**
-     * Format conditions data before request.
-     *
-     * @param  array  $conditions
-     * @return array
-     */
-    public function formatConditionsRequest(array $conditions): array
-    {
-        $conditionForm = array_map(
-            function (array $condition, int $index) {
-                unset($condition['query']);
-                // set ID same as diagnose
-                $condition['id'] = $this->diagnoseUuids[$index];
-
-                $condition['context']['identifier']['type']['coding'][0] = [
-                    'system' => 'eHealth/resources',
-                    'code' => 'encounter'
-                ];
-                $condition['context']['identifier']['value'] = $this->encounterUuid;
-
-                // Remove coding with empty code
-                $condition['code']['coding'] = array_values(
-                    array_filter(
-                        $condition['code']['coding'],
-                        static fn (array $coding) => !empty($coding['code']) && trim($coding['code']) !== ''
-                    )
-                );
-
-                // unset if code not provided
-                if ($condition['severity']['coding'][0]['code'] === '') {
-                    unset($condition['severity']);
-                }
-
-                if ($condition['primarySource']) {
-                    $condition['asserter']['identifier']['value'] = $this->employeeUuid;
-
-                    unset($condition['reportOrigin']);
-                } else {
-                    unset($condition['asserter']);
-                }
-
-                // convert dates
-                if (isset($condition['onsetTime'])) {
-                    $condition['onsetDate'] = convertToEHealthISO8601(
-                        $condition['onsetDate'] . ' ' . $condition['onsetTime']
-                    );
-                    $condition['assertedDate'] = convertToEHealthISO8601(
-                        $condition['assertedDate'] . ' ' . $condition['assertedTime']
-                    );
-                    unset($condition['onsetTime'], $condition['assertedTime'], $condition['diagnoses']);
-                }
-
-                if (!empty($condition['evidences'][0]['details'])) {
-                    $condition['evidences'][0]['details'] = collect($condition['evidences'][0]['details'])
-                        ->map(static function (array $detail) {
-                            $data = [];
-
-                            Arr::set($data, 'identifier.type.coding', [
-                                [
-                                    'system' => 'eHealth/resources',
-                                    'code' => 'condition'
-                                ]
-                            ]);
-                            Arr::set($data, 'identifier.value', $detail['id']);
-
-                            return $data;
-                        })->toArray();
-                }
-
-                if (empty($condition['evidences'][0]['codes']) && empty($condition['evidences'][0]['details'])) {
-                    unset($condition['evidences']);
-                }
-
-                return $condition;
-            },
-            $conditions,
-            array_keys($conditions)
-        );
-
-        return schemaService()
-            ->setDataSchema(['conditions' => $conditionForm], app(PatientApi::class))
-            ->requestSchemaNormalize()
-            ->camelCaseKeys()
-            ->extractFirst()
-            ->getNormalizedData();
     }
 
     /**
@@ -851,25 +667,6 @@ class EncounterRepository extends BaseRepository
             ->camelCaseKeys()
             ->extractFirst()
             ->getNormalizedData();
-    }
-
-    /**
-     * Format encounter period to ISO8601 format.
-     *
-     * @param  array  $encounterForm
-     * @return array
-     */
-    public function formatPeriod(array $encounterForm): array
-    {
-        $encounterForm['period'] = [
-            'start' => convertToEHealthISO8601(
-                $encounterForm['period']['date'] . ' ' . $encounterForm['period']['start']
-            ),
-            'end' => convertToEHealthISO8601($encounterForm['period']['date'] . ' ' . $encounterForm['period']['end'])
-        ];
-        unset($encounterForm['period']['date']);
-
-        return $encounterForm;
     }
 
     /**

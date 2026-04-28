@@ -258,6 +258,28 @@ class ObservationRepository extends BaseRepository
     }
 
     /**
+     * Build a UUID => [insertedAt, codeCode] map for the given observation UUIDs.
+     *
+     * @param  array  $uuids
+     * @return array
+     */
+    public function getDetailsMapByUuids(array $uuids): array
+    {
+        return collect($this->model::whereIn('uuid', $uuids)
+            ->with('code.coding')
+            ->get()
+            ->toArray())
+            ->mapWithKeys(fn (array $observation) => [
+                $observation['uuid'] => [
+                    'insertedAt' => $observation['ehealthInsertedAt'] ?? null,
+                    'codeCode' => data_get($observation, 'code.coding.0.code'),
+                    'type' => 'observation'
+                ]
+            ])
+            ->toArray();
+    }
+
+    /**
      * Get observation data that is related to the encounter.
      *
      * @param  int  $encounterId

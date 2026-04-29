@@ -454,7 +454,7 @@ class CarePlanCreate extends BasePatientComponent
                 'message' => __('care-plan.signed_and_sent'),
                 'errors'  => [],
             ]);
-            $this->redirectRoute('persons.care-plans', [legalEntity(), 'id' => $this->personId], navigate: true);
+            $this->redirectRoute('persons.care-plans', [legalEntity(), 'personId' => $this->personId], navigate: true);
 
         } catch (ConnectionException $exception) {
             Log::error('CarePlan: connection error: ' . $exception->getMessage());
@@ -468,6 +468,11 @@ class CarePlanCreate extends BasePatientComponent
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg, 'errors' => []]);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
+            // TODO: Remove before PR
+            if (config('app.debug')) {
+                dd($exception->getMessage(), $exception->getTraceAsString(), $exception);
+            }
+
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),

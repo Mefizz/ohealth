@@ -93,6 +93,7 @@
         </div>
     </div>
 
+    <livewire:components.x-message :key="time()" />
     <x-signature-modal method="sign" />
     <livewire:components.x-message :key="time()" />
     <x-forms.loading />

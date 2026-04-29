@@ -24,6 +24,7 @@ class CarePlanCreate extends BasePatientComponent
 
     public bool $showSignatureModal = false;
     public string $patientUuid = '';
+    public string $conditionUuid = '';
 
     // Care Plan form data
     public array $form = [
@@ -81,6 +82,8 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         $encounterUuid = request()->query('encounterUuid', '');
+        $this->conditionUuid = request()->query('conditionUuid', '');
+
         if ($encounterUuid) {
             $this->form['encounter'] = $encounterUuid;
         } else {
@@ -510,6 +513,10 @@ class CarePlanCreate extends BasePatientComponent
             
             // Extract the Codeable Concepts of all conditions (addresses for the care plan)
             $conditionData = $encounter->diagnoses
+                ->filter(function ($d) {
+                    // If a specific conditionUuid is provided, only include that one
+                    return empty($this->conditionUuid) || ($d->condition?->uuid === $this->conditionUuid);
+                })
                 ->map(function ($d) {
                     $coding = $d->condition?->code?->coding?->first();
                     if ($coding) {

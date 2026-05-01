@@ -141,21 +141,6 @@ class HealthcareServiceIndex extends Component
         $this->syncStatus = $this->getSyncStatus();
     }
 
-    public function updatedStatus(): void
-    {
-        $this->resetPage();
-    }
-
-    public function updatedTypeFilter(): void
-    {
-        $this->resetPage();
-    }
-
-    public function updatedDivisionFilter(): void
-    {
-        $this->resetPage();
-    }
-
     public function search(): void
     {
         $this->resetPage();

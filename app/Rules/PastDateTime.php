@@ -32,7 +32,7 @@ readonly class PastDateTime implements ValidationRule
         $datetime = Carbon::createFromFormat('Y-m-d H:i', $this->date . ' ' . $value);
 
         if ($datetime->isFuture()) {
-            $fail(__('validation.before_or_equal', ['date' => __('validation.attributes.now')]));
+            $fail(__('validation.before_or_equal', ['date' => __('validation.values.now')]));
         }
     }
 }

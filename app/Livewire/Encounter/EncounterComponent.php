@@ -10,6 +10,8 @@ use App\Classes\Cipher\Traits\Cipher;
 use App\Classes\eHealth\Api\PatientApi;
 use App\Classes\eHealth\Api\ServiceRequestApi;
 use App\Core\Arr;
+use App\Enums\Person\EpisodeStatus;
+use App\Enums\Status;
 use App\Enums\User\Role;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
@@ -344,12 +346,17 @@ class EncounterComponent extends Component
         $this->personId = $personId;
         $this->legalEntityType = legalEntity()->type->name;
         $this->role = $authUser->roles->first()->name;
-        $this->divisions = legalEntity()->divisions()->whereStatus('ACTIVE')->get()->toArray();
+        $this->divisions = legalEntity()->divisions()->whereStatus(Status::ACTIVE)->get()->toArray();
 
         $this->employeeFullName = $authUser->getEncounterWriterEmployee()->fullName;
 
         $this->setPatientData();
-        $this->getDivisionData();
+
+        // set division ID if only one exist
+        if (count($this->divisions) === 1) {
+            $this->form->encounter['divisionId'] = $this->divisions[0]['uuid'];
+        }
+
         $this->getEpisodes();
     }
 
@@ -615,7 +622,7 @@ class EncounterComponent extends Component
     {
         $keys = $this->getFilteredKeysFromConfig(
             "legal_entity_encounter_classes.$this->legalEntityType",
-            "employee_encounter_classes.$this->role"
+            "performer_employee_encounter_classes.$this->role"
         );
 
         $this->adjustDictionary('eHealth/encounter_classes', $keys);
@@ -640,19 +647,6 @@ class EncounterComponent extends Component
     }
 
     /**
-     * Get all user divisions, and set default if only one exists.
-     *
-     * @return void
-     */
-    protected function getDivisionData(): void
-    {
-        // set division if only one exist
-        if (count($this->divisions) === 1) {
-            $this->form->encounter['division']['identifier']['value'] = $this->divisions[0]['uuid'];
-        }
-    }
-
-    /**
      * Get all episodes for current patient.
      *
      * @return void
@@ -661,8 +655,11 @@ class EncounterComponent extends Component
     {
         try {
             $this->episodes = EHealth::episode()
-                ->getBySearchParams($this->patientUuid, ['managing_organization_id' => legalEntity()->uuid])
-                ->getData();
+                ->getBySearchParams(
+                    $this->patientUuid,
+                    ['managing_organization_id' => legalEntity()->uuid, 'status' => EpisodeStatus::ACTIVE->value]
+                )
+                ->validate();
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error when getting episodes');
 

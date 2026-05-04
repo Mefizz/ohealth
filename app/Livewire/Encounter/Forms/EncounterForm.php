@@ -388,11 +388,13 @@ class EncounterForm extends BaseForm
     protected function messages(): array
     {
         return [
+            'encounter.priorityCode.required_if' => __('validation.custom.encounter.priorityCode.required_if'),
+            'encounter.reasons.required_if' => __('validation.custom.encounter.reasons.required_if'),
+            'encounter.diagnoses.required_unless' => __('validation.custom.encounter.diagnoses.required_unless'),
+            'encounter.divisionId.required_if' => __('validation.custom.encounter.divisionId.required_if'),
             'encounter.divisionId.prohibited' => __('validation.custom.encounter.divisionId.prohibited'),
-            'encounter.actions.required_if' => 'Дії є обов\'язковими для класу взаємодії PHC',
-            'encounter.actions.prohibited_unless' => 'Дії заборонені для вашого класу взаємодії',
-            'encounter.diagnoses.*.rank.min' => 'expected the value to be >= 1',
-            'encounter.diagnoses.*.rank.max' => 'expected the value to be <= 10',
+            'encounter.actions.required_if' => __('validation.custom.encounter.actions.required_if'),
+            'encounter.actions.prohibited_unless' => __('validation.custom.encounter.actions.prohibited_unless'),
         ];
     }
 
@@ -434,14 +436,14 @@ class EncounterForm extends BaseForm
 
             $allowed = config("ehealth.episode_type_encounter_classes.$episodeTypeCode", []);
             if (!in_array($value, $allowed, true)) {
-                $fail("Клас взаємодії $value заборонений для типу вашого епізоду");
+                $fail(__('validation.custom.encounter.classCode.episode_type_forbidden', ['value' => $value]));
             }
         };
 
         $rules['encounter.classCode'][] = static function (string $attribute, mixed $value, Closure $fail): void {
             $allowed = config('ehealth.legal_entity_encounter_classes.' . legalEntity()->type->name, []);
             if (!in_array($value, $allowed, true)) {
-                $fail("Клас взаємодії $value заборонений для типу вашого медичного закладу");
+                $fail(__('validation.custom.encounter.classCode.legal_entity_forbidden', ['value' => $value]));
             }
         };
     }
@@ -461,7 +463,7 @@ class EncounterForm extends BaseForm
             }
             $allowed = config("ehealth.encounter_class_encounter_types.$classCode", []);
             if (!in_array($value, $allowed, true)) {
-                $fail("Тип взаємодії $value заборонений для вашого класу взаємодії");
+                $fail(__('validation.custom.encounter.typeCode.class_forbidden', ['value' => $value]));
             }
         };
     }

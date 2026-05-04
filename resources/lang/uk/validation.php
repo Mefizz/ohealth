@@ -186,10 +186,31 @@ return [
         'phone_type_duplicate' => 'Не можна додавати декілька номерів телефону з типом ":type".',
         'phone_number_duplicate' => 'Такий номер телефону вже вказано.',
         'encounter' => [
+            'priorityCode' => [
+                'required_if' => "Пріоритет є обов'язковим для класу взаємодії 'Стаціонарна медична допомога'"
+            ],
+            'reasons' => [
+                'required_if' => "Причини звернення є обов'язковими для класу взаємодії 'Первинна медична допомога'"
+            ],
+            'diagnoses' => [
+                'required_unless' => "Діагнози є обов'язковими"
+            ],
             'divisionId' => [
+                'required_if' => "Місце надання послуг є обов'язковим для класу взаємодії 'Стаціонарна медична допомога'",
                 'prohibited' => "Місце надання послуг не може бути обраним, якщо тип візиту є 'За межами медичного закладу та місця постійного перебування пацієнта' або 'Візит за місцем постійного перебування пацієнта'."
+            ],
+            'actions' => [
+                'required_if' => "Дії є обов'язковими для класу взаємодії 'Первинна медична допомога'",
+                'prohibited_unless' => 'Дії заборонені для вашого класу взаємодії'
+            ],
+            'classCode' => [
+                'episode_type_forbidden' => 'Клас взаємодії :value заборонений для типу вашого епізоду',
+                'legal_entity_forbidden' => 'Клас взаємодії :value заборонений для типу вашого медичного закладу'
+            ],
+            'typeCode' => [
+                'class_forbidden' => 'Тип взаємодії :value заборонений для вашого класу взаємодії'
             ]
-        ]
+        ],
     ],
 
     'employee' => [
@@ -510,21 +531,31 @@ return [
 
         'uploadedDocuments.*' => 'для завантаження файлів',
         'verificationCode' => 'код підтвердження з СМС',
+
         'encounter' => [
-            'actions' => 'дії',
-            'diagnoses' => 'діагнози',
-            'division.identifier.value' => 'місце надання послуг',
-            'class.code' => 'клас взаємодії',
-            'type.coding.*.code' => 'тип взаємодії',
-            'period' => [
-                'start' => 'час початку',
-                'end' => 'час закінчення'
-            ],
-            'priority.coding.*.code' => 'пріоритет',
+            'periodDate' => 'дата',
+            'periodStart' => 'час початку',
+            'periodEnd' => 'час закінчення',
+            'classCode' => 'клас взаємодії',
+            'typeCode' => 'тип взаємодії',
+            'priorityCode' => 'пріоритет',
+            'divisionId' => 'місце надання послуг',
             'reasons' => 'причини звернення',
-            'diagnoses.role.coding.*.code' => 'тип',
-            'diagnoses.rank' => 'пріоритет'
+            'reasons.*.code' => 'Код стану за ICPC-2 причини',
+            'reasons.*.text' => 'коментар причини',
+            'diagnoses' => 'діагнози',
+            'diagnoses.*.roleCode' => 'тип діагнозу',
+            'diagnoses.*.rank' => 'пріоритет діагнозу',
+            'actions' => 'дії',
+            'actions.*.code' => 'Код стану за ICPC-2 дії',
+            'actions.*.text' => 'коментар дії'
         ],
+
+        'episode' => [
+            'typeCode' => 'тип епізоду',
+            'name' => 'назва епізоду'
+        ],
+
         'conditions' => 'діагнози',
         'conditions.*.reportOrigin.coding.*.code' => 'джерело інформації',
         'conditions.*.code.coding.0.code' => 'код стану за ICPC-2',
@@ -536,12 +567,7 @@ return [
         'conditions.*.clinicalStatus' => 'клінічний статус',
         'conditions.*.verificationStatus' => 'статус верифікації',
         'conditions.*.severity.coding.*.code' => 'ступінь тяжкості стану',
-        'episode' => [
-            'name' => 'назва епізоду',
-            'type' => [
-                'code' => 'тип епізоду'
-            ]
-        ],
+
         'immunizations' => [
             'primarySource' => 'джерело інформації',
             'performer' => 'виконавець',

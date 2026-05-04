@@ -351,7 +351,12 @@ class EncounterComponent extends Component
         $this->employeeFullName = $authUser->getEncounterWriterEmployee()->fullName;
 
         $this->setPatientData();
-        $this->getDivisionData();
+
+        // set division ID if only one exist
+        if (count($this->divisions) === 1) {
+            $this->form->encounter['divisionId'] = $this->divisions[0]['uuid'];
+        }
+
         $this->getEpisodes();
     }
 
@@ -639,19 +644,6 @@ class EncounterComponent extends Component
         $keys = $this->getFilteredKeysFromConfig("encounter_class_encounter_types.$selectedClass");
 
         $this->adjustDictionary('eHealth/encounter_types', $keys);
-    }
-
-    /**
-     * Get all user divisions, and set default if only one exists.
-     *
-     * @return void
-     */
-    protected function getDivisionData(): void
-    {
-        // set division if only one exist
-        if (count($this->divisions) === 1) {
-            $this->form->encounter['divisionId'] = $this->divisions[0]['uuid'];
-        }
     }
 
     /**

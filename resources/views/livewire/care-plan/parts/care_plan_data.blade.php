@@ -101,7 +101,7 @@
 
     <div class="form-group group">
         <label for="terms_of_service" class="label">
-            {{ __('care-plan.terms_of_service') ?? 'Умови надання послуг' }}
+            {{ __('care-plan.terms_of_service') }}
         </label>
         <select id="terms_of_service"
                 name="terms_of_service"

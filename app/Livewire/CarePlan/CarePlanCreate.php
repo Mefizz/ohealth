@@ -43,6 +43,7 @@ class CarePlanCreate extends BasePatientComponent
         'description' => '',
         'note' => '',
         'inform_with' => '',
+        'terms_of_service' => '',
         'episodes' => [],
         'medical_records' => [],
         'knedp' => '',
@@ -106,10 +107,21 @@ class CarePlanCreate extends BasePatientComponent
                 $this->form['medical_number'] = (string) $encounter->id;
                 
                 // Pre-fill diagnoses for the UI list
-                $this->diagnoses = $encounter->diagnoses->map(fn($d) => [
-                    'date' => $d->condition?->asserted_date?->format('d.m.Y') ?? '-',
-                    'name' => $d->condition?->code_display ?? $d->condition?->code ?? '-',
-                ])->toArray();
+                $this->diagnoses = $encounter->diagnoses->map(function($d) {
+                    $conditionUuid = $d->condition?->value;
+                    $actualCondition = $conditionUuid 
+                        ? \App\Models\MedicalEvents\Sql\Condition::where('uuid', $conditionUuid)->with('code.coding')->first()
+                        : null;
+                        
+                    return [
+                        'date' => $actualCondition?->asserted_date 
+                            ? \Carbon\Carbon::parse($actualCondition->asserted_date)->format('d.m.Y') 
+                            : '-',
+                        'name' => ($actualCondition?->code?->text ?: null)
+                            ?? ($actualCondition?->code?->coding?->first()?->code ?: null) 
+                            ?? '-',
+                    ];
+                })->toArray();
             }
         }
         $this->form['period_start'] = now()->format('d.m.Y');
@@ -144,16 +156,26 @@ class CarePlanCreate extends BasePatientComponent
         // Load dictionaries (cached via DictionaryManager)
         try {
             $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
-            $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-            $this->dictionaries['encounter_classes'] = $basics->byName('eHealth/encounter_classes')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-            $this->dictionaries['care_provision_conditions'] = $basics->byName('eHealth/care_provision_conditions')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-            $this->categories = $this->dictionaries['care_plan_categories'];
+            
+            try {
+                $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')->asCodeDescription()->toArray();
+            } catch (\Exception $e) {
+                $this->dictionaries['care_plan_categories'] = [];
+            }
+            
+            try {
+                $this->dictionaries['encounter_classes'] = $basics->byName('eHealth/encounter_classes')->asCodeDescription()->toArray();
+            } catch (\Exception $e) {
+                $this->dictionaries['encounter_classes'] = [];
+            }
+            
+            try {
+                $this->dictionaries['care_provision_conditions'] = $basics->byName('PROVIDING_CONDITION')->asCodeDescription()->toArray();
+            } catch (\Exception $e) {
+                $this->dictionaries['care_provision_conditions'] = [];
+            }
+            
+            $this->categories = $this->dictionaries['care_plan_categories'] ?? [];
         } catch (\Exception $exception) {
             report($exception);
             // Dictionaries might not be cached yet; log and continue
@@ -419,6 +441,12 @@ class CarePlanCreate extends BasePatientComponent
 
                 if ($finalResponse['status'] === 'failed') {
                     Log::error('CarePlan creation job failed', $finalResponse);
+                    $errorMsg = 'Помилка валідації від ЕСОЗ';
+                    if (!empty($finalResponse['error']['invalid'])) {
+                        $errorMsg .= ': ' . json_encode(array_map(fn($e) => $e['rules'][0]['description'] ?? $e['entry'], $finalResponse['error']['invalid']), JSON_UNESCAPED_UNICODE);
+                    }
+                    // Throw a specific exception we can catch or just use standard exception but update the catch block.
+                    throw new \RuntimeException($errorMsg);
                 }
             }
 
@@ -476,6 +504,10 @@ class CarePlanCreate extends BasePatientComponent
                 : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg, 'errors' => []]);
             $this->showSignatureModal = false;
+        } catch (\RuntimeException $exception) {
+            Log::error('CarePlan: runtime error: ' . $exception->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage(), 'errors' => []]);
+            $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             // TODO: Remove before PR
             if (config('app.debug')) {
@@ -532,16 +564,21 @@ class CarePlanCreate extends BasePatientComponent
                     return empty($this->conditionUuid) || ($d->condition?->uuid === $this->conditionUuid);
                 })
                 ->map(function ($d) {
-                    $coding = $d->condition?->code?->coding?->first();
-                    if ($coding) {
-                        return [
-                            'coding' => [
-                                [
-                                    'system' => $coding->system ?? 'eHealth/ICD10_AM/condition_codes',
-                                    'code' => $coding->code
+                    $conditionUuid = $d->condition?->value;
+                    if ($conditionUuid && (empty($this->conditionUuid) || $conditionUuid === $this->conditionUuid)) {
+                        $actualCondition = \App\Models\MedicalEvents\Sql\Condition::where('uuid', $conditionUuid)->with('code.coding')->first();
+                        $coding = $actualCondition?->code?->coding?->first();
+                        
+                        if ($coding) {
+                            return [
+                                'coding' => [
+                                    [
+                                        'system' => $coding->system ?? 'eHealth/ICD10_AM/condition_codes',
+                                        'code' => $coding->code
+                                    ]
                                 ]
-                            ]
-                        ];
+                            ];
+                        }
                     }
                     return null;
                 })

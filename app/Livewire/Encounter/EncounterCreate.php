@@ -4,28 +4,26 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter;
 
-use App\Classes\Cipher\Exceptions\ApiException as CipherApiException;
-use App\Classes\eHealth\Api\Job;
+use App\Classes\Cipher\Api\CipherRequest;
+use App\Classes\Cipher\Exceptions\CipherApiException;
 use App\Classes\eHealth\EHealth;
-use App\Classes\eHealth\Exceptions\ApiException as eHealthApiException;
-use App\Classes\eHealth\PackageBuilders\EncounterPackageBuilder;
+use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Livewire\Encounter\Forms\Api\EncounterRequestApi;
-use App\Livewire\Encounter\Traits\HandlesReasonReferences;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
+use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Episode;
-use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\Procedure;
 use App\Repositories\MedicalEvents\Repository;
-use Exception;
+use App\Services\MedicalEvents\EncounterPackageBuilder;
+use App\Traits\HandlesReasonReferences;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 use JsonException;
 use Throwable;
 
@@ -34,7 +32,6 @@ class EncounterCreate extends EncounterComponent
     use HandlesReasonReferences;
 
     private EncounterPackageBuilder $packageBuilder;
-    protected int $createdEncounterId;
 
     public function boot(): void
     {
@@ -46,40 +43,100 @@ class EncounterCreate extends EncounterComponent
     {
         $this->initializeComponent($personId);
 
-        // Select an employee for the current legal entity, prioritizing clinical roles (DOCTOR, SPECIALIST)
-        $employee = Auth::user()->party->employees()
-            ->where('legal_entity_id', $legalEntity->id)
-            ->whereStatus('APPROVED')
-            ->orderByRaw("CASE WHEN employee_type IN ('DOCTOR', 'SPECIALIST') THEN 1 ELSE 2 END")
-            ->first();
-
-        $uuid = $employee?->uuid ?? Auth::user()->party->employees()->whereStatus('APPROVED')->first()->uuid;
-
-        $this->form->encounter['performer']['identifier']['value'] = $uuid;
-
         $this->setDefaultDate();
     }
 
     /**
-     * Submit encounter to eHealth.
+     * Validate and save data.
+     *
+     * @return void
+     */
+    public function save(): void
+    {
+        if (Auth::user()->cannot('create', Encounter::class)) {
+            Session::flash('error', __('patients.policy.create_encounter'));
+
+            return;
+        }
+
+        try {
+            $validated = $this->form->validate();
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        // Prepare and format data after validation
+        $formattedData = $this->prepareFormattedData($validated);
+
+        try {
+            $encounterId = $this->storeValidatedData($formattedData);
+        } catch (Throwable $exception) {
+            $this->logDatabaseErrors($exception, 'Failed to store validated data');
+            Session::flash('error', __('messages.database_error'));
+
+            return;
+        }
+
+        Session::flash('success', __('patients.messages.encounter_created'));
+        $this->redirectRoute('encounter.edit', [legalEntity(), $this->personId, $encounterId], navigate: true);
+    }
+
+    /**
+     * Submit encrypted data about person encounter.
      *
      * @return void
      */
     public function sign(): void
     {
-        $validated = $this->validate();
+        if (Auth::user()->cannot('create', Encounter::class)) {
+            Session::flash('error', __('patients.policy.create_encounter'));
 
-        $formattedData = $this->getFormattedData($validated['encounter']);
-
-        if (!$this->createdEncounterId = $this->storeValidatedData($formattedData)) {
             return;
         }
 
-        $payloadToSign = Arr::except($formattedData['encounter'], ['episode']);
+        // First validate the encounter data
+        try {
+            $validatedData = $this->form->validate();
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        // Then validate signing requirements
+        try {
+            $validated = $this->form->validate($this->form->signingRules());
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        $formattedData = $this->prepareFormattedData($validatedData);
 
         try {
-            $signedContent = $this->cipherService->sign(
-                $payloadToSign,
+            $this->storeValidatedData($formattedData);
+        } catch (Throwable $exception) {
+            $this->logDatabaseErrors($exception, 'Failed to store validated data');
+            Session::flash('error', __('messages.database_error'));
+
+            return;
+        }
+
+        $formattedData = Arr::toSnakeCase($formattedData);
+
+        if ($this->episodeType === 'new') {
+            $this->createEpisode($formattedData['episode']);
+        }
+
+        try {
+            $signedContent = new CipherRequest()->signData(
+                $formattedData,
                 $validated['knedp'],
                 $validated['keyContainerUpload'],
                 $validated['password'],
@@ -91,83 +148,23 @@ class EncounterCreate extends EncounterComponent
             return;
         }
 
-        $signedSubmitEncounter = EncounterRequestApi::buildSubmitEncounterPackage(
-            $payloadToSign,
-            $signedContent->getBase64Data()
-        );
-
         try {
-            $response = EHealth::encounter()->submit($this->patientUuid, $signedSubmitEncounter);
-            $data = $response->getData();
-            
-            if (isset($data['id'])) {
-                $this->pollJobResult($data['id']);
-            } else {
-                $this->handleSuccessResponse($data);
-            }
-        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
-            if ($exception instanceof EHealthValidationException || $exception instanceof EHealthResponseException) {
-                $this->addError('ehealth_error', $exception->getMessage());
-                Log::channel('e_health_errors')->error($exception->getMessage(), $exception->getData());
-            }
+            $resp = EHealth::encounter()->submit($this->patientUuid, [
+                'visit' => [
+                    'id' => data_get($formattedData, 'encounter.visit.identifier.value'),
+                    'period' => data_get($formattedData, 'encounter.period')
+                ],
+                'signed_data' => $signedContent->getBase64Data()
+            ]);
 
+            logger()->debug('Job ID to further debug', $resp->getData());
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error while submitting encounter');
 
             return;
         }
-    }
 
-    /**
-     * Poll job result until it is processed.
-     *
-     * @param  string  $jobId
-     * @return void
-     */
-    protected function pollJobResult(string $jobId): void
-    {
-        $attempts = 0;
-        $maxAttempts = 10;
-
-        while ($attempts < $maxAttempts) {
-            try {
-                $job = EHealth::job()->getDetails($jobId);
-                $status = $job->getData()['status'] ?? 'pending';
-
-                if ($status === 'processed') {
-                    $this->handleSuccessResponse($job->getData());
-                    return;
-                }
-
-                if ($status === 'failed') {
-                    $errorData = $job->getData();
-                    Log::channel('e_health_errors')->error('Encounter submission job failed', $errorData);
-                    $this->addError('ehealth_error', 'Помилка реєстрації взаємодії в ЕСОЗ. Перевірте лог.');
-                    return;
-                }
-            } catch (Throwable $e) {
-                Log::error('Error polling encounter job: ' . $e->getMessage());
-            }
-
-            $attempts++;
-            sleep(2);
-        }
-
-        $this->addError('ehealth_error', 'Перевищено час очікування результату реєстрації. Спробуйте пізніше.');
-    }
-
-    /**
-     * Handle success response from eHealth.
-     *
-     * @param  array  $data
-     * @return void
-     */
-    protected function handleSuccessResponse(array $data): void
-    {
-        $this->redirectRoute('encounter.edit', [
-            legalEntity(),
-            'personId' => $this->personId,
-            'encounterId' => $this->createdEncounterId,
-        ]);
+        $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
     }
 
     /**
@@ -177,53 +174,24 @@ class EncounterCreate extends EncounterComponent
      */
     private function setDefaultDate(): void
     {
-        $this->form->encounter['period']['date'] = now()->format('Y-m-d');
-        $this->form->encounter['period']['start'] = now()->format('H:i');
-        $this->form->encounter['period']['end'] = now()->addMinutes(20)->format('H:i');
+        $now = CarbonImmutable::now();
+
+        $this->form->encounter['periodDate'] = $now->format('Y-m-d');
+        $this->form->encounter['periodStart'] = $now->format('H:i');
+        $this->form->encounter['periodEnd'] = $now->addMinutes(15)->format('H:i');
     }
 
     /**
-     * Format encounter data for eHealth request and local DB.
+     * Prepare formatted data.
      *
-     * @param  array  $validatedEncounter
+     * @param  array  $validated
      * @return array
      */
-    private function getFormattedData(array $validatedEncounter): array
+    protected function prepareFormattedData(array $validated): array
     {
+        $package = $this->packageBuilder->build($validated, $this->episodeType);
+
         $encounterRepository = Repository::encounter();
-
-        $package = [
-            'encounter' => $encounterRepository->formatEncounterRequest(
-                $validatedEncounter,
-                $this->patientUuid
-            )
-        ];
-
-        if ($this->episodeType === 'new' && !empty($this->form->episode['name'])) {
-            $package['episode'] = Repository::episode()->formatEpisodeRequest(
-                $this->form->episode,
-                $this->patientUuid,
-                $validatedEncounter['performer']['identifier']['value']
-            );
-        }
-
-        $package['conditions'] = Repository::condition()->formatConditionsRequest(
-            $this->form->conditions,
-            $this->patientUuid
-        );
-
-        if (!empty($this->form->immunizations)) {
-            $package['immunizations'] = Repository::immunization()->formatImmunizationsRequest(
-                $this->form->immunizations
-            );
-        }
-
-        if (!empty($this->form->diagnosticReports)) {
-            $package['diagnosticReports'] = $encounterRepository->formatDiagnosticReportsRequest(
-                $this->form->diagnosticReports,
-                $validatedEncounter['divisionId'] ?? null
-            );
-        }
 
         if (!empty($this->form->observations)) {
             $package['observations'] = $encounterRepository->formatObservationsRequest($this->form->observations);
@@ -246,71 +214,79 @@ class EncounterCreate extends EncounterComponent
      * Store validated formatted data into DB.
      *
      * @param  array  $formattedData
-     * @return int|null
+     * @return int
      * @throws Throwable
      */
-    protected function storeValidatedData(array $formattedData): ?int
+    protected function storeValidatedData(array $formattedData): int
+    {
+        return DB::transaction(function () use ($formattedData) {
+            $createdEncounterId = Repository::encounter()->store($formattedData['encounter'], $this->personId);
+
+            if (isset($formattedData['episode'])) {
+                Repository::episode()->store($formattedData['episode'], $this->personId, $createdEncounterId);
+            }
+
+            if (isset($formattedData['conditions'])) {
+                Repository::condition()->store($formattedData['conditions'], $createdEncounterId, $this->personId);
+            }
+
+            if (isset($formattedData['immunizations'])) {
+                Repository::immunization()->store($formattedData['immunizations'], $this->personId);
+            }
+
+            if (isset($formattedData['diagnosticReports'])) {
+                Repository::diagnosticReport()->store($formattedData['diagnosticReports'], $this->personId);
+            }
+
+            if (isset($formattedData['observations'])) {
+                Repository::observation()->store(
+                    $formattedData['observations'],
+                    $this->personId,
+                    $createdEncounterId
+                );
+            }
+
+            if (isset($formattedData['procedures'])) {
+                Repository::procedure()->store($formattedData['procedures'], $createdEncounterId);
+
+                // Save the selected condition and observation locally if they don't exist in our database.
+                foreach ($formattedData['procedures'] as $procedure) {
+                    $this->processReasonReferences($procedure);
+                    $this->processComplicationDetails($procedure);
+                }
+            }
+
+            if (isset($formattedData['clinicalImpressions'])) {
+                Repository::clinicalImpression()->store(
+                    $formattedData['clinicalImpressions'],
+                    $this->personId,
+                    $createdEncounterId
+                );
+
+                // Save the selected episode_of_care, procedure, diagnostic_report, encounter locally if they don't exist in our database.
+                foreach ($formattedData['clinicalImpressions'] as $clinicalImpression) {
+                    $this->processSupportingInfo($clinicalImpression);
+                }
+            }
+
+            return $createdEncounterId;
+        });
+    }
+
+    /**
+     * Create episode for patient.
+     *
+     * @param  array  $formattedEpisode
+     * @return void
+     */
+    protected function createEpisode(array $formattedEpisode): void
     {
         try {
-            return DB::transaction(function () use ($formattedData) {
-                $this->createdEncounterId = Repository::encounter()->store($formattedData['encounter'], $this->personId);
+            EHealth::episode()->create($this->patientUuid, Arr::toSnakeCase($formattedEpisode));
+        } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
+            $this->handleEHealthExceptions($exception, 'Error when sign person request');
 
-                if (isset($formattedData['episode'])) {
-                    Repository::episode()->store($formattedData['episode'], $this->personId, $this->createdEncounterId);
-                }
-
-                Repository::condition()->store($formattedData['conditions'], $this->createdEncounterId, $this->personId);
-
-                if (isset($formattedData['immunizations'])) {
-                    Repository::immunization()->store(
-                        $formattedData['immunizations'],
-                        $this->personId,
-                        $this->createdEncounterId
-                    );
-                }
-
-                if (isset($formattedData['diagnosticReports'])) {
-                    Repository::diagnosticReport()->store($formattedData['diagnosticReports'], $this->createdEncounterId);
-                }
-
-                if (isset($formattedData['observations'])) {
-                    Repository::observation()->store(
-                        $formattedData['observations'],
-                        $this->personId,
-                        $this->createdEncounterId
-                    );
-                }
-
-                if (isset($formattedData['procedures'])) {
-                    Repository::procedure()->store($formattedData['procedures'], $this->createdEncounterId);
-
-                    // Save the selected condition and observation locally if they don't exist in our database.
-                    foreach ($formattedData['procedures'] as $procedure) {
-                        $this->processReasonReferences($procedure);
-                        $this->processComplicationDetails($procedure);
-                    }
-                }
-
-                if (isset($formattedData['clinicalImpressions'])) {
-                    Repository::clinicalImpression()->store(
-                        $formattedData['clinicalImpressions'],
-                        $this->personId,
-                        $this->createdEncounterId
-                    );
-
-                    // Save the selected episode_of_care, procedure, diagnostic_report, encounter locally if they don't exist in our database.
-                    foreach ($formattedData['clinicalImpressions'] as $clinicalImpression) {
-                        $this->processSupportingInfo($clinicalImpression);
-                    }
-                }
-
-                return $this->createdEncounterId;
-            });
-        } catch (Throwable $exception) {
-            $this->logDatabaseErrors($exception, 'Failed to store validated data');
-            Session::flash('error', __('messages.database_error'));
-
-            return null;
+            return;
         }
     }
 

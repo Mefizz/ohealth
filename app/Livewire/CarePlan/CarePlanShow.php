@@ -71,8 +71,8 @@ class CarePlanShow extends Component
             $query->where('person_id', $this->carePlan->person_id);
         })->with('code.coding')->get()->map(fn($c) => [
             'uuid' => $c->uuid,
-            'name' => $c->code_display ?? $c->code ?? 'Unknown Condition',
-            'date' => $c->onset_date?->format('d.m.Y') ?? '-',
+            'name' => ($c->code?->text ?: null) ?? ($c->code?->coding?->first()?->code ?: null) ?? 'Unknown Condition',
+            'date' => $c->onset_date ? \Carbon\Carbon::parse($c->onset_date)->format('d.m.Y') : '-',
         ])->toArray();
 
         try {

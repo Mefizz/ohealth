@@ -67,7 +67,9 @@ class CarePlanRepository
         $id = \Illuminate\Support\Str::uuid()->toString();
 
         $addresses = [];
-        if (!empty($encounterData['diagnoses'][0]['condition']['identifier']['value'])) {
+        if (!empty($encounterData['addresses'])) {
+            $addresses = $encounterData['addresses'];
+        } elseif (!empty($encounterData['diagnoses'][0]['condition']['identifier']['value'])) {
             $addresses[] = [
                 'identifier' => [
                     'type' => [
@@ -89,7 +91,7 @@ class CarePlanRepository
 
         return \App\Core\Arr::removeEmptyKeys([
             'id' => $id,
-            'intent' => $form['intent'] ?? 'order',
+            'intent' => 'plan', // Forced to plan as order is not allowed by eHealth
             'status' => 'new',
             'category' => [
                 'coding' => [
@@ -102,21 +104,15 @@ class CarePlanRepository
                 'start' => convertToEHealthISO8601($form['period_start'] . ' 00:00:00'),
                 'end' => !empty($form['period_end']) ? convertToEHealthISO8601($form['period_end'] . ' 23:59:59') : null,
             ]),
-            'addresses' => !empty($addresses) ? $addresses : null,
-            'supporting_info' => array_merge(
-                array_map(fn($e) => [
+            'addresses' => !empty($addresses) ? array_values(array_filter($addresses)) : null,
+            'supporting_info' => array_values(array_filter(array_map(fn($e) => 
+                (!empty($e['uuid']) || !empty($e['id'])) ? [
                     'identifier' => [
                         'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'episode_of_care']]],
-                        'value' => $e['uuid'] ?? $e['id'] ?? null
+                        'value' => $e['uuid'] ?? $e['id']
                     ]
-                ], $form['episodes'] ?? []),
-                array_map(fn($m) => [
-                    'identifier' => [
-                        'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'observation']]],
-                        'value' => $m['uuid'] ?? $m['id'] ?? null
-                    ]
-                ], $form['medical_records'] ?? [])
-            ),
+                ] : null
+            , $form['episodes'] ?? []))),
             'encounter' => !empty($form['encounter']) ? [
                 'identifier' => [
                     'type' => [
@@ -126,47 +122,43 @@ class CarePlanRepository
                 ]
             ] : null,
             'author' => $employeeRef,
-            'care_manager' => $employeeRef,
             'description' => $form['description'] ?: null,
             'note' => $form['note'] ?: null,
-            'inform_with' => !empty($form['inform_with']) ? [
-                'coding' => [
-                    ['system' => 'eHealth/inform_with', 'code' => $form['inform_with']]
-                ]
-            ] : null,
             'terms_of_service' => [
                 'coding' => [
-                    ['system' => 'eHealth/care_provision_conditions', 'code' => $form['terms_of_service']]
+                    ['system' => 'PROVIDING_CONDITION', 'code' => $form['terms_of_service']]
                 ]
             ]
         ]);
     }
 
-    public function syncCarePlans(\App\Models\Person\Person $person, array $query = []): void
+    public function syncCarePlans(array $validatedData, ?int $personId = null): void
     {
-        $response = EHealth::carePlan()->getSummary($person->uuid, $query);
-        $data = $response->getData();
-
-        if (!isset($data['data']) || !is_array($data['data'])) {
-            return;
-        }
-
-        $validator = Validator::make($data['data'], [
-            '*' => 'array',
-            '*.id' => 'required|uuid',
-            '*.status' => 'required|string',
-            '*.title' => 'required|string',
-        ]);
-
-        if ($validator->fails()) {
-            throw new ValidationException($validator);
-        }
-
         $activityRepo = app(CarePlanActivityRepository::class);
 
-        foreach ($data['data'] as $rawFhir) {
+        foreach ($validatedData as $rawFhir) {
+            $person = null;
+            
+            if ($personId) {
+                $person = \App\Models\Person\Person::find($personId);
+            } else {
+                // Try to find person by subject identifier (patient UUID)
+                $patientUuid = $rawFhir['subject']['identifier']['value'] ?? null;
+                if ($patientUuid) {
+                    $person = \App\Models\Person\Person::where('uuid', $patientUuid)->first();
+                }
+            }
+
+            if (!$person) {
+                \Illuminate\Support\Facades\Log::warning('CarePlanRepository: person not found for CarePlan sync', [
+                    'care_plan_uuid' => $rawFhir['id'],
+                    'patient_uuid' => $rawFhir['subject']['identifier']['value'] ?? 'missing'
+                ]);
+                continue;
+            }
+
             \App\Models\MedicalEvents\Mongo\CarePlan::updateOrCreate(
-                ['uuid' => $rawFhir['id']],
+                ['uuid' => $rawFhir['uuid']],
                 ['data' => $rawFhir]
             );
 
@@ -190,7 +182,7 @@ class CarePlanRepository
                 }
 
                 $carePlan = CarePlan::updateOrCreate(
-                    ['uuid' => $rawFhir['id']],
+                    ['uuid' => $rawFhir['uuid']],
                     [
                         'person_id' => $person->id,
                         'status' => $rawFhir['status'],

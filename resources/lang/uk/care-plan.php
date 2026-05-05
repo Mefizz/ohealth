@@ -15,6 +15,7 @@ return [
     'name_care_plan' => 'Назва плану лікування',
     'intention' => 'Намір',
     'terms_service' => 'Умови надання послуг',
+    'terms_of_service' => 'Умови надання послуг',
     'date_and_time_start' => 'Дата та час початку плану лікування:',
     'date_and_time_end' => 'Дата та час завершення плану лікування:',
     'attention' => 'Увага!',

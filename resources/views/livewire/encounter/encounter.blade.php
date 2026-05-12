@@ -40,9 +40,11 @@
 {{--                    @include('livewire.encounter.parts.clinical-impressions')--}}
 {{--                </div>--}}
 
+                @if($this instanceof \App\Livewire\Encounter\EncounterEdit)
                 <div id="care-plans" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-6">
                     @include('livewire.encounter.parts.care-plan')
                 </div>
+                @endif
 
                 @include('livewire.encounter.parts.actions')
                 @include('livewire.encounter.parts.additional-data')
@@ -75,8 +77,11 @@
                         ['id' => 'observations', 'label' => __('patients.observation'), 'icon' => 'heart'],
                         ['id' => 'procedures', 'label' => __('patients.procedures'), 'icon' => 'settings'],
                         ['id' => 'clinical-impressions', 'label' => __('patients.clinical_impressions'), 'icon' => 'check'],
-                        ['id' => 'care-plans', 'label' => __('patients.care_plans'), 'icon' => 'clipboard-document-list'],
                     ];
+
+                    if ($this instanceof \App\Livewire\Encounter\EncounterEdit) {
+                        $navItems[] = ['id' => 'care-plans', 'label' => __('patients.care_plans'), 'icon' => 'clipboard-document-list'];
+                    }
                 @endphp
 
                 @foreach($navItems as $item)

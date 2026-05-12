@@ -234,6 +234,7 @@ return [
     'get_access_to_medical_data' => 'Отримати доступ до медичних даних',
     'data_access' => 'Доступ до даних',
     'sync_ehealth_data' => 'Синхронізувати дані з ЕСОЗ',
+    'sync_success' => 'Дані успішно синхронізовані',
     'allergies' => 'Алергії',
     'risk_assessments' => 'Оцінки ризиків',
     'devices' => 'Пристрої',
@@ -543,5 +544,11 @@ return [
         'diagnostic_report_sync_resume_started' => 'Відновлення попередньої синхронізації діагностичних звітів розпочато',
         'diagnostic_report_sync_database_error' => 'Виникла помилка під час синхронізації діагностичних звітів',
         'diagnostic_report_sync_background_dispatch_error' => 'Помилка запуску фонової синхронізації діагностичних звітів',
+        'care_plans_synced_successfully' => 'Плани лікування успішно синхронізовані',
+        'care_plans_first_page_synced_successfully' => 'Перша сторінка планів лікування синхронізована, решта обробляється у фоні',
+        'care_plan_sync_already_running' => 'Синхронізація планів лікування вже запущена. Будь ласка, зачекайте її завершення.',
+        'care_plan_sync_resume_started' => 'Відновлення попередньої синхронізації планів лікування розпочато',
+        'care_plan_sync_database_error' => 'Виникла помилка під час синхронізації планів лікування',
+        'care_plan_sync_background_dispatch_error' => 'Помилка запуску фонової синхронізації планів лікування',
     ]
 ];

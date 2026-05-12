@@ -8,7 +8,9 @@ use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -66,19 +68,7 @@ class CarePlanRepository
     {
         $id = \Illuminate\Support\Str::uuid()->toString();
 
-        $addresses = [];
-        if (!empty($encounterData['addresses'])) {
-            $addresses = $encounterData['addresses'];
-        } elseif (!empty($encounterData['diagnoses'][0]['condition']['identifier']['value'])) {
-            $addresses[] = [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'condition']]
-                    ],
-                    'value' => $encounterData['diagnoses'][0]['condition']['identifier']['value']
-                ]
-            ];
-        }
+        $addresses = $encounterData['addresses'] ?? [];
 
         $employeeRef = [
             'identifier' => [
@@ -89,9 +79,37 @@ class CarePlanRepository
             ]
         ];
 
-        return \App\Core\Arr::removeEmptyKeys([
+        // Use encounter period start if available to satisfy eHealth rule:
+        // "Care plan start date must be greater or equal than Encounter period start"
+        $periodStart = $form['period_start'];
+        if (!empty($encounterData['period_start'])) {
+            // Encounter start is already in UTC from DB
+            $encounterStart = \Carbon\CarbonImmutable::parse($encounterData['period_start'], 'UTC');
+            
+            // Form date is Kyiv time (e.g. "12.05.2026")
+            $formStart = \Carbon\CarbonImmutable::parse($periodStart, config('app.timezone', 'Europe/Kiev'))->startOfDay();
+
+            // If the selected day is the same or earlier than the encounter's day, 
+            // we MUST use the encounter's actual start time to avoid the 422 error.
+            if ($formStart->utc()->lt($encounterStart)) {
+                // If user picked today but encounter started later today, 
+                // we set care plan start exactly to encounter start + 1 minute for safety
+                $periodStart = $encounterStart->addMinute()->toDateTimeString();
+                
+                // Since convertToEHealthISO8601 parses and converts to UTC again, 
+                // we need to pass it a format it understands or bypass it.
+                // To keep it simple, we'll use a direct ISO string if we already have UTC.
+                $finalPeriodStart = $encounterStart->addMinute()->toIso8601ZuluString();
+            } else {
+                $finalPeriodStart = convertToEHealthISO8601($periodStart . ' 00:00:00');
+            }
+        } else {
+            $finalPeriodStart = convertToEHealthISO8601($periodStart . ' 00:00:00');
+        }
+
+        $payload = \App\Core\Arr::removeEmptyKeys([
             'id' => $id,
-            'intent' => 'plan', // Forced to plan as order is not allowed by eHealth
+            'intent' => 'order',
             'status' => 'new',
             'category' => [
                 'coding' => [
@@ -101,10 +119,10 @@ class CarePlanRepository
             'instantiates_protocol' => !empty($form['clinical_protocol']) ? [['display' => $form['clinical_protocol']]] : null,
             'title' => $form['title'],
             'period' => array_filter([
-                'start' => convertToEHealthISO8601($form['period_start'] . ' 00:00:00'),
+                'start' => $finalPeriodStart,
                 'end' => !empty($form['period_end']) ? convertToEHealthISO8601($form['period_end'] . ' 23:59:59') : null,
             ]),
-            'addresses' => !empty($addresses) ? array_values(array_filter($addresses)) : null,
+            'addresses' => !empty($addresses) ? array_values($addresses) : null,
             'supporting_info' => array_values(array_filter(array_map(fn($e) => 
                 (!empty($e['uuid']) || !empty($e['id'])) ? [
                     'identifier' => [
@@ -130,13 +148,24 @@ class CarePlanRepository
                 ]
             ]
         ]);
+
+        \Illuminate\Support\Facades\Log::debug('CarePlan payload before signing', [
+            'category' => $form['category'],
+            'encounter_uuid' => $form['encounter'] ?? null,
+            'encounter_period_start' => $encounterData['period_start'] ?? null,
+            'care_plan_period_start' => $payload['period']['start'] ?? null,
+            'addresses' => $payload['addresses'] ?? null,
+        ]);
+
+        return $payload;
     }
 
     public function syncCarePlans(array $validatedData, ?int $personId = null): void
     {
         $activityRepo = app(CarePlanActivityRepository::class);
+        $plans = isset($validatedData['data']) ? $validatedData['data'] : $validatedData;
 
-        foreach ($validatedData as $rawFhir) {
+        foreach ($plans as $rawFhir) {
             $person = null;
             
             if ($personId) {
@@ -157,26 +186,36 @@ class CarePlanRepository
                 continue;
             }
 
+            // TODO: Move raw FHIR data storage to MongoDB when the driver and collection are ready.
+            // Currently disabled to prevent conflicts with the SQL 'care_plans' table.
+            /* 
             \App\Models\MedicalEvents\Mongo\CarePlan::updateOrCreate(
                 ['uuid' => $rawFhir['uuid']],
                 ['data' => $rawFhir]
             );
+            */
 
             DB::transaction(function () use ($person, $rawFhir, $activityRepo) {
-                $category = isset($rawFhir['category'])
-                    ? MedicalEventsRepository::codeableConcept()->store($rawFhir['category'])
+                $categoryData = isset($rawFhir['category']) && is_array($rawFhir['category']) 
+                    ? ($rawFhir['category'][0] ?? null) 
+                    : ($rawFhir['category'] ?? null);
+
+                $category = $categoryData 
+                    ? MedicalEventsRepository::codeableConcept()->store($categoryData)
                     : null;
 
-                $encounterIdentifier = isset($rawFhir['encounter'])
+                $encounterIdentifier = isset($rawFhir['encounter']['identifier']['value'])
                     ? MedicalEventsRepository::identifier()->store($rawFhir['encounter']['identifier']['value'])
                     : null;
+
                 if ($encounterIdentifier && isset($rawFhir['encounter']['identifier']['type'])) {
                     MedicalEventsRepository::codeableConcept()->attach($encounterIdentifier, $rawFhir['encounter']);
                 }
 
-                $careManager = isset($rawFhir['careManager'])
+                $careManager = isset($rawFhir['careManager']['identifier']['value'])
                     ? MedicalEventsRepository::identifier()->store($rawFhir['careManager']['identifier']['value'])
                     : null;
+
                 if ($careManager && isset($rawFhir['careManager']['identifier']['type'])) {
                     MedicalEventsRepository::codeableConcept()->attach($careManager, $rawFhir['careManager']);
                 }
@@ -187,24 +226,60 @@ class CarePlanRepository
                     $author = \App\Models\Employee\Employee::where('uuid', $authorUuid)->first();
                 }
 
-                $carePlan = CarePlan::updateOrCreate(
-                    ['uuid' => $rawFhir['uuid']],
-                    [
-                        'person_id' => $person->id,
-                        'author_id' => $author?->id,
+                // Fallback to current user if author not found (to satisfy NOT NULL constraint)
+                $authorId = $author?->id ?? Auth::user()?->getCarePlanWriterEmployee()?->id;
+
+                // Try to find existing record by UUID OR by (person + encounter) if UUID is missing locally
+                $carePlan = CarePlan::where('uuid', $rawFhir['uuid'])->first();
+                if (!$carePlan && $encounterIdentifier) {
+                    $carePlan = CarePlan::where('person_id', $person->id)
+                        ->where('encounter_identifier_id', $encounterIdentifier->id)
+                        ->whereNull('uuid')
+                        ->first();
+                }
+
+                if ($carePlan) {
+                    $carePlan->update([
+                        'uuid' => $rawFhir['uuid'],
+                        'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
-                        'status' => $rawFhir['status'],
-                        'title' => $rawFhir['title'],
+                        'status' => $rawFhir['status'] ?? 'active',
+                        'title' => $rawFhir['title'] ?? 'План лікування',
                         'description' => $rawFhir['description'] ?? null,
                         'note' => $rawFhir['note'] ?? null,
                         'category_id' => $category?->id,
                         'encounter_identifier_id' => $encounterIdentifier?->id,
                         'care_manager_id' => $careManager?->id,
-                        'period_start' => isset($rawFhir['period']['start']) ? \Carbon\Carbon::parse($rawFhir['period']['start']) : null,
-                        'period_end' => isset($rawFhir['period']['end']) ? \Carbon\Carbon::parse($rawFhir['period']['end']) : null,
+                        'period_start' => isset($rawFhir['period']['start']) 
+                            ? \Carbon\Carbon::parse($rawFhir['period']['start']) 
+                            : ($rawFhir['ehealth_inserted_at'] ?? now()),
+                        'period_end' => isset($rawFhir['period']['end']) 
+                            ? \Carbon\Carbon::parse($rawFhir['period']['end']) 
+                            : null,
                         'terms_of_service' => $rawFhir['terms_of_service']['coding'][0]['code'] ?? null,
-                    ]
-                );
+                    ]);
+                } else {
+                    $carePlan = CarePlan::create([
+                        'uuid' => $rawFhir['uuid'],
+                        'person_id' => $person->id,
+                        'author_id' => $authorId,
+                        'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
+                        'status' => $rawFhir['status'] ?? 'active',
+                        'title' => $rawFhir['title'] ?? 'План лікування',
+                        'description' => $rawFhir['description'] ?? null,
+                        'note' => $rawFhir['note'] ?? null,
+                        'category_id' => $category?->id,
+                        'encounter_identifier_id' => $encounterIdentifier?->id,
+                        'care_manager_id' => $careManager?->id,
+                        'period_start' => isset($rawFhir['period']['start']) 
+                            ? \Carbon\Carbon::parse($rawFhir['period']['start']) 
+                            : ($rawFhir['ehealth_inserted_at'] ?? now()),
+                        'period_end' => isset($rawFhir['period']['end']) 
+                            ? \Carbon\Carbon::parse($rawFhir['period']['end']) 
+                            : null,
+                        'terms_of_service' => $rawFhir['terms_of_service']['coding'][0]['code'] ?? null,
+                    ]);
+                }
 
                 if (isset($rawFhir['period'])) {
                     MedicalEventsRepository::period()->sync($carePlan, $rawFhir['period'], 'effectivePeriod');

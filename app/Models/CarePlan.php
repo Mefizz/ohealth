@@ -168,6 +168,9 @@ class CarePlan extends Model
 
     public function getAuthorNameAttribute(): string
     {
-        return $this->author?->party?->fullName ?? '—';
+        if ($this->relationLoaded('author')) {
+            return $this->author?->party?->fullName ?? '—';
+        }
+        return '—';
     }
 }

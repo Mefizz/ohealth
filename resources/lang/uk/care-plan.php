@@ -185,6 +185,8 @@ return [
     'encounter' => 'Взаємодія (Encounter)',
     'conditions/diagnoses' => 'Стани/діагнози',
     'observations' => 'Спостереження',
+    'no_ehealth_encounters' => 'У пацієнта немає підтверджених ЕСОЗ взаємодій. Спочатку створіть та підпишіть взаємодію.',
+    'care_plans_description_in_encounter' => 'Плани лікування, пов\'язані з цією взаємодією.',
 
     // Access Management (Approvals)
     'access_management' => 'Управління доступом (Approvals)',

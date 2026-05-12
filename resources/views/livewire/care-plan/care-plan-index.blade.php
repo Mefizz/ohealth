@@ -13,7 +13,7 @@
                 <span wire:loading wire:target="sync" class="animate-spin">⏳</span>
                 {{ __('patients.sync_ehealth_data') ?? 'Синхронізувати' }}
             </button>
-            <a href="{{ route('care-plan.create', legalEntity()) }}" class="button-primary">
+            <a href="{{ route('persons.index', legalEntity()) }}" class="button-primary">
                 + {{ __('care-plan.new_care_plan') }}
             </a>
         </x-slot>

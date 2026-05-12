@@ -127,7 +127,7 @@ class CarePlan extends Request
             '*' => 'array',
             '*.uuid' => 'required|uuid',
             '*.status' => 'required|string',
-            '*.title' => 'required|string',
+            '*.title' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -141,6 +141,15 @@ class CarePlan extends Request
 
     protected function replaceEHealthPropNames(array $properties): array
     {
+        // Only replace for associative arrays (objects)
+        if (!Arr::isAssoc($properties)) {
+            $result = [];
+            foreach ($properties as $item) {
+                $result[] = is_array($item) ? $this->replaceEHealthPropNames($item) : $item;
+            }
+            return $result;
+        }
+
         $mapping = [
             'id' => 'uuid',
             'inserted_at' => 'ehealth_inserted_at',

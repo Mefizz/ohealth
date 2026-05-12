@@ -56,3 +56,30 @@
         @enderror
     </div>
 </div>
+
+<div class="form-row-2 mt-5">
+    <div class="form-group group">
+        <label for="encounter_select" class="label">
+            {{ __('care-plan.encounter') ?? 'Взаємодія' }}
+        </label>
+        <select id="encounter_select"
+                name="encounter_select"
+                class="input-select peer"
+                wire:model="form.encounter"
+        >
+            <option value="">{{ __('forms.select') }} ...</option>
+            @foreach($availableEncounters as $enc)
+                <option value="{{ $enc['uuid'] }}">{{ $enc['label'] }}</option>
+            @endforeach
+        </select>
+        @if(empty($availableEncounters))
+            <p class="text-sm text-amber-600 mt-1">
+                ⚠️ {{ __('care-plan.no_ehealth_encounters') ?? 'У пацієнта немає підтверджених ЕСОЗ взаємодій. Спочатку створіть та підпишіть взаємодію.' }}
+            </p>
+        @endif
+        @error('form.encounter')
+        <p class="text-error">{{ $message }}</p>
+        @enderror
+    </div>
+</div>
+

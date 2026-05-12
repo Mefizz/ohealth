@@ -13,6 +13,7 @@ use App\Repositories\CarePlanRepository;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use App\Livewire\Person\Records\BasePatientComponent;
 use App\Models\LegalEntity;
@@ -59,22 +60,20 @@ class CarePlanCreate extends BasePatientComponent
     public ?array $dictionaries = [];
     public array $doctors = [];
 
-    public function mount(LegalEntity $legalEntity, ?int $id = null): void
+    /**
+     * Available encounters that have been confirmed by eHealth (for the encounter selector).
+     */
+    public array $availableEncounters = [];
+
+    public function mount(LegalEntity $legalEntity, int $personId): void
     {
-        $this->personId = $id ?? (int) \App\Models\Person\Person::where('uuid', request()->query('patientUuid'))->value('id') ??
-                    (int) request()->query('id', 0);
+        $this->personId = $personId;
+        parent::mount($legalEntity, $this->personId);
 
-        if ($this->personId) {
-            parent::mount($legalEntity, $this->personId);
-        } else {
-            $this->patientFullName = '';
-            $this->uuid = '';
-        }
-
-        $person = $this->personId ? \App\Models\Person\Person::find($this->personId) : null;
+        $person = \App\Models\Person\Person::find($this->personId);
         if ($person) {
             $this->form['patient'] = trim($person->last_name . ' ' . $person->first_name . ' ' . ($person->second_name ?? ''));
-            
+
             // Load abstract authentication methods for "inform_with" dropdown
             $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn($m) => [
                 'value' => $m->value,
@@ -82,20 +81,38 @@ class CarePlanCreate extends BasePatientComponent
             ])->toArray();
         }
 
-        $encounterUuid = request()->query('encounterUuid', '');
-        $this->conditionUuid = request()->query('conditionUuid', '');
+        // Load only encounters that have been confirmed by eHealth (have ehealth_inserted_at)
+        $this->availableEncounters = \App\Models\MedicalEvents\Sql\Encounter::where('person_id', $this->personId)
+            ->whereNotNull('ehealth_inserted_at')
+            ->where('status', 'finished')
+            ->orderBy('ehealth_inserted_at', 'desc')
+            ->get(['id', 'uuid', 'status', 'ehealth_inserted_at'])
+            ->map(fn($e) => [
+                'uuid' => $e->uuid,
+                'label' => 'Взаємодія #' . $e->id . ' (' . ($e->ehealth_inserted_at ? \Carbon\Carbon::parse($e->ehealth_inserted_at)->format('d.m.Y') : '-') . ')',
+            ])
+            ->toArray();
 
-        if ($encounterUuid) {
-            $this->form['encounter'] = $encounterUuid;
-        } else {
-            // If no encounter provided, try to find the latest one for this patient
-            $latestEncounter = \App\Models\MedicalEvents\Sql\Encounter::where('person_id', $this->personId)
-                ->latest()
+        // Try to pick encounter from query param (encounterId, internal DB id) or fallback
+        $encounterIdParam = request()->query('encounterId');
+        $this->conditionUuid = request()->query('conditionUuid', '');
+        $encounterUuid = '';
+
+        if ($encounterIdParam) {
+            $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('id', $encounterIdParam)
+                ->where('person_id', $this->personId)
+                ->whereNotNull('ehealth_inserted_at')
                 ->first();
-            if ($latestEncounter) {
-                $this->form['encounter'] = $latestEncounter->uuid;
-                $encounterUuid = $latestEncounter->uuid;
+            if ($encounter) {
+                $encounterUuid = $encounter->uuid;
+                $this->form['encounter'] = $encounterUuid;
             }
+        }
+
+        // If no encounter was specified, select the latest eHealth-confirmed one
+        if (empty($encounterUuid) && !empty($this->availableEncounters)) {
+            $encounterUuid = $this->availableEncounters[0]['uuid'];
+            $this->form['encounter'] = $encounterUuid;
         }
 
         if ($encounterUuid) {
@@ -105,20 +122,20 @@ class CarePlanCreate extends BasePatientComponent
             if ($encounter) {
                 // Pre-fill medical number
                 $this->form['medical_number'] = (string) $encounter->id;
-                
+
                 // Pre-fill diagnoses for the UI list
                 $this->diagnoses = $encounter->diagnoses->map(function($d) {
                     $conditionUuid = $d->condition?->value;
-                    $actualCondition = $conditionUuid 
+                    $actualCondition = $conditionUuid
                         ? \App\Models\MedicalEvents\Sql\Condition::where('uuid', $conditionUuid)->with('code.coding')->first()
                         : null;
-                        
+
                     return [
-                        'date' => $actualCondition?->asserted_date 
-                            ? \Carbon\Carbon::parse($actualCondition->asserted_date)->format('d.m.Y') 
+                        'date' => $actualCondition?->asserted_date
+                            ? \Carbon\Carbon::parse($actualCondition->asserted_date)->format('d.m.Y')
                             : '-',
                         'name' => ($actualCondition?->code?->text ?: null)
-                            ?? ($actualCondition?->code?->coding?->first()?->code ?: null) 
+                            ?? ($actualCondition?->code?->coding?->first()?->code ?: null)
                             ?? '-',
                     ];
                 })->toArray();
@@ -127,7 +144,7 @@ class CarePlanCreate extends BasePatientComponent
         $this->form['period_start'] = now()->format('d.m.Y');
 
         // Pre-fill author from current employee
-        $employee = Auth::user()?->activeEmployee();
+        $employee = Auth::user()?->getCarePlanWriterEmployee();
         if ($employee) {
             $party = $employee->party;
             $this->form['author'] = implode(' ', array_filter([
@@ -156,25 +173,25 @@ class CarePlanCreate extends BasePatientComponent
         // Load dictionaries (cached via DictionaryManager)
         try {
             $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
-            
+
             try {
                 $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')->asCodeDescription()->toArray();
             } catch (\Exception $e) {
                 $this->dictionaries['care_plan_categories'] = [];
             }
-            
+
             try {
                 $this->dictionaries['encounter_classes'] = $basics->byName('eHealth/encounter_classes')->asCodeDescription()->toArray();
             } catch (\Exception $e) {
                 $this->dictionaries['encounter_classes'] = [];
             }
-            
+
             try {
                 $this->dictionaries['care_provision_conditions'] = $basics->byName('PROVIDING_CONDITION')->asCodeDescription()->toArray();
             } catch (\Exception $e) {
                 $this->dictionaries['care_provision_conditions'] = [];
             }
-            
+
             $this->categories = $this->dictionaries['care_plan_categories'] ?? [];
         } catch (\Exception $exception) {
             report($exception);
@@ -349,7 +366,7 @@ class CarePlanCreate extends BasePatientComponent
 
         $carePlan = $repository->create([
             'person_id' => $this->resolvePersonId(),
-            'author_id' => Auth::user()?->activeEmployee()?->id,
+            'author_id' => Auth::user()?->getCarePlanWriterEmployee()?->id,
             'legal_entity_id' => $legalEntity?->id,
             'status' => 'NEW',
             'category' => $validated['form']['category'],
@@ -378,40 +395,35 @@ class CarePlanCreate extends BasePatientComponent
         $this->redirectRoute('care-plan.edit', [legalEntity(), $carePlan->id], navigate: true);
     }
 
+    public function updatedFormEncounter($value): void
+    {
+        if ($value) {
+            $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $value)->first();
+            if ($encounter && empty($this->form['title'])) {
+                $date = $encounter->period_start ? $encounter->period_start->format('d.m.Y') : now()->format('d.m.Y');
+                $this->form['title'] = 'План лікування від ' . $date;
+            }
+        }
+    }
+
     /**
      * Sign with KEP and send to eHealth.
      */
     public function sign(CarePlanRepository $repository): void
     {
-        if (Auth::user()?->cannot('create', CarePlan::class)) {
-            $this->dispatch('flashMessage', [
-                'type'    => 'error',
-                'message' => __('care-plan.no_permission_create'),
-                'errors'  => [],
-            ]);
-            return;
-        }
+        $this->validate();
 
         try {
-            $validated = $this->validate($this->rulesForSigning());
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception, closeModal: true);
-            return;
-        }
+            $legalEntity = legalEntity();
+            $encounterData = $this->resolveEncounterData();
+            
+            $carePlanPayload = $repository->formatCarePlanRequest(
+                $this->form, 
+                $this->form['encounter'] ?? null, 
+                $encounterData, 
+                Auth::user()?->getCarePlanWriterEmployee()?->uuid
+            );
 
-        $legalEntity = legalEntity();
-
-        $encounterData = $this->resolveEncounterData();
-
-        // Build eHealth payload via Repository
-        $carePlanPayload = $repository->formatCarePlanRequest(
-            $this->form,
-            $this->form['encounter'] ?? null,
-            $encounterData,
-            Auth::user()?->activeEmployee()?->uuid
-        );
-
-        try {
             $signedContent = signatureService()->signData(
                 Arr::toSnakeCase($carePlanPayload),
                 $this->form['password'],
@@ -420,78 +432,64 @@ class CarePlanCreate extends BasePatientComponent
                 Auth::user()->party->taxId
             );
 
-            $eHealthResponse = EHealth::carePlan()->create($this->uuid, [
+            $response = EHealth::carePlan()->create($this->uuid, [
                 'signed_data' => $signedContent,
                 'signed_data_encoding' => 'base64',
             ]);
 
-            $responseData = $eHealthResponse->getData();
-            $finalResponse = $responseData;
-
-            // If it is an async job, poll it
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                $jobApi = new \App\Classes\eHealth\Api\Job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-
-                if ($finalResponse['status'] === 'failed') {
-                    Log::error('CarePlan creation job failed', $finalResponse);
-                    $errorMsg = 'Помилка валідації від ЕСОЗ';
-                    if (!empty($finalResponse['error']['invalid'])) {
-                        $errorMsg .= ': ' . json_encode(array_map(fn($e) => $e['rules'][0]['description'] ?? $e['entry'], $finalResponse['error']['invalid']), JSON_UNESCAPED_UNICODE);
-                    }
-                    // Throw a specific exception we can catch or just use standard exception but update the catch block.
-                    throw new \RuntimeException($errorMsg);
-                }
+            $jobId = $response->getData()['job_id'] ?? null;
+            if (!$jobId && isset($response->getData()['links'][0]['href'])) {
+                 $jobId = basename($response->getData()['links'][0]['href']);
             }
 
-            // Extract the actual CarePlan data
+            $jobApi = EHealth::job();
+            $attempts = 0;
+            do {
+                sleep(2);
+                $finalResponse = $jobApi->getDetails($jobId)->getData();
+                $attempts++;
+            } while (($finalResponse['status'] === 'pending' || $finalResponse['status'] === 'accepted') && $attempts < 15);
+
+            if ($finalResponse['status'] !== 'processed' && $finalResponse['status'] !== 'active') {
+                $errorMsg = 'Помилка валідації від ЕСОЗ';
+                if (!empty($finalResponse['error']['invalid'])) {
+                    $errorMsg .= ': ' . json_encode(array_map(fn($e) => $e['rules'][0]['description'] ?? $e['entry'], $finalResponse['error']['invalid']), JSON_UNESCAPED_UNICODE);
+                }
+                throw new \RuntimeException($errorMsg);
+            }
+
             $carePlanUuid = $finalResponse['id'] ?? null;
-            $carePlanStatus = $finalResponse['status'] ?? 'new';
-            $carePlanRequisition = $finalResponse['requisition'] ?? null;
+            $carePlanStatus = $finalResponse['status'] ?? 'active';
             
-            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
-                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
+            if (isset($finalResponse['result']) && !empty($finalResponse['result'])) {
+                $entity = is_array($finalResponse['result']) ? ($finalResponse['result'][0] ?? $finalResponse['result']) : $finalResponse['result'];
                 $carePlanUuid = $entity['id'] ?? $carePlanUuid;
-                $carePlanStatus = $entity['status'] ?? 'active';
-                $carePlanRequisition = $entity['requisition'] ?? $carePlanRequisition;
+                $carePlanStatus = $entity['status'] ?? $carePlanStatus;
             }
 
-            // Store to Mongo if configured
-            if (config('database.medical_events_db_driver') === 'mongo') {
-                try {
-                    \App\Models\MedicalEvents\Mongo\CarePlan::create($finalResponse);
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('Failed to save CarePlan to Mongo: ' . $e->getMessage());
-                }
-            }
-
-            // Store eHealth response locally
+            // Create local record
             $repository->create([
                 'uuid' => $carePlanUuid,
                 'person_id' => $this->personId,
-                'author_id' => Auth::user()?->activeEmployee()?->id,
+                'author_id' => Auth::user()?->getCarePlanWriterEmployee()?->id,
                 'legal_entity_id' => $legalEntity?->id,
                 'status' => $carePlanStatus,
                 'category' => $this->form['category'],
                 'title' => $this->form['title'],
                 'period_start' => convertToYmd($this->form['period_start']),
-                'period_end' => !empty($this->form['period_end'])
-                    ? convertToYmd($this->form['period_end']) : null,
-                'requisition' => $carePlanRequisition,
+                'period_end' => !empty($this->form['period_end']) ? convertToYmd($this->form['period_end']) : null,
+                'encounter_id' => $encounterData['id'] ?? null,
             ]);
 
             $this->dispatch('flashMessage', [
                 'type'    => 'success',
-                'message' => __('care-plan.signed_and_sent'),
+                'message' => 'План лікування успішно створено. Ви можете синхронізувати список вручну для оновлення UUID.',
                 'errors'  => [],
             ]);
-            $this->redirectRoute('persons.care-plans', [legalEntity(), 'personId' => $this->personId], navigate: true);
+
+            Session::flash('flash_message', 'План лікування успішно створено.');
+            
+            $this->redirectRoute('persons.care-plans', [legalEntity(), $this->personId], navigate: true);
 
         } catch (ConnectionException $exception) {
             Log::error('CarePlan: connection error: ' . $exception->getMessage());
@@ -545,27 +543,32 @@ class CarePlanCreate extends BasePatientComponent
      */
     protected function resolveEncounterData(): array
     {
-        $data = ['id' => null, 'addresses' => []];
+        $data = ['id' => null, 'addresses' => [], 'period_start' => null];
         if (empty($this->form['encounter'])) {
             return $data;
         }
 
         $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->form['encounter'])
-            ->with(['diagnoses.condition'])
+            ->whereNotNull('ehealth_inserted_at')
+            ->with(['diagnoses.condition', 'period'])
             ->first();
 
         if ($encounter) {
             $data['id'] = $encounter->id;
+
+            // Get the encounter's period start for date validation
+            if ($encounter->period) {
+                $data['period_start'] = $encounter->period->start;
+            }
             
             // Extract the Codeable Concepts of all conditions (addresses for the care plan)
             $conditionData = $encounter->diagnoses
                 ->filter(function ($d) {
-                    // If a specific conditionUuid is provided, only include that one
                     return empty($this->conditionUuid) || ($d->condition?->uuid === $this->conditionUuid);
                 })
                 ->map(function ($d) {
                     $conditionUuid = $d->condition?->value;
-                    if ($conditionUuid && (empty($this->conditionUuid) || $conditionUuid === $this->conditionUuid)) {
+                    if ($conditionUuid) {
                         $actualCondition = \App\Models\MedicalEvents\Sql\Condition::where('uuid', $conditionUuid)->with('code.coding')->first();
                         $coding = $actualCondition?->code?->coding?->first();
                         
@@ -573,7 +576,7 @@ class CarePlanCreate extends BasePatientComponent
                             return [
                                 'coding' => [
                                     [
-                                        'system' => $coding->system ?? 'eHealth/ICD10_AM/condition_codes',
+                                        'system' => $coding->system,
                                         'code' => $coding->code
                                     ]
                                 ]
@@ -586,7 +589,6 @@ class CarePlanCreate extends BasePatientComponent
                 ->toArray();
                 
             foreach ($conditionData as $address) {
-                // Ensure unique values if identical code is present twice
                 if (!in_array($address, $data['addresses'], true)) {
                     $data['addresses'][] = $address;
                 }

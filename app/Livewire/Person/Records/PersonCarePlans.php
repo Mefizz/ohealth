@@ -57,8 +57,13 @@ class PersonCarePlans extends BasePatientComponent
         try {
             $response = EHealth::carePlan()->getBySearchParams(
                 $this->uuid,
-                ['managing_organization_id' => legalEntity()->uuid]
+                [] // Removed managing_organization_id to see all plans
             );
+            
+            \Illuminate\Support\Facades\Log::info('PersonCarePlans: sync response', [
+                'count' => count($response->getData()),
+                'patient_uuid' => $this->uuid
+            ]);
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error while synchronizing care plans');
             return;
@@ -68,8 +73,12 @@ class PersonCarePlans extends BasePatientComponent
             $validatedData = $response->validate();
             app(CarePlanRepository::class)->syncCarePlans($validatedData, $this->personId);
         } catch (Throwable $exception) {
+            \Illuminate\Support\Facades\Log::error('PersonCarePlans: sync error', [
+                'message' => $exception->getMessage(),
+                'trace' => $exception->getTraceAsString()
+            ]);
             $this->logDatabaseErrors($exception, 'Error while synchronizing care plans');
-            Session::flash('error', __('patients.messages.care_plan_sync_database_error') ?? 'Помилка збереження планів лікування');
+            Session::flash('error', __('patients.messages.care_plan_sync_database_error') ?? 'Помилка збереження планів лікування: ' . $exception->getMessage());
             return;
         }
 

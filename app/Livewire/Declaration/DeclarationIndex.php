@@ -338,7 +338,10 @@ class DeclarationIndex extends Component
 
         $legalEntity = legalEntity();
 
-        if (!Employee::where('legal_entity_uuid', $legalEntity->uuid)->where('status', EntityStatus::REORGANIZED->value)->exists()) {
+        if (
+            $legalEntity->status === EntityStatus::REORGANIZED->value &&
+            !$legalEntity->employees()->where('status', EntityStatus::REORGANIZED->value)->exists()
+        ) {
             Session::flash('error', __('forms.errors.sync_reorg_declarations_cannot_start'));
 
             return;

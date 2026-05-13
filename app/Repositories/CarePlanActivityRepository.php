@@ -37,8 +37,8 @@ class CarePlanActivityRepository
 
     public function formatCarePlanActivityRequest(CarePlanActivity $activity): array
     {
-        return \App\Core\Arr::removeEmptyKeys([
-            'detail' => \App\Core\Arr::removeEmptyKeys([
+        return removeEmptyKeys([
+            'detail' => removeEmptyKeys([
                 'kind' => $activity->kind,
                 'description' => $activity->description ?: null,
                 'product_reference' => $activity->product_reference ? ['identifier' => ['value' => $activity->product_reference]] : null,

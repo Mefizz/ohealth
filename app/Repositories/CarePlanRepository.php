@@ -3,7 +3,8 @@
 declare(strict_types=1);
 
 namespace App\Repositories;
-
+ 
+use App\Enums\CarePlanStatus;
 use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
@@ -107,10 +108,10 @@ class CarePlanRepository
             $finalPeriodStart = convertToEHealthISO8601($periodStart . ' 00:00:00');
         }
 
-        $payload = \App\Core\Arr::removeEmptyKeys([
+        $payload = removeEmptyKeys([
             'id' => $id,
             'intent' => 'order',
-            'status' => 'new',
+            'status' => CarePlanStatus::DRAFT->value,
             'category' => [
                 'coding' => [
                     ['system' => 'eHealth/care_plan_categories', 'code' => $form['category']]
@@ -243,7 +244,7 @@ class CarePlanRepository
                         'uuid' => $rawFhir['uuid'],
                         'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
-                        'status' => $rawFhir['status'] ?? 'active',
+                        'status' => $rawFhir['status'] ?? CarePlanStatus::ACTIVE->value,
                         'title' => $rawFhir['title'] ?? 'План лікування',
                         'description' => $rawFhir['description'] ?? null,
                         'note' => $rawFhir['note'] ?? null,
@@ -264,7 +265,7 @@ class CarePlanRepository
                         'person_id' => $person->id,
                         'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
-                        'status' => $rawFhir['status'] ?? 'active',
+                        'status' => $rawFhir['status'] ?? CarePlanStatus::ACTIVE->value,
                         'title' => $rawFhir['title'] ?? 'План лікування',
                         'description' => $rawFhir['description'] ?? null,
                         'note' => $rawFhir['note'] ?? null,

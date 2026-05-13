@@ -1,6 +1,6 @@
 <div x-data="{
     localEpisodes: $wire.entangle('form.episodes'),
-    localMedicalRecords: $wire.entangle('form.medical_records'),
+    localMedicalRecords: $wire.entangle('form.medicalRecords'),
 
     openModal: false,
     openMedicalModal: false,
@@ -216,7 +216,7 @@
 
                                 <div class="form-row-2" x-data="{
                                    open: false,
-                                   selectedType: $wire.entangle('medical_record_type'),
+                                   selectedType: $wire.entangle('medicalRecordType'),
                                    types: {
                                    'CONDITION': 'Стани/діагнози',
                                    'OBSERVATION': 'Спостереження'

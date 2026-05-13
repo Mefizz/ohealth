@@ -3,7 +3,8 @@
 declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
-
+ 
+use App\Enums\CarePlanStatus;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -204,7 +205,7 @@ class CarePlanShow extends Component
             $repository->create([
                 'care_plan_id' => $this->carePlan->id,
                 'author_id' => Auth::user()?->activeEmployee()?->id,
-                'status' => 'NEW',
+                'status' => CarePlanStatus::DRAFT->value,
                 'kind' => $validated['activityForm']['kind'],
                 'quantity' => $validated['activityForm']['quantity'] ?? null,
                 'quantity_system' => $validated['activityForm']['quantity_system'] ?? null,
@@ -258,8 +259,8 @@ class CarePlanShow extends Component
 
         // Action-specific payload
         $statusMap = [
-            'cancel' => 'entered_in_error', // or cancelled, depends on exact spec constraints
-            'complete' => 'completed',
+            'cancel' => CarePlanStatus::ENTERED_IN_ERROR->value,
+            'complete' => CarePlanStatus::COMPLETED->value,
         ];
 
         $payload = [
@@ -346,9 +347,9 @@ class CarePlanShow extends Component
         $legalEntity = legalEntity();
 
         // Build eHealth payload from model
-        $carePlanPayload = \App\Core\Arr::removeEmptyKeys([
+        $carePlanPayload = removeEmptyKeys([
             'intent' => 'order',
-            'status' => 'new',
+            'status' => CarePlanStatus::DRAFT->value,
             'category' => is_array($this->carePlan->category) ? ($this->carePlan->category['coding'][0]['code'] ?? null) : $this->carePlan->category,
             'instantiates_protocol' => $this->carePlan->clinical_protocol ? [['display' => $this->carePlan->clinical_protocol]] : null,
             'context' => $this->carePlan->context ? ['identifier' => ['type_code' => $this->carePlan->context]] : null,

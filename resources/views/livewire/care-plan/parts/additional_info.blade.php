@@ -34,14 +34,14 @@
         <select id="inform_with"
                 name="inform_with"
                 class="input-select peer"
-                wire:model="form.inform_with"
+                wire:model="form.informWith"
         >
             <option value="">{{ __('forms.select') }}</option>
             @foreach($authMethods as $method)
                 <option value="{{ $method['value'] }}">{{ $method['label'] }}</option>
             @endforeach
         </select>
-        @error('form.inform_with')
+        @error('form.informWith')
         <p class="text-error">{{ $message }}</p>
         @enderror
     </div>

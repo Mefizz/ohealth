@@ -44,14 +44,14 @@
                class="input-select peer"
                placeholder=" "
                autocomplete="off"
-               wire:model="form.medical_number"
+               wire:model="form.medicalNumber"
                required
         >
 
         <label for="medical_number" class="label">
             {{ __('care-plan.medical_number') }}
         </label>
-        @error('form.medical_number')
+        @error('form.medicalNumber')
         <p class="text-error" id="error-form-medical_number">{{ $message }}</p>
         @enderror
     </div>

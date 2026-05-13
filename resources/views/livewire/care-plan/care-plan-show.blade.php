@@ -1,4 +1,5 @@
 @use('App\Livewire\CarePlan\CarePlanShow')
+@use('App\Enums\CarePlanStatus')
 
 <section class="section-form">
     <x-header-navigation class="breadcrumb-form">
@@ -50,7 +51,7 @@
                 </button>
             </nav>
 
-            @if(in_array(strtoupper($status), ['ACTIVE', 'active']))
+            @if($carePlan->status === CarePlanStatus::ACTIVE->value || strtolower($status) === CarePlanStatus::ACTIVE->value)
             <div class="relative pb-2 pr-2">
                 <button type="button" 
                         @click="openDropdown = !openDropdown" 
@@ -119,7 +120,7 @@
                     <div class="record-inner-column">
                         <div class="record-inner-label">{{ __('care-plan.ehealth_status') }}</div>
                         <div class="record-inner-value">
-                            <span class="badge {{ in_array(strtoupper($status), ['ACTIVE', 'active']) ? 'badge-success' : 'badge-secondary' }}">
+                            <span class="badge {{ strtoupper($status) === Status::ACTIVE->value ? 'badge-success' : 'badge-secondary' }}">
                                 {{ $statusDisplay }}
                             </span>
                         </div>
@@ -249,8 +250,8 @@
 
                 <div class="flex-1"></div>
 
-                @if(!$carePlan->uuid && in_array(strtoupper($status), ['NEW', 'DRAFT', 'PENDING']))
-                @if($carePlan->status === 'new')
+                @if(!$carePlan->uuid && in_array(strtoupper($status), [Status::NEW->value, 'DRAFT', 'PENDING']))
+                @if($carePlan->status === Status::NEW->value)
                     <a href="{{ route('care-plan.edit', [legalEntity(), $carePlan->id]) }}" class="button-secondary" wire:navigate>
                         {{ __('forms.edit') }}
                     </a>
@@ -258,7 +259,7 @@
                     <button type="button" class="button-primary" @click="$wire.openSignatureModal('sign_plan')">
                         {{ __('care-plan.sign_and_send') }}
                     </button>
-                @elseif($carePlan->uuid && in_array(strtoupper($status), ['ACTIVE', 'NEW', 'active', 'new']))
+                @elseif($carePlan->uuid && in_array(strtoupper($status), [Status::ACTIVE->value, Status::NEW->value]))
                     {{-- Status Reason (shown above the modal trigger) --}}
                     <div class="flex flex-col gap-4 max-w-sm mr-4">
                         <x-forms.textarea id="statusReason" name="statusReason" label="{{ __('care-plan.status_reason') }}" wire:model="statusReason" />

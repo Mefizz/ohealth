@@ -45,7 +45,7 @@
                         <h3 class="font-semibold text-gray-800 dark:text-gray-200">@icon('file-text', 'w-5 h-5 inline mr-2') {{ __('care-plan.supporting_information') }}</h3>
                     </div>
                     <div class="p-6">
-                        @include('livewire.care-plan.parts.supporting_information')
+                        @include('livewire.care-plan.parts.supporting-information')
                     </div>
                 </div>
 

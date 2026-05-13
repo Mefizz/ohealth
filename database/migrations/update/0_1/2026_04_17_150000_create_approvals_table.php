@@ -18,13 +18,13 @@ return new class extends Migration {
                 // Polymorphic relation
                 $table->morphs('approvable');
                 
-                $table->foreignId('granted_to_id')->nullable()->constrained('legal_entities');
+                $table->foreignId('granted_to_id')->nullable()->constrained('identifiers');
                 $table->string('granted_to_type')->default('legal_entity');
                 
                 $table->foreignId('granted_by_id')->nullable()->constrained('employees');
                 $table->string('status')->index();
                 
-                $table->text('reason')->nullable();
+                $table->foreignId('reason_id')->nullable()->constrained('identifiers');
 
                 $table->timestamps();
             });

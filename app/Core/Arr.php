@@ -108,19 +108,6 @@ class Arr extends BaseArr
         return $result;
     }
 
-    public static function removeEmptyKeys(array $array): array
-    {
-        foreach ($array as $key => &$value) {
-            if (is_array($value)) {
-                $value = self::removeEmptyKeys($value);
-            }
-            if ($value === null || $value === [] || $value === '') {
-                unset($array[$key]);
-            }
-        }
-        return $array;
-    }
-
     /**
      * Sort an array by key in ascending order recursively.
      *

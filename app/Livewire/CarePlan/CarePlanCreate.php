@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use App\Livewire\Person\Records\BasePatientComponent;
+use App\Models\Person\Person;
 use App\Models\LegalEntity;
 use Livewire\WithFileUploads;
 
@@ -26,27 +27,28 @@ class CarePlanCreate extends BasePatientComponent
     public bool $showSignatureModal = false;
     public string $patientUuid = '';
     public string $conditionUuid = '';
+    public string $medicalRecordType = 'CONDITION';
 
     // Care Plan form data
     public array $form = [
         'patient' => '',
-        'medical_number' => '',
+        'medicalNumber' => '',
         'author' => '',
         'coAuthors' => [],
         'category' => '',
-        'clinical_protocol' => '',
+        'clinicalProtocol' => '',
         'context' => '',
         'title' => '',
         'intent' => 'order',
-        'period_start' => '',
-        'period_end' => '',
+        'periodStart' => '',
+        'periodEnd' => '',
         'encounter' => '',
         'description' => '',
         'note' => '',
-        'inform_with' => '',
-        'terms_of_service' => '',
+        'informWith' => '',
+        'termsOfService' => '',
         'episodes' => [],
-        'medical_records' => [],
+        'medicalRecords' => [],
         'knedp' => '',
         'keyContainerUpload' => null,
         'password' => '',
@@ -61,6 +63,15 @@ class CarePlanCreate extends BasePatientComponent
     public array $doctors = [];
 
     /**
+     * Dictionaries to load via FormTrait::getDictionary().
+     */
+    protected array $dictionaryNames = [
+        'eHealth/care_plan_categories',
+        'eHealth/encounter_classes',
+        'PROVIDING_CONDITION',
+    ];
+
+    /**
      * Available encounters that have been confirmed by eHealth (for the encounter selector).
      */
     public array $availableEncounters = [];
@@ -70,7 +81,7 @@ class CarePlanCreate extends BasePatientComponent
         $this->personId = $personId;
         parent::mount($legalEntity, $this->personId);
 
-        $person = \App\Models\Person\Person::find($this->personId);
+        $person = Person::find($this->personId);
         if ($person) {
             $this->form['patient'] = trim($person->last_name . ' ' . $person->first_name . ' ' . ($person->second_name ?? ''));
 
@@ -170,32 +181,12 @@ class CarePlanCreate extends BasePatientComponent
                 ->toArray();
         }
 
-        // Load dictionaries (cached via DictionaryManager)
+        // Load dictionaries via FormTrait pattern
         try {
-            $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
-
-            try {
-                $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')->asCodeDescription()->toArray();
-            } catch (\Exception $e) {
-                $this->dictionaries['care_plan_categories'] = [];
-            }
-
-            try {
-                $this->dictionaries['encounter_classes'] = $basics->byName('eHealth/encounter_classes')->asCodeDescription()->toArray();
-            } catch (\Exception $e) {
-                $this->dictionaries['encounter_classes'] = [];
-            }
-
-            try {
-                $this->dictionaries['care_provision_conditions'] = $basics->byName('PROVIDING_CONDITION')->asCodeDescription()->toArray();
-            } catch (\Exception $e) {
-                $this->dictionaries['care_provision_conditions'] = [];
-            }
-
-            $this->categories = $this->dictionaries['care_plan_categories'] ?? [];
+            $this->getDictionary();
+            $this->categories = $this->dictionaries['eHealth/care_plan_categories'] ?? [];
         } catch (\Exception $exception) {
             report($exception);
-            // Dictionaries might not be cached yet; log and continue
             \Illuminate\Support\Facades\Log::warning('CarePlanCreate: failed to load dictionaries: ' . $exception->getMessage());
         }
     }
@@ -507,11 +498,6 @@ class CarePlanCreate extends BasePatientComponent
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage(), 'errors' => []]);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
-            // TODO: Remove before PR
-            if (config('app.debug')) {
-                dd($exception->getMessage(), $exception->getTraceAsString(), $exception);
-            }
-
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),

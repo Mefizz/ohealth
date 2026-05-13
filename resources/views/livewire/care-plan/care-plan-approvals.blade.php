@@ -22,25 +22,25 @@
                                 <td class="index-table-td">
                                     <div class="flex flex-col">
                                         <span class="font-medium text-gray-900 dark:text-white">
-                                            {{ $approval->grantedTo?->name ?? $approval->granted_to_id }}
+                                            {{ $approval['grantedTo']['name'] ?? $approval['granted_to_id'] ?? '-' }}
                                         </span>
                                         <span class="text-xs text-gray-500">
-                                            {{ $approval->granted_to_type ?? '' }}
+                                            {{ $approval['granted_to_type'] ?? '' }}
                                         </span>
                                     </div>
                                 </td>
                                 <td class="index-table-td">
-                                    <span class="badge {{ $approval->status === 'active' ? 'badge-success' : 'badge-secondary' }}">
-                                        {{ $approval->status ?? 'unknown' }}
+                                    <span class="badge {{ ($approval['status'] ?? '') === 'active' ? 'badge-success' : 'badge-secondary' }}">
+                                        {{ $approval['status'] ?? 'unknown' }}
                                     </span>
                                 </td>
                                 <td class="index-table-td">
-                                    {{ $approval->created_at ? $approval->created_at->format('d.m.Y H:i') : '-' }}
+                                    {{ isset($approval['created_at']) ? \Carbon\Carbon::parse($approval['created_at'])->format('d.m.Y H:i') : '-' }}
                                 </td>
                                 <td class="index-table-td-actions">
-                                    @if($approval->status === 'active')
-                                        <button type="button" 
-                                                wire:click="cancelApproval('{{ $approval->uuid }}')"
+                                    @if(($approval['status'] ?? '') === 'active')
+                                        <button type="button"
+                                                wire:click="cancelApproval('{{ $approval['uuid'] }}')"
                                                 wire:confirm="{{ __('care-plan.confirm_cancel_approval') }}"
                                                 class="text-red-500 hover:text-red-700">
                                             @icon('close-outline', 'w-4 h-4')
@@ -62,7 +62,7 @@
 
         {{-- Create New Approval Form --}}
         <div>
-            @if(empty($carePlan->uuid))
+            @if(empty($carePlanUuid))
                 <div class="mb-4 p-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300" role="alert">
                     {{ __('care-plan.cannot_grant_unregistered') }}
                 </div>
@@ -95,5 +95,4 @@
         </div>
     </div>
 
-    <x-modals.sms-verification />
 </div>

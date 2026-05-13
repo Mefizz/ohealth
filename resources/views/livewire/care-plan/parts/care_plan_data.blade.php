@@ -8,9 +8,9 @@
                id="clinical_protocol"
                class="input peer"
                placeholder="R53.0"
-               wire:model="form.clinical_protocol"
+               wire:model="form.clinicalProtocol"
         >
-        @error('form.clinical_protocol')
+        @error('form.clinicalProtocol')
         <p class="text-error">{{ $message }}</p>
         @enderror
     </div>
@@ -106,7 +106,7 @@
         <select id="terms_of_service"
                 name="terms_of_service"
                 class="input-select peer"
-                wire:model="form.terms_of_service"
+                wire:model="form.termsOfService"
         >
             <option value="">{{ __('forms.select') }}</option>
             @isset($dictionaries['care_provision_conditions'])
@@ -115,7 +115,7 @@
                 @endforeach
             @endisset
         </select>
-        @error('form.terms_of_service')
+        @error('form.termsOfService')
         <p class="text-error">{{ $message }}</p>
         @enderror
     </div>
@@ -132,12 +132,12 @@
                datepicker-autohide
                datepicker-format="{{ frontendDateFormat() }}"
                datepicker-button="false"
-               wire:model.lazy="form.period_start"
+               wire:model.lazy="form.periodStart"
         />
         <label for="period_start" class="wrapped-label">
             {{ __('care-plan.date_and_time_start') }}
         </label>
-        @error('form.period_start')
+        @error('form.periodStart')
         <p class="text-error">{{ $message }}</p>
         @enderror
     </div>
@@ -151,19 +151,19 @@
                datepicker-autohide
                datepicker-format="{{ frontendDateFormat() }}"
                datepicker-button="false"
-               wire:model.lazy="form.period_end"
+               wire:model.lazy="form.periodEnd"
         />
         <label for="period_end" class="wrapped-label">
             {{ __('care-plan.date_and_time_end') }}
         </label>
-        @error('form.period_end')
+        @error('form.periodEnd')
         <p class="text-error">{{ $message }}</p>
         @enderror
     </div>
 </div>
 
 {{-- Warning shown always when period_end has a value (per TZ 3.10.1.2.4) --}}
-@if(!empty($form['period_end']))
+@if(!empty($form['periodEnd']))
 <div class="bg-red-100 rounded-lg mt-4">
     <div class="p-4">
         <div class="flex items-center gap-2 mb-2">

@@ -110,4 +110,9 @@ final class Repository
     {
         return app(PartyRepository::class);
     }
+
+    public static function approval(): ApprovalRepository
+    {
+        return app(ApprovalRepository::class);
+    }
 }

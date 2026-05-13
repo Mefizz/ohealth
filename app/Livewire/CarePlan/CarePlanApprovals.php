@@ -6,12 +6,14 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
-use App\Models\Person\Person;
+use App\Models\LegalEntity;
+use App\Repositories\Repository;
 use App\Traits\FormTrait;
 use App\Traits\InteractsWithApprovals;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class CarePlanApprovals extends Component
@@ -19,9 +21,15 @@ class CarePlanApprovals extends Component
     use FormTrait;
     use InteractsWithApprovals;
 
-    public CarePlan $carePlan;
-    public Person $patient;
-    public Collection $approvals;
+    #[Locked]
+    public int $carePlanId;
+
+    public string $carePlanUuid = '';
+
+    public string $patientUuid = '';
+
+    public array $approvals = [];
+
     public bool $isLoading = false;
 
     // For creating new approval
@@ -30,20 +38,22 @@ class CarePlanApprovals extends Component
         'reason' => '',
     ];
 
-    public function mount(CarePlan $carePlan): void
+    public function mount(LegalEntity $legalEntity, CarePlan $carePlan): void
     {
-        $this->carePlan = $carePlan;
-        $this->patient = $carePlan->person;
-        $this->approvals = new Collection();
+        $this->carePlanId = $carePlan->id;
+        $this->carePlanUuid = $carePlan->uuid ?? '';
+        $this->patientUuid = $carePlan->person?->uuid ?? '';
         $this->fetchApprovals();
     }
 
     public function fetchApprovals(): void
     {
         $this->isLoading = true;
+
         try {
-            app(\App\Repositories\ApprovalRepository::class)->syncApprovals($this->carePlan, 'care_plan');
-            $this->approvals = $this->carePlan->approvals()->with('grantedTo')->latest()->get();
+            $carePlan = CarePlan::findOrFail($this->carePlanId);
+            Repository::approval()->syncApprovals($carePlan, 'care_plan');
+            $this->approvals = $carePlan->approvals()->with('grantedTo')->latest()->get()->toArray();
         } catch (\Exception $e) {
             Log::error('CarePlanApprovals: failed to fetch: ' . $e->getMessage());
             Session::flash('error', __('care-plan.approvals_fetch_error'));
@@ -60,19 +70,19 @@ class CarePlanApprovals extends Component
         ]);
 
         try {
+            $carePlan = CarePlan::findOrFail($this->carePlanId);
+
             $payload = [
-                'granted_resource_id' => $this->carePlan->uuid,
+                'granted_resource_id' => $carePlan->uuid,
                 'granted_resource_type' => 'care_plan',
                 'granted_to_id' => $this->newApproval['granted_to_legal_entity_id'],
                 'granted_to_type' => 'legal_entity',
-                // other fields if required by eHealth
             ];
 
-            $response = EHealth::approval()->createApproval($this->patient->uuid, $payload);
+            $response = EHealth::approval()->createApproval($this->patientUuid, $payload);
             $responseData = $response->getData();
 
             if (isset($responseData['urgent']['authentication_method_current']['type']) && $responseData['urgent']['authentication_method_current']['type'] === 'OTP') {
-                $this->patientId = $this->patient->uuid;
                 $this->approvalId = $responseData['id'];
                 $this->openAuthModal();
             } else {
@@ -91,8 +101,8 @@ class CarePlanApprovals extends Component
         $this->validate($this->approvalVerificationRules());
 
         try {
-            $response = EHealth::approval()->verify($this->patientId, $this->approvalId, [
-                'code' => (int) $this->verificationCode
+            $response = EHealth::approval()->verify($this->patientUuid, $this->approvalId, [
+                'code' => (int) $this->verificationCode,
             ]);
 
             if ($response->getStatusCode() === 200) {
@@ -114,7 +124,7 @@ class CarePlanApprovals extends Component
         }
 
         try {
-            EHealth::approval()->resendSms($this->patientId, $this->approvalId);
+            EHealth::approval()->resendSms($this->patientUuid, $this->approvalId);
             $this->smsResent = true;
             Session::flash('success', __('care-plan.sms_resent'));
         } catch (\Exception $e) {

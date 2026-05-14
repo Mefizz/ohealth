@@ -4,29 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
-use App\Services\MedicalEvents\Mappers\ConditionMapper;
-use App\Services\MedicalEvents\Mappers\DiagnosticReportMapper;
-use App\Services\MedicalEvents\Mappers\EncounterMapper;
-use App\Services\MedicalEvents\Mappers\EpisodeMapper;
-use App\Services\MedicalEvents\Mappers\ImmunizationMapper;
-use App\Services\MedicalEvents\Mappers\ObservationMapper;
-use App\Services\MedicalEvents\Mappers\ProcedureMapper;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
-readonly class EncounterPackageBuilder
+class EncounterPackageBuilder
 {
-    public function __construct(
-        private EncounterMapper $encounterMapper,
-        private EpisodeMapper $episodeMapper,
-        private ConditionMapper $conditionMapper,
-        private ImmunizationMapper $immunizationMapper,
-        private DiagnosticReportMapper $diagnosticReportMapper,
-        private ObservationMapper $observationMapper,
-        private ProcedureMapper $procedureMapper
-    ) {
-    }
-
     public function build(array $data, string $episodeType): array
     {
         $uuids = [
@@ -36,35 +18,10 @@ readonly class EncounterPackageBuilder
             'episode' => $data['episode']['id'] ?: Str::uuid()->toString()
         ];
 
-        $fhirConditions = collect($data['conditions'])
-            ->map(fn (array $condition) => $this->conditionMapper->toFhir($condition, $uuids))
-            ->toArray();
+        $package = $this->toFhir($data, $uuids);
 
-        $fhirImmunizations = collect($data['immunizations'] ?? [])
-            ->map(fn (array $immunization) => $this->immunizationMapper->toFhir($immunization, $uuids))
-            ->values()
-            ->toArray();
-
-        $fhirDiagnosticReports = collect($data['diagnosticReports'] ?? [])
-            ->map(fn (array $diagnosticReport) => $this->diagnosticReportMapper->toFhir($diagnosticReport, $uuids))
-            ->values()
-            ->toArray();
-
-        $fhirObservations = collect($data['observations'] ?? [])
-            ->map(fn (array $observation) => $this->observationMapper->toFhir($observation, $uuids))
-            ->values()
-            ->toArray();
-
-        $fhirProcedures = collect($data['procedures'] ?? [])
-            ->map(fn (array $procedure) => $this->procedureMapper->toFhir($procedure, $uuids))
-            ->values()
-            ->toArray();
-
-        $fhirEncounter = $this->encounterMapper->toFhir($data['encounter'], $fhirConditions, $uuids);
-
-        $fhirEpisode = [];
         if ($episodeType === 'new') {
-            $fhirEpisode = $this->episodeMapper->toFhir(
+            $package['episode'] = Fhir::episode()->toFhir(
                 $data['episode'],
                 $uuids,
                 $data['encounter']['periodDate'],
@@ -72,14 +29,50 @@ readonly class EncounterPackageBuilder
             );
         }
 
-        return array_filter([
-            'encounter' => $fhirEncounter,
-            'episode' => $fhirEpisode,
+        return array_filter($package);
+    }
+
+    /**
+     * Map flat form data to a FHIR encounter package using the provided UUIDs.
+     *
+     * @param  array  $data  Validated form data (encounter, conditions, immunizations, etc.)
+     * @param  array  $uuids  Shared UUIDs (encounter, visit, employee, episode)
+     * @return array
+     */
+    public function toFhir(array $data, array $uuids): array
+    {
+        $fhirConditions = collect($data['conditions'] ?? [])
+            ->map(fn (array $condition) => Fhir::condition()->toFhir($condition, $uuids))
+            ->values()
+            ->toArray();
+
+        $fhirImmunizations = collect($data['immunizations'] ?? [])
+            ->map(fn (array $immunization) => Fhir::immunization()->toFhir($immunization, $uuids))
+            ->values()
+            ->toArray();
+
+        $fhirDiagnosticReports = collect($data['diagnosticReports'] ?? [])
+            ->map(fn (array $diagnosticReport) => Fhir::diagnosticReport()->toFhir($diagnosticReport, $uuids))
+            ->values()
+            ->toArray();
+
+        $fhirObservations = collect($data['observations'] ?? [])
+            ->map(fn (array $observation) => Fhir::observation()->toFhir($observation, $uuids))
+            ->values()
+            ->toArray();
+
+        $fhirProcedures = collect($data['procedures'] ?? [])
+            ->map(fn (array $procedure) => Fhir::procedure()->toFhir($procedure, $uuids))
+            ->values()
+            ->toArray();
+
+        return [
+            'encounter' => Fhir::encounter()->toFhir($data['encounter'], $fhirConditions, $uuids),
             'conditions' => $fhirConditions,
             'immunizations' => $fhirImmunizations,
             'diagnosticReports' => $fhirDiagnosticReports,
             'observations' => $fhirObservations,
             'procedures' => $fhirProcedures,
-        ]);
+        ];
     }
 }

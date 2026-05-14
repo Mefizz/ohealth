@@ -102,7 +102,7 @@ class ConditionRepository extends BaseRepository
     public function getByUuids(array $uuids): array
     {
         return $this->model::with([
-            'asserter',
+            'asserter.type.coding',
             'reportOrigin.coding',
             'context.type.coding',
             'code.coding',

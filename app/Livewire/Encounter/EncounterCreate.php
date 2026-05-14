@@ -158,7 +158,11 @@ class EncounterCreate extends EncounterComponent
                 'signed_data' => $signedContent->getBase64Data()
             ]);
 
-            logger()->debug('Job ID to further debug', $resp->getData());
+            $jobHref = data_get($resp->getData(), 'links.0.href');
+
+            $jobId = $jobHref ? basename($jobHref) : null;
+
+            logger()->debug('Job details to further debug', EHealth::job()->getDetails($jobId)->getData());
         } catch (ConnectionException|EHealthValidationException|EHealthResponseException $exception) {
             $this->handleEHealthExceptions($exception, 'Error while submitting encounter');
 
@@ -190,6 +194,8 @@ class EncounterCreate extends EncounterComponent
      */
     protected function prepareFormattedData(array $validated): array
     {
+        $validated = $this->normalizeEncounterReferral($validated);
+
         $package = $this->packageBuilder->build($validated, $this->episodeType);
 
         if (!empty($this->form->clinicalImpressions)) {
@@ -199,6 +205,23 @@ class EncounterCreate extends EncounterComponent
         }
 
         return $package;
+    }
+
+    private function normalizeEncounterReferral(array $validated): array
+    {
+        $referralType = data_get($validated, 'encounter.referralType', '');
+
+        if($referralType !== 'electronic')
+        {
+            unset($validated['encounter']['referralNumber']);
+        }
+
+        if($referralType !== 'paper')
+        {
+            unset($validated['encounter']['paperReferral']);
+        }
+
+        return $validated;
     }
 
     /**

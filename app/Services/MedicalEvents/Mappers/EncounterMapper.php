@@ -8,6 +8,7 @@ use App\Contracts\FhirMapperContract;
 use App\Enums\Person\EncounterStatus;
 use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
+use Carbon\Carbon;
 
 class EncounterMapper implements FhirMapperContract
 {
@@ -38,7 +39,30 @@ class EncounterMapper implements FhirMapperContract
                 ->toIdentifier($uuids['employee'])
         ];
 
-        // todo: add incoming_referral and paper_referral
+        if (($encounter['referralType'] ?? '') === 'electronic' && !empty($encounter['referralNumber'])) {
+            $data['incomingReferral'] = FhirResource::make()
+                ->coding('eHealth/resources', 'service_request')
+                ->toIdentifier($encounter['referralNumber']);
+        }
+
+        if (($encounter['referralType'] ?? '') === 'paper' && !empty($encounter['paperReferral'])) {
+            $paperReferral = $encounter['paperReferral'];
+
+            $serviceRequestDate = $paperReferral['serviceRequestDate'] ?? null;
+
+            if (!empty($serviceRequestDate)) {
+                $serviceRequestDate = Carbon::createFromFormat('d.m.Y', $serviceRequestDate)->format('Y-m-d');
+            }
+
+            $data['paperReferral'] = array_filter([
+                'requisition' => $paperReferral['requisition'] ?? null,
+                'requesterLegalEntityName' => $paperReferral['requesterLegalEntityName'] ?? null,
+                'requesterLegalEntityEdrpou' => $paperReferral['requesterLegalEntityEdrpou'] ?? null,
+                'requesterEmployeeName' => $paperReferral['requesterEmployeeName'] ?? null,
+                'serviceRequestDate' => $serviceRequestDate,
+                'note' => $paperReferral['note'] ?? null,
+            ], static fn ($value) => $value !== null && $value !== '');
+        }
 
         if (!empty($data['priorityCode'])) {
             $result['priority'] = FhirResource::make()->coding('eHealth/encounter_priority', $data['priorityCode'])
@@ -104,6 +128,9 @@ class EncounterMapper implements FhirMapperContract
      */
     public function fromFhir(array $data, mixed ...$context): array
     {
+        $hasIncomingReferral = !empty(data_get($encounter, 'incomingReferral.identifier.value'));
+        $hasPaperReferral = !empty(data_get($encounter, 'paperReferral'));
+
         return [
             'classCode' => data_get($data, 'class.code'),
             'typeCode' => data_get($data, 'type.coding.0.code'),
@@ -129,7 +156,21 @@ class EncounterMapper implements FhirMapperContract
                     'roleCode' => data_get($diagnosis, 'role.coding.0.code', ''),
                     'rank' => data_get($diagnosis, 'rank', '')
                 ])
-                ->toArray()
+                ->toArray(),
+            'referralType' => match (true) {
+                $hasIncomingReferral => 'electronic',
+                $hasPaperReferral => 'paper',
+                default => ''
+            },
+            'referralNumber' => data_get($encounter, 'incomingReferral.identifier.value', ''),
+            'paperReferral' => [
+                'requisition' => data_get($encounter, 'paperReferral.requisition', ''),
+                'requesterEmployeeName' => data_get($encounter, 'paperReferral.requesterEmployeeName', ''),
+                'requesterLegalEntityEdrpou' => data_get($encounter, 'paperReferral.requesterLegalEntityEdrpou', ''),
+                'requesterLegalEntityName' => data_get($encounter, 'paperReferral.requesterLegalEntityName', ''),
+                'serviceRequestDate' => data_get($encounter, 'paperReferral.serviceRequestDate', ''),
+                'note' => data_get($encounter, 'paperReferral.note', '')
+            ]
         ];
     }
 }

@@ -48,7 +48,7 @@ class EncounterRepository extends BaseRepository
      * @return false|int
      * @throws Throwable
      */
-    public function store(array $encounterData, int $personId): false|int
+    public function store(array $encounterData, int $personId): false|int//add save to db
     {
         return DB::transaction(function () use ($encounterData, $personId) {
             $visit = Repository::identifier()->store($encounterData['visit']['identifier']['value']);
@@ -73,6 +73,13 @@ class EncounterRepository extends BaseRepository
                 Repository::codeableConcept()->attach($division, $encounterData['division']);
             }
 
+            if (isset($encounterData['incomingReferral'])) {
+                $incomingReferral = Repository::identifier()->store(
+                    $encounterData['incomingReferral']['identifier']['value']
+                );
+                Repository::codeableConcept()->attach($incomingReferral, $encounterData['incomingReferral']);
+            }
+
             $encounter = $this->model->create([
                 'person_id' => $personId,
                 'uuid' => $encounterData['uuid'] ?? $encounterData['id'],
@@ -83,7 +90,8 @@ class EncounterRepository extends BaseRepository
                 'type_id' => $type->id,
                 'priority_id' => $priority->id ?? null,
                 'performer_id' => $performer->id,
-                'division_id' => $division->id ?? null
+                'division_id' => $division->id ?? null,
+                'incoming_referral_id' => $incomingReferral->id ?? null
             ]);
 
             $encounter->period()->create([
@@ -124,6 +132,10 @@ class EncounterRepository extends BaseRepository
             }
 
             $encounter->actions()->attach($actionIds);
+
+            if(!empty($encounterData['paperReferral'])) {
+                Repository::paperReferral()->store($encounterData['paperReferral'], $encounter);
+            }
 
             return $encounter->id;
         });
@@ -293,7 +305,7 @@ class EncounterRepository extends BaseRepository
      * @return void
      * @throws Throwable
      */
-    public function sync(int $personId, array $validatedData): void
+    public function sync(int $personId, array $validatedData): void//add sync
     {
         DB::transaction(function () use ($personId, $validatedData) {
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
@@ -379,6 +391,12 @@ class EncounterRepository extends BaseRepository
 
                 $this->syncDiagnoses($encounter, $data['diagnoses'] ?? [], $existing);
                 $this->syncHospitalization($encounter, $data['hospitalization'] ?? null);
+
+                if(!empty($data['paper_referral'])) {
+                    Repository::paperReferral()->sync($data['paper_referral'], $encounter, $existing);
+                } else {
+                    $encounter->paperReferral?->delete();
+                }
             }
         });
     }

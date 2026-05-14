@@ -27,4 +27,8 @@ class PaperReferral extends Model
         'created_at',
         'updated_at'
     ];
+
+    protected $casts = [
+        'service_request_date' => 'date:Y-m-d'
+    ];
 }

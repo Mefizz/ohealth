@@ -6,7 +6,16 @@
     <div x-data="{
         isReferralAvailable: false,
         referralType: $wire.entangle('form.encounter.referralType')
-    }">
+    }" x-init="
+        isReferralAvailable = Boolean(referralType);
+
+        $watch('isReferralAvailable', value => {
+            if (!value) {
+                referralType = '';
+                $wire.set('form.encounter.referralNumber', '');
+            }
+        });
+    ">
         <div class="mb-8">
             <div class="form-group group">
                 <input x-model="isReferralAvailable"

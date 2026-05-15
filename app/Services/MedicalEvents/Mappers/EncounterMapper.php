@@ -39,22 +39,22 @@ class EncounterMapper implements FhirMapperContract
                 ->toIdentifier($uuids['employee'])
         ];
 
-        if (($encounter['referralType'] ?? '') === 'electronic' && !empty($encounter['referralNumber'])) {
-            $data['incomingReferral'] = FhirResource::make()
+        if (($data['referralType'] ?? '') === 'electronic' && !empty($data['referralNumber'])) {
+            $result['incomingReferral'] = FhirResource::make()
                 ->coding('eHealth/resources', 'service_request')
-                ->toIdentifier($encounter['referralNumber']);
+                ->toIdentifier($data['referralNumber']);
         }
 
-        if (($encounter['referralType'] ?? '') === 'paper' && !empty($encounter['paperReferral'])) {
-            $paperReferral = $encounter['paperReferral'];
+        if (($data['referralType'] ?? '') === 'paper' && !empty($data['paperReferral'])) {
+            $paperReferral = $data['paperReferral'];
 
             $serviceRequestDate = $paperReferral['serviceRequestDate'] ?? null;
 
-            if (!empty($serviceRequestDate)) {
+            if (!empty($serviceRequestDate) && preg_match('/^\d{2}\.\d{2}\.\d{4}$/', $serviceRequestDate)) {
                 $serviceRequestDate = Carbon::createFromFormat('d.m.Y', $serviceRequestDate)->format('Y-m-d');
             }
 
-            $data['paperReferral'] = array_filter([
+            $result['paperReferral'] = array_filter([
                 'requisition' => $paperReferral['requisition'] ?? null,
                 'requesterLegalEntityName' => $paperReferral['requesterLegalEntityName'] ?? null,
                 'requesterLegalEntityEdrpou' => $paperReferral['requesterLegalEntityEdrpou'] ?? null,
@@ -128,8 +128,24 @@ class EncounterMapper implements FhirMapperContract
      */
     public function fromFhir(array $data, mixed ...$context): array
     {
-        $hasIncomingReferral = !empty(data_get($encounter, 'incomingReferral.identifier.value'));
-        $hasPaperReferral = !empty(data_get($encounter, 'paperReferral'));
+        $incomingReferralValue = data_get($data, 'incomingReferral.identifier.value')
+            ?? data_get($data, 'incoming_referral.identifier.value')
+            ?? '';
+
+        $paperReferral = data_get($data, 'paperReferral')
+            ?? data_get($data, 'paper_referral')
+            ?? [];
+
+        $serviceRequestDate = data_get($paperReferral, 'serviceRequestDate')
+            ?? data_get($paperReferral, 'service_request_date')
+            ?? '';
+
+        if (!empty($serviceRequestDate)) {
+            $serviceRequestDate = CarbonImmutable::createFromFormat('Y-m-d', $serviceRequestDate)->format('d.m.Y');
+        }
+
+        $hasIncomingReferral = !empty($incomingReferralValue);
+        $hasPaperReferral = !empty($paperReferral);
 
         return [
             'classCode' => data_get($data, 'class.code'),
@@ -162,15 +178,19 @@ class EncounterMapper implements FhirMapperContract
                 $hasPaperReferral => 'paper',
                 default => ''
             },
-            'referralNumber' => data_get($encounter, 'incomingReferral.identifier.value', ''),
+            'referralNumber' => $incomingReferralValue,
+
             'paperReferral' => [
-                'requisition' => data_get($encounter, 'paperReferral.requisition', ''),
-                'requesterEmployeeName' => data_get($encounter, 'paperReferral.requesterEmployeeName', ''),
-                'requesterLegalEntityEdrpou' => data_get($encounter, 'paperReferral.requesterLegalEntityEdrpou', ''),
-                'requesterLegalEntityName' => data_get($encounter, 'paperReferral.requesterLegalEntityName', ''),
-                'serviceRequestDate' => data_get($encounter, 'paperReferral.serviceRequestDate', ''),
-                'note' => data_get($encounter, 'paperReferral.note', '')
-            ]
+                'requisition' => data_get($paperReferral, 'requisition', ''),
+                'requesterEmployeeName' => data_get($paperReferral, 'requesterEmployeeName')
+                    ?? data_get($paperReferral, 'requester_employee_name', ''),
+                'requesterLegalEntityEdrpou' => data_get($paperReferral, 'requesterLegalEntityEdrpou')
+                    ?? data_get($paperReferral, 'requester_legal_entity_edrpou', ''),
+                'requesterLegalEntityName' => data_get($paperReferral, 'requesterLegalEntityName')
+                    ?? data_get($paperReferral, 'requester_legal_entity_name', ''),
+                'serviceRequestDate' => $serviceRequestDate,
+                'note' => data_get($paperReferral, 'note', ''),
+            ],
         ];
     }
 }

@@ -146,51 +146,6 @@ class EncounterForm extends BaseForm
                 'max:255'
             ],
 
-            'encounter.referralType' => ['nullable', 'string', Rule::in(['', 'electronic','paper'])],
-            'encounter.referralNumber' => [
-                Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'electronic'),
-                'nullable',
-                'uuid'
-            ],
-            'encounter.paperReferral' => [
-                Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'paper'),
-                'nullable',
-                'array'
-            ],
-            'encounter.paperReferral.requisition' => [
-                'nullable',
-                'string',
-                'max:255'
-            ],
-            'encounter.paperReferral.requesterLegalEntityName' => [
-                'nullable',
-                'string',
-                'max:255'
-            ],
-            'encounter.paperReferral.requesterLegalEntityEdrpou' => [
-                Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'paper'),
-                'nullable',
-                'string',
-                'max:255'
-            ],
-            'encounter.paperReferral.requesterEmployeeName' => [
-                Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'paper'),
-                'nullable',
-                'string',
-                'max:255'
-            ],
-            'encounter.paperReferral.serviceRequestDate' => [
-                Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'paper'),
-                'nullable',
-                'date',
-                'before_or_equal:today'
-            ],
-            'encounter.paperReferral.note' => [
-                'nullable',
-                'string',
-                'max:255'
-            ],
-
             'episode.id' => [
                 'nullable',
                 'uuid',

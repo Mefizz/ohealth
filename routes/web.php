@@ -261,8 +261,6 @@ Route::middleware(['auth:web,ehealth', 'verified'])->group(function () {
 
             Route::get('/care-plan', \App\Livewire\CarePlan\CarePlanIndex::class)
                 ->name('care-plan.index');
-            Route::get('/care-plan/create', \App\Livewire\CarePlan\CarePlanCreate::class)
-                ->name('care-plan.create');
             Route::get('/care-plan/{carePlan}', \App\Livewire\CarePlan\CarePlanShow::class)
                 ->whereNumber('carePlan')
                 ->name('care-plan.show');
@@ -323,7 +321,12 @@ Route::middleware(['auth:web,ehealth', 'verified'])->group(function () {
                 Route::middleware('can:create,' . Encounter::class)->name('encounter.')->group(function () {
                     Route::get('/{personId}/encounter/create', EncounterCreate::class)->name('create');
                     Route::get('/{personId}/encounter/{encounterId}', EncounterEdit::class)->name('edit');
+                    Route::get('/{personId}/encounter/{encounterId}/show', \App\Livewire\Encounter\EncounterShow::class)
+                        ->name('show');
                 });
+
+                Route::get('/{personId}/care-plan/create', \App\Livewire\CarePlan\CarePlanCreate::class)
+                    ->name('care-plan.create');
 
                 Route::whereNumber('personId')->group(static function () {
                     Route::get('{personId}/diagnostic-report/create', DiagnosticReportCreate::class)

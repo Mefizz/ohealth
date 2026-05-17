@@ -363,6 +363,16 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Get employee by priority with care_plan:write permission.
+     *
+     * @return Employee|null
+     */
+    public function getCarePlanWriterEmployee(): ?Employee
+    {
+        return $this->getWriterEmployeeByRolePriority(Role::DOCTOR, Role::SPECIALIST);
+    }
+
+    /**
      * Get main speciality for this user within a legal entity.
      *
      * @param  LegalEntity  $legalEntity

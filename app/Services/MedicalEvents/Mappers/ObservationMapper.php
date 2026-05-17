@@ -4,88 +4,91 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents\Mappers;
 
+use App\Contracts\FhirMapperContract;
 use App\Enums\Person\ObservationStatus;
 use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
-class ObservationMapper
+class ObservationMapper implements FhirMapperContract
 {
     /**
      * Convert a flat form observation to a FHIR structure for persistence/API.
      *
-     * @param  array  $observation
-     * @param  array  $uuids
+     * @param  array  $data  Flat observation form data
+     * @param  mixed  ...$context  [0] array $uuids  Shared UUIDs (encounter, employee, etc.)
      * @return array
      */
-    public function toFhir(array $observation, array $uuids): array
+    public function toFhir(array $data, mixed ...$context): array
     {
-        $data = [
-            'id' => $observation['uuid'] ?? Str::uuid()->toString(),
+        [$uuids] = $context;
+
+        $result = [
+            'id' => $data['uuid'] ?? Str::uuid()->toString(),
             'context' => FhirResource::make()
                 ->coding('eHealth/resources', 'encounter')
                 ->toIdentifier($uuids['encounter']),
             'status' => ObservationStatus::VALID->value,
             'categories' => [
                 FhirResource::make()
-                    ->coding($observation['categorySystem'], $observation['categoryCode'])
+                    ->coding($data['categorySystem'], $data['categoryCode'])
                     ->toCodeableConcept()
                 // todo must me array of categories, in frontend now can choose only 1 category
             ],
             'code' => FhirResource::make()
-                ->coding($observation['codeSystem'], $observation['codeCode'])
+                ->coding($data['codeSystem'], $data['codeCode'])
                 ->toCodeableConcept(),
-            'issued' => convertToEHealthISO8601($observation['issuedDate'] . ' ' . $observation['issuedTime']),
-            'primarySource' => $observation['primarySource']
+            'issued' => convertToEHealthISO8601($data['issuedDate'] . ' ' . $data['issuedTime']),
+            'primarySource' => $data['primarySource']
         ];
 
         // todo: add diagnostic report
 
-        if (!empty($observation['effectiveDate']) && !empty($observation['effectiveTime'])) {
-            $data['effectiveDateTime'] = convertToEHealthISO8601(
-                $observation['effectiveDate'] . ' ' . $observation['effectiveTime']
+        if (!empty($data['effectiveDate']) && !empty($data['effectiveTime'])) {
+            $result['effectiveDateTime'] = convertToEHealthISO8601(
+                $data['effectiveDate'] . ' ' . $data['effectiveTime']
             );
         }
 
-        if ($observation['primarySource']) {
-            $data['performer'] = FhirResource::make()
+        if ($data['primarySource']) {
+            $result['performer'] = FhirResource::make()
                 ->coding('eHealth/resources', 'employee')
                 ->toIdentifier($uuids['employee']);
         } else {
-            $data['reportOrigin'] = FhirResource::make()
-                ->coding('eHealth/report_origins', $observation['reportOriginCode'])
+            $result['reportOrigin'] = FhirResource::make()
+                ->coding('eHealth/report_origins', $data['reportOriginCode'])
                 ->toCodeableConcept();
         }
 
-        if (!empty($observation['interpretationCode'])) {
-            $data['interpretation'] = FhirResource::make()
-                ->coding('eHealth/observation_interpretations', $observation['interpretationCode'])
+        if (!empty($data['interpretationCode'])) {
+            $result['interpretation'] = FhirResource::make()
+                ->coding('eHealth/observation_interpretations', $data['interpretationCode'])
                 ->toCodeableConcept();
         }
 
-        if (!empty($observation['comment'])) {
-            $data['comment'] = $observation['comment'];
+        if (!empty($data['comment'])) {
+            $result['comment'] = $data['comment'];
         }
 
-        if (!empty($observation['methodCode'])) {
-            $data['method'] = FhirResource::make()
-                ->coding('eHealth/observation_methods', $observation['methodCode'])
+        if (!empty($data['methodCode'])) {
+            $result['method'] = FhirResource::make()
+                ->coding('eHealth/observation_methods', $data['methodCode'])
                 ->toCodeableConcept();
         }
 
-        if (!empty($observation['bodySiteCode'])) {
-            $data['bodySite'] = FhirResource::make()
-                ->coding('eHealth/body_sites', $observation['bodySiteCode'])
+        if (!empty($data['bodySiteCode'])) {
+            $result['bodySite'] = FhirResource::make()
+                ->coding('eHealth/body_sites', $data['bodySiteCode'])
                 ->toCodeableConcept();
         }
 
-        $data = array_merge($data, $this->buildValue($observation));
+        $result = array_merge($result, $this->buildValue($data));
 
         // todo: add reference_ranges
 
         // todo: add reaction_on
 
-        $fhirComponents = collect($observation['components'] ?? [])
+        $fhirComponents = collect($data['components'] ?? [])
             ->filter(fn (array $component) => !empty($component['valueCode']))
             ->map(fn (array $component) => array_merge(
                 [
@@ -106,14 +109,14 @@ class ObservationMapper
             ->toArray();
 
         if (!empty($fhirComponents)) {
-            $data['components'] = $fhirComponents;
+            $result['components'] = $fhirComponents;
         }
 
         // todo: add specimen
 
         // todo: add device
 
-        return $data;
+        return $result;
     }
 
     /**
@@ -188,13 +191,13 @@ class ObservationMapper
     /**
      * Convert a FHIR observation (from DB) to a flat form structure.
      *
-     * @param  array  $observation
+     * @param  array  $data  FHIR observation data
      * @return array
      */
-    public function fromFhir(array $observation): array
+    public function fromFhir(array $data, mixed ...$context): array
     {
-        $categorySystem = data_get($observation, 'categories.0.coding.0.system');
-        $codeSystem = data_get($observation, 'code.coding.0.system');
+        $categorySystem = data_get($data, 'categories.0.coding.0.system');
+        $codeSystem = data_get($data, 'code.coding.0.system');
         if (str_contains($categorySystem, 'ICF')) {
             $codingSystem = 'icf';
         } elseif ($codeSystem === 'eHealth/custom/observation_codes') {
@@ -204,50 +207,50 @@ class ObservationMapper
         }
 
         $flat = [
-            'uuid' => data_get($observation, 'uuid'),
+            'uuid' => data_get($data, 'uuid'),
             'codingSystem' => $codingSystem,
             'categorySystem' => $categorySystem,
-            'codeSystem' => data_get($observation, 'code.coding.0.system'),
-            'primarySource' => data_get($observation, 'primarySource', true),
-            'reportOriginCode' => data_get($observation, 'reportOrigin.coding.0.code', ''),
-            'categoryCode' => data_get($observation, 'categories.0.coding.0.code', ''),
-            'codeCode' => data_get($observation, 'code.coding.0.code'),
-            'methodCode' => data_get($observation, 'method.coding.0.code', ''),
-            'interpretationCode' => data_get($observation, 'interpretation.coding.0.code', ''),
-            'bodySiteCode' => data_get($observation, 'bodySite.coding.0.code', ''),
-            'valueQuantityValue' => data_get($observation, 'value.valueQuantity.value', ''),
-            'valueQuantityComparator' => data_get($observation, 'value.valueQuantity.comparator', ''),
-            'valueQuantityUnit' => data_get($observation, 'value.valueQuantity.unit', ''),
-            'valueQuantitySystem' => data_get($observation, 'value.valueQuantity.system', ''),
-            'valueQuantityCode' => data_get($observation, 'value.valueQuantity.code', ''),
-            'comment' => data_get($observation, 'comment', ''),
-            'issuedDate' => data_get($observation, 'issuedDate', ''),
-            'issuedTime' => substr(data_get($observation, 'issuedTime', ''), 0, 5),
-            'effectiveDate' => data_get($observation, 'effectiveDate', ''),
-            'effectiveTime' => substr(data_get($observation, 'effectiveTime', ''), 0, 5),
-            'components' => $this->componentsFromFhir(data_get($observation, 'components', [])),
+            'codeSystem' => data_get($data, 'code.coding.0.system'),
+            'primarySource' => data_get($data, 'primarySource', true),
+            'reportOriginCode' => data_get($data, 'reportOrigin.coding.0.code', ''),
+            'categoryCode' => data_get($data, 'categories.0.coding.0.code', ''),
+            'codeCode' => data_get($data, 'code.coding.0.code'),
+            'methodCode' => data_get($data, 'method.coding.0.code', ''),
+            'interpretationCode' => data_get($data, 'interpretation.coding.0.code', ''),
+            'bodySiteCode' => data_get($data, 'bodySite.coding.0.code', ''),
+            'valueQuantityValue' => data_get($data, 'value.valueQuantity.value', ''),
+            'valueQuantityComparator' => data_get($data, 'value.valueQuantity.comparator', ''),
+            'valueQuantityUnit' => data_get($data, 'value.valueQuantity.unit', ''),
+            'valueQuantitySystem' => data_get($data, 'value.valueQuantity.system', ''),
+            'valueQuantityCode' => data_get($data, 'value.valueQuantity.code', ''),
+            'comment' => data_get($data, 'comment', ''),
+            'issuedDate' => data_get($data, 'issuedDate', ''),
+            'issuedTime' => substr(data_get($data, 'issuedTime', ''), 0, 5),
+            'effectiveDate' => data_get($data, 'effectiveDate', ''),
+            'effectiveTime' => substr(data_get($data, 'effectiveTime', ''), 0, 5),
+            'components' => $this->componentsFromFhir(data_get($data, 'components', [])),
         ];
 
-        if (($valueCode = data_get($observation, 'value.valueCodeableConcept.coding.0.code')) !== null) {
+        if (($valueCode = data_get($data, 'value.valueCodeableConcept.coding.0.code')) !== null) {
             $flat['valueCodeableConcept'] = $valueCode;
-            $flat['dictionaryName'] = data_get($observation, 'value.valueCodeableConcept.coding.0.system', '');
+            $flat['dictionaryName'] = data_get($data, 'value.valueCodeableConcept.coding.0.system', '');
         }
 
-        if (($valueString = data_get($observation, 'value.valueString')) !== null) {
+        if (($valueString = data_get($data, 'value.valueString')) !== null) {
             $flat['valueString'] = $valueString;
         }
 
-        if (($valueBoolean = data_get($observation, 'value.valueBoolean')) !== null) {
+        if (($valueBoolean = data_get($data, 'value.valueBoolean')) !== null) {
             $flat['valueBoolean'] = $valueBoolean;
         }
 
-        if (($valueDateTime = data_get($observation, 'value.valueDateTime')) !== null) {
+        if (($valueDateTime = data_get($data, 'value.valueDateTime')) !== null) {
             $valueParsed = CarbonImmutable::parse($valueDateTime);
             $flat['valueDate'] = $valueParsed->format('Y-m-d');
             $flat['valueTime'] = $valueParsed->format('H:i');
         }
 
-        if (($valueTime = data_get($observation, 'value.valueTime')) !== null) {
+        if (($valueTime = data_get($data, 'value.valueTime')) !== null) {
             $flat['valueTime'] = substr($valueTime, 0, 5);
         }
 

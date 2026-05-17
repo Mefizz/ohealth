@@ -60,7 +60,6 @@ return [
     'created' => 'Створено',
     'clinical_impression_conclusion' => 'Заключення по оцінці',
     'conducted' => 'Проведена',
-    'status_done' => 'Виконана',
     'route' => 'Шлях',
     'reactions' => 'Реакції',
     'manufacturer_and_lot_number' => 'Виробник та партія',
@@ -191,7 +190,8 @@ return [
         'confirmed' => 'заключний',
         'differential' => 'диференціальний',
         'provisional' => 'попередній',
-        'refuted' => 'спростований'
+        'refuted' => 'спростований',
+        'not_done' => 'Не виконана'
     ],
 
     'source' => [
@@ -234,6 +234,7 @@ return [
     'get_access_to_medical_data' => 'Отримати доступ до медичних даних',
     'data_access' => 'Доступ до даних',
     'sync_ehealth_data' => 'Синхронізувати дані з ЕСОЗ',
+    'sync_success' => 'Дані успішно синхронізовані',
     'allergies' => 'Алергії',
     'risk_assessments' => 'Оцінки ризиків',
     'devices' => 'Пристрої',
@@ -255,7 +256,6 @@ return [
     // Diagnoses record
     'diagnoses_search' => 'Пошук діагнозів',
     'diagnostic_reports_search' => 'Пошук діагностичних звітів',
-    'diagnostic_report_not_found' => 'Діагностичних звітів не знайдено',
 
     // Observations record
     'observations' => 'Обстеження',
@@ -279,16 +279,6 @@ return [
     // Main data
     'referral_available' => 'Є направлення',
     'referral_number' => 'Номер направлення',
-    'referral_type' => 'Тип направлення',
-    'electronic_referral' => 'Електронне направлення',
-    'paper_referral' => 'Паперове направлення',
-    'paper_referral_author' => 'Автор направлення',
-    'paper_referral_edrpou' => 'ЄДРПОУ закладу, що виписав паперове направлення',
-    'paper_referral_edrpou_short' => 'ЄДРПОУ закладу',
-    'paper_referral_institution' => 'Найменування закладу, що виписав паперове направлення',
-    'paper_referral_institution_short' => 'Найменування закладу',
-    'paper_referral_date' => 'Дата направлення',
-    'paper_referral_notes' => 'Нотатки',
     'search_for_referral' => 'Шукати направлення',
     'interaction_class' => 'Клас взаємодії',
     'interaction_type' => 'Тип взаємодії',
@@ -346,8 +336,6 @@ return [
     'protocol_author' => 'Автор протоколу',
     'series_of_doses_by_protocol' => 'Кількість доз по протоколу',
     'protocol_description' => 'Опис протоколу',
-    'vaccination_protocol_required' => 'Необхідно додати принаймні один протокол вакцинації.',
-    'vaccination_protocol_required_fields' => 'Для цієї вакцинації необхідно заповнити порядковий номер дози, етап імунізації та кількість доз по протоколу.',
     'episode_id' => 'ID епізоду',
     'date_from' => 'Дата проведення від',
     'date_to' => 'Дата проведення до',
@@ -367,6 +355,12 @@ return [
     'doctor_submitting_a_report_to_the_system' => 'Лікар, що передає в систему звіт',
     'reception_start_date_and_time' => 'Дата та час початку прийому',
     'reception_end_date_and_time' => 'Дата та час завершення прийому',
+    'specimen_id' => 'ID зразка',
+    'unnamed' => 'Без назви',
+    'context_episode_id' => 'ID контекстного епізоду',
+    'origin_episode_id' => 'ID первинного епізоду',
+    'encounter_id' => 'ID взаємодії',
+    'ehealth_id' => 'ID ЕСОЗ',
 
     // Observations
     'code' => 'Код',
@@ -556,5 +550,11 @@ return [
         'diagnostic_report_sync_resume_started' => 'Відновлення попередньої синхронізації діагностичних звітів розпочато',
         'diagnostic_report_sync_database_error' => 'Виникла помилка під час синхронізації діагностичних звітів',
         'diagnostic_report_sync_background_dispatch_error' => 'Помилка запуску фонової синхронізації діагностичних звітів',
+        'care_plans_synced_successfully' => 'Плани лікування успішно синхронізовані',
+        'care_plans_first_page_synced_successfully' => 'Перша сторінка планів лікування синхронізована, решта обробляється у фоні',
+        'care_plan_sync_already_running' => 'Синхронізація планів лікування вже запущена. Будь ласка, зачекайте її завершення.',
+        'care_plan_sync_resume_started' => 'Відновлення попередньої синхронізації планів лікування розпочато',
+        'care_plan_sync_database_error' => 'Виникла помилка під час синхронізації планів лікування',
+        'care_plan_sync_background_dispatch_error' => 'Помилка запуску фонової синхронізації планів лікування',
     ]
 ];

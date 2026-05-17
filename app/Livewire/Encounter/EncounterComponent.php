@@ -120,6 +120,13 @@ class EncounterComponent extends Component
     public string $patientUuid;
 
     /**
+     * Patient declaration number.
+     *
+     * @var string|null
+     */
+    public ?string $declarationNumber = null;
+
+    /**
      * Legal entity type of auth user.
      *
      * @var string
@@ -191,13 +198,6 @@ class EncounterComponent extends Component
     public array $conditionsAndObservations = [];
 
     /**
-     * List of founded complication details for current episode.
-     *
-     * @var array
-     */
-    public array $complicationDetails;
-
-    /**
      * List of founded problems for current episode.
      *
      * @var array
@@ -216,6 +216,7 @@ class EncounterComponent extends Component
         'eHealth/encounter_priority',
         'eHealth/episode_types',
         'eHealth/ICPC2/condition_codes',
+        'eHealth/ICD10_AM/condition_codes',
         'eHealth/ICPC2/reasons',
         'eHealth/ICPC2/actions',
         'eHealth/diagnosis_roles',
@@ -383,12 +384,13 @@ class EncounterComponent extends Component
     }
 
     /**
-     * Search for evidence details based on selected type.
+     * Search for conditions or observations by type.
+     * Used for: evidence details (condition modal), reason references (procedure modal).
      *
-     * @param  string  $type
+     * @param  string  $type  'condition' or 'observation'
      * @return void
      */
-    public function searchEvidenceDetails(string $type): void
+    public function searchConditionsOrObservations(string $type): void
     {
         try {
             $api = $type === 'observation' ? EHealth::observation() : EHealth::condition();
@@ -412,57 +414,6 @@ class EncounterComponent extends Component
             $this->handleEHealthExceptions($exception, 'Error while getting evidence details');
 
             return;
-        }
-    }
-
-    /**
-     * Search for procedure reasons in conditions and observations.
-     *
-     * @param  string  $episodeId
-     * @return void
-     */
-    public function searchConditionsAndObservations(string $episodeId): void
-    {
-        // Validate that an episode ID is provided
-        if (empty($episodeId)) {
-            $this->addError('episode', 'Please select an episode first.');
-
-            return;
-        }
-
-        $buildGetConditions = EncounterRequestApi::buildGetConditionsInEpisodeContext($this->patientUuid, $episodeId);
-        $buildGetObservations = EncounterRequestApi::buildGetObservationsInEpisodeContext(
-            $this->patientUuid,
-            $episodeId
-        );
-
-        try {
-            $conditions = collect(
-                PatientApi::getConditionsInEpisodeContext(
-                    $this->patientUuid,
-                    $episodeId,
-                    $buildGetConditions
-                )['data']
-            )->map(static function (array $item) {
-                return array_merge($item, ['type' => 'condition']);
-            });
-
-            $observations = collect(
-                PatientApi::getObservationsInEpisodeContext(
-                    $this->patientUuid,
-                    $episodeId,
-                    $buildGetObservations
-                )['data']
-            )->map(static function (array $item) {
-                return array_merge($item, ['type' => 'observation']);
-            });
-
-            $this->conditionsAndObservations = $conditions->merge($observations)->values()->all();
-        } catch (eHealthApiException) {
-            Log::channel('e_health_errors')
-                ->error('Error while searching for conditions and observations in Encounter Component');
-
-            session()?->flash('error', __('messages.database_error'));
         }
     }
 
@@ -493,36 +444,6 @@ class EncounterComponent extends Component
         } catch (eHealthApiException) {
             Log::channel('e_health_errors')
                 ->error('Error while searching for clinical impressions in Encounter Component');
-
-            session()?->flash('error', __('messages.database_error'));
-        }
-    }
-
-    /**
-     * Search for complication details in conditions for selected episode.
-     *
-     * @return void
-     */
-    public function searchComplicationDetails(): void
-    {
-        $episodeId = $this->form->episode['id'] ?: null;
-
-        // If the episode is not selected, don't perform a search.
-        if (!isset($episodeId)) {
-            return;
-        }
-
-        $buildGetConditions = EncounterRequestApi::buildGetConditionsInEpisodeContext($this->patientUuid, $episodeId);
-
-        try {
-            $this->complicationDetails = PatientApi::getConditionsInEpisodeContext(
-                $this->patientUuid,
-                $episodeId,
-                $buildGetConditions
-            )['data'];
-        } catch (eHealthApiException) {
-            Log::channel('e_health_errors')
-                ->error('Error while searching for complication details in Encounter Component');
 
             session()?->flash('error', __('messages.database_error'));
         }
@@ -602,19 +523,16 @@ class EncounterComponent extends Component
         }
     }
 
-    /**
-     * Set patient and related data.
-     *
-     * @return void
-     */
     protected function setPatientData(): void
     {
-        $patient = Person::select(['uuid', 'first_name', 'last_name', 'second_name'])
+        $patient = Person::select(['id', 'uuid', 'first_name', 'last_name', 'second_name'])
+            ->with(['declarations' => fn ($query) => $query->latest()->take(1)])
             ->where('id', $this->personId)
             ->firstOrFail();
 
         $this->patientUuid = $patient->uuid;
         $this->patientFullName = $patient->fullName;
+        $this->declarationNumber = $patient->declarations->first()?->declarationNumber ?? null;
     }
 
     /**

@@ -156,125 +156,6 @@ class EncounterRepository extends BaseRepository
     }
 
     /**
-     * Format procedures data before request.
-     *
-     * @param  array  $procedures
-     * @return array
-     */
-    public function formatProceduresRequest(array $procedures): array
-    {
-        $procedureForm = array_map(function (array $procedure) {
-            if ($procedure['referralType'] === 'electronic' || $procedure['referralType'] === '') {
-                unset($procedure['paperReferral']);
-            }
-
-            // Delete frontend properties
-            unset($procedure['isReferralAvailable'], $procedure['referralType']);
-
-            $procedure['id'] = Str::uuid()->toString();
-            $procedure['status'] = 'completed';
-
-            $procedure['encounter'] = [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'encounter']],
-                        'text' => ''
-                    ],
-                    'value' => $this->encounterUuid
-                ]
-            ];
-
-            $procedure['recordedBy']['identifier']['value'] = $this->employeeUuid;
-
-            if (empty($procedure['division']['identifier']['value'])) {
-                unset($procedure['division']);
-            }
-
-            if ($procedure['primarySource']) {
-                unset($procedure['reportOrigin']);
-
-                $procedure['performer']['identifier']['value'] = $this->employeeUuid;
-            } else {
-                unset($procedure['performer']);
-            }
-
-            $procedure['performedPeriod']['start'] = convertToEHealthISO8601(
-                $procedure['performedPeriodStartDate'] . $procedure['performedPeriodStartTime']
-            );
-            unset($procedure['performedPeriodStartDate'], $procedure['performedPeriodStartTime']);
-
-            $procedure['performedPeriod']['end'] = convertToEHealthISO8601(
-                $procedure['performedPeriodEndDate'] . $procedure['performedPeriodEndTime']
-            );
-            unset($procedure['performedPeriodEndDate'], $procedure['performedPeriodEndTime']);
-
-            $procedure['managingOrganization'] = [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'legal_entity']],
-                        'text' => ''
-                    ],
-                    'value' => legalEntity()->uuid
-                ],
-            ];
-
-            if (!empty($procedure['reasonReferences'])) {
-                foreach ($procedure['reasonReferences'] as &$reasonReference) {
-                    $code = str_contains($reasonReference['code']['coding'][0]['system'], 'condition_codes')
-                        ? 'condition'
-                        : 'observation';
-
-                    $identifier = [
-                        'type' => [
-                            'coding' => [['system' => 'eHealth/resources', 'code' => $code]]
-                        ],
-                        'value' => $reasonReference['id']
-                    ];
-
-                    // Keep only the identifier key
-                    $reasonReference = ['identifier' => $identifier];
-                }
-
-                unset($reasonReference);
-            }
-
-            if (empty($procedure['outcome'])) {
-                unset($procedure['outcome']);
-            }
-
-            if (empty($procedure['usedCodes'])) {
-                unset($procedure['usedCodes']);
-            }
-
-            if (!empty($procedure['complicationDetails'])) {
-                foreach ($procedure['complicationDetails'] as &$complicationDetail) {
-                    $identifier = [
-                        'type' => [
-                            'coding' => [['system' => 'eHealth/resources', 'code' => 'condition']],
-                        ],
-                        'value' => $complicationDetail['id']
-                    ];
-
-                    // Keep only the identifier key
-                    $complicationDetail = ['identifier' => $identifier];
-                }
-
-                unset($complicationDetail);
-            }
-
-            // Remove elements where the key is equal empty array
-            return array_filter($procedure, static fn ($value) => !is_array($value) || !empty($value));
-        }, $procedures);
-
-        return schemaService()
-            ->setDataSchema(['procedures' => $procedureForm], app(PatientApi::class))
-            ->requestSchemaNormalize()
-            ->camelCaseKeys()
-            ->extractFirst()
-            ->getNormalizedData();
-    }
-
-    /**
      * Format clinical impressions data before request.
      *
      * @param  array  $clinicalImpressions
@@ -496,9 +377,66 @@ class EncounterRepository extends BaseRepository
                     $this->syncIdentifiers($existing, $data['supporting_info'] ?? null, 'supportingInfo')
                 );
 
+                $this->syncDiagnoses($encounter, $data['diagnoses'] ?? [], $existing);
                 $this->syncHospitalization($encounter, $data['hospitalization'] ?? null);
             }
         });
+    }
+
+    /**
+     * Sync encounter diagnoses (HasMany) with nested condition identifiers and role codeable concepts.
+     *
+     * @param  Encounter  $encounter
+     * @param  array  $diagnosesData
+     * @param  Encounter|null  $existing
+     * @return void
+     */
+    protected function syncDiagnoses(Encounter $encounter, array $diagnosesData, ?Encounter $existing): void
+    {
+        $existingDiagnoses = $existing?->diagnoses ?? collect();
+
+        if (empty($diagnosesData)) {
+            $existingDiagnoses->each(fn (EncounterDiagnose $d) => $d->delete());
+
+            return;
+        }
+
+        $existingByConditionValue = $existingDiagnoses->keyBy(
+            fn (EncounterDiagnose $d) => $d->condition?->value
+        );
+
+        $newConditionValues = collect($diagnosesData)
+            ->pluck('condition.identifier.value')
+            ->filter()
+            ->toArray();
+
+        $existingDiagnoses->filter(
+            fn (EncounterDiagnose $diagnose) => !in_array($diagnose->condition?->value, $newConditionValues, true)
+        )
+            ->each(fn (EncounterDiagnose $diagnose) => $diagnose->delete());
+
+        foreach ($diagnosesData as $diagnoseData) {
+            $conditionValue = $diagnoseData['condition']['identifier']['value'];
+            $existingDiagnose = $existingByConditionValue->get($conditionValue);
+
+            if ($existingDiagnose) {
+                $this->updateIdentifier($existingDiagnose->condition, $diagnoseData['condition']);
+                $this->updateCodeableConcept($existingDiagnose->role, $diagnoseData['role']);
+                $existingDiagnose->update(['rank' => $diagnoseData['rank'] ?? null]);
+            } else {
+                $condition = Repository::identifier()->store($conditionValue);
+                Repository::codeableConcept()->attach($condition, $diagnoseData['condition']);
+
+                $role = Repository::codeableConcept()->store($diagnoseData['role']);
+
+                EncounterDiagnose::create([
+                    'encounter_id' => $encounter->id,
+                    'condition_id' => $condition->id,
+                    'role_id' => $role->id,
+                    'rank' => $diagnoseData['rank'] ?? null,
+                ]);
+            }
+        }
     }
 
     /**

@@ -12,6 +12,7 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Jobs\EncounterFullSync;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;

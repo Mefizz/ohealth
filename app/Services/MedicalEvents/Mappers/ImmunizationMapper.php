@@ -4,81 +4,84 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents\Mappers;
 
+use App\Contracts\FhirMapperContract;
 use App\Enums\Person\ImmunizationStatus;
 use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
-class ImmunizationMapper
+class ImmunizationMapper implements FhirMapperContract
 {
     /**
      * Convert a flat form immunization to a FHIR structure for persistence/API.
      *
-     * @param  array  $immunization
-     * @param  array  $uuids
+     * @param  array  $data  Flat immunization form data
+     * @param  mixed  ...$context  [0] array $uuids  Shared UUIDs (encounter, employee, etc.)
      * @return array
      */
-    public function toFhir(array $immunization, array $uuids): array
+    public function toFhir(array $data, mixed ...$context): array
     {
-        $data = [
-            'id' => $immunization['uuid'] ?? Str::uuid()->toString(),
+        [$uuids] = $context;
+
+        $result = [
+            'id' => $data['uuid'] ?? Str::uuid()->toString(),
             'status' => ImmunizationStatus::COMPLETED->value,
-            'notGiven' => $immunization['notGiven'],
+            'notGiven' => $data['notGiven'],
             'vaccineCode' => FhirResource::make()
-                ->coding('eHealth/vaccine_codes', $immunization['vaccineCode'])
+                ->coding('eHealth/vaccine_codes', $data['vaccineCode'])
                 ->toCodeableConcept(),
             'context' => FhirResource::make()
                 ->coding('eHealth/resources', 'encounter')
                 ->toIdentifier($uuids['encounter']),
-            'date' => convertToEHealthISO8601($immunization['date'] . ' ' . $immunization['time']),
-            'primarySource' => $immunization['primarySource']
+            'date' => convertToEHealthISO8601($data['date'] . ' ' . $data['time']),
+            'primarySource' => $data['primarySource']
         ];
 
-        if ($immunization['primarySource']) {
-            $data['performer'] = FhirResource::make()
+        if ($data['primarySource']) {
+            $result['performer'] = FhirResource::make()
                 ->coding('eHealth/resources', 'employee')
                 ->toIdentifier($uuids['employee']);
         } else {
-            $data['reportOrigin'] = FhirResource::make()
-                ->coding('eHealth/immunization_report_origins', $immunization['reportOriginCode'])
-                ->toCodeableConcept($immunization['reportOriginText'] ?? '');
+            $result['reportOrigin'] = FhirResource::make()
+                ->coding('eHealth/immunization_report_origins', $data['reportOriginCode'])
+                ->toCodeableConcept($data['reportOriginText'] ?? '');
         }
 
-        if (!empty($immunization['manufacturer'])) {
-            $data['manufacturer'] = $immunization['manufacturer'];
+        if (!empty($data['manufacturer'])) {
+            $result['manufacturer'] = $data['manufacturer'];
         }
 
-        if (!empty($immunization['lotNumber'])) {
-            $data['lotNumber'] = $immunization['lotNumber'];
+        if (!empty($data['lotNumber'])) {
+            $result['lotNumber'] = $data['lotNumber'];
         }
 
-        if (!empty($immunization['expirationDate'])) {
-            $data['expirationDate'] = convertToEHealthISO8601($immunization['expirationDate'] . ' ' . now()->format('H:i'));
+        if (!empty($data['expirationDate'])) {
+            $result['expirationDate'] = convertToEHealthISO8601($data['expirationDate'] . ' ' . now()->format('H:i'));
         }
 
-        if (!empty($immunization['siteCode'])) {
-            $data['site'] = FhirResource::make()
-                ->coding('eHealth/immunization_body_sites', $immunization['siteCode'])
+        if (!empty($data['siteCode'])) {
+            $result['site'] = FhirResource::make()
+                ->coding('eHealth/immunization_body_sites', $data['siteCode'])
                 ->toCodeableConcept();
         }
 
-        if (!empty($immunization['routeCode'])) {
-            $data['route'] = FhirResource::make()
-                ->coding('eHealth/vaccination_routes', $immunization['routeCode'])
+        if (!empty($data['routeCode'])) {
+            $result['route'] = FhirResource::make()
+                ->coding('eHealth/vaccination_routes', $data['routeCode'])
                 ->toCodeableConcept();
         }
 
-        if (!empty($immunization['doseQuantityValue'])) {
-            $data['doseQuantity'] = [
-                'value' => $immunization['doseQuantityValue'],
-                'unit' => $immunization['doseQuantityUnit'],
+        if (!empty($data['doseQuantityValue'])) {
+            $result['doseQuantity'] = [
+                'value' => $data['doseQuantityValue'],
+                'unit' => $data['doseQuantityUnit'],
                 'system' => 'eHealth/immunization_dosage_units',
-                'code' => $immunization['doseQuantityCode']
+                'code' => $data['doseQuantityCode']
             ];
         }
 
-        if (!$immunization['notGiven']) {
-            $data['explanation']['reasons'] = collect($immunization['reasons'] ?? [])
+        if (!$data['notGiven']) {
+            $result['explanation']['reasons'] = collect($data['reasons'] ?? [])
                 ->filter(fn (array $reason) => !empty($reason['code']))
                 ->map(
                     fn (array $reason) => FhirResource::make()
@@ -88,36 +91,36 @@ class ImmunizationMapper
                 ->values()
                 ->toArray();
         } else {
-            $data['explanation']['reasonsNotGiven'] = [
+            $result['explanation']['reasonsNotGiven'] = [
                 FhirResource::make()
-                    ->coding('eHealth/reason_not_given_explanations', $immunization['reasonNotGivenCode'])
+                    ->coding('eHealth/reason_not_given_explanations', $data['reasonNotGivenCode'])
                     ->toCodeableConcept()
             ];
         }
 
-        if (!empty($immunization['vaccinationProtocols'])) {
-            $data['vaccinationProtocols'] = collect($immunization['vaccinationProtocols'])
+        if (!empty($data['vaccinationProtocols'])) {
+            $result['vaccinationProtocols'] = collect($data['vaccinationProtocols'])
                 ->map(fn (array $protocol) => $this->protocolToFhir($protocol))
                 ->values()
                 ->toArray();
         }
 
-        return $data;
+        return $result;
     }
 
     /**
      * Convert a FHIR immunization (from DB) to a flat form structure.
      *
-     * @param  array  $immunization
+     * @param  array  $data  FHIR immunization data
      * @return array
      */
-    public function fromFhir(array $immunization): array
+    public function fromFhir(array $data, mixed ...$context): array
     {
-        $date = CarbonImmutable::parse(data_get($immunization, 'date'));
-        $rawTime = data_get($immunization, 'time');
+        $date = CarbonImmutable::parse(data_get($data, 'date'));
+        $rawTime = data_get($data, 'time');
         $time = $rawTime ? CarbonImmutable::parse($rawTime) : $date;
-        $notGiven = data_get($immunization, 'notGiven', false);
-        $reasons = $notGiven ? [] : collect(data_get($immunization, 'explanation.reasons', []))
+        $notGiven = data_get($data, 'notGiven', false);
+        $reasons = $notGiven ? [] : collect(data_get($data, 'explanation.reasons', []))
             ->map(fn (array $reason) => ['code' => data_get($reason, 'coding.0.code', '')])
             ->filter(fn (array $reason) => !empty($reason['code']))
             ->values()
@@ -128,39 +131,39 @@ class ImmunizationMapper
         }
 
         return [
-            'uuid' => data_get($immunization, 'uuid'),
-            'primarySource' => data_get($immunization, 'primarySource'),
+            'uuid' => data_get($data, 'uuid'),
+            'primarySource' => data_get($data, 'primarySource'),
             'notGiven' => $notGiven,
-            'vaccineCode' => data_get($immunization, 'vaccineCode.coding.0.code'),
+            'vaccineCode' => data_get($data, 'vaccineCode.coding.0.code'),
             'date' => $date->format('Y-m-d'),
             'time' => $time->format('H:i'),
             'reasons' => $reasons,
-            'reasonNotGivenCode' => data_get($immunization, 'explanation.reasonsNotGiven.0.coding.0.code', ''),
-            'reportOriginCode' => data_get($immunization, 'reportOrigin.coding.0.code', ''),
-            'reportOriginText' => data_get($immunization, 'reportOrigin.text', ''),
-            'manufacturer' => data_get($immunization, 'manufacturer', ''),
-            'lotNumber' => data_get($immunization, 'lotNumber', ''),
-            'expirationDate' => data_get($immunization, 'expirationDate', ''),
-            'siteCode' => data_get($immunization, 'site.coding.0.code', ''),
-            'routeCode' => data_get($immunization, 'route.coding.0.code', ''),
-            'doseQuantityValue' => data_get($immunization, 'doseQuantity.value'),
-            'doseQuantityCode' => data_get($immunization, 'doseQuantity.code', ''),
-            'doseQuantityUnit' => data_get($immunization, 'doseQuantity.unit', ''),
-            'vaccinationProtocols' => collect(data_get($immunization, 'vaccinationProtocols', []))
+            'reasonNotGivenCode' => data_get($data, 'explanation.reasonsNotGiven.0.coding.0.code', ''),
+            'reportOriginCode' => data_get($data, 'reportOrigin.coding.0.code', ''),
+            'reportOriginText' => data_get($data, 'reportOrigin.text', ''),
+            'manufacturer' => data_get($data, 'manufacturer', ''),
+            'lotNumber' => data_get($data, 'lotNumber', ''),
+            'expirationDate' => data_get($data, 'expirationDate', ''),
+            'siteCode' => data_get($data, 'site.coding.0.code', ''),
+            'routeCode' => data_get($data, 'route.coding.0.code', ''),
+            'doseQuantityValue' => data_get($data, 'doseQuantity.value'),
+            'doseQuantityCode' => data_get($data, 'doseQuantity.code', ''),
+            'doseQuantityUnit' => data_get($data, 'doseQuantity.unit', ''),
+            'vaccinationProtocols' => collect(data_get($data, 'vaccinationProtocols', []))
                 ->map(fn (array $protocol) => $this->protocolFromFhir($protocol))
                 ->toArray()
         ];
     }
 
     /**
-     * Format vaccination protocols to FHIR.
+     * Convert a flat vaccination protocol to FHIR vaccinationProtocols format.
      *
      * @param  array  $protocol
      * @return array
      */
     private function protocolToFhir(array $protocol): array
     {
-        $data = [
+        $result = [
             'authority' => FhirResource::make()
                 ->coding('eHealth/vaccination_authorities', $protocol['authorityCode'])
                 ->toCodeableConcept(),
@@ -176,26 +179,26 @@ class ImmunizationMapper
         ];
 
         if (!empty($protocol['doseSequence'])) {
-            $data['doseSequence'] = $protocol['doseSequence'];
+            $result['doseSequence'] = $protocol['doseSequence'];
         }
 
         if (!empty($protocol['series'])) {
-            $data['series'] = $protocol['series'];
+            $result['series'] = $protocol['series'];
         }
 
         if (!empty($protocol['seriesDoses'])) {
-            $data['seriesDoses'] = $protocol['seriesDoses'];
+            $result['seriesDoses'] = $protocol['seriesDoses'];
         }
 
         if (!empty($protocol['description'])) {
-            $data['description'] = $protocol['description'];
+            $result['description'] = $protocol['description'];
         }
 
-        return $data;
+        return $result;
     }
 
     /**
-     * Format vaccination protocols to flat data.
+     * Convert a FHIR vaccinationProtocols entry to a flat protocol structure.
      *
      * @param  array  $protocol
      * @return array

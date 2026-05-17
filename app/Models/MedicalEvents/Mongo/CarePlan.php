@@ -15,4 +15,8 @@ class CarePlan extends Model
 {
     // protected $connection = 'mongodb';
     protected $guarded = [];
+
+    protected $casts = [
+        'data' => 'array',
+    ];
 }

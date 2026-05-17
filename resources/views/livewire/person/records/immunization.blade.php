@@ -1,4 +1,3 @@
-@use(App\Enums\Person\ImmunizationStatus)
 <x-layouts.patient :personId="$personId" :patientFullName="$patientFullName">
     <x-slot name="headerActions">
         @can('create', \App\Models\MedicalEvents\Sql\Encounter::class)
@@ -16,7 +15,7 @@
             {{ __('patients.data_access') }}
         </button>
 
-        <button wire:click.prevent="sync"
+        <button wire:click.prevent="syncImmunizations"
                 type="button"
                 class="button-sync flex items-center gap-2 whitespace-nowrap px-5 py-2 text-sm shadow-sm"
         >
@@ -269,7 +268,7 @@
             </div>
 
             <div class="space-y-4">
-                @forelse($paginatedImmunizations as $immunization)
+                @forelse($immunizations as $immunization)
                     <div class="record-inner-card">
                         <div class="record-inner-header">
                             <div class="record-inner-checkbox-col">
@@ -282,11 +281,7 @@
                                 </div>
 
                                 <div class="record-inner-value text-[17px] font-semibold text-gray-900 dark:text-gray-100">
-                                    {{ data_get(
-                                        $this->dictionaries,
-                                        'eHealth/vaccine_codes.' . data_get($immunization, 'vaccineCode.coding.0.code'),
-                                        data_get($immunization, 'vaccineCode.text', data_get($immunization, 'vaccineCode.coding.0.code', '—'))
-                                    ) }}
+                                    {{ data_get($immunization, 'vaccineCode.coding.0.code', data_get($immunization, 'vaccineCode.text', '—')) }}
                                 </div>
                             </div>
 
@@ -297,7 +292,7 @@
 
                                 <div>
                                     <span class="badge-green">
-                                        {{ ImmunizationStatus::tryFrom(data_get($immunization, 'status'))?->label() ?? '—' }}
+                                        {{ data_get($immunization, 'status', '—') }}
                                     </span>
                                 </div>
                             </div>
@@ -372,11 +367,7 @@
 
                                             <div class="record-inner-value text-[14px] font-semibold">
                                                 {{ data_get($immunization, 'doseQuantity.value', '—') }}
-                                                {{ data_get(
-                                                    $this->dictionaries,
-                                                    'eHealth/immunization_dosage_units.' . data_get($immunization, 'doseQuantity.code'),
-                                                    data_get($immunization, 'doseQuantity.unit', data_get($immunization, 'doseQuantity.code', ''))
-                                                ) }}
+                                                {{ data_get($immunization, 'doseQuantity.unit', data_get($immunization, 'doseQuantity.code', '')) }}
                                             </div>
                                         </div>
 
@@ -386,7 +377,7 @@
                                             </div>
 
                                             <div class="record-inner-value text-[14px] font-semibold break-words">
-                                                {{ data_get($immunization, 'manufacturer') ?? '—' }}
+                                                {{ data_get($immunization, 'manufacturer', '—') }}
                                                 @if(data_get($immunization, 'lotNumber'))
                                                     ({{ data_get($immunization, 'lotNumber') }})
                                                 @endif
@@ -411,11 +402,7 @@
                                             </div>
 
                                             <div class="record-inner-value text-[14px] font-semibold break-words">
-                                                {{ data_get(
-                                                    $this->dictionaries,
-                                                    'eHealth/vaccination_routes.' . data_get($immunization, 'route.coding.0.code'),
-                                                    data_get($immunization, 'route.text', data_get($immunization, 'route.coding.0.code', '—'))
-                                                ) }}
+                                                {{ data_get($immunization, 'route.text', data_get($immunization, 'route.coding.0.code', '—')) }}
                                             </div>
                                         </div>
 
@@ -425,11 +412,7 @@
                                             </div>
 
                                             <div class="record-inner-value text-[14px] font-semibold break-words">
-                                                {{ data_get(
-                                                    $this->dictionaries,
-                                                    'eHealth/immunization_body_sites.' . data_get($immunization, 'site.coding.0.code'),
-                                                    data_get($immunization, 'site.text', data_get($immunization, 'site.coding.0.code', '—'))
-                                                ) }}
+                                                {{ data_get($immunization, 'site.text', data_get($immunization, 'site.coding.0.code', '—')) }}
                                             </div>
                                         </div>
 
@@ -451,11 +434,7 @@
                                             </div>
 
                                             <div class="record-inner-value text-[14px] font-semibold break-words">
-                                                {{ data_get(
-                                                    $this->dictionaries,
-                                                    'eHealth/reason_explanations.' . data_get($immunization, 'explanation.reasons.0.coding.0.code'),
-                                                    data_get($immunization, 'explanation.reasons.0.text', data_get($immunization, 'explanation.reasons.0.coding.0.code', '—'))
-                                                ) }}
+                                                {{ data_get($immunization, 'explanation.reasons.0.text', data_get($immunization, 'explanation.reasons.0.coding.0.code', '—')) }}
                                             </div>
                                         </div>
 
@@ -465,7 +444,7 @@
                                             </div>
 
                                             <div class="record-inner-value text-[14px] font-semibold">
-                                                {{ data_get($immunization, 'notGiven') ? __('forms.no') : __('forms.yes') }}
+                                                {{ data_get($immunization, 'notGiven') ? 'Ні' : 'Так' }}
                                             </div>
                                         </div>
                                     </div>
@@ -477,7 +456,7 @@
                                             </div>
 
                                             <div class="record-inner-value text-[14px]">
-                                                {{ data_get($immunization, 'reactions.0.displayValue', '—') }}
+                                                {{ data_get($immunization, 'reactions.0.detail.displayValue', data_get($immunization, 'reactions.0.displayValue', '—')) }}
                                             </div>
                                         </div>
 
@@ -499,7 +478,7 @@
                                     {{ __('patients.vaccination_protocol') }}:
                                 </div>
 
-                                @php($protocol = data_get($immunization, 'vaccinationProtocols.0', []))
+                                @php($protocol = data_get($immunization, 'immunizationProtocols.0', []))
 
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
                                     <ul class="space-y-2.5">
@@ -510,18 +489,7 @@
                                                     {{ __('patients.target_diseases') }}:
                                                 </div>
                                                 <div class="text-gray-800 dark:text-gray-200 font-semibold break-words">
-                                                    {{ collect(data_get($protocol, 'targetDiseases', []))
-                                                        ->map(function ($disease) {
-                                                            $code = data_get($disease, 'coding.0.code');
-
-                                                            return data_get(
-                                                                $this->dictionaries,
-                                                                'eHealth/vaccination_target_diseases.' . $code,
-                                                                data_get($disease, 'text', $code)
-                                                            );
-                                                        })
-                                                        ->filter()
-                                                        ->join(', ') ?: '—' }}
+                                                    {{ collect(data_get($protocol, 'targetDiseases', []))->map(fn($disease) => data_get($disease, 'text', data_get($disease, 'coding.0.code')))->filter()->join(', ') ?: '—' }}
                                                 </div>
                                             </div>
                                         </li>
@@ -533,11 +501,7 @@
                                                     {{ __('patients.protocol_author') }}:
                                                 </div>
                                                 <div class="text-gray-800 dark:text-gray-200 font-semibold uppercase tracking-wide text-[11px] break-words">
-                                                    {{ data_get(
-                                                        $this->dictionaries,
-                                                        'eHealth/vaccination_authorities.' . data_get($protocol, 'authority.coding.0.code'),
-                                                        data_get($protocol, 'authority.text', data_get($protocol, 'authority.coding.0.code', '—'))
-                                                    ) }}
+                                                    {{ data_get($protocol, 'authority.text', data_get($protocol, 'authority.coding.0.code', '—')) }}
                                                 </div>
                                             </div>
                                         </li>
@@ -551,7 +515,7 @@
                                                     {{ __('patients.dose_sequence') }}:
                                                 </div>
                                                 <div class="text-gray-800 dark:text-gray-200 font-semibold">
-                                                    {{ data_get($protocol, 'doseSequence') ?? '—' }}
+                                                    {{ data_get($protocol, 'doseSequence', '—') }}
                                                 </div>
                                             </div>
                                         </li>
@@ -563,7 +527,7 @@
                                                     {{ __('patients.immunization_series') }}:
                                                 </div>
                                                 <div class="text-gray-800 dark:text-gray-200 font-semibold">
-                                                    {{ data_get($protocol, 'series') ?? '—' }}
+                                                    {{ data_get($protocol, 'series', '—') }}
                                                 </div>
                                             </div>
                                         </li>
@@ -577,7 +541,7 @@
                                                     {{ __('patients.series_of_doses_by_protocol') }}:
                                                 </div>
                                                 <div class="text-gray-800 dark:text-gray-200 font-semibold">
-                                                    {{ data_get($protocol, 'seriesDoses') ?? '—' }}
+                                                    {{ data_get($protocol, 'seriesDoses', '—') }}
                                                 </div>
                                             </div>
                                         </li>
@@ -589,7 +553,7 @@
                                                     {{ __('patients.protocol_description') }}:
                                                 </div>
                                                 <div class="text-gray-800 dark:text-gray-200 font-semibold break-words">
-                                                    {{ data_get($protocol, 'description') ?? '—' }}
+                                                    {{ data_get($protocol, 'description', '—') }}
                                                 </div>
                                             </div>
                                         </li>
@@ -628,11 +592,8 @@
                     </div>
                 @endforelse
             </div>
-            <div class="mt-8">
-                {{ $paginatedImmunizations->links() }}
-            </div>
         </div>
     </div>
-    
+
     <x-forms.loading />
 </x-layouts.patient>

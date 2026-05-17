@@ -4,27 +4,27 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents\Mappers;
 
+use App\Contracts\FhirMapperContract;
 use App\Enums\Person\EpisodeStatus;
 use App\Services\MedicalEvents\FhirResource;
 
-class EpisodeMapper
+class EpisodeMapper implements FhirMapperContract
 {
     /**
      * Build a FHIR episode structure ready for the repository or eHealth API.
-     * Absorbs the logic previously in EncounterRepository::formatEpisodeRequest.
      *
-     * @param  array  $episode
-     * @param  array  $uuids
-     * @param  string  $periodDate
-     * @param  string  $periodStart
+     * @param  array  $data  Flat episode form data
+     * @param  mixed  ...$context  [0] array $uuids, [1] string $periodDate, [2] string $periodStart
      * @return array
      */
-    public function toFhir(array $episode, array $uuids, string $periodDate, string $periodStart): array
+    public function toFhir(array $data, mixed ...$context): array
     {
+        [$uuids, $periodDate, $periodStart] = $context;
+
         return [
             'id' => $uuids['episode'],
-            'type' => FhirResource::make()->coding('eHealth/episode_types', $episode['typeCode'])->toCoding(),
-            'name' => $episode['name'],
+            'type' => FhirResource::make()->coding('eHealth/episode_types', $data['typeCode'])->toCoding(),
+            'name' => $data['name'],
             'status' => EpisodeStatus::ACTIVE->value,
             'managingOrganization' => FhirResource::make()->coding('eHealth/resources', 'legal_entity')->toIdentifier(legalEntity()->uuid),
             'period' => [
@@ -32,5 +32,10 @@ class EpisodeMapper
             ],
             'careManager' => FhirResource::make()->coding('eHealth/resources', 'employee')->toIdentifier($uuids['employee'])
         ];
+    }
+
+    public function fromFhir(array $data, mixed ...$context): array
+    {
+        return [];
     }
 }

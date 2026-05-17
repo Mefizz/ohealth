@@ -29,7 +29,7 @@
             <template x-for="(action, index) in actions" :key="index">
                 <tr>
                     <td class="td-input" x-text="`${ action.code } - ${ dictionary[action.code] }`"></td>
-                    <td class="td-input" x-text="`${ action.text }`"></td>
+                    <td class="td-input" x-text="action.text ?? '-'"></td>
                     <td class="td-input">
                         {{-- That all that is needed for the dropdown --}}
                         <div x-data="{
@@ -52,7 +52,7 @@
                                  }
                              }"
                              @keydown.escape.prevent.stop="close($refs.button)"
-                             @focusin.window="! $refs.panel.contains($event.target) && close()"
+                             @focusin.window="!$refs.panel.contains($event.target) && close()"
                              x-id="['dropdown-button']"
                              class="relative"
                         >

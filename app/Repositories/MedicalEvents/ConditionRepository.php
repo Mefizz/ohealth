@@ -102,7 +102,7 @@ class ConditionRepository extends BaseRepository
     public function getByUuids(array $uuids): array
     {
         return $this->model::with([
-            'asserter',
+            'asserter.type.coding',
             'reportOrigin.coding',
             'context.type.coding',
             'code.coding',
@@ -122,7 +122,7 @@ class ConditionRepository extends BaseRepository
      */
     public function getDetailsMapByUuids(array $uuids): array
     {
-        return collect($this->model->whereIn('uuid', $uuids)->with('code.coding')->get()->toArray())
+        return collect($this->model->whereIn('uuid', $uuids)->with(['code.coding', 'stageSummary'])->get()->toArray())
             ->mapWithKeys(fn (array $condition) => [
                 $condition['uuid'] => [
                     'insertedAt' => $condition['ehealthInsertedAt'] ?? null,

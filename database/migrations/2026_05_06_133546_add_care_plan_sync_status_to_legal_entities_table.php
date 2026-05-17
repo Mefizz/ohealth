@@ -11,9 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('care_plans', function (Blueprint $table) {
-            $table->string('clinical_protocol')->nullable()->after('category');
-            $table->string('context')->nullable()->after('clinical_protocol');
+        Schema::table('legal_entities', function (Blueprint $table) {
+            //
         });
     }
 
@@ -22,8 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('care_plans', function (Blueprint $table) {
-            $table->dropColumn(['clinical_protocol', 'context']);
+        Schema::table('legal_entities', function (Blueprint $table) {
+            //
         });
     }
 };

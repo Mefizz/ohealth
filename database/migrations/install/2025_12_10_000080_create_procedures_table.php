@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\Person\ProcedureStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -16,19 +17,22 @@ return new class extends Migration
         Schema::create('procedures', static function (Blueprint $table) {
             $table->id();
             $table->uuid()->unique();
-            $table->foreignId('encounter_internal_id')->nullable()->constrained('encounters');
-            $table->enum('status', ['completed', 'entered_in_error']);
+            $table->foreignId('person_id')->constrained('persons');
+            $table->enum('status', ProcedureStatus::values());
+            $table->foreignId('status_reason_id')->nullable()->constrained('codeable_concepts');
             $table->foreignId('based_on_id')->nullable()->constrained('identifiers');
             $table->foreignId('code_id')->constrained('identifiers');
             $table->foreignId('encounter_id')->nullable()->constrained('identifiers');
+            $table->foreignId('origin_episode_id')->nullable()->constrained('identifiers');
             $table->foreignId('recorded_by_id')->constrained('identifiers');
             $table->boolean('primary_source');
             $table->foreignId('performer_id')->nullable()->constrained('identifiers');
             $table->foreignId('report_origin_id')->nullable()->constrained('codeable_concepts');
             $table->foreignId('division_id')->nullable()->constrained('identifiers');
-            $table->foreignId('managing_organization_id')->nullable()->constrained('identifiers');
+            $table->foreignId('managing_organization_id')->constrained('identifiers');
             $table->foreignId('outcome_id')->nullable()->constrained('codeable_concepts');
             $table->text('note')->nullable()->comment('Any other notes and comments about the procedure.');
+            $table->text('explanatory_letter')->nullable();
             $table->foreignId('category_id')->nullable()->constrained('codeable_concepts');
             $table->timestamps();
         });
@@ -49,6 +53,13 @@ return new class extends Migration
             $table->timestamps();
         });
 
+        Schema::create('procedure_used_references', static function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('procedure_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('identifier_id')->constrained('identifiers')->cascadeOnDelete();
+            $table->timestamps();
+        });
+
         Schema::create('procedure_used_codes', static function (Blueprint $table) {
             $table->id();
             $table->foreignId('procedure_id')->constrained()->cascadeOnDelete();
@@ -63,6 +74,8 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('procedure_used_codes');
+
+        Schema::dropIfExists('procedure_used_references');
 
         Schema::dropIfExists('procedure_complication_details');
 

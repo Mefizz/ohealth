@@ -105,7 +105,11 @@
         </div>
     </div>
 
-    @include('livewire.care-plan.modals.authentication')
-    @include('livewire.care-plan.modals.method-selection')
+    @if($showAuthModal)
+        @include('livewire.care-plan.modals.authentication')
+    @endif
+    @if($showMethodSelectionModal)
+        @include('livewire.care-plan.modals.method-selection')
+    @endif
     <x-signature-modal method="sign" />
 </x-layouts.patient>

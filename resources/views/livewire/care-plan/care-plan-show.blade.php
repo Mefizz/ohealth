@@ -17,9 +17,6 @@
 
     <div x-data="{ 
         activeTab: 'info',
-        showSignatureModal: $wire.entangle('showSignatureModal').live,
-        showMethodSelectionModal: $wire.entangle('showMethodSelectionModal').live,
-        showAuthModal: $wire.entangle('showAuthModal').live,
         openDropdown: false,
         showServiceDrawer: false,
         showServiceSearchDrawer: false,
@@ -31,7 +28,7 @@
         showMedicalDeviceFormDrawer: false
     }" 
     @close-drawers.window="showServiceDrawer = false; showServiceSearchDrawer = false; showMedicationDrawer = false; showMedicationSearchDrawer = false; showMedicationFormDrawer = false; showMedicalDeviceDrawer = false; showMedicalDeviceSearchDrawer = false; showMedicalDeviceFormDrawer = false;"
-    class="form shift-content" wire:key="{{ time() }}">
+    class="form shift-content" wire:key="care-plan-show-container">
 
         {{-- Plan Header --}}
         @php
@@ -424,8 +421,12 @@
         </div>
 
         @include('components.signature-modal', ['method' => 'sign'])
-        @include('livewire.care-plan.modals.authentication')
-        @include('livewire.care-plan.modals.method-selection')
+        @if($showAuthModal)
+            @include('livewire.care-plan.modals.authentication')
+        @endif
+        @if($showMethodSelectionModal)
+            @include('livewire.care-plan.modals.method-selection')
+        @endif
 
         {{-- Drawers --}}
         @include('livewire.care-plan.parts.modals.services-drawer')

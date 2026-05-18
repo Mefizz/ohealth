@@ -725,13 +725,16 @@ class CarePlanShow extends Component
                     $responseData = $jobResponse['result'] ?? $jobResponse;
                 }
 
-                if (is_array($responseData) && !isset($responseData['id']) && isset($responseData[0])) {
-                    $responseData = $responseData[0];
-                }
+                $this->approvalId = $responseData['response_data']['id'] ??
+                                   $responseData['data']['id'] ??
+                                   $responseData['id'] ?? null;
 
-                $this->approvalId = $responseData['id'] ?? null;
-                $urgentOtp = isset($responseData['urgent']['authentication_method_current']['type']) && 
-                             $responseData['urgent']['authentication_method_current']['type'] === 'OTP';
+                $authenticationMethodCurrent = $responseData['response_data']['authentication_method_current'] ??
+                                               $responseData['data']['authentication_method_current'] ??
+                                               $responseData['authentication_method_current'] ??
+                                               $responseData['urgent']['authentication_method_current'] ?? null;
+
+                $urgentOtp = isset($authenticationMethodCurrent['type']) && $authenticationMethodCurrent['type'] === 'OTP';
 
                 if (($methodUuid || $urgentOtp) && $this->approvalId) {
                     $this->openAuthModal();

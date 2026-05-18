@@ -224,7 +224,7 @@ class CarePlanRepository
                 $authorId = $author?->id ?? Auth::user()?->getCarePlanWriterEmployee()?->id;
 
                 // Try to find existing record by UUID OR by (person + encounter) if UUID is missing locally
-                $carePlan = CarePlan::where('uuid', $rawFhir['uuid'])->first();
+                $carePlan = CarePlan::where('uuid', $rawFhir['id'] ?? $rawFhir['uuid'] ?? null)->first();
                 if (!$carePlan && $encounterIdentifier) {
                     $carePlan = CarePlan::where('person_id', $person->id)
                         ->where('encounter_identifier_id', $encounterIdentifier->id)
@@ -234,7 +234,7 @@ class CarePlanRepository
 
                 if ($carePlan) {
                     $carePlan->update([
-                        'uuid' => $rawFhir['uuid'],
+                        'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
                         'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
                         'status' => $rawFhir['status'] ?? CarePlanStatus::ACTIVE->value,
@@ -254,7 +254,7 @@ class CarePlanRepository
                     ]);
                 } else {
                     $carePlan = CarePlan::create([
-                        'uuid' => $rawFhir['uuid'],
+                        'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
                         'person_id' => $person->id,
                         'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,

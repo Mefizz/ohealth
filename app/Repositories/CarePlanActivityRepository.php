@@ -65,6 +65,11 @@ class CarePlanActivityRepository
 
     public function syncActivities(\App\Models\Person\Person $person, \App\Models\CarePlan $carePlan, array $query = []): void
     {
+        if (empty($carePlan->uuid)) {
+            \Illuminate\Support\Facades\Log::warning('CarePlanActivityRepository: sync skipped because CarePlan UUID is missing');
+            return;
+        }
+
         $response = EHealth::carePlanActivity()->getSummary($person->uuid, $carePlan->uuid, $query);
         $data = $response->getData();
 

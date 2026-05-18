@@ -61,6 +61,37 @@ class CarePlanLifecycleTest extends TestCase
             'ehealth_inserted_at' => now(),
         ]);
 
+        $conditionIdentifier = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => (string) Str::uuid()
+        ]);
+        $conditionCc = \App\Models\MedicalEvents\Sql\CodeableConcept::create();
+        $conditionCc->save();
+        
+        $conditionCoding = new \App\Models\MedicalEvents\Sql\Coding();
+        $conditionCoding->code = 'D02';
+        $conditionCoding->system = 'eHealth/ICPC2/condition_codes';
+        $conditionCoding->codeable_type = \App\Models\MedicalEvents\Sql\CodeableConcept::class;
+        $conditionCoding->codeable_id = $conditionCc->id;
+        $conditionCoding->save();
+        
+        $condition = \App\Models\MedicalEvents\Sql\Condition::create([
+            'uuid' => $conditionIdentifier->value,
+            'person_id' => $this->person->id,
+            'primary_source' => true,
+            'clinical_status' => \App\Enums\Person\ConditionClinicalStatus::ACTIVE,
+            'verification_status' => \App\Enums\Person\ConditionVerificationStatus::CONFIRMED,
+            'code_id' => $conditionCc->id,
+            'context_id' => $identifierId,
+            'onset_date' => now(),
+        ]);
+        
+        \App\Models\MedicalEvents\Sql\EncounterDiagnose::create([
+            'encounter_id' => $this->encounter->id,
+            'condition_id' => $conditionIdentifier->id,
+            'role_id' => $ccId,
+            'rank' => 1
+        ]);
+
         $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id') 
             ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
 
@@ -171,6 +202,18 @@ class CarePlanLifecycleTest extends TestCase
         $approvalVerifyResponse->shouldReceive('getStatusCode')->andReturn(200);
         $mockApprovalApi->shouldReceive('verify')->andReturn($approvalVerifyResponse);
 
+        $approvalsResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $approvalsResponse->shouldReceive('getData')->andReturn([
+            [
+                'id' => $approvalUuid,
+                'status' => 'NEW',
+                'reason' => 'treatment_plan',
+                'granted_to' => ['identifier' => ['value' => $this->employee->uuid]],
+            ]
+        ]);
+        $approvalsResponse->shouldReceive('getStatusCode')->andReturn(200);
+        $mockApprovalApi->shouldReceive('getMany')->andReturn($approvalsResponse);
+
         // Mock auth methods
         $authResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
         $authResponse->shouldReceive('getData')->andReturn([
@@ -188,6 +231,7 @@ class CarePlanLifecycleTest extends TestCase
             'legalEntity' => \App\Models\LegalEntity::first(),
             'personId' => $this->person->id,
         ])
+            ->set('form.encounter', $this->encounter->uuid)
             ->set('form.title', 'Test Plan')
             ->set('form.category', '736382003')
             ->set('form.intent', 'order')

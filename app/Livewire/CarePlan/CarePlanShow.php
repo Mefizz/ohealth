@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
  
+use App\Traits\InteractsWithApprovals;
 use App\Enums\CarePlanStatus;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
@@ -24,6 +25,7 @@ use Livewire\WithFileUploads;
 class CarePlanShow extends Component
 {
     use WithFileUploads;
+    use InteractsWithApprovals;
 
     public CarePlan $carePlan;
 
@@ -32,6 +34,9 @@ class CarePlanShow extends Component
     public string $statusReason = ''; // Used when cancelling or completing
     public ?int $activityToSign = null;
     public array $dictionaries = [];
+    public array $authMethods = [];
+    public bool $showMethodSelectionModal = false;
+    public ?string $carePlanUuid = null;
 
     // Activity Form state
     public array $activityForm = [
@@ -92,12 +97,19 @@ class CarePlanShow extends Component
         } catch (\Exception $exception) {
             Log::warning('CarePlanShow: failed to load dictionaries: ' . $exception->getMessage());
         }
+
+        $this->carePlanUuid = $this->carePlan->uuid;
+        $this->patientId = $this->carePlan->person->uuid;
     }
 
     protected function rulesForSigning(): array
     {
+        $statusReasonRule = in_array($this->actionType, ['sign_activity', 'sign_plan']) 
+            ? 'nullable|string' 
+            : 'required|string';
+
         return [
-            'statusReason' => 'required|string',
+            'statusReason' => $statusReasonRule,
             'form.knedp' => 'required|string',
             'form.keyContainerUpload' => 'required|file|max:1024',
             'form.password' => 'required|string',
@@ -190,12 +202,12 @@ class CarePlanShow extends Component
         if (!empty($this->activityForm['id'])) {
             $repository->updateById($this->activityForm['id'], [
                 'kind' => $validated['activityForm']['kind'],
-                'quantity' => $validated['activityForm']['quantity'] ?? null,
-                'quantity_system' => $validated['activityForm']['quantity_system'] ?? null,
-                'quantity_code' => $validated['activityForm']['quantity_code'] ?? null,
-                'daily_amount' => $validated['activityForm']['daily_amount'] ?? null,
-                'description' => $validated['activityForm']['description'] ?? null,
-                'product_reference' => $validated['activityForm']['product_reference'] ?? null,
+                'quantity' => !empty($validated['activityForm']['quantity']) ? $validated['activityForm']['quantity'] : null,
+                'quantity_system' => !empty($validated['activityForm']['quantity_system']) ? $validated['activityForm']['quantity_system'] : null,
+                'quantity_code' => !empty($validated['activityForm']['quantity_code']) ? $validated['activityForm']['quantity_code'] : null,
+                'daily_amount' => !empty($validated['activityForm']['daily_amount']) ? $validated['activityForm']['daily_amount'] : null,
+                'description' => !empty($validated['activityForm']['description']) ? $validated['activityForm']['description'] : null,
+                'product_reference' => !empty($validated['activityForm']['product_reference']) ? $validated['activityForm']['product_reference'] : null,
                 'scheduled_period_start' => convertToYmd($validated['activityForm']['scheduled_period_start']),
                 'scheduled_period_end' => !empty($this->activityForm['scheduled_period_end'])
                     ? convertToYmd($this->activityForm['scheduled_period_end']) : null,
@@ -207,12 +219,12 @@ class CarePlanShow extends Component
                 'author_id' => Auth::user()?->activeEmployee()?->id,
                 'status' => CarePlanStatus::DRAFT->value,
                 'kind' => $validated['activityForm']['kind'],
-                'quantity' => $validated['activityForm']['quantity'] ?? null,
-                'quantity_system' => $validated['activityForm']['quantity_system'] ?? null,
-                'quantity_code' => $validated['activityForm']['quantity_code'] ?? null,
-                'daily_amount' => $validated['activityForm']['daily_amount'] ?? null,
-                'description' => $validated['activityForm']['description'] ?? null,
-                'product_reference' => $validated['activityForm']['product_reference'] ?? null,
+                'quantity' => !empty($validated['activityForm']['quantity']) ? $validated['activityForm']['quantity'] : null,
+                'quantity_system' => !empty($validated['activityForm']['quantity_system']) ? $validated['activityForm']['quantity_system'] : null,
+                'quantity_code' => !empty($validated['activityForm']['quantity_code']) ? $validated['activityForm']['quantity_code'] : null,
+                'daily_amount' => !empty($validated['activityForm']['daily_amount']) ? $validated['activityForm']['daily_amount'] : null,
+                'description' => !empty($validated['activityForm']['description']) ? $validated['activityForm']['description'] : null,
+                'product_reference' => !empty($validated['activityForm']['product_reference']) ? $validated['activityForm']['product_reference'] : null,
                 'scheduled_period_start' => convertToYmd($validated['activityForm']['scheduled_period_start']),
                 'scheduled_period_end' => !empty($this->activityForm['scheduled_period_end'])
                     ? convertToYmd($this->activityForm['scheduled_period_end']) : null,
@@ -238,7 +250,7 @@ class CarePlanShow extends Component
         }
 
         if ($this->actionType === 'sign_activity') {
-            $this->signActivity($activityRepository);
+            $this->signActivity($repository, $activityRepository);
             return;
         }
 
@@ -419,7 +431,7 @@ class CarePlanShow extends Component
         }
     }
 
-    private function signActivity(CarePlanActivityRepository $activityRepository): void
+    private function signActivity(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
     {
         if (!$this->activityToSign) {
             Session::flash('error', __('care-plan.no_activity_selected'));
@@ -481,16 +493,26 @@ class CarePlanShow extends Component
             }
 
             // Store to Mongo
+            /* 
             try {
                 \App\Models\MedicalEvents\Mongo\CarePlanActivity::create($finalResponse);
             } catch (\Exception $e) {
                 Log::warning('Failed to save CarePlanActivity to Mongo: ' . $e->getMessage());
             }
+            */
 
             $activityRepository->updateById($activity->id, [
                 'status' => $activityStatus,
                 'uuid' => $activityUuid,
             ]);
+
+            // Sync parent Care Plan to catch status transition (e.g., Draft -> Active) triggered by activity creation
+            try {
+                $planResponse = EHealth::carePlan()->getBySearchParams($this->carePlan->person->uuid, ['id' => $this->carePlan->uuid]);
+                $repository->syncCarePlans($planResponse->getData(), $this->carePlan->person_id);
+            } catch (\Exception $e) {
+                Log::warning('CarePlanShow: failed to sync plan status after activity: ' . $e->getMessage());
+            }
 
             $this->carePlan->refresh();
             Session::flash('success', __('care-plan.activity_signed'));
@@ -633,6 +655,147 @@ class CarePlanShow extends Component
             Log::error('CarePlanActivityStatus: error: ' . $exception->getMessage());
             Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
+        }
+    }
+
+    public function openMethodSelectionModal(): void
+    {
+        if (empty($this->carePlan->uuid)) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'План лікування ще не синхронізовано з ЕСОЗ.']);
+            return;
+        }
+
+        try {
+            $this->authMethods = EHealth::person()->getAuthMethods($this->carePlan->person->uuid)->getData();
+            $this->showMethodSelectionModal = true;
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to load auth methods: ' . $e->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити методи аутентифікації']);
+        }
+    }
+
+    public function selectAuthMethod(string $methodUuid): void
+    {
+        $this->showMethodSelectionModal = false;
+        $this->createApproval($methodUuid);
+    }
+
+    protected function createApproval(string $methodUuid): void
+    {
+        try {
+            $payload = [
+                'resources' => [
+                    [
+                        'identifier' => [
+                            'type' => [
+                                'coding' => [['system' => 'eHealth/resources', 'code' => 'care_plan']]
+                            ],
+                            'value' => $this->carePlan->uuid,
+                        ]
+                    ]
+                ],
+                'granted_to' => [
+                    'identifier' => [
+                        'type' => [
+                            'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
+                        ],
+                        'value' => Auth::user()?->getCarePlanWriterEmployee()?->uuid,
+                    ]
+                ],
+                'access_level' => 'write',
+                'authorize_with' => $methodUuid ?: null,
+            ];
+
+            $response = EHealth::approval()->createApproval($this->carePlan->person->uuid, $payload);
+            $responseData = $response->getData();
+
+            if (in_array($response->getStatusCode(), [200, 201, 202])) {
+                if ($response->getStatusCode() === 202) {
+                    $jobId = basename($responseData['links'][0]['href'] ?? '');
+                    $attempts = 0;
+                    do {
+                        sleep(2);
+                        $jobResponse = EHealth::job()->getDetails($jobId)->getData();
+                        $attempts++;
+                    } while (($jobResponse['status'] === 'pending' || $jobResponse['status'] === 'accepted') && $attempts < 15);
+
+                    if ($jobResponse['status'] !== 'processed') {
+                        throw new \RuntimeException('Approval job failed: ' . json_encode($jobResponse['error'] ?? 'unknown error'));
+                    }
+                    $responseData = $jobResponse['result'] ?? $jobResponse;
+                }
+
+                $this->approvalId = $responseData['response_data']['id'] ??
+                                   $responseData['data']['id'] ??
+                                   $responseData['id'] ?? null;
+
+                $authenticationMethodCurrent = $responseData['response_data']['authentication_method_current'] ??
+                                               $responseData['data']['authentication_method_current'] ??
+                                               $responseData['authentication_method_current'] ??
+                                               $responseData['urgent']['authentication_method_current'] ?? null;
+
+                $urgentOtp = isset($authenticationMethodCurrent['type']) && $authenticationMethodCurrent['type'] === 'OTP';
+
+                if (($methodUuid || $urgentOtp) && $this->approvalId) {
+                    $this->openAuthModal();
+                } else {
+                    // Approval granted without OTP (e.g., OFFLINE or document)
+                    $this->syncPlanStatus();
+                    Session::flash('success', 'План лікування успішно активовано.');
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to create approval: ' . $e->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося створити запит на дозвіл: ' . $e->getMessage()]);
+        }
+    }
+
+    public function verify(): void
+    {
+        $this->validate($this->approvalVerificationRules());
+
+        try {
+            $response = EHealth::approval()->verify($this->carePlan->person->uuid, $this->approvalId, [
+                'code' => (int) $this->verificationCode,
+            ]);
+
+            if ($response->getStatusCode() === 200) {
+                $this->closeAuthModal();
+                $this->syncPlanStatus();
+                Session::flash('success', 'План лікування успішно активовано.');
+            }
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to verify approval: ' . $e->getMessage());
+            $this->addError('verificationCode', 'Невірний код підтвердження або помилка сервісу');
+        }
+    }
+
+    public function resendSms(): void
+    {
+        if ($this->smsResent) return;
+        try {
+            EHealth::approval()->resendSms($this->carePlan->person->uuid, $this->approvalId);
+            $this->smsResent = true;
+            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'SMS надіслано повторно']);
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to resend SMS: ' . $e->getMessage());
+        }
+    }
+
+    public function sync(): void
+    {
+        $this->syncPlanStatus();
+        $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Дані успішно синхронізовано з ЕСОЗ']);
+    }
+
+    public function syncPlanStatus(): void
+    {
+        try {
+            $planResponse = EHealth::carePlan()->getBySearchParams($this->carePlan->person->uuid, ['id' => $this->carePlan->uuid]);
+            app(CarePlanRepository::class)->syncCarePlans($planResponse->getData(), $this->carePlan->person_id);
+            $this->carePlan->refresh();
+        } catch (\Exception $e) {
+            Log::warning('CarePlanShow: failed to sync plan status: ' . $e->getMessage());
         }
     }
 

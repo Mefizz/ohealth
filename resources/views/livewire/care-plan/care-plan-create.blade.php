@@ -67,7 +67,7 @@
                         {{ __('forms.save') }}
                     </button>
 
-                    <button type="submit" @click="$wire.set('showSignatureModal', true)" class="button-primary">
+                    <button type="button" wire:click="startSigningProcess" class="button-primary">
                         {{ __('forms.save_and_send') }}
                     </button>
                 </div>
@@ -105,5 +105,11 @@
         </div>
     </div>
 
+    @if($showAuthModal)
+        @include('livewire.care-plan.modals.authentication')
+    @endif
+    @if($showMethodSelectionModal)
+        @include('livewire.care-plan.modals.method-selection')
+    @endif
     <x-signature-modal method="sign" />
 </x-layouts.patient>

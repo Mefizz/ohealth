@@ -26,5 +26,7 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="LIVEWIRE_TEMP_DIR" value="cli-livewire-tmp"/>
+        <env name="LIVEWIRE_TEMP_DISK" value="local"/>
     </php>
 </phpunit>

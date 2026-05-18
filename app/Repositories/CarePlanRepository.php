@@ -65,9 +65,9 @@ class CarePlanRepository
     /**
      * Format Care Plan data into the proper FHIR schema for eHealth API requests.
      */
-    public function formatCarePlanRequest(array $form, ?string $encounterUuid, array $encounterData, ?string $employeeUuid): array
+    public function formatCarePlanRequest(array $form, ?string $encounterUuid, array $encounterData, ?string $employeeUuid, ?string $carePlanUuid = null): array
     {
-        $id = \Illuminate\Support\Str::uuid()->toString();
+        $id = $carePlanUuid ?: \Illuminate\Support\Str::uuid()->toString();
 
         $addresses = $encounterData['addresses'] ?? [];
 
@@ -82,7 +82,7 @@ class CarePlanRepository
 
         // Use encounter period start if available to satisfy eHealth rule:
         // "Care plan start date must be greater or equal than Encounter period start"
-        $periodStart = $form['period_start'];
+        $periodStart = $form['periodStart'] ?? $form['period_start'];
         if (!empty($encounterData['period_start'])) {
             // Encounter start is already in UTC from DB
             $encounterStart = \Carbon\CarbonImmutable::parse($encounterData['period_start'], 'UTC');
@@ -111,17 +111,17 @@ class CarePlanRepository
         $payload = removeEmptyKeys([
             'id' => $id,
             'intent' => 'order',
-            'status' => CarePlanStatus::DRAFT->value,
+            'status' => 'new',
             'category' => [
                 'coding' => [
                     ['system' => 'eHealth/care_plan_categories', 'code' => $form['category']]
                 ]
             ],
-            'instantiates_protocol' => !empty($form['clinical_protocol']) ? [['display' => $form['clinical_protocol']]] : null,
+            'instantiates_protocol' => !empty($form['clinicalProtocol']) ? [['display' => $form['clinicalProtocol']]] : (!empty($form['clinical_protocol']) ? [['display' => $form['clinical_protocol']]] : null),
             'title' => $form['title'],
             'period' => array_filter([
                 'start' => $finalPeriodStart,
-                'end' => !empty($form['period_end']) ? convertToEHealthISO8601($form['period_end'] . ' 23:59:59') : null,
+                'end' => !empty($form['periodEnd']) ? convertToEHealthISO8601($form['periodEnd'] . ' 23:59:59') : (!empty($form['period_end']) ? convertToEHealthISO8601($form['period_end'] . ' 23:59:59') : null),
             ]),
             'addresses' => !empty($addresses) ? array_values($addresses) : null,
             'supporting_info' => array_values(array_filter(array_map(fn($e) => 
@@ -145,18 +145,11 @@ class CarePlanRepository
             'note' => $form['note'] ?: null,
             'terms_of_service' => [
                 'coding' => [
-                    ['system' => 'PROVIDING_CONDITION', 'code' => $form['terms_of_service']]
+                    ['system' => 'PROVIDING_CONDITION', 'code' => $form['termsOfService'] ?? $form['terms_of_service']]
                 ]
             ]
         ]);
 
-        \Illuminate\Support\Facades\Log::debug('CarePlan payload before signing', [
-            'category' => $form['category'],
-            'encounter_uuid' => $form['encounter'] ?? null,
-            'encounter_period_start' => $encounterData['period_start'] ?? null,
-            'care_plan_period_start' => $payload['period']['start'] ?? null,
-            'addresses' => $payload['addresses'] ?? null,
-        ]);
 
         return $payload;
     }
@@ -231,7 +224,7 @@ class CarePlanRepository
                 $authorId = $author?->id ?? Auth::user()?->getCarePlanWriterEmployee()?->id;
 
                 // Try to find existing record by UUID OR by (person + encounter) if UUID is missing locally
-                $carePlan = CarePlan::where('uuid', $rawFhir['uuid'])->first();
+                $carePlan = CarePlan::where('uuid', $rawFhir['id'] ?? $rawFhir['uuid'] ?? null)->first();
                 if (!$carePlan && $encounterIdentifier) {
                     $carePlan = CarePlan::where('person_id', $person->id)
                         ->where('encounter_identifier_id', $encounterIdentifier->id)
@@ -241,7 +234,7 @@ class CarePlanRepository
 
                 if ($carePlan) {
                     $carePlan->update([
-                        'uuid' => $rawFhir['uuid'],
+                        'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
                         'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
                         'status' => $rawFhir['status'] ?? CarePlanStatus::ACTIVE->value,
@@ -261,7 +254,7 @@ class CarePlanRepository
                     ]);
                 } else {
                     $carePlan = CarePlan::create([
-                        'uuid' => $rawFhir['uuid'],
+                        'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
                         'person_id' => $person->id,
                         'author_id' => $authorId,
                         'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,

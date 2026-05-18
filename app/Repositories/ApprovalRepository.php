@@ -36,7 +36,7 @@ class ApprovalRepository
                         ['id' => $approvalData['id']],
                         $approvalData
                     );
-                } catch (\Exception $e) {
+                } catch (\Throwable $e) {
                     Log::warning('ApprovalRepository Mongo sync failed: ' . $e->getMessage());
                 }
 

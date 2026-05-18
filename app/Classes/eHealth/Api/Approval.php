@@ -77,7 +77,11 @@ class Approval extends Request
      */
     public function resendSms(string $patientId, string $approvalId): PromiseInterface|EHealthResponse
     {
-        return $this->post("/api/patients/{$patientId}/approvals/{$approvalId}/actions/resend", []);
+        try {
+            return $this->post("/api/approvals/{$approvalId}/actions/resend", []);
+        } catch (\Exception $e) {
+            return $this->post("/api/patients/{$patientId}/approvals/{$approvalId}/actions/resend", []);
+        }
     }
 
     /**

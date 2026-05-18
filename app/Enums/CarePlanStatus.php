@@ -11,6 +11,7 @@ enum CarePlanStatus: string
     use EnumUtils;
 
     case DRAFT = 'draft';
+    case PENDING = 'new';
     case ACTIVE = 'active';
     case ON_HOLD = 'on-hold';
     case REVOKED = 'revoked';
@@ -22,6 +23,7 @@ enum CarePlanStatus: string
     {
         return match ($this) {
             self::DRAFT => __('forms.status.draft'),
+            self::PENDING => __('forms.status.new'),
             self::ACTIVE => __('forms.status.active'),
             self::ON_HOLD => __('forms.status.on_hold'),
             self::REVOKED => __('forms.status.revoked'),

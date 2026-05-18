@@ -34,42 +34,40 @@ class CarePlanUpdate extends CarePlanCreate
         $this->carePlan = $carePlan;
         $this->id = $carePlan->person_id;
         $this->patientUuid = $carePlan->person?->uuid ?? '';
-        
+
         parent::mount($legalEntity, $this->id);
-        
+
         // Hydrate form from model
-        $this->form = [
-            'patient' => $carePlan->person?->full_name ?? '',
-            'medical_number' => (string) ($carePlan->encounter_id ?? ''),
-            'author' => $carePlan->author?->party?->full_name ?? '',
-            'coAuthors' => [], // TODO: if co-authors are implemented
-            'category' => is_array($carePlan->category) ? ($carePlan->category['coding'][0]['code'] ?? '') : $carePlan->category,
-            'clinical_protocol' => $carePlan->clinical_protocol ?? '',
-            'context' => $carePlan->context ?? '',
-            'title' => $carePlan->title ?? '',
-            'intent' => 'order',
-            'period_start' => $carePlan->period_start?->format('d.m.Y') ?? '',
-            'period_end' => $carePlan->period_end?->format('d.m.Y') ?? '',
-            'encounter' => $carePlan->encounter?->uuid ?? '',
-            'description' => $carePlan->description ?? '',
-            'note' => $carePlan->note ?? '',
-            'inform_with' => $carePlan->inform_with ?? '',
-            'episodes' => $carePlan->supporting_info['episodes'] ?? [],
-            'medical_records' => $carePlan->supporting_info['medical_records'] ?? [],
-            'knedp' => '',
-            'keyContainerUpload' => null,
-            'password' => '',
-        ];
+        $this->form->patient = $carePlan->person?->full_name ?? '';
+        $this->form->medical_number = (string) ($carePlan->encounter_id ?? '');
+        $this->form->author = $carePlan->author?->party?->full_name ?? '';
+        $this->form->coAuthors = []; // TODO: if co-authors are implemented
+        $this->form->category = is_array($carePlan->category) ? ($carePlan->category['coding'][0]['code'] ?? '') : ($carePlan->category ?? '');
+        $this->form->clinicalProtocol = $carePlan->clinical_protocol ?? '';
+        $this->form->context = $carePlan->context ?? '';
+        $this->form->title = $carePlan->title ?? '';
+        $this->form->intent = 'order';
+        $this->form->periodStart = $carePlan->period_start?->format('d.m.Y') ?? '';
+        $this->form->periodEnd = $carePlan->period_end?->format('d.m.Y') ?? '';
+        $this->form->encounter = $carePlan->encounter?->uuid ?? '';
+        $this->form->description = $carePlan->description ?? '';
+        $this->form->note = $carePlan->note ?? '';
+        $this->form->informWith = $carePlan->inform_with ?? '';
+        $this->form->episodes = $carePlan->supporting_info['episodes'] ?? [];
+        $this->form->medicalRecords = $carePlan->supporting_info['medical_records'] ?? [];
+        $this->form->knedp = '';
+        $this->form->keyContainerUpload = null;
+        $this->form->password = '';
 
         // Load patient auth methods
-        $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn($m) => [
+        $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn ($m) => [
             'value' => $m->value,
             'label' => $m->label(),
         ])->toArray();
 
         // Load encounter diagnoses for UI
         if ($carePlan->encounter) {
-            $this->diagnoses = $carePlan->encounter->diagnoses->map(fn($d) => [
+            $this->diagnoses = $carePlan->encounter->diagnoses->map(fn ($d) => [
                 'date' => $d->condition?->asserted_date?->format('d.m.Y') ?? '-',
                 'name' => $d->condition?->code_display ?? $d->condition?->code ?? '-',
             ])->toArray();
@@ -84,8 +82,8 @@ class CarePlanUpdate extends CarePlanCreate
                 ->where('is_active', true)
                 ->with('party')
                 ->get()
-                ->filter(fn($e) => $e->party !== null)
-                ->map(fn($e) => [
+                ->filter(fn ($e) => $e->party !== null)
+                ->map(fn ($e) => [
                     'uuid' => $e->uuid,
                     'name' => ($e->party->full_name ?? 'Unknown') . ' (' . ($e->position ?? '') . ')',
                 ])
@@ -114,48 +112,42 @@ class CarePlanUpdate extends CarePlanCreate
     public function save(CarePlanRepository $repository): void
     {
         if (Auth::user()?->cannot('update', $this->carePlan)) {
-            $this->dispatch('flashMessage', [
-                'type'    => 'error',
-                'message' => __('care-plan.no_permission_update'),
-                'errors'  => [],
-            ]);
+            session()->flash('error', __('care-plan.no_permission_update'));
+
             return;
         }
 
         try {
-            $validated = $this->validate($this->rules());
+            $this->form->validate();
         } catch (ValidationException $exception) {
             $this->handleValidationFailed($exception);
+
             return;
         }
 
         $encounterData = $this->resolveEncounterData();
 
         $repository->updateById($this->carePlan->id, [
-            'category' => $validated['form']['category'],
-            'clinical_protocol' => $validated['form']['clinical_protocol'] ?? null,
-            'context' => $validated['form']['context'] ?? null,
-            'title' => $validated['form']['title'],
-            'period_start' => convertToYmd($validated['form']['period_start']),
-            'period_end' => !empty($validated['form']['period_end'])
-                ? convertToYmd($validated['form']['period_end']) : null,
+            'category' => $this->form->category,
+            'clinical_protocol' => $this->form->clinicalProtocol ?: null,
+            'context' => $this->form->context ?: null,
+            'title' => $this->form->title,
+            'period_start' => convertToYmd($this->form->periodStart),
+            'period_end' => !empty($this->form->periodEnd)
+                ? convertToYmd($this->form->periodEnd) : null,
             'encounter_id' => $encounterData['id'],
             'addresses' => $encounterData['addresses'],
             'supporting_info' => [
-                'episodes' => $validated['form']['episodes'],
-                'medical_records' => $validated['form']['medical_records'],
+                'episodes' => $this->form->episodes,
+                'medical_records' => $this->form->medicalRecords,
             ],
-            'description' => $validated['form']['description'] ?? null,
-            'note' => $validated['form']['note'] ?? null,
-            'inform_with' => $validated['form']['inform_with'] ?? null,
+            'description' => $this->form->description ?: null,
+            'note' => $this->form->note ?: null,
+            'inform_with' => $this->form->informWith ?: null,
         ]);
 
-        $this->dispatch('flashMessage', [
-            'type'    => 'success',
-            'message' => __('care-plan.draft_updated') ?? 'План лікування успішно збережено',
-            'errors'  => [],
-        ]);
-        
+        session()->flash('success', __('care-plan.draft_updated') ?? 'План лікування успішно збережено');
+
         $this->redirectRoute('care-plan.edit', [legalEntity(), $this->carePlan->id], navigate: true);
     }
 
@@ -165,18 +157,16 @@ class CarePlanUpdate extends CarePlanCreate
     public function sign(CarePlanRepository $repository): void
     {
         if (Auth::user()?->cannot('update', $this->carePlan)) {
-            $this->dispatch('flashMessage', [
-                'type'    => 'error',
-                'message' => __('care-plan.no_permission_update'),
-                'errors'  => [],
-            ]);
+            session()->flash('error', __('care-plan.no_permission_update'));
+
             return;
         }
 
         try {
-            $validated = $this->validate($this->rulesForSigning());
+            $this->form->validate($this->form->rulesForSigning());
         } catch (ValidationException $exception) {
             $this->handleValidationFailed($exception, closeModal: true);
+
             return;
         }
 
@@ -184,8 +174,8 @@ class CarePlanUpdate extends CarePlanCreate
 
         // Build eHealth payload via Repository
         $carePlanPayload = $repository->formatCarePlanRequest(
-            $this->form,
-            $this->form['encounter'] ?? null,
+            $this->form->toArray(),
+            $this->form->encounter ?: null,
             $encounterData,
             Auth::user()?->activeEmployee()?->uuid
         );
@@ -193,9 +183,9 @@ class CarePlanUpdate extends CarePlanCreate
         try {
             $signedContent = signatureService()->signData(
                 Arr::toSnakeCase($carePlanPayload),
-                $this->form['password'],
-                $this->form['knedp'],
-                $this->form['keyContainerUpload'],
+                $this->form->password,
+                $this->form->knedp,
+                $this->form->keyContainerUpload,
                 Auth::user()->party->taxId
             );
 
@@ -223,7 +213,7 @@ class CarePlanUpdate extends CarePlanCreate
             $carePlanUuid = $finalResponse['id'] ?? null;
             $carePlanStatus = $finalResponse['status'] ?? 'new';
             $carePlanRequisition = $finalResponse['requisition'] ?? null;
-            
+
             if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
                 $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
                 $carePlanUuid = $entity['id'] ?? $carePlanUuid;
@@ -236,7 +226,7 @@ class CarePlanUpdate extends CarePlanCreate
                 try {
                     \App\Models\MedicalEvents\Mongo\CarePlan::create($finalResponse);
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('Failed to save CarePlan to Mongo: ' . $e->getMessage());
+                    Log::warning('Failed to save CarePlan to Mongo: ' . $e->getMessage());
                 }
             }
 
@@ -245,7 +235,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'uuid' => $carePlanUuid,
                 'status' => $carePlanStatus,
                 'requisition' => $carePlanRequisition,
-                'category' => $this->form['category'],
+                'category' => $this->form->category,
                 'encounter_id' => $encounterData['id'],
                 'addresses' => $encounterData['addresses'],
             ]);
@@ -256,30 +246,26 @@ class CarePlanUpdate extends CarePlanCreate
                 'status' => $carePlanStatus,
                 'requisition' => $carePlanRequisition,
                 // Update other fields too just in case they were changed before signing
-                'category' => $this->form['category'],
-                'title' => $this->form['title'],
-                'period_start' => convertToYmd($this->form['period_start']),
-                'period_end' => !empty($this->form['period_end'])
-                    ? convertToYmd($this->form['period_end']) : null,
+                'category' => $this->form->category,
+                'title' => $this->form->title,
+                'period_start' => convertToYmd($this->form->periodStart),
+                'period_end' => !empty($this->form->periodEnd)
+                    ? convertToYmd($this->form->periodEnd) : null,
                 'encounter_id' => $encounterData['id'],
                 'addresses' => $encounterData['addresses'],
                 'supporting_info' => [
-                    'episodes' => $this->form['episodes'],
-                    'medical_records' => $this->form['medical_records'],
+                    'episodes' => $this->form->episodes,
+                    'medical_records' => $this->form->medicalRecords,
                 ],
             ]);
 
-            $this->dispatch('flashMessage', [
-                'type'    => 'success',
-                'message' => __('care-plan.signed_and_sent'),
-                'errors'  => [],
-            ]);
-            
+            session()->flash('success', __('care-plan.signed_and_sent'));
+
             $this->redirectRoute('care-plan.show', [legalEntity(), $this->carePlan->id], navigate: true);
 
         } catch (ConnectionException $exception) {
             Log::error('CarePlan: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => __('care-plan.connection_error'), 'errors' => []]);
+            session()->flash('error', __('care-plan.connection_error'));
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -289,7 +275,7 @@ class CarePlanUpdate extends CarePlanCreate
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getFormattedMessage()
                 : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg, 'errors' => []]);
+            session()->flash('error', $msg);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [
@@ -297,7 +283,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'line' => $exception->getLine(),
                 'trace' => $exception->getTraceAsString(),
             ]);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => __('care-plan.unexpected_error'), 'errors' => []]);
+            session()->flash('error', __('care-plan.unexpected_error'));
             $this->showSignatureModal = false;
         }
     }

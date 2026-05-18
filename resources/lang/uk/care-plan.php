@@ -207,4 +207,15 @@ return [
     'outcome_dictionary' => 'Результат (довідник)',
     'activity_outcomes' => 'Результати виконання',
     'referral_outcome' => 'Пов\'язаний КД (Діагноз/Спостереження)',
+
+    'status' => [
+        'draft' => 'Чернетка',
+        'new' => 'Новий',
+        'active' => 'Активний',
+        'on-hold' => 'Призупинено',
+        'revoked' => 'Скасовано',
+        'completed' => 'Завершено',
+        'entered-in-error' => 'Внесено помилково',
+        'unknown' => 'Невідомо',
+    ],
 ];

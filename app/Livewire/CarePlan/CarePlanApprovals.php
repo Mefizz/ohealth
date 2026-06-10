@@ -6,11 +6,9 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
-use App\Models\LegalEntity;
 use App\Repositories\Repository;
 use App\Traits\FormTrait;
 use App\Traits\InteractsWithApprovals;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Locked;
@@ -40,7 +38,7 @@ class CarePlanApprovals extends Component
         'reason' => '',
     ];
 
-    public function mount(LegalEntity $legalEntity, CarePlan $carePlan): void
+    public function mount(CarePlan $carePlan): void
     {
         $this->carePlanId = $carePlan->id;
         $this->carePlanUuid = $carePlan->uuid ?? '';
@@ -55,7 +53,7 @@ class CarePlanApprovals extends Component
         try {
             $carePlan = CarePlan::findOrFail($this->carePlanId);
             Repository::approval()->syncApprovals($carePlan, 'care_plan');
-            $this->approvals = $carePlan->approvals()->with(['identifier', 'grantedTo'])->latest()->get()->toArray();
+            $this->approvals = $carePlan->approvals()->with(['identifier'])->latest()->get()->toArray();
         } catch (\Exception $e) {
             Log::error('CarePlanApprovals: failed to fetch: ' . $e->getMessage());
             Session::flash('error', __('care-plan.approvals_fetch_error'));

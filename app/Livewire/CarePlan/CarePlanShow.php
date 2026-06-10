@@ -94,10 +94,10 @@ class CarePlanShow extends Component
     {
         $this->carePlan = $carePlan;
         $this->carePlan->load(['person', 'author.party', 'categoryConcept.coding', 'activities.kindConcept.coding']);
-        
+
         // Fetch patient conditions for outcomeReference selection
         $this->availableConditions = \App\Models\MedicalEvents\Sql\Condition::where('person_id', $this->carePlan->person_id)
-            ->with('code.coding')->get()->map(fn($c) => [
+            ->with('code.coding')->get()->map(fn ($c) => [
                 'uuid' => $c->uuid,
                 'name' => ($c->code?->text ?: null) ?? ($c->code?->coding?->first()?->code ?: null) ?? 'Unknown Condition',
                 'date' => $c->onset_date ? \Carbon\Carbon::parse($c->onset_date)->format('d.m.Y') : '-',
@@ -105,7 +105,7 @@ class CarePlanShow extends Component
 
         // Fetch patient diagnostic reports for justifications (grounds)
         $this->availableReports = \App\Models\MedicalEvents\Sql\DiagnosticReport::where('person_id', $this->carePlan->person_id)
-            ->get()->map(fn($dr) => [
+            ->get()->map(fn ($dr) => [
                 'uuid' => $dr->uuid,
                 'name' => $dr->code?->text ?: 'Diagnostic Report',
                 'date' => $dr->issued ? \Carbon\Carbon::parse($dr->issued)->format('d.m.Y') : '-',
@@ -113,7 +113,7 @@ class CarePlanShow extends Component
 
         // Fetch patient observations for justifications (grounds)
         $this->availableObservations = \App\Models\MedicalEvents\Sql\Observation::where('person_id', $this->carePlan->person_id)
-            ->get()->map(fn($obs) => [
+            ->get()->map(fn ($obs) => [
                 'uuid' => $obs->uuid,
                 'name' => $obs->code?->text ?: 'Observation',
                 'date' => $obs->issued ? \Carbon\Carbon::parse($obs->issued)->format('d.m.Y') : '-',
@@ -124,7 +124,7 @@ class CarePlanShow extends Component
             $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
-            
+
             $this->dictionaries['care_plan_activity_outcomes'] = $basics->byName('eHealth/care_plan_activity_outcomes')
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
@@ -159,10 +159,10 @@ class CarePlanShow extends Component
 
         $action = request()->query('action');
         if (in_array($action, ['cancel', 'complete'])) {
-            $statusStr = is_array($this->carePlan->status) 
-                ? ($this->carePlan->status['coding'][0]['code'] ?? ($this->carePlan->status['text'] ?? '')) 
+            $statusStr = is_array($this->carePlan->status)
+                ? ($this->carePlan->status['coding'][0]['code'] ?? ($this->carePlan->status['text'] ?? ''))
                 : $this->carePlan->status;
-            
+
             if (strtolower((string) $statusStr) === 'active') {
                 $this->openSignatureModal($action);
             }
@@ -171,8 +171,8 @@ class CarePlanShow extends Component
 
     protected function rulesForSigning(): array
     {
-        $statusReasonRule = in_array($this->actionType, ['sign_activity', 'sign_plan']) 
-            ? 'nullable|string' 
+        $statusReasonRule = in_array($this->actionType, ['sign_activity', 'sign_plan'])
+            ? 'nullable|string'
             : 'required|string';
 
         return [
@@ -194,6 +194,7 @@ class CarePlanShow extends Component
         if ($this->actionType === 'cancel_activity') {
             return $this->dictionaries['care_plan_activity_cancel_reasons'] ?? [];
         }
+
         return $this->dictionaries['care_plan_cancel_reasons'] ?? [];
     }
 
@@ -231,7 +232,9 @@ class CarePlanShow extends Component
     public function editActivity(int $activityId, CarePlanActivityRepository $repository): void
     {
         $activity = $repository->findById($activityId);
-        if (!$activity) return;
+        if (!$activity) {
+            return;
+        }
 
         $this->activityForm = [
             'id' => $activity->id,
@@ -341,11 +344,12 @@ class CarePlanShow extends Component
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
             Session::flash('error', $exception->validator->errors()->first());
+
             return;
         }
 
         // Compile reason reference identifiers from linked justifications
-        $reasonReferences = collect($this->linkedGrounds)->map(fn($g) => $g['type'] . '/' . $g['uuid'])->toArray();
+        $reasonReferences = collect($this->linkedGrounds)->map(fn ($g) => $g['type'] . '/' . $g['uuid'])->toArray();
 
         $program = !empty($validated['activityForm']['program']) ? $validated['activityForm']['program'] : null;
         if (str_contains(strtolower($validated['activityForm']['kind']), 'medication') && empty($program)) {
@@ -389,6 +393,7 @@ class CarePlanShow extends Component
     {
         if (empty($this->searchQuery)) {
             $this->searchResults = [];
+
             return;
         }
 
@@ -438,6 +443,7 @@ class CarePlanShow extends Component
                 }
             }
         }
+
         return array_values($services);
     }
 
@@ -445,6 +451,7 @@ class CarePlanShow extends Component
     {
         if (empty($this->searchQuery)) {
             $this->searchResults = [];
+
             return;
         }
 
@@ -472,6 +479,7 @@ class CarePlanShow extends Component
     {
         if (empty($this->searchQuery)) {
             $this->searchResults = [];
+
             return;
         }
 
@@ -561,7 +569,7 @@ class CarePlanShow extends Component
     public function removeLinkedGround(string $uuid): void
     {
         $this->linkedGrounds = collect($this->linkedGrounds)
-            ->filter(fn($g) => $g['uuid'] !== $uuid)
+            ->filter(fn ($g) => $g['uuid'] !== $uuid)
             ->values()
             ->toArray();
     }
@@ -574,26 +582,31 @@ class CarePlanShow extends Component
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
             $this->showSignatureModal = false;
+
             return;
         }
 
         if ($this->actionType === 'sign_activity') {
             $this->signActivity($repository, $activityRepository);
+
             return;
         }
 
         if (in_array($this->actionType, ['complete_activity', 'cancel_activity'])) {
             $this->signStatusActivity($activityRepository);
+
             return;
         }
 
         if (empty($this->carePlan->uuid)) {
             if ($this->actionType === 'sign_plan') {
                 $this->signPlan($repository);
+
                 return;
             }
             Session::flash('error', __('care-plan.care_plan_not_synced'));
             $this->showSignatureModal = false;
+
             return;
         }
 
@@ -622,8 +635,8 @@ class CarePlanShow extends Component
         $categoryCoding = $this->carePlan->categoryConcept?->coding?->first();
         $categorySystem = $categoryCoding?->system ?? 'eHealth/care_plan_categories';
         $categoryCode = $categoryCoding?->code
-            ?? (is_array($this->carePlan->category) 
-                ? ($this->carePlan->category['coding'][0]['code'] ?? null) 
+            ?? (is_array($this->carePlan->category)
+                ? ($this->carePlan->category['coding'][0]['code'] ?? null)
                 : $this->carePlan->category);
 
         $encounter = $this->carePlan->encounter;
@@ -739,14 +752,14 @@ class CarePlanShow extends Component
 
             // Send to eHealth based on action type
             $apiMethod = $this->actionType === 'complete' ? 'complete' : 'cancel';
-            
+
             $eHealthResponse = EHealth::carePlan()->{$apiMethod}(
                 $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [
-                    'signed_data'          => $signedContent,
+                    'signed_data' => $signedContent,
                     'signed_data_encoding' => 'base64',
-                    'status_reason'        => $statusReasonCodeableConcept,
+                    'status_reason' => $statusReasonCodeableConcept,
                 ]
             );
 
@@ -827,8 +840,8 @@ class CarePlanShow extends Component
             ]),
             'addresses' => $this->carePlan->addresses, // Already stored as array of diagnoses
             'supporting_info' => array_merge(
-                array_map(fn($e) => ['display' => $e['name']], $this->carePlan->supporting_info['episodes'] ?? []),
-                array_map(fn($m) => ['display' => $m['name']], $this->carePlan->supporting_info['medical_records'] ?? [])
+                array_map(fn ($e) => ['display' => $e['name']], $this->carePlan->supporting_info['episodes'] ?? []),
+                array_map(fn ($m) => ['display' => $m['name']], $this->carePlan->supporting_info['medical_records'] ?? [])
             ),
             'encounter' => $this->carePlan->encounter?->uuid ? ['identifier' => ['value' => $this->carePlan->encounter->uuid]] : null,
             'care_manager' => ['identifier' => ['value' => Auth::user()?->activeDoctorEmployee()?->uuid]],
@@ -893,6 +906,7 @@ class CarePlanShow extends Component
         if (!$this->activityToSign) {
             Session::flash('error', __('care-plan.no_activity_selected'));
             $this->showSignatureModal = false;
+
             return;
         }
 
@@ -900,6 +914,7 @@ class CarePlanShow extends Component
         if (!$activity) {
             Session::flash('error', __('care-plan.activity_not_found'));
             $this->showSignatureModal = false;
+
             return;
         }
 
@@ -942,7 +957,7 @@ class CarePlanShow extends Component
             if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
                 $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
                 Log::info('CarePlanActivity: Polling job: ' . $jobId);
-                $jobApi = new \App\Classes\eHealth\Api\Job();
+                $jobApi = app(\App\Classes\eHealth\Api\Job::class);
                 $attempts = 0;
                 do {
                     sleep(2);
@@ -962,7 +977,7 @@ class CarePlanShow extends Component
             // Extract the actual CarePlanActivity data
             $activityUuid = $finalResponse['id'] ?? null;
             $activityStatus = $finalResponse['status'] ?? 'new';
-            
+
             if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
                 $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
                 $activityUuid = $entity['id'] ?? $activityUuid;
@@ -984,7 +999,7 @@ class CarePlanShow extends Component
             }
 
             // Store to Mongo
-            /* 
+            /*
             try {
                 \App\Models\MedicalEvents\Mongo\CarePlanActivity::create($finalResponse);
             } catch (\Exception $e) {
@@ -1040,11 +1055,14 @@ class CarePlanShow extends Component
         if (!$this->activityToSign) {
             Session::flash('error', __('care-plan.no_activity_selected'));
             $this->showSignatureModal = false;
+
             return;
         }
 
         $activity = $activityRepository->findById($this->activityToSign);
-        if (!$activity) return;
+        if (!$activity) {
+            return;
+        }
 
         $statusMap = [
             'cancel_activity' => 'cancelled',
@@ -1118,7 +1136,7 @@ class CarePlanShow extends Component
                     ];
                 }
                 if (!empty($this->outcomeReferences)) {
-                    $payload['outcome_reference'] = collect($this->outcomeReferences)->map(fn($id) => [
+                    $payload['outcome_reference'] = collect($this->outcomeReferences)->map(fn ($id) => [
                         'identifier' => [
                             'value' => $id,
                         ]
@@ -1144,9 +1162,9 @@ class CarePlanShow extends Component
             Log::info('CarePlanActivityStatus: Signing key succeeded');
 
             $apiMethod = $this->actionType === 'complete_activity' ? 'complete' : 'cancel';
-            
+
             $payloadData = [
-                'signed_data'          => $signedContent,
+                'signed_data' => $signedContent,
                 'signed_data_encoding' => 'base64',
             ];
 
@@ -1163,9 +1181,9 @@ class CarePlanShow extends Component
                         ]
                     ];
                 }
-                
+
                 if (!empty($this->outcomeReferences)) {
-                    $payloadData['outcome_reference'] = collect($this->outcomeReferences)->map(fn($id) => [
+                    $payloadData['outcome_reference'] = collect($this->outcomeReferences)->map(fn ($id) => [
                         'identifier' => [
                             'value' => $id,
                         ]
@@ -1257,11 +1275,11 @@ class CarePlanShow extends Component
         }
     }
 
-
     public function openMethodSelectionModal(): void
     {
         if (empty($this->carePlan->uuid)) {
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'План лікування ще не синхронізовано з ЕСОЗ.']);
+
             return;
         }
 
@@ -1372,7 +1390,9 @@ class CarePlanShow extends Component
 
     public function resendSms(): void
     {
-        if ($this->smsResent) return;
+        if ($this->smsResent) {
+            return;
+        }
         try {
             EHealth::approval()->resendSms($this->carePlan->person->uuid, $this->approvalId);
             $this->smsResent = true;
@@ -1393,7 +1413,7 @@ class CarePlanShow extends Component
         try {
             $planResponse = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
             app(CarePlanRepository::class)->syncCarePlans(['data' => [$planResponse->getData()]], $this->carePlan->person_id);
-            
+
             // Sync approvals as well!
             app(\App\Repositories\ApprovalRepository::class)->syncApprovals($this->carePlan, 'care_plan');
 
@@ -1425,7 +1445,7 @@ class CarePlanShow extends Component
 
         $cleaned = [];
         foreach ($payload as $key => $value) {
-            $snakeKey = \Illuminate\Support\Str::snake($key);
+            $snakeKey = \Illuminate\Support\Str::snake((string) $key);
             if (in_array($snakeKey, $excludeKeys, true)) {
                 continue;
             }
@@ -1450,6 +1470,7 @@ class CarePlanShow extends Component
     public function render()
     {
         $this->carePlan->load(['person', 'author.party', 'categoryConcept', 'activities.kindConcept.coding']);
+
         return view('livewire.care-plan.care-plan-show');
     }
 }

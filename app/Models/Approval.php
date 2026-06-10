@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -31,14 +33,6 @@ class Approval extends Model
         return $this->morphTo();
     }
 
-    /**
-     * Entity that was granted access.
-     */
-    public function grantedTo(): BelongsTo
-    {
-        return $this->belongsTo(LegalEntity::class, 'granted_to_id');
-    }
-
     public function identifier(): BelongsTo
     {
         return $this->belongsTo(\App\Models\MedicalEvents\Sql\Identifier::class, 'granted_to_id');
@@ -59,11 +53,11 @@ class Approval extends Model
             if ($employee) {
                 $name = $employee->fullName;
                 $specNames = [];
-                
+
                 try {
                     $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
-                    $specialityTypeDict = $basics->byName('eHealth/SPECIALITY_TYPE')?->asCodeDescription()?->toArray() 
-                        ?? $basics->byName('SPECIALITY_TYPE')?->asCodeDescription()?->toArray() 
+                    $specialityTypeDict = $basics->byName('eHealth/SPECIALITY_TYPE')?->asCodeDescription()?->toArray()
+                        ?? $basics->byName('SPECIALITY_TYPE')?->asCodeDescription()?->toArray()
                         ?? [];
                 } catch (\Exception $e) {
                     $specialityTypeDict = [];
@@ -77,8 +71,8 @@ class Approval extends Model
                 $specialization = implode(', ', array_unique(array_filter($specNames)));
                 if (empty($specialization) && $employee->position) {
                     try {
-                        $positionDict = $basics->byName('eHealth/POSITION')?->asCodeDescription()?->toArray() 
-                            ?? $basics->byName('POSITION')?->asCodeDescription()?->toArray() 
+                        $positionDict = $basics->byName('eHealth/POSITION')?->asCodeDescription()?->toArray()
+                            ?? $basics->byName('POSITION')?->asCodeDescription()?->toArray()
                             ?? [];
                         $specialization = $positionDict[$employee->position] ?? $employee->position;
                     } catch (\Exception $e) {

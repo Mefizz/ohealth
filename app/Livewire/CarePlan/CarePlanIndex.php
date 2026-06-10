@@ -21,6 +21,11 @@ class CarePlanIndex extends Component
 
     public function mount(CarePlanRepository $repository): void
     {
+        $this->loadCarePlans($repository);
+    }
+
+    public function loadCarePlans(CarePlanRepository $repository): void
+    {
         $legalEntity = legalEntity();
 
         if ($legalEntity) {
@@ -40,11 +45,11 @@ class CarePlanIndex extends Component
         try {
             $response = EHealth::carePlan()->getMany(['requisition' => $this->searchRequisition]);
             $data = $response->validate();
-            
+
             // Sync with local DB if found
             app(CarePlanRepository::class)->syncCarePlans($data);
-            
-            $this->mount(app(CarePlanRepository::class));
+
+            $this->loadCarePlans(app(CarePlanRepository::class));
         } catch (\Throwable $e) {
             Log::error('CarePlan search error: ' . $e->getMessage());
             session()->flash('error', 'Помилка пошуку планів лікування в ЕСОЗ: ' . $e->getMessage());
@@ -122,7 +127,7 @@ class CarePlanIndex extends Component
                 app(CarePlanRepository::class)->syncCarePlans($allValidatedData);
             }
 
-            $this->mount(app(CarePlanRepository::class));
+            $this->loadCarePlans(app(CarePlanRepository::class));
             session()->flash('success', 'Синхронізація планів закладу успішна');
         } catch (\Throwable $e) {
             Log::error('CarePlan index sync error: ' . $e->getMessage());

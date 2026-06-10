@@ -73,6 +73,15 @@ class ApprovalRepository
                 $grantedToValue = $approvalData['granted_to']['identifier']['value'] ?? null;
                 $grantedToCode = $approvalData['granted_to']['identifier']['type']['coding'][0]['code'] ?? 'legal_entity';
 
+                $grantedByValue = $approvalData['granted_by']['identifier']['value'] ?? null;
+                $grantedById = null;
+                if ($grantedByValue) {
+                    $grantedById = \App\Models\Employee\Employee::where('uuid', $grantedByValue)->value('id');
+                }
+
+                $reasonValue = $approvalData['reason'] ?? null;
+                $reasonId = $this->resolveIdentifier($reasonValue);
+
                 // Map to SQL
                 Approval::updateOrCreate(
                     [
@@ -83,13 +92,29 @@ class ApprovalRepository
                         'approvable_id' => $entity->id,
                         'granted_to_id' => $this->resolveGrantedTo($grantedToValue, $grantedToCode),
                         'granted_to_type' => $grantedToCode,
+                        'granted_by_id' => $grantedById,
                         'status' => $approvalData['status'] ?? 'active',
+                        'reason_id' => $reasonId,
                     ]
                 );
             }
         } catch (\Exception $e) {
             Log::error("ApprovalRepository syncing failed: " . $e->getMessage());
         }
+    }
+
+    private function resolveIdentifier(?string $value): ?int
+    {
+        if (!$value) {
+            return null;
+        }
+
+        $identifier = \App\Models\MedicalEvents\Sql\Identifier::where('value', $value)->first();
+        if (!$identifier) {
+            $identifier = \App\Repositories\MedicalEvents\Repository::identifier()->store($value);
+        }
+
+        return $identifier->id;
     }
 
     private function resolveGrantedTo(?string $uuid, string $type): ?int

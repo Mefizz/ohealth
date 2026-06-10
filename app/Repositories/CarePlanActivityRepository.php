@@ -18,7 +18,7 @@ class CarePlanActivityRepository
         return CarePlanActivity::find($id);
     }
 
-    public function getByCarePlanId(int $carePlanId)
+    public function getByCarePlanId(int $carePlanId): \Illuminate\Database\Eloquent\Collection
     {
         return CarePlanActivity::where('care_plan_id', $carePlanId)->get();
     }
@@ -36,7 +36,10 @@ class CarePlanActivityRepository
     public function updateById(int $id, array $data): bool
     {
         $activity = CarePlanActivity::find($id);
-        if (!$activity) return false;
+        if (!$activity) {
+            return false;
+        }
+
         return $activity->update($data);
     }
 
@@ -195,7 +198,7 @@ class CarePlanActivityRepository
                     'unit' => $isMedication ? ($dailyAmountUnit ?: null) : null,
                 ]) : null,
                 'reason_code' => $activity->reason_code ? [['coding' => [['code' => $activity->reason_code]]]] : null,
-                'reason_reference' => !empty($activity->reason_reference) ? array_map(function($r) {
+                'reason_reference' => !empty($activity->reason_reference) ? array_map(function ($r) {
                     $parts = explode('/', $r);
                     if (count($parts) === 2) {
                         $type = strtolower($parts[0]);
@@ -204,6 +207,7 @@ class CarePlanActivityRepository
                         $type = 'condition';
                         $uuid = $r;
                     }
+
                     return [
                         'identifier' => [
                             'type' => [
@@ -218,7 +222,7 @@ class CarePlanActivityRepository
                         ]
                     ];
                 }, $activity->reason_reference) : null,
-                'goal' => !empty($activity->goal) ? array_map(fn($g) => [
+                'goal' => !empty($activity->goal) ? array_map(fn ($g) => [
                     'coding' => [
                         [
                             'system' => 'eHealth/care_plan_activity_goals',
@@ -247,6 +251,7 @@ class CarePlanActivityRepository
     {
         if (empty($carePlan->uuid)) {
             \Illuminate\Support\Facades\Log::warning('CarePlanActivityRepository: sync skipped because CarePlan UUID is missing');
+
             return;
         }
 
@@ -263,6 +268,7 @@ class CarePlanActivityRepository
 
         if (!is_array($activities)) {
             \Illuminate\Support\Facades\Log::warning('CarePlanActivityRepository: sync skipped because data is not an array', ['data' => $data]);
+
             return;
         }
 

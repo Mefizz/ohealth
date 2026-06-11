@@ -221,6 +221,8 @@ return [
     'outcome_dictionary' => 'Результат (довідник)',
     'activity_outcomes' => 'Результати виконання',
     'referral_outcome' => 'Пов\'язаний КД (Діагноз/Спостереження)',
+    'cancel_activity' => 'Скасувати призначення',
+    'complete_activity' => 'Завершити призначення',
 
     'activity_kind' => [
         'service_request' => 'Призначення послуги',

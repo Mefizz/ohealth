@@ -246,6 +246,7 @@ return [
     */
 
     'attributes' => [
+        'statusReason' => 'причина',
         'name' => 'ім\'я',
         'phone' => 'телефон',
         'issued' => 'час внесення',

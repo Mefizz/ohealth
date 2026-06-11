@@ -651,7 +651,6 @@ class CarePlanShow extends Component
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
-            $this->showSignatureModal = false;
 
             return;
         }
@@ -1524,8 +1523,7 @@ class CarePlanShow extends Component
     private function cleanActivityPayload(array $payload): array
     {
         $excludeKeys = [
-            'remaining_quantity',
-            'remaining_quantity_type',
+            'display_value',
             'inserted_at',
             'inserted_by',
             'updated_at',

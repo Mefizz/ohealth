@@ -52,12 +52,67 @@ class CarePlanActivityRepository
             return $code;
         }
 
+        $customMappings = [
+            'MEDICATION_UNIT' => [
+                'таб' => 'PIECE',
+                'табл' => 'PIECE',
+                'таблетка' => 'PIECE',
+                'таблетки' => 'PIECE',
+                'кап' => 'CAPSULE',
+                'капс' => 'CAPSULE',
+                'капсула' => 'CAPSULE',
+                'капсули' => 'CAPSULE',
+                'шт' => 'PIECE',
+                'шт.' => 'PIECE',
+                'фл' => 'FLACON',
+                'флакон' => 'FLACON',
+                'амп' => 'AMPOULE',
+                'ампула' => 'AMPOULE',
+                'мл' => 'ML',
+                'г' => 'G',
+                'мг' => 'MG',
+            ],
+            'device_unit' => [
+                'piece' => 'piece',
+                'шт' => 'piece',
+                'шт.' => 'piece',
+            ],
+            'SERVICE_UNIT' => [
+                'piece' => 'PIECE',
+                'шт' => 'PIECE',
+                'шт.' => 'PIECE',
+            ]
+        ];
+
+        $normSystem = $system;
+        if (strcasecmp($system, 'MEDICATION_UNIT') === 0) {
+            $normSystem = 'MEDICATION_UNIT';
+        } elseif (strcasecmp($system, 'device_unit') === 0) {
+            $normSystem = 'device_unit';
+        } elseif (strcasecmp($system, 'SERVICE_UNIT') === 0) {
+            $normSystem = 'SERVICE_UNIT';
+        }
+
+        if (isset($customMappings[$normSystem])) {
+            $lowerCode = mb_strtolower(trim($code));
+            if (isset($customMappings[$normSystem][$lowerCode])) {
+                return $customMappings[$normSystem][$lowerCode];
+            }
+        }
+
         try {
-            $res = dictionary()->basics()->getMultipleFormatted([$system])->toArray();
-            $dict = $res[$system] ?? null;
+            $res = dictionary()->basics()->getMultipleFormatted([$normSystem])->toArray();
+            $dict = $res[$normSystem] ?? null;
             if ($dict && is_array($dict)) {
                 foreach (array_keys($dict) as $key) {
                     if (strcasecmp((string)$key, $code) === 0) {
+                        return (string)$key;
+                    }
+                }
+                foreach ($dict as $key => $description) {
+                    $lowerDesc = mb_strtolower($description);
+                    $lowerCode = mb_strtolower($code);
+                    if ($lowerDesc === $lowerCode || mb_stripos($lowerDesc, $lowerCode) !== false || mb_stripos($lowerCode, $lowerDesc) !== false) {
                         return (string)$key;
                     }
                 }
@@ -186,7 +241,7 @@ class CarePlanActivityRepository
                     'end' => $formattedEnd,
                 ]),
                 'quantity' => $quantityValue ? removeEmptyKeys([
-                    'value' => (float)$quantityValue,
+                    'value' => str_contains(strtolower($activity->kind), 'device') ? (int)$quantityValue : (float)$quantityValue,
                     'system' => $quantitySystem,
                     'code' => $quantityNormalizedCode,
                     'unit' => $quantityUnit ?: null,

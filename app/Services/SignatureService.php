@@ -45,7 +45,7 @@ class SignatureService
 
             if (is_array($signedContent)) {
                 $errorMessage = collect($signedContent)->flatten()->first() ?? __('forms.invalid_kep_password');
-                throw new RuntimeException((string) $errorMessage);
+                throw new RuntimeException($this->formatCipherError((string) $errorMessage));
             }
 
             if (empty($signedContent) || !is_string($signedContent)) {
@@ -54,16 +54,19 @@ class SignatureService
 
             return $signedContent;
 
+        } catch (RuntimeException $e) {
+            // Re-throw RuntimeException as-is so it reaches the caller unchanged
+            throw $e;
         } catch (ApiException $e) {
             $errors = $e->getErrors();
             $errorMessage = collect($errors)->flatten()->first() ?? __('forms.invalid_kep_password');
 
-            throw new RuntimeException((string) $errorMessage);
+            throw new RuntimeException($this->formatCipherError((string) $errorMessage));
         } catch (\Exception $e) {
             Log::error('An unexpected error occurred in SignatureService: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString()
             ]);
-            throw new RuntimeException($e->getMessage());
+            throw new RuntimeException($this->formatCipherError($e->getMessage()));
         }
     }
 
@@ -84,6 +87,28 @@ class SignatureService
         }
 
         return base64_encode($fileContents);
+    }
+
+    /**
+     * Formats a Cipher API error message into a user-friendly Ukrainian message.
+     * Detects common error patterns like wrong password or corrupted key container.
+     */
+    private function formatCipherError(string $message): string
+    {
+        $lowerMessage = mb_strtolower($message);
+
+        // Detect wrong password or corrupted key container errors
+        if (
+            str_contains($lowerMessage, 'невірний пароль') ||
+            str_contains($lowerMessage, 'неверный пароль') ||
+            str_contains($lowerMessage, 'keystore') ||
+            str_contains($lowerMessage, 'ключового контейнера') ||
+            str_contains($lowerMessage, 'порушено')
+        ) {
+            return __('forms.invalid_kep_password');
+        }
+
+        return $message;
     }
 
     /**

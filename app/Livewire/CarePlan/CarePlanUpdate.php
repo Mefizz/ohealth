@@ -165,6 +165,7 @@ class CarePlanUpdate extends CarePlanCreate
         $encounter = $this->carePlan->encounter;
         if ($encounter) {
             $this->redirectRoute('encounter.edit', [legalEntity(), $this->personId, $encounter->id], navigate: true);
+
             return;
         }
 
@@ -300,6 +301,10 @@ class CarePlanUpdate extends CarePlanCreate
                 ? $exception->getFormattedMessage()
                 : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
             session()->flash('error', $msg);
+            $this->showSignatureModal = false;
+        } catch (\RuntimeException $exception) {
+            Log::error('CarePlan: runtime error: ' . $exception->getMessage());
+            session()->flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [

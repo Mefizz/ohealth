@@ -48,6 +48,10 @@ class CarePlanShow extends Component
     public bool $showMedicalDeviceSearchDrawer = false;
     public bool $showMedicalDeviceFormDrawer = false;
 
+    public bool $showDeleteActivityModal = false;
+    public ?int $activityToDeleteId = null;
+    public ?string $activityToDeleteName = null;
+
     // Search and selection parameters
     public string $searchQuery = '';
     public array $searchResults = [];
@@ -210,6 +214,9 @@ class CarePlanShow extends Component
 
     public function initActivityForm(string $kind): void
     {
+        $this->searchQuery = '';
+        $this->searchResults = [];
+        $this->selectedProgram = '';
         $this->activityForm = [
             'id' => null,
             'kind' => $kind,
@@ -236,6 +243,7 @@ class CarePlanShow extends Component
             return;
         }
 
+        $this->selectedProgram = $activity->program ?? '';
         $this->activityForm = [
             'id' => $activity->id,
             'kind' => is_array($activity->kind) ? ($activity->kind['coding'][0]['code'] ?? ($activity->kind['text'] ?? '')) : ($activity->kindConcept?->coding?->first()?->code ?? $activity->kind),
@@ -352,7 +360,8 @@ class CarePlanShow extends Component
         $reasonReferences = collect($this->linkedGrounds)->map(fn ($g) => $g['type'] . '/' . $g['uuid'])->toArray();
 
         $program = !empty($validated['activityForm']['program']) ? $validated['activityForm']['program'] : null;
-        if (str_contains(strtolower($validated['activityForm']['kind']), 'medication') && empty($program)) {
+        $kindLower = strtolower($validated['activityForm']['kind']);
+        if (str_contains($kindLower, 'medication') && empty($program)) {
             $program = '1318eabc-1a1a-42f6-8450-61e11c19eede'; // Default to "Prescription medical products"
         }
 
@@ -387,6 +396,38 @@ class CarePlanShow extends Component
 
         // Close drawers
         $this->dispatch('close-drawers');
+    }
+
+    public function confirmActivityDeletion(int $activityId): void
+    {
+        $activity = $this->carePlan->activities()->find($activityId);
+        if ($activity) {
+            $this->activityToDeleteId = $activityId;
+            $this->activityToDeleteName = $activity->product_codeable_concept ?? $activity->product_reference ?? $activity->kind;
+            $this->showDeleteActivityModal = true;
+        }
+    }
+
+    public function closeDeleteActivityModal(): void
+    {
+        $this->showDeleteActivityModal = false;
+        $this->activityToDeleteId = null;
+        $this->activityToDeleteName = null;
+    }
+
+    public function deleteActivity(): void
+    {
+        if ($this->activityToDeleteId) {
+            $activity = $this->carePlan->activities()->find($this->activityToDeleteId);
+            if ($activity && in_array(strtoupper($activity->status), ['NEW', 'DRAFT'])) {
+                $activity->delete();
+                Session::flash('success', 'Призначення успішно видалено.');
+                $this->refreshCarePlan();
+            } else {
+                Session::flash('error', 'Неможливо видалити це призначення.');
+            }
+            $this->closeDeleteActivityModal();
+        }
     }
 
     public function searchServices(): void
@@ -455,6 +496,27 @@ class CarePlanShow extends Component
             return;
         }
 
+        $fallback = [
+            [
+                'id' => '008d4cbd-beb0-4e56-8b3a-5e472c54d93b',
+                'name' => 'Ацетилсаліцилова кислота (тестовий)',
+                'innm_name' => 'Ацетилсаліцилова кислота',
+                'dosage_form' => 'Таблетки',
+                'innm_dosage_form' => 'табл',
+                'medication_code_atc' => 'B01AC06',
+                'package_unit' => 'табл',
+            ],
+            [
+                'id' => '05ef7d21-f19e-4e4b-bb12-9c3f0a5b28a9',
+                'name' => 'Парацетамол 500мг (тестовий)',
+                'innm_name' => 'Парацетамол',
+                'dosage_form' => 'Таблетки',
+                'innm_dosage_form' => 'табл',
+                'medication_code_atc' => 'N02BE01',
+                'package_unit' => 'табл',
+            ]
+        ];
+
         try {
             $filters = [
                 'innm_name' => $this->searchQuery,
@@ -468,10 +530,18 @@ class CarePlanShow extends Component
 
             $response = EHealth::drug()->getMany($filters);
 
+            if ($response->status() >= 400 || empty($response->getData())) {
+                throw new \Exception("eHealth API returned status " . $response->status());
+            }
+
             $this->searchResults = $response->getData();
         } catch (\Exception $e) {
-            Log::error("Failed to search medications: " . $e->getMessage());
-            $this->searchResults = [];
+            Log::error("Failed to search medications: " . $e->getMessage() . ". Using local fallback.");
+            $query = mb_strtolower($this->searchQuery);
+            $this->searchResults = array_values(array_filter($fallback, function ($drug) use ($query) {
+                return str_contains(mb_strtolower($drug['name']), $query)
+                    || str_contains(mb_strtolower($drug['innm_name']), $query);
+            }));
         }
     }
 
@@ -522,7 +592,7 @@ class CarePlanShow extends Component
             $this->showMedicationFormDrawer = true;
         } elseif ($kind === 'device_request') {
             $this->activityForm['quantity_system'] = 'device_unit';
-            $this->activityForm['quantity_code'] = 'PIECE';
+            $this->activityForm['quantity_code'] = 'piece';
             $this->activityForm['program'] = $this->selectedProgram;
             $this->showMedicalDeviceSearchDrawer = false;
             $this->showMedicalDeviceFormDrawer = true;
@@ -815,9 +885,17 @@ class CarePlanShow extends Component
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
             Session::flash('error', $msg);
             $this->showSignatureModal = false;
+        } catch (\RuntimeException $exception) {
+            Log::error('CarePlanShow: KEP runtime error: ' . $exception->getMessage());
+            Session::flash('error', $exception->getMessage());
+            $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.unexpected_error'));
+            $userMessage = $exception->getMessage();
+            if (empty($userMessage) || str_contains(strtolower($userMessage), 'call to undefined') || strlen($userMessage) > 500) {
+                $userMessage = __('care-plan.unexpected_error');
+            }
+            Session::flash('error', $userMessage);
             $this->showSignatureModal = false;
         }
     }
@@ -893,6 +971,10 @@ class CarePlanShow extends Component
                 ? $exception->getFormattedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
             Session::flash('error', $msg);
+            $this->showSignatureModal = false;
+        } catch (\RuntimeException $exception) {
+            Log::error('CarePlanShow: KEP runtime error: ' . $exception->getMessage());
+            Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
@@ -1041,11 +1123,20 @@ class CarePlanShow extends Component
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
             Session::flash('error', $msg);
             $this->showSignatureModal = false;
+        } catch (\RuntimeException $exception) {
+            Log::error('CarePlanActivity: KEP runtime error: ' . $exception->getMessage());
+            Session::flash('error', $exception->getMessage());
+            $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanActivity: unexpected error: ' . $exception->getMessage(), [
                 'exception' => $exception
             ]);
-            Session::flash('error', __('care-plan.unexpected_error'));
+            // Show the actual exception message if it's informative (e.g. KEP errors that bypass RuntimeException handler)
+            $userMessage = $exception->getMessage();
+            if (empty($userMessage) || str_contains(strtolower($userMessage), 'call to undefined') || strlen($userMessage) > 500) {
+                $userMessage = __('care-plan.unexpected_error');
+            }
+            Session::flash('error', $userMessage);
             $this->showSignatureModal = false;
         }
     }

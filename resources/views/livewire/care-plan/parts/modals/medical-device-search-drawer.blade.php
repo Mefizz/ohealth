@@ -1,5 +1,6 @@
 {{-- Medical Device Search Drawer Overlay (below header z-60) --}}
 <div x-show="showMedicalDeviceSearchDrawer"
+     wire:key="medical-device-search-drawer-overlay"
      x-transition:enter="transition ease-out duration-300"
      x-transition:enter-start="opacity-0"
      x-transition:enter-end="opacity-100"
@@ -14,6 +15,7 @@
 
 {{-- Medical Device Search Drawer (30px gap on the LEFT) --}}
 <div id="medical-device-search-drawer-right"
+     wire:key="medical-device-search-drawer-container"
      x-show="showMedicalDeviceSearchDrawer"
      x-transition:enter="transition ease-out duration-300"
      x-transition:enter-start="translate-x-full"

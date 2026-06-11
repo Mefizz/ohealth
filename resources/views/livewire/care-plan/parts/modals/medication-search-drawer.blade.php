@@ -1,5 +1,6 @@
 {{-- Medication Search Drawer Overlay (below header z-60) --}}
 <div x-show="showMedicationSearchDrawer"
+     wire:key="medication-search-drawer-overlay"
      x-transition:enter="transition ease-out duration-300"
      x-transition:enter-start="opacity-0"
      x-transition:enter-end="opacity-100"
@@ -15,6 +16,7 @@
 
 {{-- Medication Search Drawer (30px gap on the LEFT) --}}
 <div id="medication-search-drawer-right"
+     wire:key="medication-search-drawer-container"
      x-show="showMedicationSearchDrawer"
      x-transition:enter="transition ease-out duration-300"
      x-transition:enter-start="translate-x-full"

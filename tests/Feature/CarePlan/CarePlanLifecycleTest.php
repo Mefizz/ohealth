@@ -1,25 +1,20 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Tests\Feature\CarePlan;
 
 use App\Classes\eHealth\Api\Approval;
-use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
-use App\Classes\eHealth\Api\CarePlanActivity as ActivityApi;
-use App\Classes\eHealth\EHealthResponse;
-use App\Enums\CarePlanStatus;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Person\Person;
 use App\Models\MedicalEvents\Sql\Encounter;
-use App\Models\Employees\Sql\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
 use Mockery;
 
 use Illuminate\Support\Str;
-use App\Classes\eHealth\EHealth;
-use Illuminate\Support\Facades\Log;
 
 class CarePlanLifecycleTest extends TestCase
 {
@@ -71,14 +66,14 @@ class CarePlanLifecycleTest extends TestCase
         ]);
         $conditionCc = \App\Models\MedicalEvents\Sql\CodeableConcept::create();
         $conditionCc->save();
-        
+
         $conditionCoding = new \App\Models\MedicalEvents\Sql\Coding();
         $conditionCoding->code = 'D02';
         $conditionCoding->system = 'eHealth/ICPC2/condition_codes';
         $conditionCoding->codeable_type = \App\Models\MedicalEvents\Sql\CodeableConcept::class;
         $conditionCoding->codeable_id = $conditionCc->id;
         $conditionCoding->save();
-        
+
         $condition = \App\Models\MedicalEvents\Sql\Condition::create([
             'uuid' => $conditionIdentifier->value,
             'person_id' => $this->person->id,
@@ -89,7 +84,7 @@ class CarePlanLifecycleTest extends TestCase
             'context_id' => $identifierId,
             'onset_date' => now(),
         ]);
-        
+
         \App\Models\MedicalEvents\Sql\EncounterDiagnose::create([
             'encounter_id' => $this->encounter->id,
             'condition_id' => $conditionIdentifier->id,
@@ -97,7 +92,7 @@ class CarePlanLifecycleTest extends TestCase
             'rank' => 1
         ]);
 
-        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id') 
+        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
             ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
 
         $legalEntity = \App\Models\LegalEntity::create([
@@ -137,9 +132,9 @@ class CarePlanLifecycleTest extends TestCase
             'user_id' => $this->user->id,
             'party_id' => $this->party->id,
         ]);
-        
+
         $this->user->employees()->attach($this->employee->id);
-        
+
         if (config('permission.teams')) {
             setPermissionsTeamId($legalEntity->id);
         }
@@ -279,7 +274,7 @@ class CarePlanLifecycleTest extends TestCase
         $activitySignResponse->shouldReceive('getData')->andReturn(['id' => $activityUuid, 'status' => 'scheduled']);
         $activitySignResponse->shouldReceive('getStatusCode')->andReturn(200);
         $mockActivityApi->shouldReceive('create')->andReturn($activitySignResponse);
-        
+
         $activitySummaryResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
         $activitySummaryResponse->shouldReceive('getData')->andReturn(['data' => []]);
         $activitySummaryResponse->shouldReceive('getStatusCode')->andReturn(200);
@@ -322,7 +317,7 @@ class CarePlanLifecycleTest extends TestCase
     public function test_create_service_activity_with_linked_grounds(): void
     {
         $this->actingAs($this->user);
-        
+
         $carePlan = CarePlan::create([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
@@ -366,7 +361,7 @@ class CarePlanLifecycleTest extends TestCase
     public function test_create_medication_activity_with_program_and_linked_grounds(): void
     {
         $this->actingAs($this->user);
-        
+
         $carePlan = CarePlan::create([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
@@ -412,7 +407,7 @@ class CarePlanLifecycleTest extends TestCase
     public function test_create_device_activity_with_positive_quantity_validation(): void
     {
         $this->actingAs($this->user);
-        
+
         $carePlan = CarePlan::create([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
@@ -463,7 +458,7 @@ class CarePlanLifecycleTest extends TestCase
     public function test_cancel_and_complete_care_plan_activity(): void
     {
         $this->actingAs($this->user);
-        
+
         $carePlan = CarePlan::create([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
@@ -569,5 +564,66 @@ class CarePlanLifecycleTest extends TestCase
             'status' => 'cancelled',
         ]);
     }
-}
 
+    public function test_quantity_code_normalization(): void
+    {
+        $repository = app(\App\Repositories\CarePlanActivityRepository::class);
+
+        // 1. Medication request with Ukrainian abbreviation 'таб' -> should be normalized to 'PIECE'
+        $medicationActivity = new \App\Models\CarePlanActivity([
+            'kind' => 'medication_request',
+            'quantity' => 10,
+            'quantity_system' => 'MEDICATION_UNIT',
+            'quantity_code' => 'таб',
+            'scheduled_period_start' => now(),
+            'scheduled_period_end' => now()->addDays(7),
+        ]);
+        $requestPayload = $repository->formatCarePlanActivityRequest($medicationActivity);
+        $this->assertEquals('PIECE', $requestPayload['detail']['quantity']['code']);
+
+        // 2. Device request with lowercase 'piece' -> should be normalized to 'piece'
+        $deviceActivity = new \App\Models\CarePlanActivity([
+            'kind' => 'device_request',
+            'quantity' => 5,
+            'quantity_system' => 'device_unit',
+            'quantity_code' => 'piece',
+            'scheduled_period_start' => now(),
+            'scheduled_period_end' => now()->addDays(7),
+        ]);
+        $requestPayload = $repository->formatCarePlanActivityRequest($deviceActivity);
+        $this->assertEquals('piece', $requestPayload['detail']['quantity']['code']);
+    }
+
+    public function test_delete_draft_activity(): void
+    {
+        $this->actingAs($this->user);
+
+        $carePlan = CarePlan::create([
+            'uuid' => (string) Str::uuid(),
+            'person_id' => $this->person->id,
+            'author_id' => $this->employee->id,
+            'legal_entity_id' => $this->employee->legal_entity_id,
+            'period_start' => now()->format('Y-m-d'),
+            'title' => 'Delete Test Plan',
+            'status' => 'draft',
+        ]);
+
+        $activity = \App\Models\CarePlanActivity::create([
+            'care_plan_id' => $carePlan->id,
+            'author_id' => $this->employee->id,
+            'kind' => 'ServiceRequest',
+            'status' => 'draft',
+            'scheduled_period_start' => now(),
+            'scheduled_period_end' => now()->addDays(7),
+        ]);
+
+        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
+            ->call('confirmActivityDeletion', $activity->id)
+            ->call('deleteActivity')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseMissing('care_plan_activities', [
+            'id' => $activity->id,
+        ]);
+    }
+}

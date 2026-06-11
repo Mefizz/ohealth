@@ -435,6 +435,13 @@
                                                     >
                                                         Підписати призначення
                                                     </button>
+                                                    <button type="button" 
+                                                            @click="openDropdown = false" 
+                                                            wire:click="confirmActivityDeletion({{ $activity->id }})" 
+                                                            class="text-red-600 dark:text-red-400 block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-600 w-full"
+                                                    >
+                                                        Видалити
+                                                    </button>
                                                 </div>
                                             @elseif(in_array(strtoupper($activityStatus), ['ACTIVE', 'SCHEDULED', 'IN-PROGRESS', 'IN_PROGRESS', 'ON-HOLD']))
                                                 <div class="py-1">
@@ -497,6 +504,7 @@
         @include('livewire.care-plan.parts.modals.medical-devices-drawer')
         @include('livewire.care-plan.parts.modals.medical-device-search-drawer')
         @include('livewire.care-plan.parts.modals.medical-device-form-drawer')
+        @include('livewire.care-plan.parts.modals.delete-activity-modal')
     </div>
 
     <livewire:components.x-message :key="time()" />

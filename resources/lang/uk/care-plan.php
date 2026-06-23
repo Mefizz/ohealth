@@ -56,6 +56,7 @@ return [
 
     // Services drawer
     'new_service_prescription' => 'Нове призначення на послуги',
+    'edit_service_prescription' => 'Редагування призначення на послуги',
     'main_data' => 'Основні дані',
     'service' => 'Послуга',
     'select_service' => 'Обрати послугу',
@@ -97,6 +98,7 @@ return [
 
     // Medications drawer
     'new_medication_prescription' => 'Нове призначення на ліки',
+    'edit_medication_prescription' => 'Редагування призначення на ліки',
     'program_selection' => 'Вибір програми',
     'prescription_medication' => 'Рецептурний лікарський засіб',
 
@@ -125,9 +127,17 @@ return [
 
     // Medical devices drawer
     'new_medical_device_prescription' => 'Нове призначення на медичні вироби',
+    'edit_medical_device_prescription' => 'Редагування призначення на медичні вироби',
     'medical_guarantees_program' => 'Програма медичних гарантій',
     'medical_device' => 'Медичний виріб',
     'select_medical_device' => 'Обрати медичний виріб',
+    'change_selection' => 'Змінити',
+    'device_program_required' => 'Оберіть програму медичних виробів перед пошуком',
+    'device_program_required_before_sign' => 'Збережіть призначення з обраною програмою медичних виробів перед підписом',
+    'device_program_not_available_for_legal_entity' => 'Обрана програма медичних виробів недоступна для вашого закладу або спеціальності лікаря. Оберіть іншу програму або зверніться до підтримки ЕСОЗ.',
+    'device_product_reselect_required' => 'Перевиберіть медичний виріб через пошук для обраної програми перед збереженням або підписом.',
+    'device_program_product_mismatch' => 'Програму змінено після вибору медвиробу. Перевиберіть медвиріб через пошук для нової програми.',
+    'activity_device_prequalify_failed' => 'eHealth відхилив дані призначення на медвиріб. Перевірте програму, медвиріб і кількість перед підписом.',
     'provider' => 'Постійник',
 
     // Medical device search drawer

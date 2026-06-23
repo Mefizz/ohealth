@@ -33,27 +33,27 @@
         {{ __('care-plan.search_service') }}
     </h3>
 
-    {{-- Search Input --}}
-    <div class="mb-4">
-        <div class="relative">
-            <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
-                @icon('search-outline', 'w-5 h-5 text-gray-500')
+    <form wire:submit.prevent="searchServices">
+        {{-- Search Input --}}
+        <div class="mb-4">
+            <div class="relative">
+                <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
+                    @icon('search-outline', 'w-5 h-5 text-gray-500')
+                </div>
+                <input type="text"
+                       class="input peer ps-10 w-full"
+                       placeholder="Киснева терапія"
+                       wire:model.live.debounce.400ms="searchQuery"
+                />
             </div>
-            <input type="text"
-                   class="input peer ps-10 w-full"
-                   placeholder="Киснева терапія"
-                   wire:model.live.debounce.400ms="searchQuery"
-                   wire:keydown.enter="searchServices"
-            />
         </div>
-    </div>
 
-    {{-- Action Buttons --}}
-    <div class="flex flex-wrap gap-2 mb-6">
-        <button type="button" wire:click="searchServices" class="button-primary flex items-center gap-2">
-            @icon('search', 'w-4 h-4')
-            <span>{{ __('forms.search') }}</span>
-        </button>
+        {{-- Action Buttons --}}
+        <div class="flex flex-wrap gap-2 mb-6">
+            <button type="submit" class="button-primary flex items-center gap-2">
+                @icon('search', 'w-4 h-4')
+                <span>{{ __('forms.search') }}</span>
+            </button>
         <button type="button" wire:click="$set('searchQuery', '')" class="button-primary-outline-red">
             {{ __('forms.reset_all_filters') }}
         </button>
@@ -64,7 +64,8 @@
             @icon('adjustments', 'w-4 h-4')
             <span>{{ __('forms.additional_search_parameters') }}</span>
         </button>
-    </div>
+        </div>
+    </form>
 
     {{-- Filters --}}
     <div x-show="showFilter" x-cloak x-transition class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

@@ -120,6 +120,9 @@ class EHealthValidationException extends EHealthException
             'doctor.qualifications' => __('forms.qualifications'),
             'doctor.specialities' => __('forms.specialities'),
             'doctor.specialities.speciality_officio' => __('forms.speciality_officio'),
+            'detail.program.identifier.value' => __('care-plan.program'),
+            'detail.product_reference.identifier.value' => __('care-plan.medical_device'),
+            'detail.product_codeable_concept.coding[0].code' => __('care-plan.medical_device'),
         ];
 
         $invalidErrors = Arr::get($this->details, 'error.invalid') ?? Arr::get($this->details, 'invalid') ?? [];
@@ -165,6 +168,12 @@ class EHealthValidationException extends EHealthException
                     : $message;
             } elseif (str_contains($message, 'Another activity with status') && str_contains($message, 'already exists')) {
                 $translatedMessage = __('errors.ehealth.messages.another_activity_exists');
+            } elseif (str_contains($message, 'No appropriate participants found for this medical program')) {
+                $translatedMessage = __('errors.ehealth.messages.no_appropriate_participants_for_medical_program');
+            } elseif (str_contains($message, 'prescribable_device_codes dictionary configuration')) {
+                $translatedMessage = __('errors.ehealth.messages.prescribable_device_code_not_allowed');
+            } elseif (str_contains($message, 'divisible to device package quantity')) {
+                $translatedMessage = __('errors.ehealth.messages.device_package_quantity_not_divisible');
             }
 
             if (empty($translatedMessage) && !empty($ruleName)) {

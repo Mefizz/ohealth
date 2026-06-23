@@ -13,6 +13,7 @@ use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\CarePlan;
 use App\Repositories\CarePlanRepository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -146,7 +147,13 @@ class CarePlanUpdate extends CarePlanCreate
             'description' => $this->form->description ?: null,
             'note' => $this->form->note ?: null,
             'inform_with' => $this->form->informWith ?: null,
+            'terms_of_service' => $this->form->termsOfService ?: null,
         ]);
+
+        MedicalEventsRepository::period()->sync($this->carePlan->fresh(), [
+            'start' => convertToYmd($this->form->periodStart) . ' 00:00:00',
+            'end' => !empty($this->form->periodEnd) ? convertToYmd($this->form->periodEnd) . ' 23:59:59' : null,
+        ], 'effectivePeriod');
 
         session()->flash('success', __('care-plan.draft_updated') ?? 'План лікування успішно збережено');
 
@@ -240,6 +247,7 @@ class CarePlanUpdate extends CarePlanCreate
             $carePlanUuid = $finalResponse['id'] ?? null;
             $carePlanStatus = $finalResponse['status'] ?? 'new';
             $carePlanRequisition = $finalResponse['requisition'] ?? null;
+            $entity = null;
 
             if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
                 $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
@@ -284,7 +292,18 @@ class CarePlanUpdate extends CarePlanCreate
                     'episodes' => $this->form->episodes,
                     'medical_records' => $this->form->medicalRecords,
                 ],
+                'terms_of_service' => $this->form->termsOfService ?: null,
             ]);
+
+            $updatedCarePlan = $this->carePlan->fresh();
+            MedicalEventsRepository::period()->sync(
+                $updatedCarePlan,
+                $entity['period'] ?? ($finalResponse['period'] ?? [
+                    'start' => convertToYmd($this->form->periodStart) . ' 00:00:00',
+                    'end' => !empty($this->form->periodEnd) ? convertToYmd($this->form->periodEnd) . ' 23:59:59' : null,
+                ]),
+                'effectivePeriod'
+            );
 
             session()->flash('success', __('care-plan.signed_and_sent'));
 

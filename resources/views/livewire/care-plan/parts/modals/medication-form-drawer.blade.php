@@ -45,24 +45,42 @@
             {{-- Program and Medication --}}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                 <div class="form-group group">
-                    <label class="label">
+                    <label for="medication_program" class="label">
                         {{ __('care-plan.program') }}
                     </label>
-                    <input type="text"
-                           class="input bg-gray-50 dark:bg-gray-700 cursor-not-allowed"
-                           value="{{ !empty($activityForm['program']) ? ($dictionaries['medical_programs'][$activityForm['program']] ?? $activityForm['program']) : __('care-plan.prescription_medication') }}"
-                           disabled
-                    />
+                    <select id="medication_program"
+                            name="medication_program"
+                            class="input-select peer w-full"
+                            wire:model.live="selectedProgram"
+                    >
+                        <option value="">{{ __('care-plan.prescription_medication') }}</option>
+                        @foreach(($dictionaries['medical_programs_medication'] ?? []) as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
                 </div>
                 <div class="form-group group">
                     <label class="label">
                         {{ __('care-plan.medication') }}*
                     </label>
-                    <input type="text"
-                           class="input bg-gray-50 dark:bg-gray-700 cursor-not-allowed font-medium text-gray-900 dark:text-white"
-                           value="{{ !empty($selectedProduct) ? ($selectedProduct['name'] ?? '') : '' }}"
-                           disabled
-                    />
+                    <div class="flex gap-2 items-stretch">
+                        <input type="text"
+                               readonly
+                               class="input flex-1 min-w-0 bg-gray-50 dark:bg-gray-700 cursor-default truncate"
+                               value="@if(!empty($selectedProduct)){{ $selectedProduct['name'] ?? '' }}@elseif(!empty($activityForm['product_reference'])){{ $activityForm['product_reference'] }}@else{{ __('care-plan.medication_search') }}@endif"
+                        />
+                        <button type="button"
+                                class="button-primary shrink-0 whitespace-nowrap"
+                                wire:click="openMedicationSearch"
+                                @click="showMedicationSearchDrawer = true"
+                        >
+                            @if(!empty($selectedProduct) || !empty($activityForm['product_reference']))
+                                {{ __('care-plan.change_selection') }}
+                            @else
+                                {{ __('care-plan.medication_search') }}
+                            @endif
+                        </button>
+                    </div>
                     <input type="hidden" wire:model="activityForm.product_reference" />
                 </div>
             </div>

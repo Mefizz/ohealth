@@ -11,6 +11,7 @@ use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\CarePlan;
 use App\Repositories\CarePlanRepository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
@@ -445,7 +446,13 @@ class CarePlanCreate extends BasePatientComponent
             'description' => $this->form->description ?: null,
             'note' => $this->form->note ?: null,
             'inform_with' => $this->form->informWith ?: null,
+            'terms_of_service' => $this->form->termsOfService ?: null,
         ]);
+
+        MedicalEventsRepository::period()->sync($carePlan, [
+            'start' => convertToYmd($this->form->periodStart) . ' 00:00:00',
+            'end' => !empty($this->form->periodEnd) ? convertToYmd($this->form->periodEnd) . ' 23:59:59' : null,
+        ], 'effectivePeriod');
 
         session()->flash('success', __('care-plan.draft_saved') ?? 'План лікування успішно збережено');
         $this->redirectRoute('care-plans.edit', [legalEntity(), $carePlan->id], navigate: true);
@@ -683,7 +690,17 @@ class CarePlanCreate extends BasePatientComponent
                 'period_start' => convertToYmd($this->form->periodStart),
                 'period_end' => !empty($this->form->periodEnd) ? convertToYmd($this->form->periodEnd) : null,
                 'encounter_id' => $encounterData['id'] ?? null,
+                'terms_of_service' => $this->form->termsOfService ?: null,
             ]);
+
+            MedicalEventsRepository::period()->sync(
+                $carePlan,
+                $entity['period'] ?? ($finalResponse['period'] ?? [
+                    'start' => convertToYmd($this->form->periodStart) . ' 00:00:00',
+                    'end' => !empty($this->form->periodEnd) ? convertToYmd($this->form->periodEnd) . ' 23:59:59' : null,
+                ]),
+                'effectivePeriod'
+            );
 
             $this->showSignatureModal = false;
 

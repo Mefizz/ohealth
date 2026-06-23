@@ -23,7 +23,10 @@
         {{-- Plan Header --}}
         @php
             $status = is_array($carePlan->status) ? ($carePlan->status['coding'][0]['code'] ?? ($carePlan->status['text'] ?? '')) : $carePlan->status;
-            $statusDisplay = is_array($carePlan->status) ? ($carePlan->status['text'] ?? ($carePlan->status['coding'][0]['display'] ?? $status)) : $status;
+            $statusKey = 'care-plan.status.' . strtolower((string) $status);
+            $statusDisplay = \Illuminate\Support\Facades\Lang::has($statusKey)
+                ? __($statusKey)
+                : (is_array($carePlan->status) ? ($carePlan->status['text'] ?? ($carePlan->status['coding'][0]['display'] ?? $status)) : $status);
             
             $categoryLabel = $carePlan->categoryConcept?->text ?? $carePlan->categoryConcept?->coding?->first()?->display;
             if (!$categoryLabel) {
@@ -326,12 +329,12 @@
                             Активувати план (Дозвіл пацієнта)
                         </button>
                     @elseif($carePlan->uuid && in_array(strtoupper($status), [Status::ACTIVE->value]))
-                        <a href="{{ route('care-plans.cancel', [legalEntity(), $carePlan->id]) }}" class="button-minor text-red-500 border-red-200 hover:bg-red-50" wire:navigate>
+                        <button type="button" class="button-minor text-red-500 border-red-200 hover:bg-red-50" wire:click="openSignatureModal('cancel')">
                             Скасувати
-                        </a>
-                        <a href="{{ route('care-plans.complete', [legalEntity(), $carePlan->id]) }}" class="button-primary" wire:navigate>
+                        </button>
+                        <button type="button" class="button-primary" wire:click="openSignatureModal('complete')">
                             Завершити план лікування
-                        </a>
+                        </button>
                     @endif
                 </div>
             </div>
@@ -446,20 +449,20 @@
                                                     >
                                                         Деталі та виписки
                                                     </a>
-                                                    <a href="{{ route('care-plans.activities.complete', [legalEntity(), $carePlan->id, $activity->id]) }}"
-                                                       @click="openDropdown = false"
-                                                       class="text-blue-600 dark:text-blue-400 block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-600"
-                                                       wire:navigate
+                                                    <button type="button"
+                                                            @click="openDropdown = false"
+                                                            wire:click="openSignatureModal('complete_activity', {{ $activity->id }})"
+                                                            class="text-blue-600 dark:text-blue-400 block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-600"
                                                     >
                                                         Завершити призначення
-                                                    </a>
-                                                    <a href="{{ route('care-plans.activities.cancel', [legalEntity(), $carePlan->id, $activity->id]) }}"
-                                                       @click="openDropdown = false"
-                                                       class="text-red-600 dark:text-red-400 block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-600"
-                                                       wire:navigate
+                                                    </button>
+                                                    <button type="button"
+                                                            @click="openDropdown = false"
+                                                            wire:click="openSignatureModal('cancel_activity', {{ $activity->id }})"
+                                                            class="text-red-600 dark:text-red-400 block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-600"
                                                     >
                                                         Скасувати призначення
-                                                    </a>
+                                                    </button>
                                                 </div>
                                             @endif
                                         </div>

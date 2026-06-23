@@ -14,8 +14,11 @@ use Illuminate\Validation\ValidationException;
 
 trait ManagesCarePlanActivities
 {
+    public string $deviceSelectionWarning = '';
+
     public function initActivityForm(string $kind): void
     {
+        $this->deviceSelectionWarning = '';
         $this->activityForm = [
             'id' => null,
             'kind' => $kind,
@@ -41,6 +44,8 @@ trait ManagesCarePlanActivities
         if (!$activity) {
             return;
         }
+
+        $this->selectedProgram = $activity->program ?? '';
 
         $this->activityForm = [
             'id' => $activity->id,
@@ -78,16 +83,17 @@ trait ManagesCarePlanActivities
                         $this->selectedProduct = $data[0];
                     }
                 } elseif (str_contains($kindLower, 'device')) {
-                    $response = EHealth::deviceDefinition()->getMany(['classification_type_code' => $activity->product_reference]);
-                    $data = $response->getData();
-                    if (!empty($data)) {
-                        $this->selectedProduct = $data[0];
+                    $device = $this->findDeviceDefinitionByReference((string) $activity->product_reference);
+                    if ($device !== null) {
+                        $this->selectedProduct = $device;
                     }
                 }
             } catch (\Exception $e) {
                 Log::warning('CarePlanShow: failed to preload product reference: ' . $e->getMessage());
             }
         }
+
+        $this->refreshDeviceSelectionWarning();
 
         // Initialize linked justification grounds
         $this->linkedGrounds = [];
@@ -117,14 +123,170 @@ trait ManagesCarePlanActivities
         } elseif (str_contains($kindLower, 'medication')) {
             $this->showMedicationFormDrawer = true;
         } elseif (str_contains($kindLower, 'device')) {
+            $this->syncDeviceProductReferenceFromSelection();
             $this->showMedicalDeviceFormDrawer = true;
         } else {
             $this->showServiceDrawer = true;
         }
     }
 
+    public function getSelectedMedicalDeviceLabel(): string
+    {
+        if (!empty($this->selectedProduct)) {
+            $name = $this->selectedProduct['name'] ?? '';
+            if ($name === '' && !empty($this->selectedProduct['device_names'][0]['name'])) {
+                $name = $this->selectedProduct['device_names'][0]['name'];
+            }
+            if ($name === '') {
+                $name = $this->selectedProduct['description'] ?? '';
+            }
+            $code = $this->resolveDeviceClassificationCode($this->selectedProduct);
+            $label = trim(($code ? $code . ' - ' : '') . $name);
+
+            return $label !== '' ? $label : __('care-plan.select_medical_device');
+        }
+
+        if (!empty($this->activityForm['product_reference'])) {
+            return (string) $this->activityForm['product_reference'];
+        }
+
+        return __('care-plan.select_medical_device');
+    }
+
+    /**
+     * @param  array<string, mixed>  $device
+     */
+    public function formatDeviceTypeLabel(array $device): string
+    {
+        $classificationTypes = $device['classification_types'] ?? [];
+        if (is_array($classificationTypes) && $classificationTypes !== []) {
+            $labels = [];
+            foreach ($classificationTypes as $type) {
+                if (!is_array($type)) {
+                    continue;
+                }
+                $code = (string) ($type['code'] ?? '');
+                $system = (string) ($type['system'] ?? '');
+                if ($system === 'eHealth/assistive_devices') {
+                    $labels[] = $this->dictionaries['eHealth/assistive_devices'][$code] ?? $code;
+                } else {
+                    $labels[] = $this->dictionaries['device_definition_classification_type'][$code] ?? $code;
+                }
+            }
+
+            $label = implode(', ', array_filter($labels));
+
+            return $label !== '' ? $label : '-';
+        }
+
+        return $device['type_name'] ?? $device['classification_type_name'] ?? '-';
+    }
+
+    /**
+     * @param  array<string, mixed>  $device
+     */
+    public function formatDevicePackagingLabel(array $device): string
+    {
+        $packaging = $device['packaging'] ?? null;
+        if (!is_array($packaging)) {
+            return is_string($packaging) ? $packaging : '-';
+        }
+
+        $type = $this->dictionaries['device_definition_packaging_type'][$packaging['packaging_type'] ?? ''] ?? ($packaging['packaging_type'] ?? '');
+        $unit = $this->dictionaries['device_unit'][$packaging['packaging_unit'] ?? ''] ?? ($packaging['packaging_unit'] ?? '');
+        $count = $packaging['packaging_count'] ?? '';
+
+        $label = trim(implode(' ', array_filter([(string) $count, (string) $type, (string) $unit])));
+
+        return $label !== '' ? $label : '-';
+    }
+
+    public function refreshDeviceSelectionWarning(): void
+    {
+        $kindLower = strtolower($this->activityForm['kind'] ?? '');
+        if (!str_contains($kindLower, 'device')) {
+            $this->deviceSelectionWarning = '';
+
+            return;
+        }
+
+        if (empty($this->selectedProgram)) {
+            $this->deviceSelectionWarning = __('care-plan.device_program_required');
+
+            return;
+        }
+
+        if (empty($this->selectedProduct) && !empty($this->activityForm['product_reference'])) {
+            $this->deviceSelectionWarning = __('care-plan.device_product_reselect_required');
+
+            return;
+        }
+
+        if (
+            !empty($this->selectedProduct)
+            && !empty($this->activityForm['program'])
+            && $this->selectedProgram !== $this->activityForm['program']
+        ) {
+            $this->deviceSelectionWarning = __('care-plan.device_program_product_mismatch');
+
+            return;
+        }
+
+        $this->deviceSelectionWarning = '';
+    }
+
+    public function getDeviceSignReadinessWarning(\App\Models\CarePlanActivity $activity): ?string
+    {
+        if (!str_contains(strtolower((string) $activity->kind), 'device')) {
+            return null;
+        }
+
+        if (empty($activity->program)) {
+            return __('care-plan.device_program_required_before_sign');
+        }
+
+        $allowedPrograms = array_keys($this->dictionaries['medical_programs_device'] ?? []);
+        if (!empty($allowedPrograms) && !in_array($activity->program, $allowedPrograms, true)) {
+            return __('care-plan.device_program_not_available_for_legal_entity');
+        }
+
+        return null;
+    }
+
+    public function openMedicalDeviceSearch(): void
+    {
+        if (empty($this->selectedProgram)) {
+            Session::flash('error', __('care-plan.device_program_required'));
+
+            return;
+        }
+
+        $this->showMedicalDeviceSearchDrawer = true;
+    }
+
+    public function selectMedicalDevice(int $index): void
+    {
+        $device = $this->searchResults[$index] ?? null;
+        if (!is_array($device)) {
+            return;
+        }
+
+        $this->selectProduct($device, 'device_request');
+    }
+
+    public function openMedicationSearch(): void
+    {
+        $this->showMedicationSearchDrawer = true;
+    }
+
     public function saveActivity(CarePlanActivityRepository $repository): void
     {
+        if (!empty($this->selectedProgram)) {
+            $this->activityForm['program'] = $this->selectedProgram;
+        }
+
+        $this->syncDeviceProductReferenceFromSelection();
+
         $rules = [
             'activityForm.kind' => 'required|string',
             'activityForm.scheduled_period_start' => 'required|string',
@@ -143,6 +305,19 @@ trait ManagesCarePlanActivities
         $kindLower = strtolower($this->activityForm['kind']);
         if (str_contains($kindLower, 'device')) {
             $rules['activityForm.quantity'] = 'required|integer|min:1';
+            $rules['activityForm.program'] = 'required|string';
+            $rules['activityForm.product_reference'] = 'required|uuid';
+
+            $programId = $this->activityForm['program'] ?: $this->selectedProgram;
+            $allowedCodeTypes = $this->resolveDeviceRequestAllowedCodeTypes($programId);
+            $requiresClassificationOnly = in_array('CLASSIFICATION_TYPE', $allowedCodeTypes, true)
+                && !in_array('DEVICE_DEFINITION', $allowedCodeTypes, true);
+
+            if ($requiresClassificationOnly) {
+                $rules['activityForm.product_codeable_concept'] = 'required|string';
+            } else {
+                $rules['activityForm.product_codeable_concept'] = 'nullable|string';
+            }
         }
 
         try {
@@ -160,6 +335,9 @@ trait ManagesCarePlanActivities
         $program = !empty($validated['activityForm']['program']) ? $validated['activityForm']['program'] : null;
         if (str_contains(strtolower($validated['activityForm']['kind']), 'medication') && empty($program)) {
             $program = '1318eabc-1a1a-42f6-8450-61e11c19eede'; // Default to "Prescription medical products"
+        } elseif (str_contains(strtolower($validated['activityForm']['kind']), 'device') && empty($program)) {
+            $devicePrograms = array_keys($this->dictionaries['medical_programs_device'] ?? []);
+            $program = $devicePrograms[0] ?? 'c0ee515e-bdcc-4613-91cf-22d7d8e82efc';
         }
 
         $activityData = [
@@ -170,6 +348,7 @@ trait ManagesCarePlanActivities
             'daily_amount' => !empty($validated['activityForm']['daily_amount']) ? $validated['activityForm']['daily_amount'] : null,
             'description' => !empty($validated['activityForm']['description']) ? $validated['activityForm']['description'] : null,
             'product_reference' => !empty($validated['activityForm']['product_reference']) ? $validated['activityForm']['product_reference'] : null,
+            'product_codeable_concept' => !empty($this->activityForm['product_codeable_concept']) ? $this->activityForm['product_codeable_concept'] : null,
             'program' => $program,
             'reason_code' => !empty($validated['activityForm']['reason_code']) ? $validated['activityForm']['reason_code'] : null,
             'reason_reference' => !empty($reasonReferences) ? $reasonReferences : null,
@@ -231,6 +410,129 @@ trait ManagesCarePlanActivities
             Log::error("Failed to search services: " . $e->getMessage());
             $this->searchResults = [];
         }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function normalizeEHealthList(mixed $data): array
+    {
+        if (!is_array($data)) {
+            return [];
+        }
+
+        if (isset($data['data']) && is_array($data['data'])) {
+            return array_values($data['data']);
+        }
+
+        if (array_is_list($data)) {
+            return $data;
+        }
+
+        return [$data];
+    }
+
+    private function syncDeviceProductReferenceFromSelection(): void
+    {
+        if (empty($this->selectedProduct)) {
+            return;
+        }
+
+        $kindLower = strtolower($this->activityForm['kind'] ?? '');
+        if (!str_contains($kindLower, 'device')) {
+            return;
+        }
+
+        $deviceId = $this->selectedProduct['id'] ?? $this->selectedProduct['uuid'] ?? null;
+        $classificationCode = $this->resolveDeviceClassificationCode($this->selectedProduct);
+
+        if (!empty($deviceId)) {
+            $this->activityForm['product_reference'] = (string) $deviceId;
+        }
+
+        if (!empty($classificationCode)) {
+            $this->activityForm['product_codeable_concept'] = $classificationCode;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $device
+     */
+    private function resolveDeviceClassificationCode(array $device): ?string
+    {
+        if (!empty($device['classification_type_code'])) {
+            return (string) $device['classification_type_code'];
+        }
+
+        if (!empty($device['code']) && !preg_match('/^[0-9a-f]{8}-/i', (string) $device['code'])) {
+            return (string) $device['code'];
+        }
+
+        $classificationTypes = $device['classification_types'] ?? [];
+        if (is_array($classificationTypes) && !empty($classificationTypes[0]['code'])) {
+            return (string) $classificationTypes[0]['code'];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveDeviceRequestAllowedCodeTypes(?string $programId): array
+    {
+        if (empty($programId)) {
+            return [];
+        }
+
+        try {
+            $program = dictionary()->medicalPrograms()->firstWhere('id', $programId);
+            $types = $program['medical_program_settings']['device_request_allowed_code_types'] ?? [];
+
+            return is_array($types) ? $types : [];
+        } catch (\Exception) {
+            return [];
+        }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function findDeviceDefinitionByReference(string $reference): ?array
+    {
+        if (!preg_match('/^[0-9a-f]{8}-/i', $reference)) {
+            $devices = $this->normalizeEHealthList(
+                EHealth::deviceDefinition()->getMany([
+                    'classification_type_code' => $reference,
+                ])->getData()
+            );
+
+            return $devices[0] ?? null;
+        }
+
+        $filters = ['page_size' => 50];
+        if (!empty($this->selectedProgram)) {
+            $filters['medical_program_id'] = $this->selectedProgram;
+        }
+
+        for ($page = 1; $page <= 20; $page++) {
+            $filters['page'] = $page;
+            $devices = $this->normalizeEHealthList(
+                EHealth::deviceDefinition()->getMany($filters)->getData()
+            );
+
+            foreach ($devices as $device) {
+                if (($device['id'] ?? null) === $reference) {
+                    return $device;
+                }
+            }
+
+            if (count($devices) < 50) {
+                break;
+            }
+        }
+
+        return null;
     }
 
     private function flattenServices(array $nodes): array
@@ -309,7 +611,7 @@ trait ManagesCarePlanActivities
 
             $response = EHealth::deviceDefinition()->getMany($filters);
 
-            $this->searchResults = $response->getData();
+            $this->searchResults = $this->normalizeEHealthList($response->getData());
         } catch (\Exception $e) {
             Log::error("Failed to search medical devices: " . $e->getMessage());
             $this->searchResults = [];
@@ -319,7 +621,13 @@ trait ManagesCarePlanActivities
     public function selectProduct(array $product, string $kind): void
     {
         $this->selectedProduct = $product;
-        $this->activityForm['product_reference'] = $product['id'] ?? $product['uuid'] ?? $product['code'] ?? '';
+
+        if ($kind === 'device_request') {
+            $this->activityForm['product_reference'] = (string) ($product['id'] ?? $product['uuid'] ?? '');
+            $this->activityForm['product_codeable_concept'] = $this->resolveDeviceClassificationCode($product) ?? '';
+        } else {
+            $this->activityForm['product_reference'] = $product['id'] ?? $product['uuid'] ?? $product['code'] ?? '';
+        }
 
         if ($kind === 'service_request') {
             $this->activityForm['product_codeable_concept'] = $product['code'] ?? '';
@@ -335,8 +643,15 @@ trait ManagesCarePlanActivities
             $this->showMedicationFormDrawer = true;
         } elseif ($kind === 'device_request') {
             $this->activityForm['quantity_system'] = 'device_unit';
-            $this->activityForm['quantity_code'] = 'PIECE';
+            $this->activityForm['quantity_code'] = 'piece';
             $this->activityForm['program'] = $this->selectedProgram;
+
+            $packaging = $product['packaging'] ?? null;
+            if (is_array($packaging) && !empty($packaging['packaging_count'])) {
+                $this->activityForm['quantity'] = (int) $packaging['packaging_count'];
+            }
+
+            $this->deviceSelectionWarning = '';
             $this->showMedicalDeviceSearchDrawer = false;
             $this->showMedicalDeviceFormDrawer = true;
         }

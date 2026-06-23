@@ -62,7 +62,10 @@ class CipherRequest extends PendingRequest
         $ticketUuid = $this->createSession()->getTicketUuid();
 
         try {
-            $encodedSignature = json_encode($dataSignature, JSON_THROW_ON_ERROR);
+            $encodedSignature = json_encode(
+                $dataSignature,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
+            );
         } catch (JsonException $exception) {
             throw new CipherEncodingException(
                 'Failed to encode data signature: ' . $exception->getMessage(),

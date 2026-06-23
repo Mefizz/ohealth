@@ -41,8 +41,8 @@
                 @if(str_contains(strtolower($kindValue), 'service_request') || str_contains(strtolower($kindValue), 'device_request'))
                     <button type="button" class="button-primary" wire:click="initReferralForm({{ $activity->id }})">Створити направлення</button>
                 @endif
-                <a href="{{ route('care-plans.activities.complete', [legalEntity(), $carePlan->id, $activity->id]) }}" class="button-minor" wire:navigate>Завершити</a>
-                <a href="{{ route('care-plans.activities.cancel', [legalEntity(), $carePlan->id, $activity->id]) }}" class="button-minor text-red-500 border-red-200" wire:navigate>Скасувати</a>
+                <button type="button" class="button-minor" wire:click="openSignatureModal('complete_activity', {{ $activity->id }})">Завершити</button>
+                <button type="button" class="button-minor text-red-500 border-red-200" wire:click="openSignatureModal('cancel_activity', {{ $activity->id }})">Скасувати</button>
             @endif
         </div>
 

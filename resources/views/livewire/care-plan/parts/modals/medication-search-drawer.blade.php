@@ -10,7 +10,7 @@
      @click="showMedicationSearchDrawer = false"
      aria-controls="medication-search-drawer-right"
      class="fixed top-0 right-0 h-screen pt-20 w-4/5 bg-gray-900/50"
-     style="z-index: 44;"
+     style="z-index: 48;"
 ></div>
 
 {{-- Medication Search Drawer (30px gap on the LEFT) --}}
@@ -24,7 +24,7 @@
      x-transition:leave-end="translate-x-full"
      x-cloak
      class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto bg-white dark:bg-gray-800 shadow-2xl"
-     style="z-index: 45; width: calc(80% - 30px);"
+     style="z-index: 49; width: calc(80% - 30px);"
      tabindex="-1"
      aria-labelledby="medication-search-drawer-label"
      x-data="{ showFilter: false }"
@@ -33,27 +33,27 @@
         {{ __('care-plan.new_medication_prescription') }}
     </h3>
 
-    {{-- Search Input --}}
-    <div class="mb-4">
-        <div class="relative">
-            <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
-                @icon('search-outline', 'w-5 h-5 text-gray-500')
+    <form wire:submit.prevent="searchMedications">
+        {{-- Search Input --}}
+        <div class="mb-4">
+            <div class="relative">
+                <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
+                    @icon('search-outline', 'w-5 h-5 text-gray-500')
+                </div>
+                <input type="text"
+                       class="input peer ps-10 w-full"
+                       placeholder="{{ __('care-plan.medication_search_placeholder') }}"
+                       wire:model.live.debounce.400ms="searchQuery"
+                />
             </div>
-            <input type="text"
-                   class="input peer ps-10 w-full"
-                   placeholder="{{ __('care-plan.medication_search_placeholder') }}"
-                   wire:model.live.debounce.400ms="searchQuery"
-                   wire:keydown.enter="searchMedications"
-            />
         </div>
-    </div>
 
-    {{-- Action Buttons --}}
-    <div class="flex flex-wrap gap-2 mb-6">
-        <button type="button" wire:click="searchMedications" class="button-primary flex items-center gap-2">
-            @icon('search', 'w-4 h-4')
-            <span>{{ __('forms.search') }}</span>
-        </button>
+        {{-- Action Buttons --}}
+        <div class="flex flex-wrap gap-2 mb-6">
+            <button type="submit" class="button-primary flex items-center gap-2">
+                @icon('search', 'w-4 h-4')
+                <span>{{ __('forms.search') }}</span>
+            </button>
         <button type="button" wire:click="$set('searchQuery', '')" class="button-primary-outline-red">
             {{ __('forms.reset_all_filters') }}
         </button>
@@ -64,7 +64,8 @@
             @icon('adjustments', 'w-4 h-4')
             <span>{{ __('forms.additional_search_parameters') }}</span>
         </button>
-    </div>
+        </div>
+    </form>
 
     {{-- Filters --}}
     <div x-show="showFilter" x-cloak x-transition class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

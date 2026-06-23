@@ -159,6 +159,11 @@ class LegalEntity extends Model
         return $this->hasMany(Equipment::class);
     }
 
+    public function carePlans(): HasMany
+    {
+        return $this->hasMany(CarePlan::class);
+    }
+
     public function legators(): HasMany
     {
         return $this->hasMany(Legator::class);

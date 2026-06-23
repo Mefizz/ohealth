@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Core\Arr;
+use App\Enums\MedicalProgram\Type;
+use App\Enums\User\Role;
 use App\Traits\InteractsWithApprovals;
 use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
+use App\Services\Dictionary\DictionaryManager;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -113,6 +119,7 @@ abstract class CarePlanComponent extends Component
     public array $form = [
         'knedp' => '',
         'keyContainerUpload' => null,
+        'keyContainerFileName' => '',
         'password' => '',
     ];
 
@@ -176,11 +183,35 @@ abstract class CarePlanComponent extends Component
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
 
-            // Load medical programs
-            $this->dictionaries['medical_programs'] = app(\App\Services\Dictionary\DictionaryManager::class)
-                ->medicalPrograms()
+            // Load medical programs (split by type; device/medication lists are role-filtered)
+            $programs = app(DictionaryManager::class)->medicalPrograms();
+            $this->dictionaries['medical_programs'] = $programs
                 ->pluck('name', 'id')
                 ->toArray() ?? [];
+
+            $this->dictionaries['medical_programs_medication'] = $this->filterMedicationPrograms(
+                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::MEDICATION->value)
+            )->pluck('name', 'id')->toArray() ?? [];
+
+            $this->dictionaries['medical_programs_device'] = $this->filterDevicePrograms(
+                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::DEVICE->value)
+            )->pluck('name', 'id')->toArray() ?? [];
+
+            $this->dictionaries['device_definition_classification_type'] = $basics->byName('device_definition_classification_type')
+                ?->asCodeDescription()
+                ?->toArray() ?? [];
+
+            $this->dictionaries['eHealth/assistive_devices'] = $basics->byName('eHealth/assistive_devices')
+                ?->asCodeDescription()
+                ?->toArray() ?? [];
+
+            $this->dictionaries['device_definition_packaging_type'] = $basics->byName('device_definition_packaging_type')
+                ?->asCodeDescription()
+                ?->toArray() ?? [];
+
+            $this->dictionaries['device_unit'] = $basics->byName('device_unit')
+                ?->asCodeDescription()
+                ?->toArray() ?? [];
         } catch (\Exception $exception) {
             Log::warning('CarePlanShow: failed to load dictionaries: ' . $exception->getMessage());
         }
@@ -234,6 +265,26 @@ abstract class CarePlanComponent extends Component
         return $this->dictionaries['care_plan_cancel_reasons'] ?? [];
     }
 
+    public function updatedFormKeyContainerUpload(): void
+    {
+        $upload = $this->form['keyContainerUpload'] ?? null;
+
+        if ($upload && method_exists($upload, 'getClientOriginalName')) {
+            $this->form['keyContainerFileName'] = $upload->getClientOriginalName();
+        } elseif ($upload === null) {
+            $this->form['keyContainerFileName'] = '';
+        }
+    }
+
+    public function updatedSelectedProgram(): void
+    {
+        $this->activityForm['program'] = $this->selectedProgram;
+
+        if (method_exists($this, 'refreshDeviceSelectionWarning')) {
+            $this->refreshDeviceSelectionWarning();
+        }
+    }
+
     public function openSignatureModal(string $actionType, ?int $activityId = null, ?string $requestUuid = null): void
     {
         $this->actionType = $actionType;
@@ -262,6 +313,34 @@ abstract class CarePlanComponent extends Component
         );
     }
 
+    protected function cleanCarePlanPayload(array $payload): array
+    {
+        $excludeKeys = [
+            'remaining_quantity',
+            'remaining_quantity_type',
+            'inserted_at',
+            'inserted_by',
+            'updated_at',
+            'updated_by',
+            'ehealth_inserted_at',
+            'ehealth_updated_at',
+            'ehealth_inserted_by',
+            'status_history',
+            'database_id',
+            'urgent',
+            'links',
+        ];
+
+        $cleaned = $this->cleanPayloadKeys($payload, $excludeKeys);
+
+        if (isset($cleaned['uuid']) && empty($cleaned['id'])) {
+            $cleaned['id'] = $cleaned['uuid'];
+        }
+        unset($cleaned['uuid']);
+
+        return $cleaned;
+    }
+
     protected function cleanActivityPayload(array $payload): array
     {
         $excludeKeys = [
@@ -275,6 +354,11 @@ abstract class CarePlanComponent extends Component
             'database_id',
         ];
 
+        return $this->cleanPayloadKeys($payload, $excludeKeys);
+    }
+
+    protected function cleanPayloadKeys(array $payload, array $excludeKeys): array
+    {
         $cleaned = [];
         foreach ($payload as $key => $value) {
             $snakeKey = \Illuminate\Support\Str::snake($key);
@@ -290,7 +374,7 @@ abstract class CarePlanComponent extends Component
             }
 
             if (is_array($value)) {
-                $cleaned[$key] = $this->cleanActivityPayload($value);
+                $cleaned[$key] = $this->cleanPayloadKeys($value, $excludeKeys);
             } else {
                 $cleaned[$key] = $value;
             }
@@ -310,6 +394,68 @@ abstract class CarePlanComponent extends Component
             $this->activeReferrals,
             static fn (array $referral): bool => (int) ($referral['based_on_id'] ?? 0) === $activityId
         ));
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $programs
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function filterDevicePrograms(Collection $programs): Collection
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return $programs->where('is_active', '=', true);
+        }
+
+        $roles = $user->allowedRoles;
+        $mainSpeciality = $user->getMainSpeciality(legalEntity());
+
+        return $programs
+            ->where('is_active', '=', true)
+            ->filter(function (array $program) use ($roles, $user, $mainSpeciality): bool {
+                $allowedEmployeeTypes = Arr::get($program, 'medical_program_settings.employee_types_to_create_request', []);
+                if ($roles->intersect($allowedEmployeeTypes)->isEmpty()) {
+                    return false;
+                }
+
+                if ($user->hasAllowedRole(Role::SPECIALIST->value) || $user->hasAllowedRole(Role::DOCTOR->value)) {
+                    $allowedSpecialities = Arr::get($program, 'medical_program_settings.speciality_types_care_plan_activity_allowed')
+                        ?? Arr::get($program, 'medical_program_settings.speciality_types_request_allowed')
+                        ?? Arr::get($program, 'medical_program_settings.speciality_types_allowed', []);
+
+                    if (!empty($allowedSpecialities)) {
+                        return $mainSpeciality->intersect($allowedSpecialities)->isNotEmpty();
+                    }
+                }
+
+                return true;
+            });
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $programs
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function filterMedicationPrograms(Collection $programs): Collection
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return $programs->where('is_active', '=', true);
+        }
+
+        $mainSpeciality = $user->getMainSpeciality(legalEntity());
+
+        $filtered = $programs->where('is_active', '=', true);
+
+        if ($user->hasAllowedRole(Role::SPECIALIST) || $user->hasAllowedRole(Role::DOCTOR)) {
+            $filtered = $filtered->filter(function (array $program) use ($mainSpeciality): bool {
+                $allowedSpecialities = Arr::get($program, 'medical_program_settings.speciality_types_allowed', []);
+
+                return $mainSpeciality->intersect($allowedSpecialities)->isNotEmpty();
+            });
+        }
+
+        return $filtered;
     }
 
     public function render()

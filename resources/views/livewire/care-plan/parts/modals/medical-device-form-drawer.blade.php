@@ -34,6 +34,12 @@
         @endif
     </h3>
 
+    @if(!empty($deviceSelectionWarning))
+        <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100" role="alert">
+            {{ $deviceSelectionWarning }}
+        </div>
+    @endif
+
     {{-- Content --}}
     <form wire:submit.prevent="saveActivity">
         {{-- Main Data Section --}}
@@ -45,24 +51,43 @@
             {{-- Program and Medical Device --}}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                 <div class="form-group group">
-                    <label class="label">
+                    <label for="device_program" class="label">
                         {{ __('care-plan.program') }}
                     </label>
-                    <input type="text"
-                           class="input bg-gray-50 dark:bg-gray-700 cursor-not-allowed"
-                           value="{{ !empty($activityForm['program']) ? ($dictionaries['medical_programs'][$activityForm['program']] ?? $activityForm['program']) : __('care-plan.medical_guarantees_program') }}"
-                           disabled
-                    />
+                    <select id="device_program"
+                            name="device_program"
+                            class="input-select peer w-full"
+                            wire:model.live="selectedProgram"
+                    >
+                        <option value="">{{ __('forms.select') }}</option>
+                        @foreach(($dictionaries['medical_programs_device'] ?? []) as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
                 </div>
                 <div class="form-group group">
                     <label class="label">
                         {{ __('care-plan.medical_device') }}*
                     </label>
-                    <input type="text"
-                           class="input bg-gray-50 dark:bg-gray-700 cursor-not-allowed font-medium text-gray-900 dark:text-white"
-                           value="{{ !empty($selectedProduct) ? ($selectedProduct['name'] ?? $selectedProduct['device_names'][0]['name'] ?? $selectedProduct['description'] ?? '') : '' }}"
-                           disabled
-                    />
+                    <div class="relative">
+                        <button type="button"
+                                class="input-select peer pr-12 w-full text-left truncate {{ !empty($selectedProduct) || !empty($activityForm['product_reference']) ? 'text-gray-900 dark:text-white font-medium' : 'text-gray-500' }}"
+                                aria-controls="medical-device-search-drawer-right"
+                                wire:click="openMedicalDeviceSearch"
+                                @click="showMedicalDeviceSearchDrawer = true"
+                        >
+                            {{ $this->getSelectedMedicalDeviceLabel() }}
+                        </button>
+                        <button type="button"
+                                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                wire:click="openMedicalDeviceSearch"
+                                @click="showMedicalDeviceSearchDrawer = true"
+                        >
+                            <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <path stroke="currentColor" stroke-linejoin="round" stroke-width="2" d="M9 8v3a1 1 0 0 1-1 1H5m11 4h2a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v1m4 3v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-7.13a1 1 0 0 1 .24-.65L7.7 8.35A1 1 0 0 1 8.46 8H13a1 1 0 0 1 1 1Z"/>
+                            </svg>
+                        </button>
+                    </div>
                     <input type="hidden" wire:model="activityForm.product_reference" />
                 </div>
             </div>

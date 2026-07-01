@@ -140,6 +140,7 @@ class EmployeeForm extends Form
             'party.last_name' => __('forms.party.last_name'),
             'party.second_name' => __('forms.party.second_name'),
             'party.tax_id' => __('forms.party.tax_id'),
+            'party.workingExperience' => __('forms.working_experience'),
             'party.phones' => __('forms.party.phones'),
             'documents' => __('forms.documents'),
             'position' => __('forms.position'),
@@ -164,6 +165,14 @@ class EmployeeForm extends Form
         return $attributes;
     }
 
+    public function messages(): array
+    {
+        return [
+            'party.workingExperience.gt' => __('validation.custom.party.working_experience_gt'),
+            'party.workingExperience.integer' => __('validation.custom.party.working_experience_integer'),
+        ];
+    }
+
     protected function partyRules(): array
     {
         return [
@@ -178,7 +187,7 @@ class EmployeeForm extends Form
             'party.taxId' => ['required', 'string', new TaxId()],
             'party.noTaxId' => ['boolean'],
             'party.email' => ['required', 'present', 'email', new UniqueEmailInLegalEntity($this->existingPartyId)],
-            'party.workingExperience' => ['nullable', 'numeric', 'integer', 'min:1'],
+            'party.workingExperience' => ['nullable', 'integer', 'gt:0'],
             'party.aboutMyself' => ['nullable', 'present', 'string'],
         ];
     }
@@ -570,6 +579,16 @@ class EmployeeForm extends Form
         // --- 2. Identity (Party) ---
         if (isset($formData['party']['birthDate'])) {
             $formData['party']['birthDate'] = $toApiDate($formData['party']['birthDate']);
+        }
+
+        if (array_key_exists('workingExperience', $formData['party'] ?? [])) {
+            $workingExperience = $formData['party']['workingExperience'];
+
+            if ($workingExperience === null || $workingExperience === '') {
+                $formData['party']['workingExperience'] = null;
+            } else {
+                $formData['party']['workingExperience'] = (int) $workingExperience;
+            }
         }
 
         // --- 3. Documents ---

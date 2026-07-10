@@ -1213,14 +1213,6 @@ class EncounterForm extends BaseForm
 
                 return;
             }
-
-            if (
-                !$hasActionReferences
-                && empty($this->diagnosticReports)
-                && empty($this->procedures)
-            ) {
-                $fail(__('validation.custom.encounter.actionReferences.required_activity'));
-            }
         };
     }
 

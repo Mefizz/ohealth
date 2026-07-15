@@ -58,7 +58,7 @@ abstract class BaseContractRequestForm extends BaseForm
                     $date = CarbonImmutable::parse($value);
 
                     if (!($date->isCurrentYear() || $date->isNextYear())) {
-                        $fail('дата початку дії договору повинна бути рівною поточному або наступному року');
+                        $fail('Дата початку дії договору повинна бути рівною поточному або наступному року');
                     }
                 }
             ],
@@ -75,7 +75,7 @@ abstract class BaseContractRequestForm extends BaseForm
                         $endDate = CarbonImmutable::createFromFormat(config('app.date_format'), $value);
 
                         if ($startDate->year !== $endDate->year) {
-                            $fail('рік початку дії договору та рік кінця дії мають співпадати');
+                            $fail('Рік початку дії договору та рік кінця дії мають співпадати');
                         }
                     } catch (\Exception) {
                         // Let standard format validation handle the error

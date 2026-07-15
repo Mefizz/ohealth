@@ -137,6 +137,8 @@ return [
     'payment_methods' => [
         'forward' => 'Попередня оплата',
         'backward' => 'Післяплата',
+        'prepayment' => 'Передоплата',
+        'postpayment' => 'Післяплата',
     ],
 
     'policy' => [

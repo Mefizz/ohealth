@@ -151,6 +151,6 @@ class Contract extends EHealthRequest
             throw ValidationException::withMessages(['ehealth_error' => $errorMsg]);
         }
 
-        return $validator->validated();
+        return $transformedData;
     }
 }

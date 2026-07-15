@@ -130,6 +130,10 @@
                        id="startDate"
                        class="peer input pl-10 datepicker-input @error('form.startDate') input-error @enderror"
                        placeholder=" "
+                       datepicker-autohide
+                       datepicker-format="{{ frontendDateFormat() }}"
+                       datepicker-button="false"
+                       autocomplete="off"
                        required
                 />
                 <label for="startDate" class="wrapped-label">
@@ -146,6 +150,10 @@
                        id="endDate"
                        class="peer input pl-10 datepicker-input @error('form.endDate') input-error @enderror"
                        placeholder=" "
+                       datepicker-autohide
+                       datepicker-format="{{ frontendDateFormat() }}"
+                       datepicker-button="false"
+                       autocomplete="off"
                 />
                 <label for="endDate" class="wrapped-label">
                     {{ __('contracts.end_date_label') }}

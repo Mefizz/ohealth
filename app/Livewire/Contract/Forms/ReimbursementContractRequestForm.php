@@ -36,13 +36,13 @@ class ReimbursementContractRequestForm extends BaseContractRequestForm
                 if (!empty($this->previousRequestId)) {
                     // Prolongation limit: maximum 3 months
                     if ($startDate->addMonths(3)->lessThan($endDate)) {
-                        $fail('продовження дії договору можливе не більше ніж на три місяці');
+                        $fail('Продовження дії договору можливе не більше ніж на три місяці');
                     }
                 } else {
                     // Standard reimbursement contract limit
                     if ($startDate->diffInDays($endDate) > $maxDays) {
                         $fail(
-                            'різниця між датою закінчення договору та датою початку договору '
+                            'Різниця між датою закінчення договору та датою початку договору '
                             . 'не повинна перевищувати ' . $maxDays . ' днів'
                         );
                     }

@@ -120,6 +120,14 @@ class EHealthValidationException extends EHealthException
             'doctor.qualifications' => __('forms.qualifications'),
             'doctor.specialities' => __('forms.specialities'),
             'doctor.specialities.speciality_officio' => __('forms.speciality_officio'),
+            'code.coding[0].value' => __('care-plan.ehealth_fields.service_or_device_code'),
+            'code.coding[0]' => __('care-plan.ehealth_fields.service_or_device_code'),
+            'based_on[1].identifier.value' => __('care-plan.ehealth_fields.based_on_activity'),
+            'quantity.code' => __('care-plan.ehealth_fields.quantity_code'),
+            'requester.identifier.value' => __('care-plan.ehealth_fields.requester'),
+            'authored_on' => __('care-plan.ehealth_fields.authored_on'),
+            'medical_programs.[0]' => 'Медична програма',
+            'medical_programs' => 'Медична програма',
         ];
 
         $invalidErrors = Arr::get($this->details, 'error.invalid') ?? Arr::get($this->details, 'invalid') ?? [];
@@ -165,6 +173,18 @@ class EHealthValidationException extends EHealthException
                     : $message;
             } elseif (str_contains($message, 'Another activity with status') && str_contains($message, 'already exists')) {
                 $translatedMessage = __('errors.ehealth.messages.another_activity_exists');
+            } elseif (str_contains($message, 'Activity not found')) {
+                $translatedMessage = __('errors.ehealth.messages.activity_not_found_in_ehealth');
+            } elseif (str_contains($message, 'Requester doesn\'t match with encounter performer')) {
+                $translatedMessage = __('errors.ehealth.messages.requester_encounter_mismatch');
+            } elseif (str_contains($message, 'Not found any active Device Definition')) {
+                $translatedMessage = $message;
+            } elseif (str_contains($message, 'Authored on date must be in range')) {
+                $translatedMessage = __('errors.ehealth.messages.authored_on_out_of_range');
+            } elseif (str_contains($message, 'Medical program is not allowed for this action')) {
+                $translatedMessage = __('errors.ehealth.messages.medical_program_not_allowed');
+            } elseif (!empty($message)) {
+                $translatedMessage = $message;
             }
 
             if (empty($translatedMessage) && !empty($ruleName)) {

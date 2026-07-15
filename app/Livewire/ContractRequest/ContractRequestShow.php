@@ -283,7 +283,7 @@ class ContractRequestShow extends Component
         }
 
         $message = $exception instanceof EHealthValidationException
-            ? $exception->getFormattedMessage()
+            ? $exception->getTranslatedMessage()
             : __('contracts.action_error', ['message' => $exception->getMessage()]);
 
         Session::flash('error', $message);
@@ -350,6 +350,7 @@ class ContractRequestShow extends Component
                 'nhs_payment_method' => $ehealthData['nhs_payment_method'] ?? null,
                 'status' => $ehealthData['status'] ?? $this->contractRequest->status,
                 'status_reason' => $ehealthData['status_reason'] ?? null,
+                'inserted_at' => isset($ehealthData['inserted_at']) ? \Illuminate\Support\Carbon::parse($ehealthData['inserted_at']) : $this->contractRequest->inserted_at,
                 'printout_content' => $printoutContent ?? $this->contractRequest->printout_content,
                 'data' => $ehealthData,
             ]);

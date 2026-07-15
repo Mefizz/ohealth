@@ -68,6 +68,21 @@ class ContractRequestPolicy
             return Response::denyWithStatus(404);
         }
 
+        $status = $contractRequest->status instanceof \App\Enums\Contract\Status
+            ? $contractRequest->status
+            : \App\Enums\Contract\Status::tryFrom((string) $contractRequest->status);
+
+        if ($status !== \App\Enums\Contract\Status::APPROVED) {
+            return Response::deny(__('contracts.policy.approve_denied'));
+        }
+
+        if (($contractRequest->type === 'REIMBURSEMENT' || $contractRequest->type === \App\Enums\Contract\Type::REIMBURSEMENT->value)
+            && $user->hasAllowedRole([\App\Enums\User\Role::OWNER])
+            && legalEntity()->type->name === \App\Models\LegalEntity::TYPE_PRIMARY_CARE
+        ) {
+            return Response::deny(__('contracts.policy.approve_denied'));
+        }
+
         return $user->can('contract_request:approve')
             ? Response::allow()
             : Response::deny(__('contracts.policy.approve_denied'));
@@ -80,6 +95,14 @@ class ContractRequestPolicy
     {
         if ($contractRequest->contractor_legal_entity_id !== legalEntity()->uuid) {
             return Response::denyWithStatus(404);
+        }
+
+        $status = $contractRequest->status instanceof \App\Enums\Contract\Status
+            ? $contractRequest->status
+            : \App\Enums\Contract\Status::tryFrom((string) $contractRequest->status);
+
+        if ($status !== \App\Enums\Contract\Status::NHS_SIGNED) {
+            return Response::deny(__('contracts.policy.sign_denied'));
         }
 
         return $user->can('contract_request:sign')

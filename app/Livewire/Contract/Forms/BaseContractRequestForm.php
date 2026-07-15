@@ -6,6 +6,7 @@ namespace App\Livewire\Contract\Forms;
 
 use App\Core\Arr;
 use App\Core\BaseForm;
+use App\Rules\ContractRules\SameYearAs;
 use Carbon\CarbonImmutable;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
@@ -62,26 +63,7 @@ abstract class BaseContractRequestForm extends BaseForm
                     }
                 }
             ],
-            'endDate' => [
-                'required',
-                'date_format:' . config('app.date_format'),
-                'after_or_equal:startDate',
-                function ($attribute, $value, $fail) {
-                    if (empty($this->startDate) || empty($value)) {
-                        return;
-                    }
-                    try {
-                        $startDate = CarbonImmutable::createFromFormat(config('app.date_format'), $this->startDate);
-                        $endDate = CarbonImmutable::createFromFormat(config('app.date_format'), $value);
-
-                        if ($startDate->year !== $endDate->year) {
-                            $fail('Рік початку дії договору та рік кінця дії мають співпадати');
-                        }
-                    } catch (\Exception) {
-                        // Let standard format validation handle the error
-                    }
-                }
-            ],
+            'endDate' => $this->getEndDateRules(),
             'contractorPaymentDetails' => ['required', 'array'],
             'contractorPaymentDetails.payerAccount' => ['required', 'string', 'max:255'],
             'contractorPaymentDetails.MFO' => ['required', 'digits:6'],
@@ -89,6 +71,21 @@ abstract class BaseContractRequestForm extends BaseForm
             'contractNumber' => ['nullable', 'string', 'max:255'],
             'statuteMd5' => ['nullable', 'file'],
             'additionalDocumentMd5' => ['nullable', 'file'],
+        ];
+    }
+
+    /**
+     * Get validation rules for the end date.
+     *
+     * @return array
+     */
+    protected function getEndDateRules(): array
+    {
+        return [
+            'required',
+            'date_format:' . config('app.date_format'),
+            'after_or_equal:startDate',
+            new SameYearAs($this->startDate, config('app.date_format')),
         ];
     }
 

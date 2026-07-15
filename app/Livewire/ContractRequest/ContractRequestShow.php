@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Livewire\ContractRequest;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Contract\Status;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Contract\Forms\ContractRequestSigningForm as SigningForm;
@@ -44,19 +43,12 @@ class ContractRequestShow extends Component
 
     public function canApproveContractRequest(): bool
     {
-        if (($this->contractRequest->type === 'REIMBURSEMENT' || $this->contractRequest->type === \App\Enums\Contract\Type::REIMBURSEMENT->value)
-            && auth()->user()->hasAllowedRole([\App\Enums\User\Role::OWNER])
-            && legalEntity()->type->name === \App\Models\LegalEntity::TYPE_PRIMARY_CARE
-        ) {
-            return false;
-        }
-
-        return $this->statusValue() === Status::APPROVED->value;
+        return auth()->user()->can('approve', $this->contractRequest);
     }
 
     public function canSignContractRequest(): bool
     {
-        return $this->statusValue() === Status::NHS_SIGNED->value;
+        return auth()->user()->can('sign', $this->contractRequest);
     }
 
     public function openApproveModal(): void

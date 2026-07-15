@@ -139,10 +139,35 @@ class Contract extends EHealthRequest
             '*.uuid' => 'required|uuid',
             '*.status' => 'required|string',
             '*.contract_number' => 'required|string',
-            '*.contractor_legal_entity_id' => 'sometimes|uuid',
-            '*.contractor_owner_id' => 'sometimes|uuid',
-            '*.nhs_signer_id' => 'sometimes|uuid',
-            '*.edrpou' => 'sometimes|string',
+            '*.contractor_legal_entity_id' => 'sometimes|uuid|nullable',
+            '*.contractor_owner_id' => 'sometimes|uuid|nullable',
+            '*.nhs_signer_id' => 'sometimes|uuid|nullable',
+            '*.edrpou' => 'sometimes|string|nullable',
+
+            // Preserve other contract fields so they are not stripped by $validator->validated()
+            '*.type' => 'sometimes|string|nullable',
+            '*.start_date' => 'sometimes|string|nullable',
+            '*.end_date' => 'sometimes|string|nullable',
+            '*.contractor_base' => 'sometimes|string|nullable',
+            '*.contractor_payment_details' => 'sometimes|array|nullable',
+            '*.contractor_rmsp_amount' => 'sometimes|integer|nullable',
+            '*.contractor_divisions' => 'sometimes|array|nullable',
+            '*.external_contractor_flag' => 'sometimes|boolean|nullable',
+            '*.external_contractors' => 'sometimes|array|nullable',
+            '*.nhs_legal_entity_id' => 'sometimes|uuid|nullable',
+            '*.nhs_signer_base' => 'sometimes|string|nullable',
+            '*.nhs_payment_method' => 'sometimes|string|nullable',
+            '*.nhs_contract_price' => 'sometimes|numeric|nullable',
+            '*.nhs_signed_date' => 'sometimes|string|nullable',
+            '*.id_form' => 'sometimes|string|nullable',
+            '*.issue_city' => 'sometimes|string|nullable',
+            '*.medical_programs' => 'sometimes|array|nullable',
+            '*.inserted_at' => 'sometimes|string|nullable',
+
+            '*.contractor_legal_entity' => 'sometimes|array|nullable',
+            '*.contractor_owner' => 'sometimes|array|nullable',
+            '*.nhs_signer' => 'sometimes|array|nullable',
+            '*.nhs_legal_entity' => 'sometimes|array|nullable',
         ]);
 
         if ($validator->fails()) {
@@ -151,6 +176,6 @@ class Contract extends EHealthRequest
             throw ValidationException::withMessages(['ehealth_error' => $errorMsg]);
         }
 
-        return $transformedData;
+        return $validator->validated();
     }
 }

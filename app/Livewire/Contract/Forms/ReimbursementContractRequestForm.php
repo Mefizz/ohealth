@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\Contract\Forms;
 
 use App\Models\Contracts\ContractRequest;
+use App\Rules\ContractRules\ValidReimbursementPeriod;
 use App\Rules\InDictionary;
-use Carbon\CarbonImmutable;
 
 class ReimbursementContractRequestForm extends BaseContractRequestForm
 {
@@ -22,36 +22,6 @@ class ReimbursementContractRequestForm extends BaseContractRequestForm
     {
         $parentRules = parent::rules();
 
-        $parentRules['endDate'][] = function ($attribute, $value, $fail) {
-            if (empty($this->startDate) || empty($value)) {
-                return;
-            }
-
-            try {
-                $startDate = CarbonImmutable::createFromFormat(config('app.date_format'), $this->startDate);
-                $endDate = CarbonImmutable::createFromFormat(config('app.date_format'), $value);
-
-                $maxDays = config('ehealth.reimbursement_contract_max_period_day', 1096);
-
-                if (!empty($this->previousRequestId)) {
-                    // Prolongation limit: maximum 3 months
-                    if ($startDate->addMonths(3)->lessThan($endDate)) {
-                        $fail('Продовження дії договору можливе не більше ніж на три місяці');
-                    }
-                } else {
-                    // Standard reimbursement contract limit
-                    if ($startDate->diffInDays($endDate) > $maxDays) {
-                        $fail(
-                            'Різниця між датою закінчення договору та датою початку договору '
-                            . 'не повинна перевищувати ' . $maxDays . ' днів'
-                        );
-                    }
-                }
-            } catch (\Exception) {
-                // Let standard date format validation rules handle the error
-            }
-        };
-
         return array_merge($parentRules, [
             'idForm' => ['required', new InDictionary('REIMBURSEMENT_CONTRACT_TYPE')],
 
@@ -60,6 +30,25 @@ class ReimbursementContractRequestForm extends BaseContractRequestForm
             'medicalPrograms' => ['nullable', 'array'],
             'consentText' => ['accepted'],
         ]);
+    }
+
+    /**
+     * Get validation rules for the end date.
+     *
+     * @return array
+     */
+    protected function getEndDateRules(): array
+    {
+        return [
+            'required',
+            'date_format:' . config('app.date_format'),
+            'after_or_equal:startDate',
+            new ValidReimbursementPeriod(
+                $this->startDate,
+                $this->previousRequestId,
+                config('app.date_format')
+            ),
+        ];
     }
 
     /**

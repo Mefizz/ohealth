@@ -191,17 +191,6 @@
                                                     @icon('eye', 'w-5 h-5 text-gray-600')
                                                     {{ __('contracts.view') }}
                                                 </a>
-
-                                                {{-- Edit action available only for NEW status --}}
-                                                @if($item->status === 'NEW' || (is_object($item->status) && $item->status->value === 'NEW'))
-                                                    <a href="{{ route('contract-request.edit', ['legalEntity' => legalEntity(), 'contractRequest' => $item->id]) }}"
-                                                       wire:navigate
-                                                       class="flex items-center gap-2 w-full rounded-md px-4 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-                                                    >
-                                                        @icon('pencil', 'w-5 h-5 text-gray-600')
-                                                        {{ __('contracts.edit') }}
-                                                    </a>
-                                                @endif
                                             </div>
                                         </div>
                                     </div>

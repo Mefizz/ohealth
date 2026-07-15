@@ -70,13 +70,6 @@
                 @endif
             @endcan
 
-            @if($contractRequest->status === 'NEW' || (is_object($contractRequest->status) && $contractRequest->status->value === 'NEW'))
-                <a href="{{ route('contract-request.edit', ['legalEntity' => legalEntity()->id, 'contractRequest' => $contractRequest->id]) }}"
-                   class="button-primary"
-                   wire:navigate>
-                    {{ __('forms.edit') }}
-                </a>
-            @endif
         </div>
     </div>
 

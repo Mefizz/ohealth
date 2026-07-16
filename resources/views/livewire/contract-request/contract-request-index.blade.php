@@ -10,12 +10,21 @@
         <x-slot name="title">{{ __('contracts.contract_requests') }}</x-slot>
 
         <div class="mt-3 ml-0 flex flex-col sm:flex-row sm:flex-wrap gap-2 self-start">
-            <a href="{{ route('contract-request.reimbursement.create', [legalEntity()]) }}"
-               wire:navigate
-               class="button-primary flex items-center gap-2 whitespace-nowrap">
-                @icon('plus', 'w-4 h-4')
-                {{ __('contracts.new') }} ({{ __('contracts.reimbursement') }})
-            </a>
+            @if(legalEntity()->type->name === \App\Models\LegalEntity::TYPE_PRIMARY_CARE)
+                <a href="{{ route('contract-request.capitation.create', [legalEntity()]) }}"
+                   wire:navigate
+                   class="button-primary flex items-center gap-2 whitespace-nowrap">
+                    @icon('plus', 'w-4 h-4')
+                    {{ __('contracts.new') }} ({{ __('contracts.capitation') }})
+                </a>
+            @else
+                <a href="{{ route('contract-request.reimbursement.create', [legalEntity()]) }}"
+                   wire:navigate
+                   class="button-primary flex items-center gap-2 whitespace-nowrap">
+                    @icon('plus', 'w-4 h-4')
+                    {{ __('contracts.new') }} ({{ __('contracts.reimbursement') }})
+                </a>
+            @endif
 
             @can('sync', ContractRequest::class)
                 <button wire:click="sync" type="button" class="button-sync flex items-center gap-2 whitespace-nowrap">
@@ -115,7 +124,13 @@
                                 <td class="index-table-td">
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                         {{-- Translate the contract type dynamically --}}
-                                        {{ $item->type ? __('contracts.' . strtolower($item->type)) : __('contracts.missing') }}
+                                        @php
+                                            $displayType = $item->type ? __('contracts.' . strtolower($item->type)) : __('contracts.missing');
+                                            if ($item->type === 'REIMBURSEMENT' && legalEntity()->type->name === \App\Models\LegalEntity::TYPE_PRIMARY_CARE) {
+                                                $displayType = __('contracts.capitation');
+                                            }
+                                        @endphp
+                                        {{ $displayType }}
                                     </span>
                                 </td>
                                 <td class="index-table-td">
@@ -169,24 +184,13 @@
                                                 class="absolute right-0 mt-2 w-44 rounded-md bg-white shadow-md z-50 border border-gray-100"
                                             >
                                                 {{-- View action with fixed route parameters --}}
-                                                <a href="{{ route('contract-request.show', ['legalEntity' => legalEntity(), 'contractRequest' => $item->uuid]) }}"
+                                                <a href="{{ route('contract-request.show', ['legalEntity' => legalEntity(), 'contractRequest' => $item->id]) }}"
                                                    wire:navigate
                                                    class="flex items-center gap-2 w-full rounded-md px-4 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-50 transition-colors"
                                                 >
                                                     @icon('eye', 'w-5 h-5 text-gray-600')
                                                     {{ __('contracts.view') }}
                                                 </a>
-
-                                                {{-- Edit action available only for NEW status --}}
-                                                @if($item->status === 'NEW' || (is_object($item->status) && $item->status->value === 'NEW'))
-                                                    <a href="{{ route('contract-request.edit', ['legalEntity' => legalEntity(), 'contractRequest' => $item->uuid]) }}"
-                                                       wire:navigate
-                                                       class="flex items-center gap-2 w-full rounded-md px-4 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-                                                    >
-                                                        @icon('pencil', 'w-5 h-5 text-gray-600')
-                                                        {{ __('contracts.edit') }}
-                                                    </a>
-                                                @endif
                                             </div>
                                         </div>
                                     </div>

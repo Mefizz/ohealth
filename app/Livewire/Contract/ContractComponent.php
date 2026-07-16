@@ -286,7 +286,7 @@ abstract class ContractComponent extends Component
         }
 
         $msg = $exception instanceof EHealthValidationException
-            ? $exception->getFormattedMessage()
+            ? $exception->getTranslatedMessage()
             : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
         Session::flash('error', $msg);
     }

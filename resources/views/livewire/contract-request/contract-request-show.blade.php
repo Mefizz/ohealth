@@ -18,7 +18,7 @@
     </x-header-navigation>
 
     <fieldset disabled class="form shift-content space-y-8">
-        @include('livewire.contract.parts.basic-data', ['contract' => $contractRequest, 'data' => $contractData])
+        @include('livewire.contract.parts.basic-data', ['contract' => $contractRequest, 'data' => $contractData, 'idFormName' => $idFormName])
         @include('livewire.contract.parts.contractor', ['data' => $contractData])
         @include('livewire.contract.parts.nhs-customer', ['data' => $contractData])
         @include('livewire.contract.parts.payment-details', ['contract' => $contractRequest, 'data' => $contractData])
@@ -70,17 +70,10 @@
                 @endif
             @endcan
 
-            @if($contractRequest->status === 'NEW' || (is_object($contractRequest->status) && $contractRequest->status->value === 'NEW'))
-                <a href="{{ route('contract-request.edit', ['legalEntity' => legalEntity()->id, 'contractRequest' => $contractRequest->uuid]) }}"
-                   class="button-primary"
-                   wire:navigate>
-                    {{ __('forms.edit') }}
-                </a>
-            @endif
         </div>
     </div>
 
-    <x-signature-modal method="submitSignedAction">
+    <x-signature-modal method="submitSignedAction" agreementText="Засвідчуючи даний договір кваліфікованим електронним підписом я розумію, про настання певних прав та обов’язків, зрозумів текст договору.">
         <x-slot:customFields>
             <p class="default-p">
                 @if($pendingAction === 'approve')

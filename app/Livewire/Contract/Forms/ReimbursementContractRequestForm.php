@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\Contract\Forms;
 
 use App\Models\Contracts\ContractRequest;
+use App\Rules\ContractRules\ValidReimbursementPeriod;
 use App\Rules\InDictionary;
-use Carbon\CarbonImmutable;
 
 class ReimbursementContractRequestForm extends BaseContractRequestForm
 {
@@ -22,18 +22,6 @@ class ReimbursementContractRequestForm extends BaseContractRequestForm
     {
         $parentRules = parent::rules();
 
-        $parentRules['endDate'][] = function ($attribute, $value, $fail) {
-            $startDate = CarbonImmutable::parse($this->startDate);
-            $endDate = CarbonImmutable::parse($value);
-
-            if ($startDate->diffInDays($endDate) > self::REIMBURSEMENT_CONTRACT_MAX_PERIOD_DAY) {
-                $fail(
-                    'різниця між датою закінчення договору та датою початку договору '
-                    . 'не повинна перевищувати ' . self::REIMBURSEMENT_CONTRACT_MAX_PERIOD_DAY . ' днів'
-                );
-            }
-        };
-
         return array_merge($parentRules, [
             'idForm' => ['required', new InDictionary('REIMBURSEMENT_CONTRACT_TYPE')],
 
@@ -42,6 +30,25 @@ class ReimbursementContractRequestForm extends BaseContractRequestForm
             'medicalPrograms' => ['nullable', 'array'],
             'consentText' => ['accepted'],
         ]);
+    }
+
+    /**
+     * Get validation rules for the end date.
+     *
+     * @return array
+     */
+    protected function getEndDateRules(): array
+    {
+        return [
+            'required',
+            'date_format:' . config('app.date_format'),
+            'after_or_equal:startDate',
+            new ValidReimbursementPeriod(
+                $this->startDate,
+                $this->previousRequestId,
+                config('app.date_format')
+            ),
+        ];
     }
 
     /**

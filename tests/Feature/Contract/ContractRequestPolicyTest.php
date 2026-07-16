@@ -51,12 +51,13 @@ class ContractRequestPolicyTest extends TestCase
             'password' => bcrypt('password'),
             'party_id' => $party->id,
         ]);
-        $contractRequest = $this->createContractRequest($legalEntity, Status::APPROVED);
+        $contractRequestApprove = $this->createContractRequest($legalEntity, Status::APPROVED);
+        $contractRequestSign = $this->createContractRequest($legalEntity, Status::NHS_SIGNED);
 
         $policy = new ContractRequestPolicy();
 
-        $this->assertTrue($policy->approve($user, $contractRequest)->allowed());
-        $this->assertTrue($policy->sign($user, $contractRequest)->allowed());
+        $this->assertTrue($policy->approve($user, $contractRequestApprove)->allowed());
+        $this->assertTrue($policy->sign($user, $contractRequestSign)->allowed());
     }
 
     public function test_policy_denies_access_for_foreign_legal_entity(): void

@@ -251,6 +251,7 @@ class ContractRequestIndex extends Component
             ->when($this->search, function ($query) {
                 $query->where('contract_number', 'like', '%' . $this->search . '%');
             })
+            ->orderByRaw("CASE WHEN status = 'NEW' THEN 0 ELSE 1 END")
             ->orderByDesc('created_at')
             ->paginate(10);
 

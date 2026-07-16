@@ -139,6 +139,8 @@ class EHealthValidationException extends EHealthException
             'quantity.code' => __('care-plan.ehealth_fields.quantity_code'),
             'requester.identifier.value' => __('care-plan.ehealth_fields.requester'),
             'authored_on' => __('care-plan.ehealth_fields.authored_on'),
+            'medical_programs.[0]' => 'Медична програма',
+            'medical_programs' => 'Медична програма',
         ];
 
         $invalidErrors = Arr::get($this->details, 'error.invalid') ?? Arr::get($this->details, 'invalid') ?? [];
@@ -197,6 +199,8 @@ class EHealthValidationException extends EHealthException
                 $translatedMessage = $message;
             } elseif (str_contains($message, 'Authored on date must be in range')) {
                 $translatedMessage = __('errors.ehealth.messages.authored_on_out_of_range');
+            } elseif (str_contains($message, 'Medical program is not allowed for this action')) {
+                $translatedMessage = __('errors.ehealth.messages.medical_program_not_allowed');
             } elseif (!empty($message)) {
                 $translatedMessage = $message;
             }

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Livewire\ContractRequest;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Contract\Status;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Contract\Forms\ContractRequestSigningForm as SigningForm;
@@ -44,12 +43,12 @@ class ContractRequestShow extends Component
 
     public function canApproveContractRequest(): bool
     {
-        return $this->statusValue() === Status::APPROVED->value;
+        return auth()->user()->can('approve', $this->contractRequest);
     }
 
     public function canSignContractRequest(): bool
     {
-        return $this->statusValue() === Status::NHS_SIGNED->value;
+        return auth()->user()->can('sign', $this->contractRequest);
     }
 
     public function openApproveModal(): void
@@ -276,7 +275,7 @@ class ContractRequestShow extends Component
         }
 
         $message = $exception instanceof EHealthValidationException
-            ? $exception->getFormattedMessage()
+            ? $exception->getTranslatedMessage()
             : __('contracts.action_error', ['message' => $exception->getMessage()]);
 
         Session::flash('error', $message);
@@ -343,6 +342,7 @@ class ContractRequestShow extends Component
                 'nhs_payment_method' => $ehealthData['nhs_payment_method'] ?? null,
                 'status' => $ehealthData['status'] ?? $this->contractRequest->status,
                 'status_reason' => $ehealthData['status_reason'] ?? null,
+                'inserted_at' => isset($ehealthData['inserted_at']) ? \Illuminate\Support\Carbon::parse($ehealthData['inserted_at']) : $this->contractRequest->inserted_at,
                 'printout_content' => $printoutContent ?? $this->contractRequest->printout_content,
                 'data' => $ehealthData,
             ]);
@@ -374,6 +374,11 @@ class ContractRequestShow extends Component
 
     public function render()
     {
-        return view('livewire.contract-request.contract-request-show');
+        $dictionaryName = $this->contractRequest->type === 'REIMBURSEMENT' ? 'REIMBURSEMENT_CONTRACT_TYPE' : 'CONTRACT_TYPE';
+        $idFormName = dictionary()->basics()->byName($dictionaryName)->asCodeDescription()->toArray()[$this->contractRequest->id_form] ?? $this->contractRequest->id_form;
+
+        return view('livewire.contract-request.contract-request-show', [
+            'idFormName' => $idFormName,
+        ]);
     }
 }

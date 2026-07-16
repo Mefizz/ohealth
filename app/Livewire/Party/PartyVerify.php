@@ -28,13 +28,13 @@ class PartyVerify extends Component
     #[Locked]
     public bool $showUpdateModal = false;
 
-    #[Validate('required|string|in:VERIFIED,NOT_VERIFIED')]
-    public string $status = '';
+    #[Validate('required|string|in:VERIFIED')]
+    public string $status = 'VERIFIED';
 
-    #[Validate('required_if:status,NOT_VERIFIED|string|max:255')]
+    #[Validate('required|string|in:MANUAL_CONFIRMED,MANUAL_NOT_CONFIRMED')]
     public string $reason = '';
 
-    #[Validate('nullable|string|max:1000')]
+    #[Validate('required|string|max:3000')]
     public string $comment = '';
     public string $backUrl = '';
 
@@ -43,6 +43,7 @@ class PartyVerify extends Component
         $this->legalEntity = $legalEntity;
         $this->party = $party;
         $this->loadVerificationDetails();
+        $this->status = 'VERIFIED';
 
         $previous = url()->previous();
         $current = request()->url();
@@ -118,6 +119,8 @@ class PartyVerify extends Component
     public function checkAndOpenModal(): void
     {
         if ($this->canUpdateVerification) {
+            $this->status = 'VERIFIED';
+            $this->verificationStream = 'dracs_death';
             $this->showUpdateModal = true;
         } else {
             $message = __('party_verification.update_unavailable_reason')
@@ -133,7 +136,8 @@ class PartyVerify extends Component
     public function closeUpdateModal(): void
     {
         $this->showUpdateModal = false;
-        $this->reset(['status', 'reason', 'comment']);
+        $this->reset(['reason', 'comment']);
+        $this->status = 'VERIFIED';
         $this->resetErrorBag();
     }
 
@@ -141,9 +145,9 @@ class PartyVerify extends Component
     {
         $this->validate([
             'verificationStream' => 'required|string',
-            'status' => 'required|string|in:VERIFIED,NOT_VERIFIED',
-            'reason' => 'required|string',
-            'comment' => 'nullable|string|max:3000',
+            'status' => 'required|string|in:VERIFIED',
+            'reason' => 'required|string|in:MANUAL_CONFIRMED,MANUAL_NOT_CONFIRMED',
+            'comment' => 'required|string|max:3000',
         ]);
 
         try {

@@ -163,30 +163,25 @@
                         <label for="verificationStream" class="label">{{ __('party_verification.subject_verification') }}</label>
                     </div>
 
-                    {{-- 2. Status --}}
+                    {{-- 2. Status (3.23.3.4: confirm and deny both send VERIFIED) --}}
                     <div class="form-group group">
-                        <select wire:model.live="status" id="status" class="input peer px-4 py-2">
-                            <option value="">{{ __('forms.select_status') }}</option>
+                        <select wire:model.live="status" id="status" class="input peer px-4 py-2" disabled>
                             <option value="VERIFIED">{{ __('party_verification.statuses.VERIFIED') }}</option>
-                            <option value="NOT_VERIFIED">{{ __('party_verification.statuses.NOT_VERIFIED') }}</option>
                         </select>
                         <label for="status" class="label">{{ __('party_verification.status') }}</label>
                         @error('status') <span class="text-red-500 text-sm mt-1">{{ $message }}</span> @enderror
                     </div>
 
-                    {{-- 3. Reason --}}
+                    {{-- 3. Reason: MANUAL_CONFIRMED / MANUAL_NOT_CONFIRMED (not MANUAL_DECEASED / MANUAL_NO_DEATH_RECORD) --}}
                     <div class="form-group group">
-                        <select wire:model="reason" id="reason" class="input peer px-4 py-2" @if(empty($status)) disabled @endif>
+                        <select wire:model="reason" id="reason" class="input peer px-4 py-2">
                             <option value="">{{ __('forms.choose_reason') }}</option>
-                            @if($status === 'VERIFIED')
-                                <option value="MANUAL_NOT_CONFIRMED">
-                                    {{ __('party_verification.reasons.MANUAL_NOT_CONFIRMED') }}
-                                </option>
-                            @elseif($status === 'NOT_VERIFIED')
-                                <option value="MANUAL_CONFIRMED">
-                                    {{ __('party_verification.reasons.MANUAL_CONFIRMED') }}
-                                </option>
-                            @endif
+                            <option value="MANUAL_CONFIRMED">
+                                {{ __('party_verification.reasons.MANUAL_CONFIRMED') }}
+                            </option>
+                            <option value="MANUAL_NOT_CONFIRMED">
+                                {{ __('party_verification.reasons.MANUAL_NOT_CONFIRMED') }}
+                            </option>
                         </select>
                         <label for="reason" class="label">{{ __('forms.reason_code') }}</label>
                         @error('reason') <span class="text-red-500 text-sm mt-1">{{ $message }}</span> @enderror

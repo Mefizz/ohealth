@@ -98,13 +98,13 @@ class PartyVerify extends Component
             if (!empty($data['data']['details']) && is_array($data['data']['details'])) {
                 $data['data']['details'] = array_filter(
                     $data['data']['details'],
-                    static fn($key) => in_array($key, $allowedStreams, true),
+                    static fn ($key) => in_array($key, $allowedStreams, true),
                     ARRAY_FILTER_USE_KEY
                 );
             } elseif (!empty($data['details']) && is_array($data['details'])) {
                 $data['details'] = array_filter(
                     $data['details'],
-                    static fn($key) => in_array($key, $allowedStreams, true),
+                    static fn ($key) => in_array($key, $allowedStreams, true),
                     ARRAY_FILTER_USE_KEY
                 );
             }
@@ -151,19 +151,12 @@ class PartyVerify extends Component
         ]);
 
         try {
-            $data = [
-                'verification_status' => $this->status,
-                'verification_reason' => $this->reason,
-                'verification_comment' => $this->comment,
-            ];
-
-            // Wrap the data in the stream key
             $payload = [
                 $this->verificationStream => [
-                    'status' => $this->status,
-                    'reason' => $this->reason,
-                    'comment' => $this->comment,
-                ]
+                    'verification_status' => $this->status,
+                    'verification_reason' => $this->reason,
+                    'verification_comment' => $this->comment,
+                ],
             ];
 
             EHealth::party()->update($this->party->uuid, $payload);

@@ -207,9 +207,9 @@ class PartyVerificationTest extends TestCase
         $mockPartyApi->shouldReceive('update')
             ->with($party->uuid, [
                 'dracs_death' => [
-                    'status' => 'VERIFIED',
-                    'reason' => 'MANUAL_NOT_CONFIRMED',
-                    'comment' => 'Everything is fine',
+                    'verification_status' => 'VERIFIED',
+                    'verification_reason' => 'MANUAL_NOT_CONFIRMED',
+                    'verification_comment' => 'Everything is fine',
                 ]
             ])
             ->once()
@@ -258,9 +258,9 @@ class PartyVerificationTest extends TestCase
         $mockPartyApi->shouldReceive('update')
             ->with($party->uuid, [
                 'dracs_death' => [
-                    'status' => 'VERIFIED',
-                    'reason' => 'MANUAL_CONFIRMED',
-                    'comment' => 'Death confirmed by HR documents',
+                    'verification_status' => 'VERIFIED',
+                    'verification_reason' => 'MANUAL_CONFIRMED',
+                    'verification_comment' => 'Death confirmed by HR documents',
                 ],
             ])
             ->once()

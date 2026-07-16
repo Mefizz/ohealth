@@ -42,8 +42,19 @@ class EHealthResponseException extends EHealthException
             'class' => $caller['class'] ?? 'unknown_class',
             'method' => $caller['function'] ?? 'unknown_method',
             'exception_type' => static::class,
-            'error_message' => $this->getDetails()
+            'error_message' => $this->getDetails(),
         ]);
+
+        // When the caller has not provided a custom flash message and the API
+        // returned 403 "Party is not verified", show the official informational
+        // message defined in section 3.1.1.4 of the specification.
+        // This check is placed here so that every ->handle() call across the
+        // entire project benefits from the fix automatically.
+        if ($flashMessage === null && $this->isPartyNotVerified()) {
+            Session::flash('error', __('errors.ehealth.messages.party_not_verified'));
+
+            return;
+        }
 
         $message = $flashMessage ?? __('messages.ehealth_error', ['message' => $this->getMessage()]);
 
@@ -52,6 +63,16 @@ class EHealthResponseException extends EHealthException
         }
 
         Session::flash('error', $message);
+    }
+
+    /**
+     * Returns true when the eHealth API denied the request because the
+     * employee's party is not verified (BLOCK_UNVERIFIED_PARTY_USERS=true).
+     */
+    public function isPartyNotVerified(): bool
+    {
+        return $this->response->status() === 403
+            && str_contains($this->response->json('error.message', ''), 'Party is not verified');
     }
 
     /**

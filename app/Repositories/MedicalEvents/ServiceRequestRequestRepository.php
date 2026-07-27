@@ -13,6 +13,10 @@ use Throwable;
  */
 class ServiceRequestRequestRepository extends BaseRepository
 {
+    public function __construct(ServiceRequestRequest $model)
+    {
+        parent::__construct($model);
+    }
     /**
      * Create or update service request request in DB for patient.
      *

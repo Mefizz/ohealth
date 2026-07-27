@@ -65,9 +65,12 @@
                     >
                         <option value="">{{ __('forms.select') }}</option>
                         <option value="draft">{{ __('care-plan.status.draft') }}</option>
+                        <option value="new">{{ __('care-plan.status.new') }}</option>
                         <option value="active">{{ __('care-plan.status.active') }}</option>
+                        <option value="on-hold">{{ __('care-plan.status.on-hold') }}</option>
                         <option value="completed">{{ __('care-plan.status.completed') }}</option>
                         <option value="revoked">{{ __('care-plan.status.revoked') }}</option>
+                        <option value="entered-in-error">{{ __('care-plan.status.entered-in-error') }}</option>
                     </select>
                     <label for="filterStatus" class="label">
                         {{ __('forms.status.label') }}

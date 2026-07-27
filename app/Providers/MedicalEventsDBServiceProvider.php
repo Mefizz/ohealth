@@ -21,11 +21,10 @@ use App\Repositories\MedicalEvents\PaperReferralRepository;
 use App\Repositories\MedicalEvents\PeriodRepository;
 use App\Repositories\MedicalEvents\ProcedureRepository;
 use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;
-use Illuminate\Contracts\Support\DeferrableProvider;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 
-class MedicalEventsDBServiceProvider extends ServiceProvider implements DeferrableProvider
+class MedicalEventsDBServiceProvider extends ServiceProvider
 {
     /**
      * Register services.

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EhealthRequestProcessing extends Model
 {
-    protected $table = 'ehealth_request_processing';
+    protected $table = 'ehealth_request_processings';
 
     protected $fillable = [
         'ehealth_link_id',

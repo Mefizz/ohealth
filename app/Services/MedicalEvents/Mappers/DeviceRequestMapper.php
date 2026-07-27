@@ -162,7 +162,7 @@ class DeviceRequestMapper implements FhirMapperContract
             'quantity' => $this->mapDeviceQuantity($data),
             'encounter' => !empty($uuids['encounter_uuid'])
                 ? $this->resourceIdentifier('encounter', (string) $uuids['encounter_uuid'])
-                : null,
+                : (!empty($uuids['episode_uuid']) ? $this->resourceIdentifier('episode_of_care', (string) $uuids['episode_uuid']) : null),
             'basedOn' => [
                 $this->resourceIdentifier('care_plan', $carePlanUuid),
                 $this->resourceIdentifier('activity', $activityUuid),

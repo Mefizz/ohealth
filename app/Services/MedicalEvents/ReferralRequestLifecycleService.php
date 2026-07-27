@@ -122,6 +122,7 @@ class ReferralRequestLifecycleService
         $uuids = [
             'person_uuid' => $carePlan->person->uuid,
             'encounter_uuid' => $carePlan->encounter?->uuid ?? null,
+            'episode_uuid' => $carePlan->episode_id,
             'employee_uuid' => $employeeContext['employee_uuid'] ?? null,
             'legal_entity_uuid' => $employeeContext['legal_entity_uuid'] ?? null,
         ];

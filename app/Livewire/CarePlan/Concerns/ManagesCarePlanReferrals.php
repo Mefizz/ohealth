@@ -202,6 +202,8 @@ trait ManagesCarePlanReferrals
         }
 
         try {
+            $this->carePlan->loadMissing(['encounter', 'person']);
+
             $employeeContext = $this->referralLifecycle->resolveEmployeeContext(
                 $this->carePlan,
                 $activity,
@@ -281,6 +283,8 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        $this->carePlan->loadMissing(['encounter', 'person']);
+
         $requestRecord = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first()
             ?? \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
 
@@ -306,6 +310,7 @@ trait ManagesCarePlanReferrals
             $uuids = [
                 'person_uuid' => $this->carePlan->person->uuid,
                 'encounter_uuid' => $this->carePlan->encounter?->uuid ?? null,
+                'episode_uuid' => $this->carePlan->episode_id,
                 'employee_uuid' => $employeeContext['employee_uuid'],
                 'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
             ];

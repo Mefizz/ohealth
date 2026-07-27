@@ -13,6 +13,10 @@ use Throwable;
  */
 class DeviceRequestRequestRepository extends BaseRepository
 {
+    public function __construct(DeviceRequestRequest $model)
+    {
+        parent::__construct($model);
+    }
     /**
      * Create or update device request request in DB for patient.
      *

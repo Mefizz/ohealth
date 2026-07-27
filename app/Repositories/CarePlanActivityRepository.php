@@ -221,16 +221,18 @@ class CarePlanActivityRepository
         return removeEmptyKeys([
             'id' => $activity->uuid,
             'author' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [
-                            [
-                                'system' => 'eHealth/resources',
-                                'code' => 'employee'
+                [
+                    'identifier' => [
+                        'type' => [
+                            'coding' => [
+                                [
+                                    'system' => 'eHealth/resources',
+                                    'code' => 'employee'
+                                ]
                             ]
-                        ]
-                    ],
-                    'value' => $authorUuid
+                        ],
+                        'value' => $authorUuid
+                    ]
                 ]
             ],
             'care_plan' => [
@@ -953,10 +955,6 @@ class CarePlanActivityRepository
         ];
 
         $normalized = $this->stripActivityPayloadKeys($payload, $excludeKeys);
-
-        if (isset($normalized['author']) && is_array($normalized['author']) && isset($normalized['author'][0])) {
-            $normalized['author'] = $normalized['author'][0];
-        }
 
         return removeEmptyKeys($normalized);
     }

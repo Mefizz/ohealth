@@ -150,18 +150,23 @@ class CarePlanApprovalService
      */
     public function resolveAsyncJob(int $pollingLinkId): CarePlanApprovalJobStatusResult
     {
-        $link = EhealthLink::with(['job', 'linkable'])->find($pollingLinkId);
+        $link = EhealthLink::with(['job', 'linkable', 'processingData'])->find($pollingLinkId);
 
         if (!$link || !$link->job) {
             return new CarePlanApprovalJobStatusResult(CarePlanApprovalJobOutcome::Pending);
         }
 
         $status = strtoupper((string) ($link->job->status ?? ''));
+        $jobResult = $link->processingData->sortByDesc('id')->first()?->response_data ?? $link->job->response_data ?? [];
+
+        if (is_string($jobResult)) {
+            $jobResult = json_decode($jobResult, true) ?? [];
+        }
 
         if ($status === 'FAILED') {
             return new CarePlanApprovalJobStatusResult(
                 CarePlanApprovalJobOutcome::Failed,
-                errorMessage: $this->formatJobError($link->job->response_data ?? []),
+                errorMessage: $this->formatJobError($jobResult),
             );
         }
 
@@ -169,7 +174,6 @@ class CarePlanApprovalService
             return new CarePlanApprovalJobStatusResult(CarePlanApprovalJobOutcome::Pending);
         }
 
-        $jobResult = $link->job->response_data ?? [];
         $realApprovalId = $this->extractApprovalId($jobResult);
 
         if ($realApprovalId && $link->linkable instanceof Approval) {

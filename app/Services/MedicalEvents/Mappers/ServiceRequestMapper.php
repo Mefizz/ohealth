@@ -140,6 +140,8 @@ class ServiceRequestMapper implements FhirMapperContract
 
         if (!empty($uuids['encounter_uuid'])) {
             $serviceRequest['context'] = $this->resourceIdentifier('encounter', (string) $uuids['encounter_uuid']);
+        } elseif (!empty($uuids['episode_uuid'])) {
+            $serviceRequest['context'] = $this->resourceIdentifier('episode_of_care', (string) $uuids['episode_uuid']);
         }
 
         if (!empty($data['category'])) {
@@ -320,8 +322,8 @@ class ServiceRequestMapper implements FhirMapperContract
 
         return [
             'occurrence_period' => [
-                'start' => $start->toIso8601String(),
-                'end' => $end->toIso8601String(),
+                'start' => $start->utc()->format('Y-m-d\TH:i:s.000\Z'),
+                'end' => $end->endOfDay()->utc()->format('Y-m-d\TH:i:s.000\Z'),
             ],
         ];
     }

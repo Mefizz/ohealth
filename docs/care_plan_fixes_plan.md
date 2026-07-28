@@ -24,33 +24,28 @@
 
 ## 🛠️ Запропоновані зміни
 
-### 1. Відмова від окремих роутів для скасування/завершення
+### 1. Відмова від окремих роутів для скасування/завершення (✅ ВИКОНАНО)
 * Видалити GET-роути для скасування та завершення з [web.php](file:///wsl.localhost/Ubuntu/home/mefizz/projects/ohealth/routes/web.php).
 * Видалити класи Livewire-компонентів:
   * `App\Livewire\CarePlan\Cancel\CarePlanCancel`
   * `App\Livewire\CarePlan\Complete\CarePlanComplete`
+  * `App\Livewire\TreatmentPlan\TreatmentPlanCreate` (рудимент)
 * Видалити відповідні шаблони Blade:
   * `resources/views/livewire/care-plan/cancel/care-plan-cancel.blade.php`
   * `resources/views/livewire/care-plan/complete/care-plan-complete.blade.php`
+  * `resources/views/livewire/treatment-plan/treatment-plan-create.blade.php`
 
-### 2. Інтеграція підпису безпосередньо у сторінку деталей
-* На сторінці деталей плану лікування (`/care-plans/{carePlan}`) змінити посилання "Скасувати" та "Завершити" на кнопки, що безпосередньо викликають `wire:click="openSignatureModal('cancel')"` та `wire:click="openSignatureModal('complete')`.
-* Оскільки клас `CarePlanShow` уже використовує трейт `ManagesCarePlanLifecycle`, модальні вікна підпису та логіка відправки на ЕСОЗ будуть працювати інлайново на тій самій сторінці.
+### 2. Інтеграція підпису безпосередньо у сторінку деталей (✅ ВИКОНАНО)
+* На сторінці деталей плану лікування (`/care-plans/{carePlan}`) змінити посилання "Скасувати" та "Завершити" на кнопки, що безпосередньо викликають `wire:click="openSignatureModal('cancel')"` та `wire:click="openSignatureModal('complete')"`.
+* Оскільки клас `CarePlanShow` уже використовує трейт `CarePlanManager` (колишній `ManagesCarePlanLifecycle`), модальні вікна підпису та логіка відправки на ЕСОЗ працюють інлайново на тій самій сторінці.
 
-### 3. Запобігання GET-відправці при натисканні Enter
-* У компоненті [signature-modal.blade.php](file:///wsl.localhost/Ubuntu/home/mefizz/projects/ohealth/resources/views/components/signature-modal.blade.php) змінити `<form>` на `<form onsubmit="return false;">`. Це вимкне стандартну поведінку браузера з відправки форми через GET при натисканні клавіші Enter у полі введення пароля.
+### 3. Запобігання GET-відправці при натисканні Enter (✅ ВИКОНАНО)
+* У компоненті [signature-modal.blade.php](file:///wsl.localhost/Ubuntu/home/mefizz/projects/ohealth/resources/views/components/signature-modal.blade.php) змінено `<form>` на `<form onsubmit="return false;">`. Це вимикає стандартну поведінку браузера з відправки форми через GET при натисканні клавіші Enter у полі введення пароля.
 
-### 4. Виправлення синхронізації БД (Period та Terms of Service)
-* Додати `'terms_of_service' => $this->form->termsOfService` до Eloquent-масивів збереження та оновлення в:
-  * `CarePlanCreate::save()`
-  * `CarePlanCreate::sign()`
-  * `CarePlanUpdate::save()`
-  * `CarePlanUpdate::sign()`
-* Синхронізувати відношення `effectivePeriod` після збереження/оновлення локального запису плану лікування за допомогою:
-  ```php
-  \App\Repositories\MedicalEvents\Repository::period()->sync($carePlan, $entity['period'] ?? ($finalResponse['period'] ?? []), 'effectivePeriod');
-  ```
-  (або використовуючи київський час для локальних чернеток).
+### 4. Виправлення синхронізації БД та помилки 403 (✅ ВИКОНАНО)
+* Додано `'terms_of_service' => $this->form->termsOfService` до Eloquent-масивів збереження та оновлення.
+* Синхронізовано відношення `effectivePeriod` після збереження/оновлення локального запису плану лікування.
+* **Критичне виправлення (Помилка 403 Access Denied)**: Виправлено формування об'єкта `care_manager` під час створення Плану лікування (додано структуру `type: { coding: [{ system: 'eHealth/resources', code: 'employee' }] }`). Раніше через відсутність типу EHealth не реєстрував менеджера плану, що блокувало скасування плану або призначень іншими користувачами через помилку `403`.
 
 ---
 

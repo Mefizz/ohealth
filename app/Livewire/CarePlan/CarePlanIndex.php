@@ -165,12 +165,12 @@ class CarePlanIndex extends Component
             if (!empty($this->filterEndDateRange)) {
                 $query->whereDate('period_end', '<=', \Carbon\Carbon::parse($this->filterEndDateRange));
             }
-            
+
             if (!empty($this->filterEncounterId)) {
                 $query->where('encounter_id', 'like', "%{$this->filterEncounterId}%");
             }
-            
-            // Requisition search uses searchByRequisition which syncs with API, 
+
+            // Requisition search uses searchByRequisition which syncs with API,
             // but we can also filter locally by requisition.
             if (!empty($this->searchRequisition)) {
                 $query->where('requisition', 'like', "%{$this->searchRequisition}%");

@@ -202,11 +202,12 @@ Repositories (local persistence)
 
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
-| **0** | Цей документ + issue + branch | 🔄 in progress |
-| **1** | Blockers: inform_with, mapper payload, based_on, reject API, prequalify hook | pending |
-| **2** | Lifecycle refactor, EHealthJobResolver everywhere | pending |
-| **3** | UX, UAT checklist, localized statuses | pending |
-| **4** | Tests: create/sign/reject/prequalify Livewire + mapper | pending |
+| **0** | Цей документ + issue + branch | ✅ done |
+| **0.5** | CarePlan CRUD fixes: Cancel UI modal fix, 403 Access Denied (care_manager type fix), видалення рудиментів | ✅ done |
+| **1** | Blockers: inform_with, mapper payload, based_on, reject API, prequalify hook | ✅ done |
+| **2** | Lifecycle refactor, EHealthJobResolver everywhere | ✅ done |
+| **3** | UX, UAT checklist, localized statuses | ✅ done |
+| **4** | Tests: create/sign/reject/prequalify Livewire + mapper | ✅ done |
 
 ---
 

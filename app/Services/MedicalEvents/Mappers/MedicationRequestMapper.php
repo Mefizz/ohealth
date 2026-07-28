@@ -129,6 +129,36 @@ class MedicationRequestMapper implements FhirMapperContract
                     }, $inst['dose_and_rate']);
                 }
 
+                if (isset($inst['max_dose_per_administration'])) {
+                    $unit = $inst['dose_and_rate'][0]['dose_quantity_unit'] ?? null;
+                    $code = $inst['dose_and_rate'][0]['dose_quantity_code'] ?? $unit;
+                    $dosage['maxDosePerAdministration'] = [
+                        'value' => (float) $inst['max_dose_per_administration'],
+                        'unit' => $unit,
+                        'system' => 'http://unitsofmeasure.org',
+                        'code' => $code
+                    ];
+                }
+
+                if (isset($inst['max_dose_per_period'])) {
+                    $unit = $inst['dose_and_rate'][0]['dose_quantity_unit'] ?? null;
+                    $code = $inst['dose_and_rate'][0]['dose_quantity_code'] ?? $unit;
+                    $dosage['maxDosePerPeriod'] = [
+                        'numerator' => [
+                            'value' => (float) $inst['max_dose_per_period'],
+                            'unit' => $unit,
+                            'system' => 'http://unitsofmeasure.org',
+                            'code' => $code
+                        ],
+                        'denominator' => [
+                            'value' => 1,
+                            'unit' => 'd',
+                            'system' => 'http://unitsofmeasure.org',
+                            'code' => 'd'
+                        ]
+                    ];
+                }
+
                 return array_filter($dosage, fn ($val) => $val !== null);
             }, $data['dosage_instructions'], array_keys($data['dosage_instructions']));
         }

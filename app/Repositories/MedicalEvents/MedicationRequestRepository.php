@@ -44,6 +44,7 @@ class MedicationRequestRepository extends BaseRepository
                 'prior_prescription_id' => $data['prior_prescription_id'] ?? null,
                 'container_dosage' => $data['container_dosage'] ?? null,
                 'note' => $data['note'] ?? null,
+                'inform_with' => $data['inform_with'] ?? null,
             ]);
 
             if (!empty($data['dosage_instructions'])) {

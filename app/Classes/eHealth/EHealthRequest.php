@@ -95,6 +95,12 @@ abstract class EHealthRequest extends PendingRequest
             throw new EHealthValidationException($response->json());
         }
 
+        Log::error('eHealth request failed', [
+            'status' => $response->status(),
+            'url' => $url,
+            'body' => $response->body()
+        ]);
+
         throw new EHealthResponseException($response);
     }
 

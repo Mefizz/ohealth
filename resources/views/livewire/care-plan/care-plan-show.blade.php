@@ -327,10 +327,7 @@
                             Активувати план (Дозвіл пацієнта)
                         </button>
                     @elseif($carePlan->uuid && in_array(strtoupper($status), [Status::ACTIVE->value]))
-                        <button type="button" class="button-minor text-red-500 border-red-200 hover:bg-red-50" @click="$wire.openSignatureModal('cancel')">
-                            Скасувати
-                        </button>
-                        <button type="button" class="button-danger-outline" @click="$wire.openSignatureModal('complete')">
+                        <button type="button" class="button-danger-outline" @click="$wire.openSignatureModal('cancel')">
                             Відмінити план лікування
                         </button>
                         <button type="button" class="button-primary" @click="$wire.openSignatureModal('complete')">
@@ -491,6 +488,8 @@
             @include('livewire.care-plan.parts.modals.cancel-activity-modal', ['method' => 'sign'])
         @elseif($actionType === 'complete_activity')
             @include('livewire.care-plan.parts.modals.complete-activity-modal', ['method' => 'sign'])
+        @elseif($actionType === 'reject_prescription')
+            @include('components.signature-modal', ['method' => 'signRejectPrescription'])
         @else
             @include('components.signature-modal', ['method' => 'sign'])
         @endif

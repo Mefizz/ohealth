@@ -842,7 +842,7 @@ class EncounterForm extends BaseForm
             'procedures.*.performedPeriodStartTime' => ['nullable'],
             'procedures.*.performedPeriodEndDate' => ['nullable'],
             'procedures.*.performedPeriodEndTime'=> ['nullable'],
-            
+
             'procedures.*.note' => ['nullable', 'string'],
             ...$this->paperReferralRules('procedures.*'),
 
@@ -1178,7 +1178,7 @@ class EncounterForm extends BaseForm
      * @param  array  $rules
      * @return void
      */
-    private function addAllowedEncounterTypes(array &$rules): void 
+    private function addAllowedEncounterTypes(array &$rules): void
     {
         $rules['encounter.typeCode'][] = function (string $attribute, mixed $value, Closure $fail): void {
                 $classCode = $this->encounter['classCode'] ?? null;

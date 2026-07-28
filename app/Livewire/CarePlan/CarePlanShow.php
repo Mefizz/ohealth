@@ -163,6 +163,10 @@ class CarePlanShow extends Component
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
 
+            $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] = $basics->byName('eHealth/MEDICATION_REQUEST_REJECT_REASON')
+                ?->asCodeDescription()
+                ?->toArray() ?? [];
+
             // Load medical programs
             $programs = app(\App\Services\Dictionary\DictionaryManager::class)->medicalPrograms();
             $this->dictionaries['medical_programs'] = $programs
@@ -234,6 +238,9 @@ class CarePlanShow extends Component
         }
         if ($this->actionType === 'cancel_activity') {
             return $this->dictionaries['care_plan_activity_cancel_reasons'] ?? [];
+        }
+        if ($this->actionType === 'reject_prescription') {
+            return $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] ?? [];
         }
 
         return $this->dictionaries['care_plan_cancel_reasons'] ?? [];
@@ -1385,7 +1392,14 @@ class CarePlanShow extends Component
                 array_map(fn ($m) => ['display' => $m['name']], $this->carePlan->supporting_info['medical_records'] ?? [])
             ),
             'encounter' => $this->carePlan->encounter?->uuid ? ['identifier' => ['value' => $this->carePlan->encounter->uuid]] : null,
-            'care_manager' => ['identifier' => ['value' => Auth::user()?->activeDoctorEmployee()?->uuid]],
+            'care_manager' => [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
+                    ],
+                    'value' => Auth::user()?->activeDoctorEmployee()?->uuid
+                ]
+            ],
             'description' => $this->carePlan->description ?: null,
             'note' => $this->carePlan->note ?: null,
             'inform_with' => $this->carePlan->inform_with ?: null,

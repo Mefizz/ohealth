@@ -134,7 +134,22 @@ class CarePlan extends Model
     public function getEpisodeIdAttribute(): ?string
     {
         if (is_array($this->supporting_info) && isset($this->supporting_info['episodes']) && !empty($this->supporting_info['episodes'])) {
-            return $this->supporting_info['episodes'][0]['name'] ?? null;
+            return $this->supporting_info['episodes'][0]['uuid'] ?? $this->supporting_info['episodes'][0]['id'] ?? $this->supporting_info['episodes'][0]['name'] ?? null;
+        }
+
+        if ($this->encounter_id) {
+            $encounter = $this->encounter()->with('episode')->first();
+            if ($encounter && $encounter->episode) {
+                return $encounter->episode->value;
+            }
+        }
+
+        $episodeInfo = $this->supportingInfoReferences()->whereHas('type.coding', function ($q) {
+            $q->where('code', 'episode_of_care');
+        })->first();
+
+        if ($episodeInfo) {
+            return $episodeInfo->value;
         }
 
         return null;

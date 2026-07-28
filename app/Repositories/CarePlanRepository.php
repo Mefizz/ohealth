@@ -136,6 +136,14 @@ class CarePlanRepository
                     'value' => $form['encounter']
                 ]
             ] : null,
+            'care_manager' => $employeeRef ? [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
+                    ],
+                    'value' => $employeeRef['identifier']['value']
+                ]
+            ] : null,
             'author' => $employeeRef,
             'description' => $form['description'] ?: null,
             'note' => $form['note'] ?: null,
@@ -316,6 +324,12 @@ class CarePlanRepository
                         ->first();
                 }
 
+                $localEncounterId = null;
+                if ($encounterIdentifier) {
+                    $localEncounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $encounterIdentifier->value)->first();
+                    $localEncounterId = $localEncounter?->id;
+                }
+
                 if ($carePlan) {
                     $carePlan->update([
                         'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
@@ -327,6 +341,7 @@ class CarePlanRepository
                         'note' => !empty($rawFhir['note']) ? $rawFhir['note'] : ($carePlan->note ?? null),
                         'category_id' => $category?->id,
                         'encounter_identifier_id' => $encounterIdentifier?->id,
+                        'encounter_id' => $localEncounterId ?? $carePlan->encounter_id,
                         'care_manager_id' => $careManager?->id,
                         'period_start' => isset($rawFhir['period']['start'])
                             ? \Carbon\Carbon::parse($rawFhir['period']['start'])
@@ -349,6 +364,7 @@ class CarePlanRepository
                         'note' => !empty($rawFhir['note']) ? $rawFhir['note'] : null,
                         'category_id' => $category?->id,
                         'encounter_identifier_id' => $encounterIdentifier?->id,
+                        'encounter_id' => $localEncounterId,
                         'care_manager_id' => $careManager?->id,
                         'period_start' => isset($rawFhir['period']['start'])
                             ? \Carbon\Carbon::parse($rawFhir['period']['start'])

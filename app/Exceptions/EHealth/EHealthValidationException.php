@@ -236,7 +236,7 @@ class EHealthValidationException extends EHealthException
     public function isDuplicateReferralError(): bool
     {
         $invalidErrors = Arr::get($this->details, 'error.invalid') ?? Arr::get($this->details, 'invalid') ?? [];
-        
+
         foreach ($invalidErrors as $detail) {
             $message = Arr::get($detail, 'rules.0.description') ?? Arr::get($detail, 'msg') ?? '';
             if (str_contains($message, 'already exists') || str_contains($message, 'duplicate')) {

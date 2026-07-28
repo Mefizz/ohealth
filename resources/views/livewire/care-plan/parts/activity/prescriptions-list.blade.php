@@ -14,8 +14,23 @@
                         @if(!empty($prescription['started_at']) && !empty($prescription['ended_at']))
                             <span class="text-gray-400 text-xs">Діє з {{ \Carbon\Carbon::parse($prescription['started_at'])->format('d.m.Y') }} по {{ \Carbon\Carbon::parse($prescription['ended_at'])->format('d.m.Y') }}</span>
                         @endif
-                        <span class="badge {{ strtolower($prescription['status']) === 'active' ? 'badge-green' : (strtolower($prescription['status']) === 'new' ? 'badge-yellow' : 'badge-dark') }}">
-                            {{ $prescription['status'] }}
+                        <span class="badge {{ match(strtolower($prescription['status'] ?? '')) {
+                            'active', 'completed' => 'badge-green',
+                            'new' => 'badge-yellow',
+                            'pending', 'processing' => 'badge-blue',
+                            'rejected', 'expired' => 'badge-red',
+                            default => 'badge-dark'
+                        } }}">
+                            {{ match(strtolower($prescription['status'] ?? '')) {
+                                'new' => 'Новий',
+                                'signed' => 'Підписаний',
+                                'active' => 'Активний',
+                                'completed' => 'Виконаний',
+                                'rejected' => 'Відхилений',
+                                'expired' => 'Протермінований',
+                                'pending', 'processing' => 'В обробці',
+                                default => ucfirst((string)($prescription['status'] ?? '')),
+                            } }}
                         </span>
                     </div>
                     <div class="flex items-center gap-3">
@@ -42,13 +57,8 @@
                                 @icon('refresh', 'w-4 h-4')
                                 <span class="text-xs">SMS</span>
                             </button>
-                            <button type="button" class="text-red-500 hover:text-red-700 transition-colors flex items-center gap-1" title="Скасувати рецепт" wire:click="cancelPrescription('{{ $prescription['uuid'] }}')">
-                                @icon('trash', 'w-4 h-4')
-                                <span class="text-xs">Скасувати</span>
-                            </button>
-                        @endif
                         @if(in_array(strtolower($prescription['status']), ['new', 'active']))
-                            <button type="button" class="text-orange-500 hover:text-orange-700 transition-colors flex items-center gap-1" title="Відхилити рецепт" wire:click="rejectPrescription('{{ $prescription['uuid'] }}')" wire:confirm="Ви дійсно бажаєте відхилити цей рецепт?">
+                            <button type="button" class="text-orange-500 hover:text-orange-700 transition-colors flex items-center gap-1" title="Відхилити рецепт" wire:click="rejectPrescription('{{ $prescription['uuid'] }}')">
                                 @icon('x-circle', 'w-4 h-4')
                                 <span class="text-xs">Відхилити</span>
                             </button>

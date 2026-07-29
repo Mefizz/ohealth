@@ -57,6 +57,7 @@
                                 @icon('refresh', 'w-4 h-4')
                                 <span class="text-xs">SMS</span>
                             </button>
+                        @endif
                         @if(in_array(strtolower($prescription['status']), ['new', 'active']))
                             <button type="button" class="text-orange-500 hover:text-orange-700 transition-colors flex items-center gap-1" title="Відхилити рецепт" wire:click="rejectPrescription('{{ $prescription['uuid'] }}')">
                                 @icon('x-circle', 'w-4 h-4')

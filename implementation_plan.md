@@ -4,31 +4,15 @@ This plan addresses a schema validation error that occurs when creating and sign
 
 ## User Review Required
 
-> [!IMPORTANT]
-> **Clinical Protocol as a Local-Only Field:**
-> In the Ukrainian eHealth Central Database (CBD) API, there is no dictionary of clinical protocols, and the `CarePlan` resource JSON schema has no field for clinical protocols (no `instantiates_protocol` or standard FHIR `instantiatesProtocol` / `instantiatesCanonical` / `instantiatesUri` is accepted by their central database validation schemas).
->
-> Therefore, **"Clinical Protocol" (клінічний протокол) is a local-only field**. We will keep the field in the creation/editing forms and persist it in the local database (`clinical_protocol` column in `care_plans` table), but we will completely exclude it from the request payload sent to the eHealth CBD API. This will resolve the "schema is not correct, due to additional parameter" error returned by eHealth when signing/registering the Care Plan.
+- Оновлення існуючої специфікації `docs/eprescription-referrals/phase-0-spec.md`: чи потрібно перейменувати її на загальну (наприклад, `care-plan-referrals-spec.md`), чи просто розширити поточний файл? За замовчуванням я розширю поточний файл.
+- Архітектурний підхід для `ReferralController`: Він буде працювати як API-ендпоінт для Livewire/Vue фронтенду, оскільки процес "Пошуку направлення" (за 16-значним номером) зазвичай ініціюється окремо від епізоду (через ABAC це дозволено виконавцю).
+
+## Open Questions
+
+- Чи потрібна генерація PDF/HTML для друкованої форми погашеного направлення в цьому етапі, чи ми фокусуємося лише на API-інтеграції?
 
 ## Proposed Changes
 
----
-
-### 1. API Payload Formatting
-
-#### [MODIFY] [CarePlanRepository.php](file:///wsl.localhost/Ubuntu/home/mefizz/projects/ohealth/app/Repositories/CarePlanRepository.php)
-- Remove `instantiates_protocol` from the eHealth request payload array returned by `formatCarePlanRequest()`.
-- Add `'inform_with' => $form['informWith'] ?? ($form['inform_with'] ?? null)` to the payload, as `inform_with` is a valid eHealth CBD schema parameter representing the patient's selected notification channel (OTP, SMS, etc.).
-
-#### [MODIFY] [CarePlanShow.php](file:///wsl.localhost/Ubuntu/home/mefizz/projects/ohealth/app/Livewire/CarePlan/CarePlanShow.php)
-- Remove `instantiates_protocol` from the cancel/complete payload array (`$payload` on line 697).
-- Remove `instantiates_protocol` from the signing payload array (`$carePlanPayload` on line 821).
-
----
-
-### 2. Local Database Persistence
-
-#### [MODIFY] [CarePlanCreate.php](file:///wsl.localhost/Ubuntu/home/mefizz/projects/ohealth/app/Livewire/CarePlan/CarePlanCreate.php)
 - In `save()` (draft creation), include the missing `'terms_of_service' => $this->form->termsOfService ?: null` in the `create` array.
 - In `sign()` (after successful eHealth job processing), expand the `create` array to persist all form fields locally instead of just a subset:
   - `'clinical_protocol' => $this->form->clinicalProtocol ?: null`

@@ -229,3 +229,138 @@ Checklist — див. issue body.
 3. Чи sign підписує повний MRR object чи окремий content hash?
 
 *Оновлювати після першого успішного create/sign на sandbox.*
+
+---
+
+## 11. Phase 1: Service Requests (Електронні направлення)
+
+### Життєвий цикл електронного направлення
+
+- `NEW` -> `ACTIVE`: Лікар (автор) створює направлення (draft) і підписує його КЕПом.
+- `ACTIVE` -> `IN QUEUE`: Лікар-виконавець (або медичний заклад) здійснює **Пошук направлення** (за 16-значним `requisition` номером) та виконує **Взяття в роботу (Process)**. Статус направлення змінюється на `in-progress` (в eHealth) / `in_queue`.
+- `IN QUEUE` -> `ACTIVE`: Пацієнт відмовляється від послуги, заклад виконує **Відміну використання направлення (Cancel Usage)**.
+- `IN QUEUE` -> `COMPLETED`: Послуга надана, заклад виконує **Погашення направлення (Complete)**. Для погашення обов'язково передати створений документ ЕМЗ (Encounter, DiagnosticReport, Procedure), який посилається на це направлення через поле `incoming_referral` (для Encounter) або `based_on` (для Procedure/DR).
+
+### Managing Access Rights (ABAC)
+
+1. **in episode context** (Автор): Робота зі створенням/відміною направлень відбувається в контексті епізоду (Care Plan). Якщо немає безумовного доступу (активної декларації), запитується **Approval (Згода)** через `POST /api/patients/{patient_uuid}/approvals`.
+2. **Manage Service Requests** (Виконавець): Виконавець шукає направлення через `searchForServiceRequestsByParams` (за requisition). Йому **не потрібен** доступ до медичної історії пацієнта для самого пошуку та взяття в роботу (ABAC дозволяє ці методи без `approval`).
+3. Після взяття в роботу виконавець може запросити Approval на перегляд епізоду (для ознайомлення з медичною історією) перед погашенням.
+
+### Endpoints (ReferralController)
+
+- `GET /api/v1/referrals/search`
+- `POST /api/v1/referrals/{uuid}/process`
+- `POST /api/v1/referrals/{uuid}/complete`
+- `POST /api/v1/referrals/{uuid}/cancel-usage`
+
+Ці ендпоінти використовуються фронтендом для оркестрації викликів eHealth через `ReferralRequestLifecycleService`.
+
+---
+
+## 12. Phase 2: Medication Requests (Електронні рецепти)
+
+### Життєвий цикл електронного рецепту (Medication Request)
+
+- `NEW` -> `ACTIVE`: Лікар створює рецепт (draft) і підписує його КЕПом.
+- `ACTIVE` -> `COMPLETED`: Фармацевт (аптека) відпускає препарат, погашаючи рецепт (створюється MedicationDispense). На стороні МІС рецепт також переходить в стан COMPLETED.
+- `ACTIVE` -> `ENTERED IN ERROR` / `CANCELLED`: Рецепт може бути відхилений (Reject MR) лікарем у разі помилки.
+
+### Основні Ендпоінти eHealth для Medication Requests:
+1. **PreQualify MRR (`/api/prequalify_medication_requests`):** Обов'язкова перевірка можливості виписки рецепта (наявність лімітів, програм, сумісності).
+2. **Create Draft (`/api/medication_requests`):** Створення рецепта в системі (статус `NEW`).
+3. **Sign MRR (`/api/medication_requests/{id}/sign`):** Накладання КЕП на драфт. Статус стає `ACTIVE`.
+4. **Reject Draft (`/api/medication_requests/{id}/actions/reject`):** Відхилення непідписаного рецепта (для скасування виписки до накладання КЕП).
+5. **Reject ACTIVE MR (`/api/medication_requests/{id}/actions/reject`):** Скасування вже підписаного та активного рецепта (якщо, наприклад, пацієнт втратив телефон або лікар знайшов помилку після підпису).
+
+### Архітектура на стороні МІС
+Для роботи з рецептами створено:
+- `MedicationRequestApi` (App\Classes\eHealth\Api\MedicationRequestApi) - для безпосередньої взаємодії з eHealth.
+- `MedicationRequestLifecycleService` (App\Services\MedicalEvents\MedicationRequestLifecycleService) - оркестратор створення та підписання.
+В майбутньому буде створено Livewire-компонент (наприклад `MedicationRequestForm`) для UI виписки рецептів.
+
+---
+
+## 13. Phase 3: Device Requests (Призначення Медичних Виробів)
+
+### Життєвий цикл призначення (Device Request)
+Життєвий цикл ідентичний до Medication Request (Електронного Рецепта):
+- `NEW` -> `ACTIVE`: Лікар створює призначення (draft) і підписує його КЕПом.
+- `ACTIVE` -> `COMPLETED`: Заклад або аптека видає медичний виріб (наприклад, тест-смужки), погашаючи призначення (створюється DeviceDispense).
+- `ACTIVE` -> `ENTERED IN ERROR` / `CANCELLED`: Відхилення (Reject) призначення лікарем у разі помилки.
+
+### Основні Ендпоінти eHealth для Device Requests:
+1. **PreQualify Device Request (`/api/prequalify_device_requests`):** Обов'язкова перевірка можливості видачі медичного виробу (наявність лімітів, програм).
+2. **Create Draft (`/api/device_requests`):** Створення запиту в системі (статус `NEW`).
+3. **Sign (`/api/device_requests/{id}/sign`):** Накладання КЕП на драфт. Статус стає `ACTIVE`.
+4. **Reject (`/api/device_requests/{id}/actions/reject`):** Скасування виписаного або непідписаного призначення.
+
+### Архітектура на стороні МІС
+Для роботи з медичними виробами створено аналогічну до рецептів структуру:
+- `DeviceRequest` (App\Classes\eHealth\Api\DeviceRequest) - для взаємодії з eHealth.
+- `DeviceRequestLifecycleService` (App\Services\MedicalEvents\DeviceRequestLifecycleService) - оркестратор життєвого циклу.
+
+---
+
+## 14. Phase 4: Care Plan Lifecycle (Cancel / Complete) - ✅ ВИКОНАНО
+
+### Життєвий цикл скасування та завершення (Care Plans та Activities)
+Оновлена специфікація для обробки відміни та завершення планів лікування та призначень (згідно вимог eHealth).
+
+**Основна відмінність:**
+1. **Відміна (Cancel)** вимагає накладання КЕП (`DS`). 
+2. **Завершення (Complete)** не вимагає КЕП, відправляється звичайним PATCH запитом.
+
+Для розв'язання проблеми підготовки правильного контенту для накладання КЕП під час скасування створено оркестратор `CarePlanLifecycleService`, який робить GET запит в eHealth, завантажує поточний об'єкт і формує з нього JSON для підпису. 
+
+---
+
+## 15. Phase 5: Care Plan & Activity Creation (Створення планів та призначень) - ✅ ВИКОНАНО
+
+**Створення Плану лікування (Care Plan) та Призначень (Care Plan Activity) вже реалізовано в системі.**
+- **Дозволи (Approvals):** У нас реалізовано `CarePlanApprovalService` для запиту згоди пацієнта на рівень доступу `write` після створення плану.
+- **Жорсткі валідації призначень:** Додано в методі `saveActivity` компонента `CarePlanShow`:
+  - **Запланований період:** Зроблено динамічним. Якщо лікар вибирає медичну програму — поля `scheduled_period_start` та `scheduled_period_end` є обов'язковими. Інакше — опційними.
+  - **Перевірка діагнозів програми:** МІС автоматично перевіряє налаштування обраної медичної програми (`conditions_icd10_am_allowed` / `conditions_icpc2_allowed`) і звіряє їх із діагнозами поточного Плану лікування. Якщо немає збігів — збереження блокується.
+
+---
+
+## 16. Phase 6: Service Requests (Електронні направлення) - 🚧 В ПРОЦЕСІ
+
+Відповідно до пунктів 3.2 та 3.3 Технічних Вимог, створення електронного направлення вимагає наявності пакета медичних записів (Епізод, Взаємодія).
+- `NEW` -> `ACTIVE`: Лікар створює направлення (draft) і підписує його КЕПом.
+- `ACTIVE` -> `IN_PROGRESS` / `COMPLETED`: Погашення направлення.
+- `ACTIVE` -> `ENTERED IN ERROR` / `CANCELLED`: Відхилення направлення.
+
+**Що треба зробити:**
+- Виправити неймінг класу API-клієнта (прибрати суфікс `Api`).
+- Реалізувати фронтенд (Livewire) для створення електронних направлень за планом лікування, з інтеграцією нових ендпоінтів та флоу.
+
+---
+
+## 17. Phase 7: Device Requests (Призначення Медичних Виробів) - 🚧 ДО ВИКОНАННЯ
+
+**Життєвий цикл призначення (Device Request):**
+Життєвий цикл ідентичний до Medication Request (Електронного Рецепта): `NEW` -> `ACTIVE` -> `COMPLETED`.
+
+**Що треба зробити:**
+- Проаналізувати документацію eHealth щодо Device Requests.
+- Перевірити специфіку логіки, якщо заклад змінити на СМД (outpatient).
+- Реалізувати флоу: PreQualify -> Create Draft -> Sign -> Reject.
+
+---
+
+## 18. Phase 8: Medication Requests (Електронні рецепти) - 🚧 ДО ВИКОНАННЯ
+
+**Життєвий цикл електронного рецепту (Medication Request):**
+- `NEW` -> `ACTIVE` -> `COMPLETED`
+
+**Що треба зробити:**
+- Розробити фронтенд-цикл та інтеграцію для електронних рецептів за аналогією з електронними направленнями.
+- Реалізувати флоу: PreQualify MRR -> Create Draft -> Sign MRR -> Reject.
+
+---
+
+## 19. План розробки базових ЕМЗ (Submit Encounter Package) - ❌ ПОЗА МЕЖАМИ ВІДПОВІДАЛЬНОСТІ
+
+Згідно з п. 3.2 та 3.3 Технічних вимог, усі події базуються на попередньо створеній взаємодії (`Encounter`). Проте, реалізація механізму відправки пакетів взаємодії (Submit Encounter Package) **не є зоною відповідальності поточної команди/спринта**. Працюємо виключно над CarePlan, CarePlanActivities, Medication Requests, Service Requests та Device Requests.

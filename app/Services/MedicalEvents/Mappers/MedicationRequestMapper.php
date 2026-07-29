@@ -198,8 +198,9 @@ class MedicationRequestMapper implements FhirMapperContract
             'category' => $data['category'] ?? 'community',
         ];
 
+        $programs = [];
         if (!empty($data['medication_program_id'])) {
-            $request['medical_program_id'] = $data['medication_program_id'];
+            $programs = [['id' => $data['medication_program_id']]];
         }
 
         if ($carePlanUuid && !empty($data['based_on_uuid'])) {
@@ -233,7 +234,10 @@ class MedicationRequestMapper implements FhirMapperContract
             $request['container_dosage'] = $data['container_dosage'];
         }
 
-        return ['medication_request_request' => array_filter($request, static fn ($value) => $value !== null && $value !== '')];
+        $payload = ['medication_request_request' => array_filter($request, static fn ($value) => $value !== null && $value !== '')];
+        $payload['programs'] = $programs;
+
+        return $payload;
     }
 
     /**
@@ -246,8 +250,8 @@ class MedicationRequestMapper implements FhirMapperContract
             $unit = $inst['dose_and_rate'][0]['dose_quantity_unit'] ?? 'од.';
             $dosage = [
                 'sequence' => $inst['sequence'] ?? ($index + 1),
-                'text' => $inst['text'] ?? null,
-                'patient_instruction' => $inst['patient_instruction'] ?? ($inst['text'] ?? null),
+                'text' => $inst['text'] ?: 'За призначенням лікаря',
+                'patient_instruction' => $inst['patient_instruction'] ?? ($inst['text'] ?: null),
                 'as_needed_boolean' => (bool) ($inst['as_needed_boolean'] ?? false),
             ];
 

@@ -53,6 +53,7 @@
                                 class="input-select peer"
                                 wire:model.live="selectedProgram"
                         >
+                            <option value="">{{ __('care-plan.prescription_medication') }}</option>
                             @foreach(($dictionaries['medical_programs_medication'] ?? $dictionaries['medical_programs'] ?? []) as $id => $name)
                                 <option value="{{ $id }}">{{ $name }}</option>
                             @endforeach
@@ -102,7 +103,7 @@
                                wire:model="activityForm.quantity"
                         >
                         <select class="input-select peer w-20" wire:model="activityForm.quantity_system">
-                            <option value="MEDICATION_UNIT">{{ $activityForm['quantity_code'] ?? __('care-plan.ml') }}</option>
+                            <option value="MEDICATION_UNIT">{{ match($activityForm['quantity_code'] ?? '') { 'PIECE' => 'шт.', 'ML' => 'мл', 'MG' => 'мг', 'G' => 'г', '' => __('care-plan.ml'), default => $activityForm['quantity_code'] } }}</option>
                         </select>
                     </div>
                 </div>
@@ -154,7 +155,7 @@
                         >
                         <select class="input-select peer w-20" disabled>
                             <option selected value="{{ $activityForm['daily_amount_code'] ?? 'PIECE' }}">
-                                {{ $activityForm['daily_amount_code'] ?? __('care-plan.ml') }}
+                                {{ match($activityForm['daily_amount_code'] ?? 'PIECE') { 'PIECE' => 'шт.', 'ML' => 'мл', 'MG' => 'мг', 'G' => 'г', default => $activityForm['daily_amount_code'] ?? 'шт.' } }}
                             </option>
                         </select>
                     </div>

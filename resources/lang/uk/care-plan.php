@@ -307,12 +307,15 @@ return [
 
     'referral_category' => [
         'procedure' => 'Процедура',
+        'surgical_procedure' => 'Хірургічна процедура',
         'diagnostic_procedure' => 'Діагностична процедура',
         'imaging' => 'Візуалізація',
         'diagnostic' => 'Діагностичне дослідження',
         'education' => 'Навчання пацієнта',
         'counseling' => 'Консультування',
         'hospital_referral' => 'Направлення в стаціонар',
+        'consultation' => 'Консультація',
+        'evaluation' => 'Оцінювання',
     ],
 
     'referral_priority' => [

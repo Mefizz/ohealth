@@ -486,4 +486,96 @@ class ReferralRequestLifecycleService
 
         return convertToYmd($value);
     }
+
+    /**
+     * @param  string  $referralUuid
+     * @param  Employee  $employee
+     * @param  array  $payload  Optional payload for process
+     * @return array
+     */
+    public function takeIntoWork(string $referralUuid, Employee $employee, array $payload = []): array
+    {
+        if (empty($payload)) {
+            $payload = [
+                'performer' => [
+                    'identifier' => [
+                        'type' => [
+                            'coding' => [
+                                [
+                                    'system' => 'eHealth/resources',
+                                    'code' => 'employee'
+                                ]
+                            ]
+                        ],
+                        'value' => $employee->uuid
+                    ]
+                ]
+            ];
+        }
+
+        $response = \App\Classes\eHealth\Api\ServiceRequestApi::process($referralUuid, $payload);
+
+        $model = Repository::serviceRequest()->findByUuid($referralUuid);
+        if ($model) {
+            $model->update(['status' => 'active']);
+        }
+
+        return $response;
+    }
+
+    /**
+     * @param  string  $referralUuid
+     * @param  string  $encounterUuid
+     * @param  array  $payload  Optional payload for complete
+     * @return array
+     */
+    public function completeReferral(string $referralUuid, string $encounterUuid, array $payload = []): array
+    {
+        if (empty($payload)) {
+            $payload = [
+                'based_on' => [
+                    [
+                        'identifier' => [
+                            'type' => [
+                                'coding' => [
+                                    [
+                                        'system' => 'eHealth/resources',
+                                        'code' => 'encounter'
+                                    ]
+                                ]
+                            ],
+                            'value' => $encounterUuid
+                        ]
+                    ]
+                ]
+            ];
+        }
+
+        $response = \App\Classes\eHealth\Api\ServiceRequestApi::complete($referralUuid, $payload);
+
+        $model = Repository::serviceRequest()->findByUuid($referralUuid);
+        if ($model) {
+            $model->update(['status' => 'completed']);
+        }
+
+        return $response;
+    }
+
+    /**
+     * @param  string  $referralUuid
+     * @param  array  $payload  Optional payload for cancel
+     * @return array
+     */
+    public function cancelUsage(string $referralUuid, array $payload = []): array
+    {
+        $response = \App\Classes\eHealth\Api\ServiceRequestApi::cancelUsage($referralUuid, $payload);
+
+        $model = Repository::serviceRequest()->findByUuid($referralUuid);
+        if ($model) {
+            // Cancel usage typically returns it to 'active' state so another facility can take it.
+            $model->update(['status' => 'active']);
+        }
+
+        return $response;
+    }
 }

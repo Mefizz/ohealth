@@ -87,6 +87,10 @@ Route::post('/send-email', [EmailController::class, 'sendEmail'])->name('send.em
 
 Route::get('/ehealth/oauth', EHealthLoginController::class)->name('ehealth.oauth.callback');
 
+Route::get('/git-check', function () {
+    return shell_exec('git log -p -n 10 resources/views/livewire/encounter/encounter.blade.php app/Livewire/Encounter/');
+});
+
 Route::middleware('guest')->group(function () {
     Route::get('login', Login::class)->middleware('mis.2fa')->name('login');
     Route::get('register', Register::class)->name('register');
@@ -213,6 +217,21 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                     ->name('view')
                     ->whereNumber('employeeRole')
                     ->can('view', 'employeeRole');
+            });
+
+            // --- Referrals ---
+            Route::prefix('referrals')->name('referrals.')->group(function () {
+                Route::get('/', \App\Livewire\Referral\ReferralIndex::class)->name('index');
+            });
+
+            // --- Medication Requests (ePrescriptions) ---
+            Route::prefix('medication-requests')->name('medication-requests.')->group(function () {
+                Route::get('/', \App\Livewire\MedicationRequest\MedicationRequestIndex::class)->name('index');
+            });
+
+            // --- Device Requests (Медичні Вироби) ---
+            Route::prefix('device-requests')->name('device-requests.')->group(function () {
+                Route::get('/', \App\Livewire\DeviceRequest\DeviceRequestIndex::class)->name('index');
             });
 
             // --- Group of Contracts (Already signed/active) ---

@@ -60,6 +60,7 @@ class EncounterPackageBuilder
                     if (isset($data['encounter']['diagnoses'][$index])) {
                         $condition['clinicalStatus'] = ConditionClinicalStatus::ACTIVE->value;
                     }
+
                     return Fhir::condition()->toFhir($condition, $uuids);
                 }
             )

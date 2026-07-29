@@ -120,8 +120,10 @@
                                     $value = $containerDosage['numerator_value'] ?? ($containerDosage['value'] ?? null);
                                     $unit = $containerDosage['numerator_unit'] ?? ($containerDosage['numerator']['unit'] ?? 'од.');
                                     $code = $containerDosage['code'] ?? ($containerDosage['numerator_unit'] ?? '');
+                                    $translatedUnit = match($unit) { 'PIECE' => 'шт.', 'ML' => 'мл', 'MG' => 'мг', 'G' => 'г', default => $unit };
+                                    $translatedCode = match($code) { 'PIECE' => 'шт.', 'ML' => 'мл', 'MG' => 'мг', 'G' => 'г', default => $code };
                                 @endphp
-                                <option value="{{ $value }}|{{ $unit }}|{{ $code }}">{{ $value }} {{ $unit }}@if($code) (Код: {{ $code }})@endif</option>
+                                <option value="{{ $value }}|{{ $unit }}|{{ $code }}">{{ $value }} {{ $translatedUnit }}@if($code && $code !== $unit) (Код: {{ $translatedCode }})@endif</option>
                             @endforeach
                         </select>
                     </div>

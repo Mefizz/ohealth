@@ -504,10 +504,13 @@ class CarePlanShow extends Component
 
         $this->syncDeviceProductReferenceFromSelection();
 
+        $programId = $this->activityForm['program'] ?? $this->selectedProgram ?? null;
+        $periodRule = !empty($programId) ? 'required|string' : 'nullable|string';
+
         $rules = [
             'activityForm.kind' => 'required|string',
-            'activityForm.scheduled_period_start' => 'required|string',
-            'activityForm.scheduled_period_end' => 'required|string',
+            'activityForm.scheduled_period_start' => $periodRule,
+            'activityForm.scheduled_period_end' => $periodRule,
             'activityForm.quantity' => 'nullable|numeric',
             'activityForm.quantity_system' => 'nullable|string',
             'activityForm.quantity_code' => 'nullable|string',
@@ -533,7 +536,6 @@ class CarePlanShow extends Component
             }
             $rules['activityForm.product_reference'] = 'required|uuid';
 
-            $programId = $this->activityForm['program'] ?: $this->selectedProgram;
             $allowedCodeTypes = $this->resolveDeviceRequestAllowedCodeTypes($programId);
             $requiresClassificationOnly = in_array('CLASSIFICATION_TYPE', $allowedCodeTypes, true)
                 && !in_array('DEVICE_DEFINITION', $allowedCodeTypes, true);
@@ -548,6 +550,43 @@ class CarePlanShow extends Component
         if (str_contains($kindLower, 'medication')) {
             $rules['activityForm.daily_amount'] = 'required|numeric|min:0.01';
             $rules['activityForm.quantity_code'] = 'required|string';
+        }
+
+        if (!empty($programId) && !empty($this->dictionaries['medical_programs'][$programId])) {
+            $program = $this->dictionaries['medical_programs'][$programId];
+            $allowedIcd10 = \Illuminate\Support\Arr::get($program, 'medical_program_settings.conditions_icd10_am_allowed', []);
+            $allowedIcpc2 = \Illuminate\Support\Arr::get($program, 'medical_program_settings.conditions_icpc2_allowed', []);
+
+            if (!empty($allowedIcd10) || !empty($allowedIcpc2)) {
+                $addresses = $this->carePlan->addresses ?? [];
+                $hasValidDiagnosis = false;
+
+                foreach ($addresses as $address) {
+                    $codings = $address['coding'] ?? [];
+                    foreach ($codings as $coding) {
+                        $system = $coding['system'] ?? '';
+                        $code = $coding['code'] ?? '';
+
+                        if (str_contains($system, 'ICD10_AM') && in_array($code, $allowedIcd10, true)) {
+                            $hasValidDiagnosis = true;
+                            break 2;
+                        }
+
+                        if (str_contains($system, 'ICPC2') && in_array($code, $allowedIcpc2, true)) {
+                            $hasValidDiagnosis = true;
+                            break 2;
+                        }
+                    }
+                }
+
+                if (!$hasValidDiagnosis) {
+                    $message = __('care-plan.medical_program_diagnosis_mismatch');
+                    Session::flash('error', $message);
+                    $this->addError('activityForm.program', $message);
+
+                    return;
+                }
+            }
         }
 
         try {

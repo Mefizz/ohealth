@@ -31,7 +31,10 @@ class CarePlanActivity extends Request
 
     /**
      * Cancel a Care Plan Activity.
+     * Note: This requires a Digital Signature (DS).
+     * The payload must contain 'signed_content' which is the Care Plan Activity object + status_reason, signed by KEП.
      *
+     * @param  string  $personId
      * @param  string  $carePlanId
      * @param  string  $activityId
      * @param  array  $payload
@@ -45,7 +48,10 @@ class CarePlanActivity extends Request
 
     /**
      * Complete a Care Plan Activity.
+     * Note: This does NOT require a Digital Signature (DS).
+     * The payload must contain 'outcome_codeable_concept'.
      *
+     * @param  string  $personId
      * @param  string  $carePlanId
      * @param  string  $activityId
      * @param  array  $payload

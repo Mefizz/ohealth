@@ -841,7 +841,7 @@ class EncounterForm extends BaseForm
             'procedures.*.performedPeriodStartDate' => ['nullable'],
             'procedures.*.performedPeriodStartTime' => ['nullable'],
             'procedures.*.performedPeriodEndDate' => ['nullable'],
-            'procedures.*.performedPeriodEndTime'=> ['nullable'],
+            'procedures.*.performedPeriodEndTime' => ['nullable'],
 
             'procedures.*.note' => ['nullable', 'string'],
             ...$this->paperReferralRules('procedures.*'),
@@ -1181,27 +1181,28 @@ class EncounterForm extends BaseForm
     private function addAllowedEncounterTypes(array &$rules): void
     {
         $rules['encounter.typeCode'][] = function (string $attribute, mixed $value, Closure $fail): void {
-                $classCode = $this->encounter['classCode'] ?? null;
+            $classCode = $this->encounter['classCode'] ?? null;
 
-                if (empty($classCode)) {
-                    return;
-                }
+            if (empty($classCode)) {
+                return;
+            }
 
-                $classTypes = config("ehealth.encounter_class_encounter_types.$classCode", []);
+            $classTypes = config("ehealth.encounter_class_encounter_types.$classCode", []);
 
-                if (!in_array($value, $classTypes, true)) {
-                    $fail(__('validation.custom.encounter.typeCode.class_forbidden', ['value' => $value]));
-                    return;
-                }
+            if (!in_array($value, $classTypes, true)) {
+                $fail(__('validation.custom.encounter.typeCode.class_forbidden', ['value' => $value]));
 
-                $roleEncounterTypes = Auth::user()->allowedRoles
-                    ->flatMap(static fn (string $role): array => config("ehealth.performer_employee_encounter_types.$role", []))
-                    ->unique();
+                return;
+            }
 
-                if (!$roleEncounterTypes->contains($value)) {
-                    $fail(__('validation.custom.encounter.typeCode.employee_forbidden', ['value' => $value]));
-                }
-            };
+            $roleEncounterTypes = Auth::user()->allowedRoles
+                ->flatMap(static fn (string $role): array => config("ehealth.performer_employee_encounter_types.$role", []))
+                ->unique();
+
+            if (!$roleEncounterTypes->contains($value)) {
+                $fail(__('validation.custom.encounter.typeCode.employee_forbidden', ['value' => $value]));
+            }
+        };
     }
 
     /**

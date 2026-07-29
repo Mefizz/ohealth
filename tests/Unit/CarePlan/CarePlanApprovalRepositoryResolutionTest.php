@@ -36,7 +36,7 @@ class CarePlanApprovalRepositoryResolutionTest extends TestCase
     public function test_care_plan_sync_call_sites_use_medical_events_repository(): void
     {
         $showSource = file_get_contents(app_path('Livewire/CarePlan/CarePlanShow.php'));
-        $lifecycleSource = file_get_contents(app_path('Livewire/CarePlan/Concerns/ManagesCarePlanLifecycle.php'));
+        $lifecycleSource = file_get_contents(app_path('Livewire/CarePlan/Concerns/CarePlanManager.php'));
 
         $this->assertIsString($showSource);
         $this->assertIsString($lifecycleSource);

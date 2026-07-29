@@ -275,11 +275,14 @@ class CarePlanActivityRepository
                 'reason_reference' => !empty($activity->reason_reference) ? array_map(function ($r) {
                     $parts = explode('/', $r);
                     if (count($parts) === 2) {
-                        $type = strtolower($parts[0]);
-                        $uuid = $parts[1];
+                        $type = strtolower(trim($parts[0]));
+                        if ($type === 'diagnosticreport') {
+                            $type = 'diagnostic_report';
+                        }
+                        $uuid = trim($parts[1]);
                     } else {
                         $type = 'condition';
-                        $uuid = $r;
+                        $uuid = trim($r);
                     }
 
                     return [
@@ -455,7 +458,11 @@ class CarePlanActivityRepository
 
             $parts = explode('/', $reference);
             if (count($parts) === 2) {
-                $supportingInfo[] = ['type' => $parts[0], 'uuid' => $parts[1]];
+                $type = strtolower(trim($parts[0]));
+                if ($type === 'diagnosticreport') {
+                    $type = 'diagnostic_report';
+                }
+                $supportingInfo[] = ['type' => $type, 'uuid' => trim($parts[1])];
             }
         }
 

@@ -226,7 +226,7 @@ return [
     'name_description' => 'Назва / Опис',
     'episode_name_placeholder' => 'Назва епізоду...',
     'record_name_placeholder' => 'Назва запису...',
-    'clinical_protocol' => 'Клінічний протокол',
+
     'context' => 'Виконання послуг',
     'encounter' => 'Взаємодія (Encounter)',
     'conditions/diagnoses' => 'Стани/діагнози',

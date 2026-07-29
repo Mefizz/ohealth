@@ -617,7 +617,6 @@ class CarePlanLifecycleTest extends TestCase
             ->set('form.encounter', $this->encounter->uuid)
             ->set('form.title', 'Draft Plan')
             ->set('form.category', '736382003')
-            ->set('form.clinicalProtocol', 'Protocol-123')
             ->set('form.context', 'context-value')
             ->set('form.termsOfService', 'PROVIDING_CONDITION')
             ->set('form.description', 'My Description')
@@ -627,11 +626,10 @@ class CarePlanLifecycleTest extends TestCase
             ->call('save')
             ->assertHasNoErrors();
 
-        // Check local draft is persisted with terms_of_service and clinical_protocol
+        // Check local draft is persisted with terms_of_service
         $this->assertDatabaseHas('care_plans', [
             'title' => 'Draft Plan',
             'status' => 'draft',
-            'clinical_protocol' => 'Protocol-123',
             'context' => 'context-value',
             'terms_of_service' => 'PROVIDING_CONDITION',
             'description' => 'My Description',
@@ -649,7 +647,6 @@ class CarePlanLifecycleTest extends TestCase
             ->set('form.encounter', $this->encounter->uuid)
             ->set('form.title', 'Signed Plan')
             ->set('form.category', '736382003')
-            ->set('form.clinicalProtocol', 'Protocol-123')
             ->set('form.context', 'context-value')
             ->set('form.termsOfService', 'PROVIDING_CONDITION')
             ->set('form.description', 'My Description')
@@ -672,7 +669,6 @@ class CarePlanLifecycleTest extends TestCase
         $this->assertDatabaseHas('care_plans', [
             'uuid' => $carePlanUuid,
             'status' => 'active',
-            'clinical_protocol' => 'Protocol-123',
             'context' => 'context-value',
             'terms_of_service' => 'PROVIDING_CONDITION',
             'description' => 'My Description',
@@ -687,7 +683,6 @@ class CarePlanLifecycleTest extends TestCase
         ])
             ->set('form.title', 'Updated Draft Plan')
             ->set('form.termsOfService', 'PROVIDING_CONDITION_NEW')
-            ->set('form.clinicalProtocol', 'Protocol-New')
             ->call('save')
             ->assertHasNoErrors();
 
@@ -695,7 +690,6 @@ class CarePlanLifecycleTest extends TestCase
             'id' => $draft->id,
             'title' => 'Updated Draft Plan',
             'terms_of_service' => 'PROVIDING_CONDITION_NEW',
-            'clinical_protocol' => 'Protocol-New',
         ]);
 
         // 4. Test Sign on Update Component
@@ -706,7 +700,6 @@ class CarePlanLifecycleTest extends TestCase
         ])
             ->set('form.title', 'Signed Updated Plan')
             ->set('form.termsOfService', 'PROVIDING_CONDITION_SIGNED')
-            ->set('form.clinicalProtocol', 'Protocol-Signed')
             ->set('form.knedp', '1.2.3.4')
             ->set('form.password', 'secret')
             ->set('form.keyContainerUpload', \Illuminate\Http\UploadedFile::fake()->create('key.jks', 100))
@@ -722,7 +715,6 @@ class CarePlanLifecycleTest extends TestCase
             'id' => $draft->id,
             'title' => 'Signed Updated Plan',
             'terms_of_service' => 'PROVIDING_CONDITION_SIGNED',
-            'clinical_protocol' => 'Protocol-Signed',
         ]);
     }
 

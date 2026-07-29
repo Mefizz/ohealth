@@ -66,6 +66,7 @@ class CarePlanCreate extends BasePatientComponent
      * Available encounters that have been confirmed by eHealth (for the encounter selector).
      */
     public array $availableEncounters = [];
+    public array $availableEpisodes = [];
 
     public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null): void
     {
@@ -124,6 +125,16 @@ class CarePlanCreate extends BasePatientComponent
             $this->form->patient = $name ? trim($name->last_name . ' ' . $name->first_name . ' ' . ($name->second_name ?? '')) : '';
             $this->form->medical_number = (string) ((CarePlan::max('id') ?? 0) + 1);
 
+            $this->availableEpisodes = \App\Models\MedicalEvents\Sql\Episode::forPatient($person)
+                ->where('status', 'active')
+                ->with('period')
+                ->get()
+                ->map(fn ($e) => [
+                    'uuid' => $e->uuid,
+                    'name' => $e->name,
+                    'date' => $e->period?->start ? \Carbon\Carbon::parse($e->period->start)->format('d.m.Y') : '',
+                ])->toArray();
+
             // Load actual authentication methods from eHealth
             try {
                 $this->authMethods = EHealth::person()->getAuthMethods($this->uuid)->getData();
@@ -153,6 +164,20 @@ class CarePlanCreate extends BasePatientComponent
             if (empty($this->form->title)) {
                 $date = $resolvedEncounter->period?->start ? \Carbon\Carbon::parse($resolvedEncounter->period->start)->format('d.m.Y') : now()->format('d.m.Y');
                 $this->form->title = 'План лікування від ' . $date;
+            }
+
+            $resolvedEncounter->load(['episode']);
+            if ($resolvedEncounter->episode?->value) {
+                $episode = \App\Models\MedicalEvents\Sql\Episode::where('uuid', $resolvedEncounter->episode->value)->with('period')->first();
+                if ($episode) {
+                    $this->form->episodes = [
+                        [
+                            'uuid' => $episode->uuid,
+                            'name' => $episode->name,
+                            'date' => $episode->period?->start ? \Carbon\Carbon::parse($episode->period->start)->format('d.m.Y') : '',
+                        ]
+                    ];
+                }
             }
 
             // Pre-fill diagnoses for the UI list
@@ -539,7 +564,6 @@ class CarePlanCreate extends BasePatientComponent
             'legal_entity_id' => $legalEntity?->id,
             'status' => CarePlanStatus::DRAFT->value,
             'category' => $this->form->category,
-            'clinical_protocol' => $this->form->clinicalProtocol ?: null,
             'context' => $this->form->context ?: null,
             'title' => $this->form->title,
             'terms_of_service' => $this->form->termsOfService ?: null,
@@ -608,17 +632,33 @@ class CarePlanCreate extends BasePatientComponent
     public function updatedFormEncounter($value): void
     {
         if ($value) {
-            $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $value)->with(['diagnoses.condition'])->first();
+            $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $value)->with(['diagnoses.condition', 'episode'])->first();
             if ($encounter) {
                 if (empty($this->form->title)) {
                     $date = $encounter->period?->start ? \Carbon\Carbon::parse($encounter->period->start)->format('d.m.Y') : now()->format('d.m.Y');
                     $this->form->title = 'План лікування від ' . $date;
                 }
 
+                if ($encounter->episode?->value) {
+                    $episode = \App\Models\MedicalEvents\Sql\Episode::where('uuid', $encounter->episode->value)->with('period')->first();
+                    if ($episode) {
+                        $this->form->episodes = [
+                            [
+                                'uuid' => $episode->uuid,
+                                'name' => $episode->name,
+                                'date' => $episode->period?->start ? \Carbon\Carbon::parse($episode->period->start)->format('d.m.Y') : '',
+                            ]
+                        ];
+                    }
+                } else {
+                    $this->form->episodes = [];
+                }
+
                 $this->diagnoses = $this->buildDiagnosesForUi($encounter);
             }
         } else {
             $this->diagnoses = [];
+            $this->form->episodes = [];
         }
     }
 
@@ -856,7 +896,6 @@ class CarePlanCreate extends BasePatientComponent
                 'period_start' => convertToYmd($this->form->periodStart),
                 'period_end' => !empty($this->form->periodEnd) ? convertToYmd($this->form->periodEnd) : null,
                 'encounter_id' => $encounterData['id'] ?? null,
-                'clinical_protocol' => $this->form->clinicalProtocol ?: null,
                 'context' => $this->form->context ?: null,
                 'terms_of_service' => $this->form->termsOfService ?: null,
                 'description' => $this->form->description ?: null,

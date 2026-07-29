@@ -5,12 +5,9 @@ declare(strict_types=1);
 namespace App\Livewire\CarePlan\Concerns;
 
 use App\Classes\eHealth\EHealth;
-use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Repositories\CarePlanActivityRepository;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
-use App\Services\MedicalEvents\EHealthJobResolver;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 
@@ -315,7 +312,7 @@ trait ManagesCarePlanEPrescription
         try {
             $employeeContext = $this->medicationLifecycle->resolveEmployeeContext($this->carePlan);
             $activity = \App\Models\CarePlanActivity::find($this->ePrescriptionForm['activity_id']);
-            
+
             $uuid = $this->medicationLifecycle->createDraft(
                 $this->carePlan,
                 $activity,

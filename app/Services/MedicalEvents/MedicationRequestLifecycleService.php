@@ -154,6 +154,7 @@ class MedicationRequestLifecycleService
             if (is_string($inst['dose_and_rate'])) {
                 $inst['dose_and_rate'] = json_decode($inst['dose_and_rate'], true);
             }
+
             return $inst;
         }, $dbData['dosage_instructions']);
 

@@ -53,6 +53,10 @@ class PatientCarePlans extends BasePatientComponent
             'name' => $this->filterName,
             'status' => $this->filterStatus,
             'encounter_id' => $this->filterEncounterId,
+            'start_date' => $this->filterStartDateRange,
+            'end_date' => $this->filterEndDateRange,
+            'is_part_of' => $this->filterIsPartOf,
+            'includes' => $this->filterIncludes,
         ]);
     }
 

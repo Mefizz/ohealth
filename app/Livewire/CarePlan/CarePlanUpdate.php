@@ -43,7 +43,6 @@ class CarePlanUpdate extends CarePlanCreate
         $this->form->author = $carePlan->author?->party?->full_name ?? '';
         $this->form->coAuthors = []; // TODO: if co-authors are implemented
         $this->form->category = is_array($carePlan->category) ? ($carePlan->category['coding'][0]['code'] ?? '') : ($carePlan->category ?? '');
-        $this->form->clinicalProtocol = $carePlan->clinical_protocol ?? '';
         $this->form->context = $carePlan->context ?? '';
         $this->form->title = $carePlan->title ?? '';
         $this->form->intent = 'order';
@@ -127,7 +126,6 @@ class CarePlanUpdate extends CarePlanCreate
         $repository->updateById($this->carePlan->id, [
             'author_id' => $author?->id ?? $this->carePlan->author_id,
             'category' => $this->form->category,
-            'clinical_protocol' => $this->form->clinicalProtocol ?: null,
             'context' => $this->form->context ?: null,
             'title' => $this->form->title,
             'terms_of_service' => $this->form->termsOfService ?: null,
@@ -288,7 +286,6 @@ class CarePlanUpdate extends CarePlanCreate
                     'episodes' => $this->form->episodes,
                     'medical_records' => $this->form->medicalRecords,
                 ],
-                'clinical_protocol' => $this->form->clinicalProtocol ?: null,
                 'context' => $this->form->context ?: null,
                 'terms_of_service' => $this->form->termsOfService ?: null,
                 'description' => $this->form->description ?: null,

@@ -22,12 +22,32 @@ class CarePlanRepository
             ->get();
     }
 
-    public function getByPersonId(int $personId): Collection
+    public function getByPersonId(int $personId, array $filters = []): Collection
     {
-        return CarePlan::where('person_id', $personId)
-            ->with(['person', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier'])
-            ->latest()
-            ->get();
+        $query = CarePlan::where('person_id', $personId)
+            ->with(['person', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier']);
+
+        if (!empty($filters['name'])) {
+            $query->where('title', 'like', "%{$filters['name']}%");
+        }
+
+        if (!empty($filters['status'])) {
+            $query->whereRaw('LOWER(status) = LOWER(?)', [$filters['status']]);
+        }
+
+        if (!empty($filters['start_date'])) {
+            $query->whereDate('period_start', '>=', \Carbon\Carbon::parse($filters['start_date']));
+        }
+
+        if (!empty($filters['end_date'])) {
+            $query->whereDate('period_end', '<=', \Carbon\Carbon::parse($filters['end_date']));
+        }
+
+        if (!empty($filters['encounter_id'])) {
+            $query->where('encounter_id', 'like', "%{$filters['encounter_id']}%");
+        }
+
+        return $query->latest()->get();
     }
 
     public function findById(int $id): ?CarePlan
@@ -134,14 +154,6 @@ class CarePlanRepository
                         'coding' => [['system' => 'eHealth/resources', 'code' => 'encounter']]
                     ],
                     'value' => $form['encounter']
-                ]
-            ] : null,
-            'care_manager' => $employeeRef ? [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
-                    ],
-                    'value' => $employeeRef['identifier']['value']
                 ]
             ] : null,
             'author' => $employeeRef,

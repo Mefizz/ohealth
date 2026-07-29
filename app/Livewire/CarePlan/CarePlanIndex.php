@@ -155,7 +155,7 @@ class CarePlanIndex extends Component
                 ->with(['person', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier']);
 
             if (!empty($this->filterStatus)) {
-                $query->whereRaw('LOWER(status) = ?', [strtolower($this->filterStatus)]);
+                $query->whereRaw('LOWER(care_plans.status) = LOWER(?)', [$this->filterStatus]);
             }
 
             if (!empty($this->filterStartDateRange)) {

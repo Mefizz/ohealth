@@ -282,13 +282,6 @@
                     Додаткова інформація
                 </h3>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                    <div>
-                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Клінічний протокол</div>
-                        <div class="text-gray-900 dark:text-white font-medium">{{ $carePlan->clinical_protocol ?: '-' }}</div>
-                    </div>
-                </div>
-
                 <div class="space-y-6">
                     <div>
                         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Розширений опис</div>

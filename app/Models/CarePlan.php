@@ -32,7 +32,6 @@ class CarePlan extends Model
         'legal_entity_id',
         'status',
         'category',
-        'clinical_protocol',
         'context',
         'title',
         'period_start',

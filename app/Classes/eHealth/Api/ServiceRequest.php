@@ -106,12 +106,13 @@ class ServiceRequest
      * Cancel usage of a Service Request (відміна використання).
      *
      * @param  string  $id
+     * @param  string  $patientId
      * @param  array  $payload
      * @return array
      * @throws ApiException
      */
-    public static function cancelUsage(string $id, array $payload = []): array
+    public static function cancelUsage(string $id, string $patientId, array $payload = []): array
     {
-        return new Request(RequestHttp::METHOD_PATCH, self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/revoke", $payload)->sendRequest();
+        return new Request(RequestHttp::METHOD_PATCH, "/api/patients/{$patientId}/service_requests/{$id}/actions/cancel", $payload)->sendRequest();
     }
 }

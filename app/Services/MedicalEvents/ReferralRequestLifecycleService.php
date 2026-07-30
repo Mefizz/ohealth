@@ -453,10 +453,11 @@ class ReferralRequestLifecycleService
     /**
      * @param  string  $referralUuid
      * @param  Employee  $employee
+     * @param  string|null  $patientUuid  eHealth patient UUID (subject.identifier.value from search result)
      * @param  array  $payload  Optional payload for process
      * @return array
      */
-    public function takeIntoWork(string $referralUuid, Employee $employee, array $payload = []): array
+    public function takeIntoWork(string $referralUuid, Employee $employee, ?string $patientUuid = null, array $payload = []): array
     {
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         $programId = $model ? $model->program_id : null;
@@ -469,44 +470,58 @@ class ReferralRequestLifecycleService
                             'coding' => [
                                 [
                                     'system' => 'eHealth/resources',
-                                    'code' => 'employee'
-                                ]
-                            ]
+                                    'code' => 'employee',
+                                ],
+                            ],
                         ],
-                        'value' => $employee->uuid
-                    ]
-                ]
+                        'value' => $employee->uuid,
+                    ],
+                ],
             ];
 
-            if ($employee->division_uuid) {
+            // Division UUID: try employee->division_uuid first, otherwise resolve via division_id
+            $divisionUuid = $employee->division_uuid;
+            if (!$divisionUuid && $employee->division_id) {
+                $division = \App\Models\Division::find($employee->division_id);
+                $divisionUuid = $division?->uuid;
+            }
+
+            if ($divisionUuid) {
                 $payload['used_by_division'] = [
                     'identifier' => [
                         'type' => [
                             'coding' => [
                                 [
                                     'system' => 'eHealth/resources',
-                                    'code' => 'division'
-                                ]
-                            ]
+                                    'code' => 'division',
+                                ],
+                            ],
                         ],
-                        'value' => $employee->division_uuid
-                    ]
+                        'value' => $divisionUuid,
+                    ],
                 ];
             }
 
-            if ($employee->legal_entity_uuid) {
+            // Legal entity UUID: try employee->legal_entity_uuid first, otherwise resolve via legal_entity_id
+            $legalEntityUuid = $employee->legal_entity_uuid;
+            if (!$legalEntityUuid && $employee->legal_entity_id) {
+                $legalEntity = \App\Models\LegalEntity::find($employee->legal_entity_id);
+                $legalEntityUuid = $legalEntity?->uuid;
+            }
+
+            if ($legalEntityUuid) {
                 $payload['used_by_legal_entity'] = [
                     'identifier' => [
                         'type' => [
                             'coding' => [
                                 [
                                     'system' => 'eHealth/resources',
-                                    'code' => 'legal_entity'
-                                ]
-                            ]
+                                    'code' => 'legal_entity',
+                                ],
+                            ],
                         ],
-                        'value' => $employee->legal_entity_uuid
-                    ]
+                        'value' => $legalEntityUuid,
+                    ],
                 ];
             }
 
@@ -517,33 +532,61 @@ class ReferralRequestLifecycleService
                             'coding' => [
                                 [
                                     'system' => 'eHealth/resources',
-                                    'code' => 'medical_program'
-                                ]
-                            ]
+                                    'code' => 'medical_program',
+                                ],
+                            ],
                         ],
-                        'value' => $programId
-                    ]
+                        'value' => $programId,
+                    ],
                 ];
             }
         }
 
-        // 1. Спочатку робимо Qualify (перевірка можливості взяти в роботу)
-        // Qualify вимагає вказання медичної програми. Якщо її немає, метод поверне 422.
-        $programId = $model ? $model->program_id : null;
-        
+        // Qualify: optional check — wrap in try/catch so a qualify failure
+        // does not prevent the process (use) call from running.
         if ($programId) {
-            $qualifyPayload = [
-                'programs' => [
-                    ['id' => $programId]
-                ]
-            ];
-            \App\Classes\eHealth\Api\ServiceRequest::qualify($referralUuid, $qualifyPayload);
+            try {
+                \App\Classes\eHealth\Api\ServiceRequest::qualify($referralUuid, [
+                    'programs' => [['id' => $programId]],
+                ]);
+            } catch (\Throwable $e) {
+                logger()->warning('Qualify failed (non-blocking): ' . $e->getMessage(), [
+                    'referral_uuid' => $referralUuid,
+                ]);
+            }
         }
 
-        // 2. Якщо Qualify успішний (або програма не вказана), беремо в роботу (Process / Use)
+        // Use Service Request (взяти в роботу)
         $response = \App\Classes\eHealth\Api\ServiceRequest::process($referralUuid, $payload);
+
+        // Persist status to local DB:
+        // If the referral was found from eHealth search (not in our DB), upsert it with in_progress status.
         if ($model) {
             $model->update(['status' => 'in_progress']);
+        } elseif ($patientUuid) {
+            // The referral came from eHealth search and is not in our local DB yet.
+            // Store a minimal record so we can track its status going forward.
+            $personModel = \App\Models\Person\Person::where('uuid', $patientUuid)->first();
+            if ($personModel) {
+                $responseData = $response;
+                if (isset($response['data'])) {
+                    $responseData = $response['data'];
+                }
+                Repository::serviceRequest()->store([
+                    'uuid' => $referralUuid,
+                    'status' => 'in_progress',
+                    'request_number' => $responseData['requisition'] ?? null,
+                    'employee_id' => $employee->id,
+                    'division_id' => $employee->division_id,
+                    // service_id is required by the repository schema; extract from response or fallback to empty
+                    'service_id' => data_get($responseData, 'code.identifier.value')
+                        ?? data_get($responseData, 'code.coding.0.code')
+                        ?? '',
+                    'quantity' => data_get($responseData, 'quantity.value') ?? 1,
+                    'category' => data_get($responseData, 'category.coding.0.code') ?? null,
+                    'intent' => $responseData['intent'] ?? 'order',
+                ], $personModel->id);
+            }
         }
 
         return $response;
@@ -589,12 +632,13 @@ class ReferralRequestLifecycleService
 
     /**
      * @param  string  $referralUuid
+     * @param  string  $patientId
      * @param  array  $payload  Optional payload for cancel
      * @return array
      */
-    public function cancelUsage(string $referralUuid, array $payload = []): array
+    public function cancelUsage(string $referralUuid, string $patientId, array $payload = []): array
     {
-        $response = \App\Classes\eHealth\Api\ServiceRequest::cancelUsage($referralUuid, $payload);
+        $response = \App\Classes\eHealth\Api\ServiceRequest::cancelUsage($referralUuid, $patientId, $payload);
 
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         if ($model) {

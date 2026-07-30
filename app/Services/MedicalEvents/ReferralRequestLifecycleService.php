@@ -14,11 +14,12 @@ use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
 
 class ReferralRequestLifecycleService
 {
+    use ResolvesEmployeeContext;
     public function __construct(
         private readonly EHealthJobResolver $jobResolver,
     ) {
@@ -40,44 +41,6 @@ class ReferralRequestLifecycleService
         }
 
         return Repository::deviceRequest()->findDraftByActivity($activity->id);
-    }
-
-    /**
-     * @return array{
-     *     employee_id: int|null,
-     *     division_id: int|null,
-     *     employee_uuid: string|null,
-     *     legal_entity_uuid: string|null
-     * }
-     */
-    public function resolveEmployeeContext(CarePlan $carePlan, ?CarePlanActivity $activity = null, ?int $fallbackEmployeeId = null): array
-    {
-        $employee = null;
-
-        $carePlan->loadMissing('encounter.performer');
-        $performerUuid = $carePlan->encounter?->performer?->value;
-        if (is_string($performerUuid) && $performerUuid !== '') {
-            $employee = Employee::query()->where('uuid', $performerUuid)->first();
-        }
-
-        if (!$employee && $activity?->author_id) {
-            $employee = Employee::find($activity->author_id);
-        }
-
-        if (!$employee && $fallbackEmployeeId) {
-            $employee = Employee::find($fallbackEmployeeId);
-        }
-
-        if (!$employee) {
-            $employee = Auth::user()?->activeDoctorEmployee();
-        }
-
-        return [
-            'employee_id' => $employee?->id,
-            'division_id' => $employee?->division_id ?? $carePlan->encounter?->division_id,
-            'employee_uuid' => $employee?->uuid,
-            'legal_entity_uuid' => $employee?->legalEntity?->uuid,
-        ];
     }
 
     /**
@@ -495,9 +458,12 @@ class ReferralRequestLifecycleService
      */
     public function takeIntoWork(string $referralUuid, Employee $employee, array $payload = []): array
     {
+        $model = Repository::serviceRequest()->findByUuid($referralUuid);
+        $programId = $model ? $model->program_id : null;
+
         if (empty($payload)) {
             $payload = [
-                'performer' => [
+                'used_by_employee' => [
                     'identifier' => [
                         'type' => [
                             'coding' => [
@@ -511,13 +477,73 @@ class ReferralRequestLifecycleService
                     ]
                 ]
             ];
+
+            if ($employee->division_uuid) {
+                $payload['used_by_division'] = [
+                    'identifier' => [
+                        'type' => [
+                            'coding' => [
+                                [
+                                    'system' => 'eHealth/resources',
+                                    'code' => 'division'
+                                ]
+                            ]
+                        ],
+                        'value' => $employee->division_uuid
+                    ]
+                ];
+            }
+
+            if ($employee->legal_entity_uuid) {
+                $payload['used_by_legal_entity'] = [
+                    'identifier' => [
+                        'type' => [
+                            'coding' => [
+                                [
+                                    'system' => 'eHealth/resources',
+                                    'code' => 'legal_entity'
+                                ]
+                            ]
+                        ],
+                        'value' => $employee->legal_entity_uuid
+                    ]
+                ];
+            }
+
+            if ($programId) {
+                $payload['program'] = [
+                    'identifier' => [
+                        'type' => [
+                            'coding' => [
+                                [
+                                    'system' => 'eHealth/resources',
+                                    'code' => 'medical_program'
+                                ]
+                            ]
+                        ],
+                        'value' => $programId
+                    ]
+                ];
+            }
         }
 
-        $response = \App\Classes\eHealth\Api\ServiceRequestApi::process($referralUuid, $payload);
+        // 1. Спочатку робимо Qualify (перевірка можливості взяти в роботу)
+        // Qualify вимагає вказання медичної програми. Якщо її немає, метод поверне 422.
+        $programId = $model ? $model->program_id : null;
+        
+        if ($programId) {
+            $qualifyPayload = [
+                'programs' => [
+                    ['id' => $programId]
+                ]
+            ];
+            \App\Classes\eHealth\Api\ServiceRequest::qualify($referralUuid, $qualifyPayload);
+        }
 
-        $model = Repository::serviceRequest()->findByUuid($referralUuid);
+        // 2. Якщо Qualify успішний (або програма не вказана), беремо в роботу (Process / Use)
+        $response = \App\Classes\eHealth\Api\ServiceRequest::process($referralUuid, $payload);
         if ($model) {
-            $model->update(['status' => 'active']);
+            $model->update(['status' => 'in_progress']);
         }
 
         return $response;
@@ -551,7 +577,7 @@ class ReferralRequestLifecycleService
             ];
         }
 
-        $response = \App\Classes\eHealth\Api\ServiceRequestApi::complete($referralUuid, $payload);
+        $response = \App\Classes\eHealth\Api\ServiceRequest::complete($referralUuid, $payload);
 
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         if ($model) {
@@ -568,7 +594,7 @@ class ReferralRequestLifecycleService
      */
     public function cancelUsage(string $referralUuid, array $payload = []): array
     {
-        $response = \App\Classes\eHealth\Api\ServiceRequestApi::cancelUsage($referralUuid, $payload);
+        $response = \App\Classes\eHealth\Api\ServiceRequest::cancelUsage($referralUuid, $payload);
 
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         if ($model) {

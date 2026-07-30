@@ -43,27 +43,18 @@
                 <div class="form-row-2">
                     <div class="form-group group">
                         <div class="relative">
-                            <div class="absolute inset-y-0 start-0 flex items-center pointer-events-none">
-                                @icon('search', 'w-4 h-4 text-gray-400')
-                            </div>
-                            <input wire:model="form.encounter.referralNumber"
-                                   type="text"
-                                   name="requisitionNumber"
-                                   id="requisitionNumber"
-                                   class="input !pl-7 !pr-7 peer @error('form.encounter.referralNumber') input-error @enderror"
-                                   placeholder=" "
-                                   autocomplete="off"
-                            />
-                            <label for="requisitionNumber" class="label !left-7">
-                                {{ __('patients.referral_number') }}
+                            <select wire:model="form.encounter.referralNumber"
+                                    id="requisitionNumber"
+                                    class="input-select peer @error('form.encounter.referralNumber') input-error @enderror"
+                            >
+                                <option value="" selected>{{ __('forms.select') }}</option>
+                                @foreach($availableReferrals as $referral)
+                                    <option value="{{ $referral['id'] }}">{{ $referral['requisition'] }} ({{ $referral['category'] }})</option>
+                                @endforeach
+                            </select>
+                            <label for="requisitionNumber" class="label">
+                                {{ __('patients.referral_number') }} (в роботі)
                             </label>
-                            <div class="absolute inset-y-0 end-0 flex items-center">
-                                <button type="button" @click="$wire.set('form.encounter.referralNumber', '')"
-                                        class="text-gray-400 hover:text-gray-600"
-                                >
-                                    @icon('close', 'w-4 h-4')
-                                </button>
-                            </div>
                         </div>
                         @error('form.encounter.referralNumber')
                         <p class="text-error">{{ $message }}</p>

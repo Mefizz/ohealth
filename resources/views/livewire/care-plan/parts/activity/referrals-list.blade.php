@@ -33,7 +33,7 @@
                         <div class="space-y-2 min-w-0">
                             <div class="flex flex-wrap items-center gap-3">
                                 <span class="font-bold text-gray-900 dark:text-gray-100">
-                                    № {{ $referral['request_number'] ?? $referral['uuid'] }}
+                                    № {{ $referral['request_number'] ?? $referral['requisition'] ?? $referral['uuid'] }}
                                 </span>
                                 <span class="badge {{ $statusBadgeClass }}">
                                     {{ $statusLabel }}

@@ -51,6 +51,9 @@ class EncounterCreate extends EncounterComponent
         $this->initializeComponent();
 
         $this->setDefaultDate();
+
+        // Pre-load in-progress referrals from eHealth for the dropdown
+        $this->loadInProgressReferrals();
     }
 
     /**

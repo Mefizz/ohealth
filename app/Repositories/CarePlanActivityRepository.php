@@ -899,9 +899,6 @@ class CarePlanActivityRepository
             $payload['detail']['status'] = 'scheduled';
         }
 
-        $payload['detail']['do_not_perform'] = true;
-        $payload['detail']['status_reason'] = $statusReasonCodeableConcept;
-
         return $payload;
     }
 

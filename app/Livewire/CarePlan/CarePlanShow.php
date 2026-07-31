@@ -1738,7 +1738,7 @@ class CarePlanShow extends Component
 
         if ($this->actionType === 'cancel_activity') {
             $creationPayload = $activityRepository->resolveActivityCreationPayloadForCancelSigning($activity);
-            $payload = $activityRepository->buildActivityCancelSignPayload($creationPayload);
+            $payload = $activityRepository->buildActivityCancelSignPayload($creationPayload, $statusReasonCodeableConcept);
             $basePayload = $creationPayload;
         } else {
             $basePayload = $activityRepository->resolveActivityPayloadBase(

@@ -884,18 +884,18 @@ class CarePlanActivityRepository
      * @param  array<string, mixed>  $activityPayload
      * @return array<string, mixed>
      */
-    public function buildActivityCancelSignPayload(array $activityPayload): array
-    {
+    public function buildActivityCancelSignPayload(
+        array $activityPayload,
+        array $statusReasonCodeableConcept
+    ): array {
         $payload = $activityPayload;
 
         if (!isset($payload['detail']) || !is_array($payload['detail'])) {
             $payload['detail'] = [];
         }
 
-        $status = $payload['detail']['status'] ?? 'scheduled';
-        if (strtolower((string) $status) === 'processed') {
-            $payload['detail']['status'] = 'scheduled';
-        }
+        $payload['detail']['status'] = 'cancelled';
+        $payload['detail']['status_reason'] = $statusReasonCodeableConcept;
 
         return $payload;
     }

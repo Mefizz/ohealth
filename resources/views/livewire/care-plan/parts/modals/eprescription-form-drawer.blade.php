@@ -69,9 +69,8 @@
                         <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
                             @icon('calendar-month', 'w-4 h-4 text-gray-500')
                         </div>
-                        <input type="text"
+                        <input type="date"
                                class="input peer ps-10"
-                               placeholder="dd.mm.yyyy"
                                wire:model.live="ePrescriptionForm.started_at"
                                @if(!$ePrescriptionSkipTreatmentPeriod) disabled @endif
                         />
@@ -85,7 +84,7 @@
 
                 <div class="form-group group">
                     <label class="label">Дата закінчення лікування</label>
-                    <input type="text" class="input bg-gray-50 dark:bg-gray-700 cursor-not-allowed" value="{{ $ePrescriptionForm['ended_at'] ?? '' }}" disabled />
+                    <input type="date" class="input bg-gray-50 dark:bg-gray-700 cursor-not-allowed" value="{{ $ePrescriptionForm['ended_at'] ?? '' }}" disabled />
                 </div>
             </div>
 

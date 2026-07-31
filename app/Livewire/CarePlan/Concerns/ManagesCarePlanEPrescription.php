@@ -166,7 +166,7 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionForm = [
             'activity_id' => $activity->id,
             'medication_id' => $activity->product_reference,
-            'started_at' => now()->format('d.m.Y'),
+            'started_at' => now()->toDateString(),
             'duration' => 10,
             'ended_at' => '',
             'medication_qty' => $defaultQty,
@@ -201,7 +201,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            $start = \Carbon\Carbon::createFromFormat('d.m.Y', $this->ePrescriptionForm['started_at']);
+            $start = \Carbon\Carbon::createFromFormat('Y-m-d', $this->ePrescriptionForm['started_at']);
             $duration = (int) $this->ePrescriptionForm['duration'];
 
             if ($duration < 1) {
@@ -216,7 +216,7 @@ trait ManagesCarePlanEPrescription
             }
 
             $end = $start->copy()->addDays($duration - 1);
-            $this->ePrescriptionForm['ended_at'] = $end->format('d.m.Y');
+            $this->ePrescriptionForm['ended_at'] = $end->toDateString();
         } catch (\Exception $e) {
             // Invalid date format
         }

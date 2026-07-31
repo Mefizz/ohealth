@@ -1718,7 +1718,7 @@ class CarePlanShow extends Component
         }
 
         $statusMap = [
-            'cancel_activity' => 'entered-in-error',
+            'cancel_activity' => 'entered_in_error',
             'complete_activity' => 'completed',
         ];
 

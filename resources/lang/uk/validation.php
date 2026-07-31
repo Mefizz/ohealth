@@ -350,6 +350,7 @@ return [
         'name' => 'ім\'я',
         'language' => 'мова',
         'phone' => 'телефон',
+        'statusReason' => 'причина',
         'reasonContext.reason' => 'причина створення неідентифікованого пацієнта',
         'reasonContext.ambulanceCardNumber' => '№ картки виїзду швидкої медичної допомоги',
         'reasonContext.policeReportId' => 'ідентифікатор заяви в поліцію',

@@ -894,7 +894,7 @@ class CarePlanActivityRepository
             $payload['detail'] = [];
         }
 
-        $payload['detail']['status'] = 'entered-in-error';
+        $payload['detail']['status'] = 'entered_in_error';
         $payload['detail']['status_reason'] = $statusReasonCodeableConcept;
 
         return $payload;

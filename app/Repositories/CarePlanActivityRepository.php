@@ -863,6 +863,22 @@ class CarePlanActivityRepository
     }
 
     /**
+     * Detail block for complete PATCH body (transition fields required by eHealth).
+     * Note: unlike cancel, the complete action schema only allows 'status_reason' in detail.
+     * Including 'do_not_perform' causes a validation error: "schema does not allow additional properties".
+     *
+     * @param  array<string, mixed>  $statusReasonCodeableConcept
+     * @return array<string, mixed>
+     */
+    public function buildActivityCompletePatchDetail(
+        array $statusReasonCodeableConcept,
+    ): array {
+        return [
+            'status_reason' => $statusReasonCodeableConcept,
+        ];
+    }
+
+    /**
      * PKCS#7 payload for cancel — exact creation snapshot without transition fields.
      *
      * eHealth compares signed_data byte-for-byte with the activity creation request.
@@ -915,11 +931,14 @@ class CarePlanActivityRepository
         ]);
 
         if ($outcomeCode) {
+            // eHealth expects outcome_codeable_concept as an array (list) of CodeableConcept objects.
             $payload['outcome_codeable_concept'] = [
-                'coding' => [
-                    [
-                        'system' => 'eHealth/care_plan_activity_outcomes',
-                        'code' => $outcomeCode,
+                [
+                    'coding' => [
+                        [
+                            'system' => 'eHealth/care_plan_activity_outcomes',
+                            'code' => $outcomeCode,
+                        ],
                     ],
                 ],
             ];

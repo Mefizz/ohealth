@@ -888,18 +888,21 @@ class CarePlanActivityRepository
         array $activityPayload,
         array $statusReasonCodeableConcept
     ): array {
-        $payload = $activityPayload;
-
-        if (!isset($payload['detail']) || !is_array($payload['detail'])) {
-            $payload['detail'] = [];
-        }
-
-        $status = $payload['detail']['status'] ?? 'scheduled';
+        $detail = is_array($activityPayload['detail'] ?? null) ? $activityPayload['detail'] : [];
+        $status = $detail['status'] ?? 'scheduled';
         if (strtolower((string) $status) === 'processed') {
-            $payload['detail']['status'] = 'scheduled';
+            $status = 'scheduled';
         }
 
-        return $payload;
+        return removeEmptyKeys([
+            'id' => $activityPayload['id'] ?? null,
+            'author' => $activityPayload['author'] ?? null,
+            'care_plan' => $activityPayload['care_plan'] ?? null,
+            'detail' => removeEmptyKeys([
+                'kind' => $detail['kind'] ?? null,
+                'status' => $status,
+            ]),
+        ]);
     }
 
     /**

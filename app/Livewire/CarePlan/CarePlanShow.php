@@ -1810,6 +1810,8 @@ class CarePlanShow extends Component
                 }
             }
 
+            \Illuminate\Support\Facades\Log::info('Cancel payload data being sent: ', $payloadData);
+
             $eHealthResponse = EHealth::carePlanActivity()->{$apiMethod}(
                 $this->carePlan->person->uuid,
                 $this->carePlan->uuid,

@@ -854,11 +854,8 @@ class CarePlanActivityRepository
         array $activityPayload,
         array $statusReasonCodeableConcept,
     ): array {
-        $detail = is_array($activityPayload['detail'] ?? null) ? $activityPayload['detail'] : [];
-
         return [
             'status_reason' => $statusReasonCodeableConcept,
-            'do_not_perform' => (bool) ($detail['do_not_perform'] ?? false),
         ];
     }
 

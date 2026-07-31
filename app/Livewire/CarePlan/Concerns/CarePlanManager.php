@@ -602,9 +602,7 @@ trait CarePlanManager
             ];
 
             if ($this->actionType === 'cancel_activity') {
-                $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(
-                    $statusReasonCodeableConcept,
-                );
+                $payloadData['status_reason'] = $statusReasonCodeableConcept;
             } elseif ($this->actionType === 'complete_activity') {
                 // eHealth requires 'detail' in the PATCH body (status_reason + do_not_perform).
                 $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(

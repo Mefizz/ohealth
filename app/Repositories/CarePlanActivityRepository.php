@@ -894,7 +894,12 @@ class CarePlanActivityRepository
             $payload['detail'] = [];
         }
 
-        $payload['detail']['status'] = 'entered_in_error';
+        $status = $payload['detail']['status'] ?? 'scheduled';
+        if (strtolower((string) $status) === 'processed') {
+            $payload['detail']['status'] = 'scheduled';
+        }
+
+        $payload['detail']['do_not_perform'] = true;
         $payload['detail']['status_reason'] = $statusReasonCodeableConcept;
 
         return $payload;

@@ -1782,14 +1782,22 @@ class CarePlanShow extends Component
                     $statusReasonCodeableConcept,
                 );
             } elseif ($this->actionType === 'complete_activity') {
+                // eHealth requires 'detail' in the PATCH body (status_reason + do_not_perform).
+                $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(
+                    $statusReasonCodeableConcept,
+                );
+
                 if ($this->outcomeCode) {
+                    // eHealth expects outcome_codeable_concept as an array (list) of CodeableConcept objects.
                     $payloadData['outcome_codeable_concept'] = [
-                        'coding' => [
-                            [
-                                'system' => 'eHealth/care_plan_activity_outcomes',
-                                'code' => $this->outcomeCode,
-                            ]
-                        ]
+                        [
+                            'coding' => [
+                                [
+                                    'system' => 'eHealth/care_plan_activity_outcomes',
+                                    'code' => $this->outcomeCode,
+                                ],
+                            ],
+                        ],
                     ];
                 }
 

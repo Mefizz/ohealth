@@ -901,6 +901,8 @@ class CarePlanActivityRepository
             'detail' => removeEmptyKeys([
                 'kind' => $detail['kind'] ?? null,
                 'status' => $status,
+                'do_not_perform' => true,
+                'status_reason' => $statusReasonCodeableConcept,
             ]),
         ]);
     }

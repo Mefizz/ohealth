@@ -425,8 +425,7 @@
                                                     </button>
                                                     <button type="button"
                                                             @click="openDropdown = false"
-                                                            wire:click="deleteActivity({{ $activity->id }})"
-                                                            wire:confirm="{{ __('care-plan.confirm_delete_activity') }}"
+                                                            wire:click="confirmDeleteActivity({{ $activity->id }})"
                                                             class="text-red-600 dark:text-red-400 block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-600 w-full"
                                                     >
                                                         {{ __('forms.delete') }}
@@ -505,6 +504,32 @@
         @include('livewire.care-plan.parts.modals.medical-devices-drawer')
         @include('livewire.care-plan.parts.modals.medical-device-search-drawer')
         @include('livewire.care-plan.parts.modals.medical-device-form-drawer')
+
+        <x-confirmation-modal wire:model.live="confirmingActivityDeletion">
+            <x-slot name="title">
+                {{ __('care-plan.confirm_delete_activity_title') }}
+            </x-slot>
+
+            <x-slot name="content">
+                {{ __('care-plan.confirm_delete_activity') }}
+            </x-slot>
+
+            <x-slot name="footer">
+                <x-secondary-button wire:click="cancelDeleteActivity" wire:loading.attr="disabled">
+                    {{ __('forms.cancel') }}
+                </x-secondary-button>
+
+                @if($activityToDelete)
+                    <x-danger-button
+                        class="ms-3"
+                        wire:click="deleteActivity({{ $activityToDelete }})"
+                        wire:loading.attr="disabled"
+                    >
+                        {{ __('forms.delete') }}
+                    </x-danger-button>
+                @endif
+            </x-slot>
+        </x-confirmation-modal>
     </div>
 
     <livewire:components.x-message :key="time()" />

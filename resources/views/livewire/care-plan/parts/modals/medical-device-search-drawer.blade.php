@@ -1,4 +1,4 @@
-{{-- Medical Device Search Drawer Overlay (below header z-60) --}}
+{{-- Medical Device Search Drawer Overlay (above form drawer z-46/47 so «Змінити» works while editing) --}}
 <div x-show="showMedicalDeviceSearchDrawer"
      x-transition:enter="transition ease-out duration-300"
      x-transition:enter-start="opacity-0"
@@ -9,10 +9,10 @@
      x-cloak
      @click="showMedicalDeviceSearchDrawer = false"
      class="fixed top-0 right-0 h-screen pt-20 w-4/5 bg-gray-900/50"
-     style="z-index: 44;"
+     style="z-index: 48;"
 ></div>
 
-{{-- Medical Device Search Drawer (30px gap on the LEFT) --}}
+{{-- Medical Device Search Drawer (above form; 30px gap on the LEFT) --}}
 <div id="medical-device-search-drawer-right"
      x-show="showMedicalDeviceSearchDrawer"
      x-transition:enter="transition ease-out duration-300"
@@ -23,7 +23,7 @@
      x-transition:leave-end="translate-x-full"
      x-cloak
      class="fixed top-0 right-0 h-screen pt-20 p-4 overflow-y-auto bg-white dark:bg-gray-800 shadow-2xl"
-     style="z-index: 45; width: calc(80% - 30px);"
+     style="z-index: 49; width: calc(80% - 30px);"
      tabindex="-1"
      x-data="{ showFilter: false }"
 >

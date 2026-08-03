@@ -565,9 +565,13 @@ trait CarePlanManager
         ];
 
         if ($this->actionType === 'cancel_activity') {
-            $creationPayload = $activityRepository->resolveActivityCreationPayloadForCancelSigning($activity);
-            $payloadForSign = $activityRepository->buildActivityCancelSignPayload($creationPayload);
-            $basePayload = $creationPayload;
+            // API-007-006-0005: sign create-shaped snapshot + detail.status_reason only.
+            // Do not use GET details — they diverge from the stored create content.
+            $basePayload = $activityRepository->resolveActivityCreationPayloadForCancelSigning($activity);
+            $payloadForSign = $activityRepository->buildActivityCancelSignPayload(
+                $basePayload,
+                $statusReasonCodeableConcept,
+            );
         } else {
             $basePayload = $activityRepository->resolveActivityPayloadBase(
                 $activity,
@@ -601,10 +605,9 @@ trait CarePlanManager
                 'signed_data_encoding' => 'base64',
             ];
 
-            if ($this->actionType === 'cancel_activity') {
-                $payloadData['status_reason'] = $statusReasonCodeableConcept;
-            } elseif ($this->actionType === 'complete_activity') {
-                // eHealth requires 'detail' in the PATCH body (status_reason + do_not_perform).
+            if ($this->actionType === 'complete_activity') {
+                // eHealth requires 'detail' in the PATCH body (status_reason).
+                // Cancel (API-007-006-0005) carries status_reason only inside signed_data.
                 $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(
                     $statusReasonCodeableConcept,
                 );

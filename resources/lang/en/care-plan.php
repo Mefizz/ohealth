@@ -16,6 +16,7 @@ return [
     'activity_deleted' => 'Activity draft deleted.',
     'activity_delete_only_draft' => 'Only draft activities can be deleted. Use cancel for signed activities.',
     'activity_delete_has_referrals' => 'Cannot delete: linked prescriptions or referrals exist.',
+    'confirm_delete_activity_title' => 'Delete draft',
     'confirm_delete_activity' => 'Delete this activity draft?',
     'change_product' => 'Change',
     'care_plan_activated' => 'Care plan successfully activated.',

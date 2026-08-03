@@ -76,9 +76,22 @@
                         {{ __('care-plan.medical_device') }}*
                     </label>
                     <div class="relative">
+                        @php
+                            $deviceDisplayName = !empty($selectedProduct)
+                                ? ($selectedProduct['display_name']
+                                    ?? $selectedProduct['name']
+                                    ?? ($selectedProduct['device_names'][0]['name'] ?? null)
+                                    ?? $selectedProduct['description']
+                                    ?? '')
+                                : '';
+                            if ($deviceDisplayName === '') {
+                                $deviceDisplayName = $activityForm['product_reference']
+                                    ?: ($activityForm['product_codeable_concept'] ?? '');
+                            }
+                        @endphp
                         <input type="text"
                                class="input bg-gray-50 dark:bg-gray-700 {{ empty($activityForm['id']) ? 'cursor-not-allowed' : 'pr-12' }} font-medium text-gray-900 dark:text-white w-full"
-                               value="{{ !empty($selectedProduct) ? ($selectedProduct['name'] ?? $selectedProduct['device_names'][0]['name'] ?? $selectedProduct['description'] ?? '') : '' }}"
+                               value="{{ $deviceDisplayName }}"
                                disabled
                         />
                         @if(!empty($activityForm['id']))

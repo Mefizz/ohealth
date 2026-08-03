@@ -30,9 +30,9 @@ class CarePlanActivity extends Request
     }
 
     /**
-     * Cancel a Care Plan Activity.
-     * Note: This requires a Digital Signature (DS).
-     * The payload must contain 'signed_content' which is the Care Plan Activity object + status_reason, signed by KEП.
+     * Cancel a Care Plan Activity (API-007-006-0005).
+     * Requires Digital Signature (DS). Request body is signed_data only; the signed PKCS#7
+     * content must be the activity from DB with $.detail.status_reason set.
      *
      * @param  string  $personId
      * @param  string  $carePlanId

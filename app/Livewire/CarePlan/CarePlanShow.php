@@ -52,6 +52,10 @@ class CarePlanShow extends Component
     public bool $showMedicalDeviceSearchDrawer = false;
     public bool $showMedicalDeviceFormDrawer = false;
 
+    public bool $confirmingActivityDeletion = false;
+
+    public ?int $activityToDelete = null;
+
     public string $deviceSelectionWarning = '';
 
     /** @var list<string> */
@@ -139,35 +143,33 @@ class CarePlanShow extends Component
 
         try {
             $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
-            $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
+            $this->dictionaries['care_plan_categories'] = $this->basicDictionaryCodes($basics, [
+                'eHealth/care_plan_categories',
+            ]);
+            $this->dictionaries['care_plan_activity_outcomes'] = $this->basicDictionaryCodes($basics, [
+                'eHealth/care_plan_activity_outcomes',
+            ]);
+            $this->dictionaries['care_plan_cancel_reasons'] = $this->basicDictionaryCodes($basics, [
+                'eHealth/care_plan_cancel_reasons',
+            ]);
+            $this->dictionaries['care_plan_complete_reasons'] = $this->basicDictionaryCodes($basics, [
+                'eHealth/care_plan_complete_reasons',
+            ]);
+            $this->dictionaries['care_plan_activity_complete_reasons'] = $this->basicDictionaryCodes($basics, [
+                'eHealth/care_plan_activity_complete_reasons',
+            ]);
+            $this->dictionaries['care_plan_activity_cancel_reasons'] = $this->basicDictionaryCodes($basics, [
+                'eHealth/care_plan_activity_cancel_reasons',
+            ]);
+            $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] = $this->basicDictionaryCodes($basics, [
+                'MEDICATION_REQUEST_REJECT_REASON',
+                'eHealth/MEDICATION_REQUEST_REJECT_REASON',
+            ]);
+        } catch (\Exception $exception) {
+            Log::warning('CarePlanShow: failed to load basic dictionaries: ' . $exception->getMessage());
+        }
 
-            $this->dictionaries['care_plan_activity_outcomes'] = $basics->byName('eHealth/care_plan_activity_outcomes')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-
-            $this->dictionaries['care_plan_cancel_reasons'] = $basics->byName('eHealth/care_plan_cancel_reasons')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-
-            $this->dictionaries['care_plan_complete_reasons'] = $basics->byName('eHealth/care_plan_complete_reasons')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-
-            $this->dictionaries['care_plan_activity_complete_reasons'] = $basics->byName('eHealth/care_plan_activity_complete_reasons')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-
-            $this->dictionaries['care_plan_activity_cancel_reasons'] = $basics->byName('eHealth/care_plan_activity_cancel_reasons')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-
-            $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] = $basics->byName('eHealth/MEDICATION_REQUEST_REJECT_REASON')
-                ?->asCodeDescription()
-                ?->toArray() ?? [];
-
-            // Load medical programs
+        try {
             $programs = app(\App\Services\Dictionary\DictionaryManager::class)->medicalPrograms();
             $this->dictionaries['medical_programs'] = $programs
                 ->pluck('name', 'id')
@@ -189,7 +191,7 @@ class CarePlanShow extends Component
                 ->pluck('name', 'id')
                 ->toArray() ?? [];
         } catch (\Exception $exception) {
-            Log::warning('CarePlanShow: failed to load dictionaries: ' . $exception->getMessage());
+            Log::warning('CarePlanShow: failed to load medical programs: ' . $exception->getMessage());
         }
 
         $this->carePlanUuid = $this->carePlan->uuid;
@@ -422,6 +424,18 @@ class CarePlanShow extends Component
 
     public function openMedicalDeviceSearch(): void
     {
+        if (!filled($this->selectedProgram)) {
+            $this->selectedProgram = $this->resolveDeviceProgramId() ?? '';
+            $this->activityForm['program'] = $this->selectedProgram;
+        }
+
+        if (!filled($this->selectedProgram)) {
+            Session::flash('error', __('care-plan.select_program_first'));
+
+            return;
+        }
+
+        $this->activityForm['program'] = $this->selectedProgram;
         $this->showMedicalDeviceDrawer = false;
         $this->showMedicalDeviceSearchDrawer = true;
         $this->searchPage = 1;
@@ -462,11 +476,24 @@ class CarePlanShow extends Component
         $this->loadMedicalDeviceSearchResults();
     }
 
+    public function confirmDeleteActivity(int $activityId): void
+    {
+        $this->activityToDelete = $activityId;
+        $this->confirmingActivityDeletion = true;
+    }
+
+    public function cancelDeleteActivity(): void
+    {
+        $this->confirmingActivityDeletion = false;
+        $this->activityToDelete = null;
+    }
+
     public function deleteActivity(int $activityId, CarePlanActivityRepository $repository): void
     {
         $activity = $repository->findById($activityId);
         if (!$activity || $activity->care_plan_id !== $this->carePlan->id) {
             Session::flash('error', __('care-plan.activity_not_found'));
+            $this->cancelDeleteActivity();
 
             return;
         }
@@ -477,16 +504,19 @@ class CarePlanShow extends Component
 
         if (!in_array($activityStatus, ['draft', 'new'], true)) {
             Session::flash('error', __('care-plan.activity_delete_only_draft'));
+            $this->cancelDeleteActivity();
 
             return;
         }
 
         if (!$repository->deleteById($activityId)) {
             Session::flash('error', __('care-plan.activity_delete_has_referrals'));
+            $this->cancelDeleteActivity();
 
             return;
         }
 
+        $this->cancelDeleteActivity();
         Session::flash('success', __('care-plan.activity_deleted'));
         $this->refreshCarePlan();
     }
@@ -791,7 +821,7 @@ class CarePlanShow extends Component
     private function loadMedicalDeviceSearchResults(): void
     {
         $programId = $this->resolveDeviceProgramId();
-        if ($programId === '') {
+        if (!filled($programId)) {
             $this->searchResults = [];
             $this->deviceSearchTotalEntries = 0;
             $this->deviceSearchTotalPages = 1;
@@ -826,10 +856,17 @@ class CarePlanShow extends Component
             }
 
             $devices = $this->sortDeviceSearchResults($devices, $query);
-            $this->deviceSearchCatalog = array_map(
-                fn (array $device): array => $this->enrichDeviceForDisplay($device),
-                $devices
-            );
+            $this->deviceSearchCatalog = array_values(array_filter(
+                array_map(
+                    fn (array $device): array => $this->enrichDeviceForDisplay($device),
+                    $devices
+                ),
+                function (array $device): bool {
+                    $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
+
+                    return filter_var($isActive, FILTER_VALIDATE_BOOLEAN);
+                }
+            ));
 
             $perPage = 20;
             $this->deviceSearchTotalEntries = count($this->deviceSearchCatalog);
@@ -1534,36 +1571,6 @@ class CarePlanShow extends Component
             }
         }
 
-        if (str_contains(strtolower((string) $activity->kind), 'device')) {
-            $employeeContext = app(\App\Services\MedicalEvents\CarePlanActivityEHealthGuard::class)
-                ->resolveEmployeeContext(
-                    $this->carePlan,
-                    $activity,
-                    Auth::user()?->activeDoctorEmployee()?->id
-                );
-            $uuids = [
-                'person_uuid' => $this->carePlan->person->uuid,
-                'encounter_uuid' => $this->carePlan->encounter?->uuid,
-                'employee_uuid' => $employeeContext['employee_uuid'],
-                'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
-            ];
-
-            try {
-                $prequalifyPayload = $activityRepository->buildDevicePrequalifyPayload($activity, $this->carePlan, $uuids);
-                $jobResolver = app(\App\Services\MedicalEvents\EHealthJobResolver::class);
-                $prequalifyResponse = EHealth::deviceRequest()->prequalify(
-                    $this->carePlan->person->uuid,
-                    $prequalifyPayload
-                );
-                $jobResolver->assertPrequalifyValid($jobResolver->resolve($prequalifyResponse->getData()));
-            } catch (EHealthValidationException $exception) {
-                Session::flash('error', $exception->getTranslatedMessage());
-                $this->showSignatureModal = false;
-
-                return;
-            }
-        }
-
         $this->ensureCarePlanEffectivePeriodSynced($repository);
         $activity->load('carePlan.effectivePeriod');
 
@@ -1737,9 +1744,13 @@ class CarePlanShow extends Component
         ];
 
         if ($this->actionType === 'cancel_activity') {
-            $creationPayload = $activityRepository->resolveActivityCreationPayloadForCancelSigning($activity);
-            $payload = $activityRepository->buildActivityCancelSignPayload($creationPayload, $statusReasonCodeableConcept);
-            $basePayload = $creationPayload;
+            // API-007-006-0005: sign create-shaped snapshot + detail.status_reason only.
+            // Do not use GET details — they diverge from the stored create content.
+            $basePayload = $activityRepository->resolveActivityCreationPayloadForCancelSigning($activity);
+            $payload = $activityRepository->buildActivityCancelSignPayload(
+                $basePayload,
+                $statusReasonCodeableConcept,
+            );
         } else {
             $basePayload = $activityRepository->resolveActivityPayloadBase(
                 $activity,
@@ -1776,10 +1787,9 @@ class CarePlanShow extends Component
                 'signed_data_encoding' => 'base64',
             ];
 
-            if ($this->actionType === 'cancel_activity') {
-                $payloadData['status_reason'] = $statusReasonCodeableConcept;
-            } elseif ($this->actionType === 'complete_activity') {
-                // eHealth requires 'detail' in the PATCH body (status_reason + do_not_perform).
+            if ($this->actionType === 'complete_activity') {
+                // eHealth requires 'detail' in the PATCH body (status_reason).
+                // Cancel (API-007-006-0005) carries status_reason only inside signed_data.
                 $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(
                     $statusReasonCodeableConcept,
                 );
@@ -2223,18 +2233,23 @@ class CarePlanShow extends Component
             return;
         }
 
+        // Program settings missing/unknown: prefer device definition UUID alone.
         if ($deviceId !== '') {
             $this->activityForm['product_reference'] = $deviceId;
+            $this->activityForm['product_codeable_concept'] = '';
+
+            return;
         }
 
         if ($classificationCode !== null && $classificationCode !== '') {
             $this->activityForm['product_codeable_concept'] = $classificationCode;
+            $this->activityForm['product_reference'] = '';
         }
     }
 
     protected function resolveMedicationProgramId(): ?string
     {
-        if ($this->selectedProgram !== '') {
+        if (filled($this->selectedProgram)) {
             return $this->selectedProgram;
         }
         $tos = is_array($this->carePlan->terms_of_service)
@@ -2249,7 +2264,7 @@ class CarePlanShow extends Component
 
     protected function resolveDeviceProgramId(): ?string
     {
-        if ($this->selectedProgram !== '') {
+        if (filled($this->selectedProgram)) {
             return $this->selectedProgram;
         }
         $tos = is_array($this->carePlan->terms_of_service)
@@ -2259,11 +2274,31 @@ class CarePlanShow extends Component
             return null;
         }
         $devicePrograms = array_keys($this->dictionaries['medical_programs_device'] ?? []);
+        if ($devicePrograms === []) {
+            return self::DEFAULT_DEVICE_PROGRAM_ID;
+        }
         if (in_array(self::DEFAULT_DEVICE_PROGRAM_ID, $devicePrograms, true)) {
             return self::DEFAULT_DEVICE_PROGRAM_ID;
         }
 
-        return $devicePrograms[0] ?? self::DEFAULT_DEVICE_PROGRAM_ID;
+        return $devicePrograms[0];
+    }
+
+    /**
+     * @param  list<string>  $names
+     * @return array<string, string>
+     */
+    private function basicDictionaryCodes(\App\Services\Dictionary\Collections\BasicDictionaryCollection $basics, array $names): array
+    {
+        foreach ($names as $name) {
+            try {
+                return $basics->byName($name)->asCodeDescription()->toArray();
+            } catch (\InvalidArgumentException) {
+                continue;
+            }
+        }
+
+        return [];
     }
 
     protected function resetActivitySelectionState(string $kind): void
@@ -2278,11 +2313,12 @@ class CarePlanShow extends Component
         $this->selectedProduct = null;
         $this->linkedGrounds = [];
         $this->deviceSelectionWarning = '';
+        $this->selectedProgram = '';
 
         $kindLower = strtolower($kind);
         $this->selectedProgram = match (true) {
-            str_contains($kindLower, 'medication') => $this->resolveMedicationProgramId(),
-            str_contains($kindLower, 'device') => $this->resolveDeviceProgramId(),
+            str_contains($kindLower, 'medication') => $this->resolveMedicationProgramId() ?? '',
+            str_contains($kindLower, 'device') => $this->resolveDeviceProgramId() ?? '',
             default => '',
         };
     }

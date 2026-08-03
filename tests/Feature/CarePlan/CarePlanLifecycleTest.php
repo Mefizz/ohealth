@@ -508,16 +508,15 @@ class CarePlanLifecycleTest extends TestCase
         $this->instance(\App\Services\SignatureService::class, $mockSignatureService);
         $this->instance(\App\Classes\eHealth\Api\Job::class, $mockJobApi);
 
-        // Cancel signs exact creation payload; status_reason and do_not_perform go in PATCH detail
+        // API-007-006-0005: cancel signs create-shaped activity + detail.status_reason; PATCH is signed_data only
         $mockSignatureService->shouldReceive('signData')
             ->once()
             ->withArgs(function (array $payload): bool {
-                $keys = array_keys($payload);
-
-                return ($keys[0] ?? null) === 'id'
-                    && ($payload['detail']['kind'] ?? null) === 'ServiceRequest'
+                return ($payload['detail']['kind'] ?? null) === 'ServiceRequest'
+                    && ($payload['detail']['status'] ?? null) === 'scheduled'
                     && ($payload['detail']['do_not_perform'] ?? null) === false
-                    && !array_key_exists('status_reason', $payload['detail']);
+                    && ($payload['detail']['status_reason']['coding'][0]['code'] ?? null) === 'typo'
+                    && isset($payload['author'][0]['identifier']['value']);
             })
             ->andReturn('mock-base64-signature');
         $mockSignatureService->shouldReceive('getCertificateAuthorities')->andReturn([]);
@@ -531,8 +530,10 @@ class CarePlanLifecycleTest extends TestCase
         $mockActivityApi->shouldReceive('cancel')
             ->once()
             ->withArgs(function (string $personUuid, string $planUuid, string $activityUuid, array $payload): bool {
-                return isset($payload['detail']['status_reason']['coding'][0]['code'])
-                    && array_key_exists('do_not_perform', $payload['detail']);
+                return isset($payload['signed_data'])
+                    && ($payload['signed_data_encoding'] ?? null) === 'base64'
+                    && !array_key_exists('status_reason', $payload)
+                    && !array_key_exists('detail', $payload);
             })
             ->andReturn($activityCancelResponse);
 
@@ -752,10 +753,17 @@ class CarePlanLifecycleTest extends TestCase
             'status' => 'draft',
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
+        $component = Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan]);
+
+        $devicePrograms = $component->get('dictionaries')['medical_programs_device'] ?? [];
+        $this->assertNotEmpty($devicePrograms, 'Device medical programs must load even if an optional basic dictionary is missing');
+        $this->assertArrayHasKey('85953838-1834-4ed6-8bf4-3f83057380ec', $devicePrograms);
+
+        $component
             ->call('initActivityForm', 'device_request')
             ->assertSet('selectedProgram', '85953838-1834-4ed6-8bf4-3f83057380ec')
-            ->assertSet('activityForm.program', '85953838-1834-4ed6-8bf4-3f83057380ec');
+            ->assertSet('activityForm.program', '85953838-1834-4ed6-8bf4-3f83057380ec')
+            ->assertSee('85953838-1834-4ed6-8bf4-3f83057380ec', false);
     }
 
     public function test_draft_activity_can_be_deleted(): void
@@ -784,7 +792,12 @@ class CarePlanLifecycleTest extends TestCase
         ]);
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
-            ->call('deleteActivity', $activity->id);
+            ->call('confirmDeleteActivity', $activity->id)
+            ->assertSet('confirmingActivityDeletion', true)
+            ->assertSet('activityToDelete', $activity->id)
+            ->call('deleteActivity', $activity->id)
+            ->assertSet('confirmingActivityDeletion', false)
+            ->assertSet('activityToDelete', null);
 
         $this->assertDatabaseMissing('care_plan_activities', ['id' => $activity->id]);
     }

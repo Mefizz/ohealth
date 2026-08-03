@@ -51,6 +51,7 @@
                                 class="input-select peer"
                                 wire:model.live="selectedProgram"
                         >
+                            <option value="">{{ __('care-plan.select_program_first') }}</option>
                             @foreach(($dictionaries['medical_programs_device'] ?? $dictionaries['medical_programs'] ?? []) as $id => $name)
                                 <option value="{{ $id }}">{{ $name }}</option>
                             @endforeach
@@ -77,6 +78,5 @@
             </div>
         </form>
         </div>
-    </div>
     </div>
 </template>

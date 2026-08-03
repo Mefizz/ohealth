@@ -45,6 +45,41 @@ class CarePlanActivityRepositoryTest extends TestCase
         $this->assertSame(1, $payload['detail']['quantity']['value']);
     }
 
+    public function test_device_payload_prefers_device_definition_uuid_over_classification(): void
+    {
+        $carePlan = new CarePlan([
+            'period_start' => now()->subDay(),
+            'period_end' => now()->addMonth(),
+        ]);
+        $carePlan->setRawAttributes(array_merge($carePlan->getAttributes(), [
+            'period_start' => now()->subDay()->format('Y-m-d'),
+            'period_end' => now()->addMonth()->format('Y-m-d'),
+        ]));
+
+        $deviceUuid = '0b70715d-0e6e-4a89-889f-815cf429cb87';
+        $activity = new CarePlanActivity([
+            'kind' => 'device_request',
+            'status' => CarePlanStatus::DRAFT->value,
+            'quantity' => 1,
+            'quantity_system' => 'device_unit',
+            'quantity_code' => 'piece',
+            'product_reference' => $deviceUuid,
+            'product_codeable_concept' => '18_09_03',
+            'program' => 'af8ba0d3-1520-4a01-8156-22065e96fd9a',
+            'scheduled_period_start' => now()->format('Y-m-d'),
+            'scheduled_period_end' => now()->addWeek()->format('Y-m-d'),
+        ]);
+        $activity->setRelation('carePlan', $carePlan);
+
+        $payload = app(CarePlanActivityRepository::class)->formatCarePlanActivityRequest($activity);
+
+        $this->assertSame(
+            $deviceUuid,
+            $payload['detail']['product_reference']['identifier']['value'] ?? null
+        );
+        $this->assertArrayNotHasKey('product_codeable_concept', $payload['detail']);
+    }
+
     public function test_build_device_prequalify_payload_includes_occurrence_period(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-06-29 10:00:00', 'Europe/Kyiv'));
@@ -200,7 +235,7 @@ class CarePlanActivityRepositoryTest extends TestCase
         $this->assertArrayNotHasKey('text', $normalized['author']['identifier']['type']);
     }
 
-    public function test_build_activity_cancel_sign_payload_preserves_creation_snapshot(): void
+    public function test_build_activity_cancel_sign_payload_adds_status_reason_to_full_snapshot(): void
     {
         $statusReason = [
             'coding' => [
@@ -237,22 +272,83 @@ class CarePlanActivityRepositoryTest extends TestCase
                 'kind' => 'medication_request',
                 'status' => 'scheduled',
                 'do_not_perform' => false,
-                'quantity' => ['value' => 1.0, 'code' => 'PIECE', 'system' => 'MEDICATION_UNIT'],
+                'quantity' => ['value' => 1.0, 'code' => 'PIECE', 'system' => 'MEDICATION_UNIT', 'unit' => 'шт'],
                 'program' => ['identifier' => ['value' => '1318eabc-1a1a-42f6-8450-61e11c19eede']],
             ],
         ];
 
-        $signed = app(CarePlanActivityRepository::class)->buildActivityCancelSignPayload($base);
+        $signed = app(CarePlanActivityRepository::class)->buildActivityCancelSignPayload($base, $statusReason);
 
         $this->assertSame('f5ad4f67-7066-4d0d-bcff-c17a11a723e4', $signed['id']);
         $this->assertSame('medication_request', $signed['detail']['kind']);
         $this->assertSame('scheduled', $signed['detail']['status']);
         $this->assertFalse($signed['detail']['do_not_perform']);
         $this->assertSame(1.0, $signed['detail']['quantity']['value']);
-        $this->assertArrayNotHasKey('status_reason', $signed['detail']);
+        $this->assertSame($statusReason, $signed['detail']['status_reason']);
+        $this->assertArrayNotHasKey('unit', $signed['detail']['quantity']);
+    }
 
-        $patchDetail = app(CarePlanActivityRepository::class)->buildActivityCancelPatchDetail($base, $statusReason);
-        $this->assertSame($statusReason, $patchDetail['status_reason']);
-        $this->assertFalse($patchDetail['do_not_perform']);
+    public function test_normalize_ehealth_activity_wraps_author_object_as_list(): void
+    {
+        $raw = [
+            'id' => 'f5ad4f67-7066-4d0d-bcff-c17a11a723e4',
+            'author' => [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            ['code' => 'employee', 'system' => 'eHealth/resources'],
+                        ],
+                    ],
+                    'value' => '1766ae9e-828d-4daa-bba8-48da3a13393a',
+                ],
+            ],
+            'detail' => [
+                'kind' => 'service_request',
+                'status' => 'scheduled',
+                'do_not_perform' => false,
+            ],
+        ];
+
+        $normalized = app(CarePlanActivityRepository::class)->normalizeEHealthActivityForSigning($raw);
+
+        $this->assertTrue(array_is_list($normalized['author']));
+        $this->assertArrayHasKey('identifier', $normalized['author'][0]);
+    }
+
+    public function test_build_activity_cancel_sign_payload_wraps_author_object_as_list(): void
+    {
+        $statusReason = [
+            'coding' => [
+                [
+                    'system' => 'eHealth/care_plan_activity_cancel_reasons',
+                    'code' => 'typo',
+                ],
+            ],
+        ];
+
+        $base = [
+            'id' => 'f5ad4f67-7066-4d0d-bcff-c17a11a723e4',
+            'author' => [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            ['system' => 'eHealth/resources', 'code' => 'employee'],
+                        ],
+                    ],
+                    'value' => '1766ae9e-828d-4daa-bba8-48da3a13393a',
+                ],
+            ],
+            'detail' => [
+                'kind' => 'medication_request',
+                'status' => 'scheduled',
+                'do_not_perform' => false,
+            ],
+        ];
+
+        $signed = app(CarePlanActivityRepository::class)->buildActivityCancelSignPayload($base, $statusReason);
+
+        $this->assertTrue(array_is_list($signed['author']));
+        $this->assertSame('1766ae9e-828d-4daa-bba8-48da3a13393a', $signed['author'][0]['identifier']['value']);
+        $this->assertSame($statusReason, $signed['detail']['status_reason']);
     }
 }

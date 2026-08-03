@@ -359,17 +359,18 @@ class CarePlanActivityRepository
             }
         }
 
-        if (!empty($activity->product_codeable_concept)) {
-            return [
-                'product_reference' => null,
-                'product_codeable_concept' => $this->formatDeviceClassificationConcept($activity->product_codeable_concept),
-            ];
-        }
-
+        // Prefer a concrete device definition UUID over classification when both are present.
         if ($isDeviceDefinitionUuid) {
             return [
                 'product_reference' => $this->formatDeviceDefinitionReference($reference),
                 'product_codeable_concept' => null,
+            ];
+        }
+
+        if (!empty($activity->product_codeable_concept)) {
+            return [
+                'product_reference' => null,
+                'product_codeable_concept' => $this->formatDeviceClassificationConcept($activity->product_codeable_concept),
             ];
         }
 
@@ -800,10 +801,11 @@ class CarePlanActivityRepository
     }
 
     /**
-     * Creation-shaped payload for cancel PKCS#7 signing.
+     * Creation-shaped payload for cancel PKCS#7 signing (API-007-006-0005).
      *
-     * eHealth compares signed_data byte-for-byte with the activity creation request.
-     * GET /activities/{id} returns a different key order and must not be signed for cancel.
+     * eHealth compares signed content (minus $.detail.status_reason) with the activity as stored
+     * from create. GET /activities/{id} adds computed/display fields and different key shapes,
+     * so cancel must rebuild the create snapshot locally — not sign the GET response.
      *
      * @return array<string, mixed>
      */
@@ -844,22 +846,6 @@ class CarePlanActivityRepository
     }
 
     /**
-     * Detail block for cancel PATCH body (transition fields required by eHealth).
-     *
-     * @param  array<string, mixed>  $activityPayload
-     * @param  array<string, mixed>  $statusReasonCodeableConcept
-     * @return array<string, mixed>
-     */
-    public function buildActivityCancelPatchDetail(
-        array $activityPayload,
-        array $statusReasonCodeableConcept,
-    ): array {
-        return [
-            'status_reason' => $statusReasonCodeableConcept,
-        ];
-    }
-
-    /**
      * Detail block for complete PATCH body (transition fields required by eHealth).
      * Note: unlike cancel, the complete action schema only allows 'status_reason' in detail.
      * Including 'do_not_perform' causes a validation error: "schema does not allow additional properties".
@@ -876,35 +862,47 @@ class CarePlanActivityRepository
     }
 
     /**
-     * PKCS#7 payload for cancel — exact creation snapshot without transition fields.
+     * PKCS#7 payload for cancel (API-007-006-0005).
      *
-     * eHealth compares signed_data byte-for-byte with the activity creation request.
-     * status_reason belongs in the PATCH body only; do_not_perform stays from creation detail.
+     * Signed content must equal the activity stored in eHealth DB, with the only allowed
+     * delta being $.detail.status_reason. Validation excludes status_reason before compare.
+     * Do not change status / do_not_perform, and do not strip business fields.
      *
      * @param  array<string, mixed>  $activityPayload
+     * @param  array<string, mixed>  $statusReasonCodeableConcept
      * @return array<string, mixed>
      */
     public function buildActivityCancelSignPayload(
         array $activityPayload,
-        array $statusReasonCodeableConcept
+        array $statusReasonCodeableConcept,
     ): array {
-        $detail = is_array($activityPayload['detail'] ?? null) ? $activityPayload['detail'] : [];
-        $status = $detail['status'] ?? 'scheduled';
-        if (strtolower((string) $status) === 'processed') {
-            $status = 'scheduled';
+        $payload = $activityPayload;
+
+        // Cancel schema expects author as a list (same as create). GET may return a single object.
+        if (isset($payload['author']) && is_array($payload['author']) && !array_is_list($payload['author'])) {
+            $payload['author'] = [$payload['author']];
         }
 
-        return removeEmptyKeys([
-            'id' => $activityPayload['id'] ?? null,
-            'author' => $activityPayload['author'] ?? null,
-            'care_plan' => $activityPayload['care_plan'] ?? null,
-            'detail' => removeEmptyKeys([
-                'kind' => $detail['kind'] ?? null,
-                'status' => $status,
-                'do_not_perform' => true,
-                'status_reason' => $statusReasonCodeableConcept,
-            ]),
-        ]);
+        if (!isset($payload['detail']) || !is_array($payload['detail'])) {
+            $payload['detail'] = [];
+        }
+
+        $status = $payload['detail']['status'] ?? 'scheduled';
+        if (strtolower((string) $status) === 'processed') {
+            $payload['detail']['status'] = 'scheduled';
+        }
+
+        // After eHealth sync, Quantity.unit is often filled from GET ("шт") even when create
+        // signed content never had unit — that alone causes "Signed content doesn't match".
+        foreach (['quantity', 'daily_amount'] as $quantityKey) {
+            if (isset($payload['detail'][$quantityKey]) && is_array($payload['detail'][$quantityKey])) {
+                unset($payload['detail'][$quantityKey]['unit']);
+            }
+        }
+
+        $payload['detail']['status_reason'] = $statusReasonCodeableConcept;
+
+        return $payload;
     }
 
     /**
@@ -960,7 +958,7 @@ class CarePlanActivityRepository
 
     /**
      * Prepare eHealth activity details for cancel/complete PKCS#7 signing.
-     * Strips read-only fields that are not part of the originally created activity payload.
+     * Strips read-only/computed fields that are not part of the rendered activity snapshot.
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
@@ -1006,6 +1004,11 @@ class CarePlanActivityRepository
 
             if ($value === null) {
                 continue;
+            }
+
+            // Create/cancel schema expects author as a list; GET may return a single object.
+            if ($snakeKey === 'author' && is_array($value) && !array_is_list($value)) {
+                $value = [$value];
             }
 
             if (is_array($value)) {

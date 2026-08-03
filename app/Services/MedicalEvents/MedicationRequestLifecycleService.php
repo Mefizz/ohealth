@@ -85,12 +85,13 @@ class MedicationRequestLifecycleService
 
         $activeEncounter = \App\Models\MedicalEvents\Sql\Encounter::query()
             ->where('person_id', $carePlan->person_id)
-            ->where('status', 'in_progress')
+            ->where('status', 'finished')
+            ->whereDate('created_at', today())
             ->latest('id')
             ->first();
 
         if (!$activeEncounter) {
-            throw new \Exception('Для виписування рецепту необхідно мати активну взаємодію з пацієнтом (статус "В процесі"). Будь ласка, створіть взаємодію сьогодні перед виписуванням рецепту.');
+            throw new \Exception('Для виписування рецепту необхідно мати збережену взаємодію з пацієнтом. Будь ласка, створіть взаємодію сьогодні перед виписуванням рецепту.');
         }
 
         $uuids = [

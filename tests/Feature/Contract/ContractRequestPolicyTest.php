@@ -87,6 +87,36 @@ class ContractRequestPolicyTest extends TestCase
         $this->assertTrue($policy->approve($user, $contractRequest)->denied());
     }
 
+    public function test_view_denies_foreign_contract_request_for_current_legal_entity_context(): void
+    {
+        Gate::before(static fn () => true);
+
+        $legalEntity = $this->createLegalEntity();
+        $this->instance('legalEntity', $legalEntity);
+
+        $foreignEntity = $this->createLegalEntity();
+        $party = Party::create([
+            'uuid' => (string) Str::uuid(),
+            'first_name' => 'Test',
+            'last_name' => 'User',
+            'tax_id' => '1234567890',
+            'birth_date' => '1980-01-01',
+            'gender' => 'MALE',
+        ]);
+
+        $user = User::create([
+            'uuid' => (string) Str::uuid(),
+            'email' => 'viewer@example.com',
+            'password' => bcrypt('password'),
+            'party_id' => $party->id,
+        ]);
+
+        $foreignRequest = $this->createContractRequest($foreignEntity, Status::NEW);
+        $policy = new ContractRequestPolicy();
+
+        $this->assertTrue($policy->view($user, $foreignRequest)->denied());
+    }
+
     private function createLegalEntity(): LegalEntity
     {
         $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')

@@ -275,6 +275,33 @@ class ReimbursementMedicalProgramsTest extends TestCase
         $this->assertMatchesRegularExpression('/^[0-9]{6}$/', $normalized);
     }
 
+    public function test_collect_payload_uses_validated_start_date(): void
+    {
+        $component = new \App\Livewire\Contract\ReimbursementContractCreate();
+        $form = new \App\Livewire\Contract\Forms\ReimbursementContractRequestForm($component, 'form');
+        $form->contractorOwnerId = (string) Str::uuid();
+        $component->form = $form;
+
+        $data = [
+            'contractorBase' => 'Kyiv',
+            'contractorPaymentDetails' => [
+                'bankName' => 'Bank',
+                'MFO' => '351005',
+                'payerAccount' => 'UA123456789012345678901234567',
+            ],
+            'startDate' => '2026-09-15',
+            'endDate' => '2026-12-31',
+            'idForm' => 'GENERAL',
+            'medicalPrograms' => [],
+        ];
+
+        $method = new \ReflectionMethod($component, 'collectPayload');
+        $method->setAccessible(true);
+        $payload = $method->invoke($component, $data);
+
+        $this->assertSame('2026-09-15', $payload['start_date']);
+    }
+
     public function test_collect_payload_always_includes_six_digit_mfo(): void
     {
         $data = [

@@ -30,8 +30,10 @@ class ContractRequestRepository
             unset($attributes['id']);
         }
 
-        // 3. Set System/Local fields
-        $attributes['contractor_legal_entity_id'] = legalEntity()->uuid;
+        // 3. Set System/Local fields (preserve eHealth contractor when present; default to current tenant)
+        $attributes['contractor_legal_entity_id'] = $eHealthData['contractor_legal_entity_id']
+            ?? $eHealthData['contractor_legal_entity']['id']
+            ?? legalEntity()->uuid;
         $attributes['type'] = strtoupper((string) ($eHealthData['type'] ?? $type));
 
         if (isset($eHealthData['sync_status'])) {

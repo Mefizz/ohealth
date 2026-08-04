@@ -12,11 +12,9 @@ class ContractRequestEdit extends ReimbursementContractCreate
 {
     public ContractRequest $contractRequest;
 
-    public function mount(LegalEntity $legalEntity): void
+    public function mount(LegalEntity $legalEntity, ContractRequest $contractRequest): void
     {
-        $contractRequestUuid = (string) request()->route('contractRequest');
-
-        $this->contractRequest = ContractRequest::where('uuid', $contractRequestUuid)->firstOrFail();
+        $this->contractRequest = $contractRequest;
 
         // 2.Install savedUuid so that createLocally() knows that this update is
         $this->savedUuid = $this->contractRequest->uuid;

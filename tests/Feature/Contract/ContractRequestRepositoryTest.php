@@ -79,6 +79,18 @@ class ContractRequestRepositoryTest extends TestCase
         $this->assertSame('CAPITATION', $contractRequest->type);
     }
 
+    public function test_save_from_ehealth_preserves_contractor_legal_entity_from_payload(): void
+    {
+        $contractorUuid = (string) Str::uuid();
+        $payload = $this->eHealthContractRequestPayload([
+            'contractor_legal_entity_id' => $contractorUuid,
+        ]);
+
+        $contractRequest = $this->repository->saveFromEHealth($payload, 'REIMBURSEMENT');
+
+        $this->assertSame($contractorUuid, $contractRequest->contractor_legal_entity_id);
+    }
+
     public function test_contract_type_enum_values_match_ehealth(): void
     {
         $this->assertSame('REIMBURSEMENT', Type::REIMBURSEMENT->value);

@@ -219,7 +219,9 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 Route::get('/{contractRequest:uuid}', ContractRequestShow::class)
                     ->name('show')
                     ->middleware('can:view,contractRequest');
-                Route::get('/{contractRequest:uuid}/edit', ContractRequestEdit::class)->name('edit');
+                Route::get('/{contractRequest:uuid}/edit', ContractRequestEdit::class)
+                    ->name('edit')
+                    ->middleware('can:view,contractRequest');
                 Route::get('/create/capitation', CapitationContractCreate::class)->name('capitation.create');
                 Route::get('/create/reimbursement', ReimbursementContractCreate::class)->name('reimbursement.create');
             });

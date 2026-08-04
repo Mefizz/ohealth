@@ -248,10 +248,17 @@ class CarePlanShow extends Component
         return $this->dictionaries['care_plan_cancel_reasons'] ?? [];
     }
 
-    public function openSignatureModal(string $actionType, ?int $activityId = null): void
+    public function openSignatureModal(string $actionType, ?int $activityId = null, ?string $requestUuid = null): void
     {
         $this->actionType = $actionType;
         $this->activityToSign = $activityId;
+        if ($requestUuid !== null && $requestUuid !== '') {
+            if (in_array($actionType, ['cancel_prescription', 'sign_eprescription', 'reject_prescription'], true)) {
+                $this->ePrescriptionRequestIdToSign = $requestUuid;
+            } elseif (in_array($actionType, ['cancel_referral', 'sign_servicerequest', 'sign_devicerequest'], true)) {
+                $this->referralRequestIdToSign = $requestUuid;
+            }
+        }
         $this->statusReason = ''; // Reset reason
         $this->outcomeCode = ''; // Reset outcome
         $this->outcomeReferences = []; // Reset references

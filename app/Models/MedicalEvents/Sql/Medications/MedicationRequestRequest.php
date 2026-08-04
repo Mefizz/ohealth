@@ -37,7 +37,15 @@ class MedicationRequestRequest extends Model
         'prior_prescription_id',
         'container_dosage',
         'note',
-        'inform_with'
+        'inform_with',
+        'ehealth_payload',
+    ];
+
+    protected $casts = [
+        'started_at' => 'datetime',
+        'ended_at' => 'datetime',
+        'medication_qty' => 'decimal:2',
+        'ehealth_payload' => 'array',
     ];
 
     public function dosageInstructions(): HasMany

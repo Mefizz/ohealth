@@ -1,49 +1,70 @@
 @php
-    $linkedPrescriptions = collect($activePrescriptions)->where('based_on_id', $activity->id);
+    $linkedPrescriptions = collect($activePrescriptions)->filter(function ($item) use ($activity) {
+        return (int) ($item['based_on_id'] ?? $item['basedOnId'] ?? 0) === (int) $activity->id;
+    });
 @endphp
 
-@if($linkedPrescriptions->isNotEmpty())
-    <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 shadow-sm">
-        <h3 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Виписані Е-Рецепти</h3>
-        <div class="space-y-2">
+<div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 shadow-sm">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Виписані Е-Рецепти</h3>
+        @if($linkedPrescriptions->isNotEmpty())
+            <span class="text-xs text-gray-400 dark:text-gray-500">{{ $linkedPrescriptions->count() }} шт.</span>
+        @endif
+    </div>
+
+    @if($linkedPrescriptions->isEmpty())
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+            Ще немає виписаних електронних рецептів для цього призначення. Після успішного створення в ЕСОЗ тут з’явиться номер, статус і доступні дії.
+        </p>
+    @else
+        <div class="space-y-3">
             @foreach($linkedPrescriptions as $prescription)
+                @php
+                    $status = strtolower((string) ($prescription['status'] ?? ''));
+                    $uuid = $prescription['uuid'] ?? '';
+                    $requestNumber = $prescription['request_number'] ?? $prescription['requestNumber'] ?? $uuid;
+                    $medicationQty = $prescription['medication_qty'] ?? $prescription['medicationQty'] ?? '—';
+                    $startedAt = $prescription['started_at'] ?? $prescription['startedAt'] ?? null;
+                    $endedAt = $prescription['ended_at'] ?? $prescription['endedAt'] ?? null;
+                @endphp
                 <div class="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-700/40 p-3 rounded-lg border border-gray-100 dark:border-gray-700">
                     <div class="flex flex-wrap items-center gap-4">
-                        <span class="font-bold text-gray-900 dark:text-white">№ {{ $prescription['request_number'] ?? $prescription['uuid'] }}</span>
-                        <span class="text-gray-500">Кількість: {{ $prescription['medication_qty'] }}</span>
-                        @if(!empty($prescription['started_at']) && !empty($prescription['ended_at']))
-                            <span class="text-gray-400 text-xs">Діє з {{ \Carbon\Carbon::parse($prescription['started_at'])->format('d.m.Y') }} по {{ \Carbon\Carbon::parse($prescription['ended_at'])->format('d.m.Y') }}</span>
+                        <span class="font-bold text-gray-900 dark:text-white">№ {{ $requestNumber }}</span>
+                        <span class="text-gray-500">Кількість: {{ $medicationQty }}</span>
+                        @if(!empty($startedAt) && !empty($endedAt))
+                            <span class="text-gray-400 text-xs">Діє з {{ \Carbon\Carbon::parse($startedAt)->format('d.m.Y') }} по {{ \Carbon\Carbon::parse($endedAt)->format('d.m.Y') }}</span>
                         @endif
-                        <span class="badge {{ match(strtolower($prescription['status'] ?? '')) {
-                            'active', 'completed' => 'badge-green',
-                            'new' => 'badge-yellow',
+                        <span class="badge {{ match($status) {
+                            'active', 'completed', 'signed' => 'badge-green',
+                            'new', 'draft' => 'badge-yellow',
                             'pending', 'processing' => 'badge-blue',
                             'rejected', 'expired' => 'badge-red',
                             default => 'badge-dark'
                         } }}">
-                            {{ match(strtolower($prescription['status'] ?? '')) {
+                            {{ match($status) {
                                 'new' => 'Новий',
+                                'draft' => 'Чернетка',
                                 'signed' => 'Підписаний',
                                 'active' => 'Активний',
                                 'completed' => 'Виконаний',
                                 'rejected' => 'Відхилений',
                                 'expired' => 'Протермінований',
                                 'pending', 'processing' => 'В обробці',
-                                default => ucfirst((string)($prescription['status'] ?? '')),
+                                default => ucfirst((string) ($prescription['status'] ?? '')),
                             } }}
                         </span>
                     </div>
                     <div class="flex items-center gap-3">
-                        @if(strtolower($prescription['status']) === 'new')
-                            <button type="button" class="text-green-500 hover:text-green-700 transition-colors flex items-center gap-1" title="Підписати КЕП" wire:click="$set('ePrescriptionRequestIdToSign', '{{ $prescription['uuid'] }}'); openSignatureModal('sign_eprescription')">
+                        @if(in_array($status, ['new', 'draft'], true))
+                            <button type="button" class="text-green-500 hover:text-green-700 transition-colors flex items-center gap-1" title="Підписати КЕП" wire:click="openSignatureModal('sign_eprescription', null, '{{ $uuid }}')">
                                 @icon('key', 'w-4 h-4')
                                 <span class="text-xs">Підписати</span>
                             </button>
                         @endif
-                        @if(strtolower($prescription['status']) === 'active')
+                        @if($status === 'active')
                             <button type="button" class="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1" title="Друк пам'ятки"
                                     @click="
-                                        $wire.loadPrintoutForm('{{ $prescription['uuid'] }}').then(() => {
+                                        $wire.loadPrintoutForm('{{ $uuid }}').then(() => {
                                             let printWindow = window.open('', '_blank');
                                             printWindow.document.body.innerHTML = $wire.printableContent;
                                             printWindow.focus();
@@ -53,13 +74,13 @@
                                 @icon('printer', 'w-4 h-4')
                                 <span class="text-xs">Пам'ятка</span>
                             </button>
-                            <button type="button" class="text-yellow-600 hover:text-yellow-800 transition-colors flex items-center gap-1" title="Повторно надіслати SMS" wire:click="resendPrescriptionSms('{{ $prescription['uuid'] }}')">
+                            <button type="button" class="text-yellow-600 hover:text-yellow-800 transition-colors flex items-center gap-1" title="Повторно надіслати SMS" wire:click="resendPrescriptionSms('{{ $uuid }}')">
                                 @icon('refresh', 'w-4 h-4')
                                 <span class="text-xs">SMS</span>
                             </button>
                         @endif
-                        @if(in_array(strtolower($prescription['status']), ['new', 'active']))
-                            <button type="button" class="text-orange-500 hover:text-orange-700 transition-colors flex items-center gap-1" title="Відхилити рецепт" wire:click="rejectPrescription('{{ $prescription['uuid'] }}')">
+                        @if(in_array($status, ['new', 'draft', 'active'], true))
+                            <button type="button" class="text-orange-500 hover:text-orange-700 transition-colors flex items-center gap-1" title="Відхилити рецепт" wire:click="rejectPrescription('{{ $uuid }}')">
                                 @icon('x-circle', 'w-4 h-4')
                                 <span class="text-xs">Відхилити</span>
                             </button>
@@ -68,5 +89,5 @@
                 </div>
             @endforeach
         </div>
-    </div>
-@endif
+    @endif
+</div>

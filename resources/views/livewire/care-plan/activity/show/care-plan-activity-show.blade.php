@@ -47,9 +47,11 @@
             'activityProductLabel' => $activityProductLabel,
         ])
 
-        @include('livewire.care-plan.parts.activity.prescriptions-list')
-
-        @include('livewire.care-plan.parts.activity.referrals-list')
+        @if($resolvedKind === 'medication_request')
+            @include('livewire.care-plan.parts.activity.prescriptions-list')
+        @elseif(in_array($resolvedKind, ['service_request', 'device_request'], true))
+            @include('livewire.care-plan.parts.activity.referrals-list')
+        @endif
 
         @if($actionType === 'cancel_activity')
             @include('livewire.care-plan.parts.modals.cancel-activity-modal', ['method' => 'sign'])

@@ -100,7 +100,7 @@
                                 @endforeach
                             </select>
                         @else
-                            <input type="number" step="any" min="0.01" class="input peer w-full" wire:model="ePrescriptionForm.medication_qty" />
+                            <input type="number" step="any" min="0.01" class="input peer w-full" wire:model.live="ePrescriptionForm.medication_qty" />
                         @endif
                         <span class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-500 text-sm">
                             {{ $ePrescriptionForm['medication_unit'] ?? 'од.' }}
@@ -131,7 +131,7 @@
 
             {{-- Quantity Warnings --}}
             @if($ePrescriptionWarningMessage)
-                <div class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400 border border-red-200 dark:border-red-900" role="alert">
+                <div x-init="$el.scrollIntoView({ behavior: 'smooth', block: 'center' })" class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400 border border-red-200 dark:border-red-900" role="alert">
                     <div class="flex items-center gap-2">
                         @icon('alert-circle', 'w-5 h-5 text-red-500')
                         <span class="font-bold">Увага!</span>
@@ -141,7 +141,7 @@
             @endif
 
             @if($ePrescriptionShowRemainingQtyWarning)
-                <div class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900" role="alert">
+                <div x-init="$el.scrollIntoView({ behavior: 'smooth', block: 'center' })" class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900" role="alert">
                     <div class="flex items-center gap-2">
                         @icon('alert-circle', 'w-5 h-5 text-yellow-500')
                         <span class="font-bold">Увага! залишкова кількість</span>
@@ -189,7 +189,7 @@
             </div>
 
             @if($ePrescriptionShowDailyDoseWarning)
-                <div class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900" role="alert">
+                <div x-init="$el.scrollIntoView({ behavior: 'smooth', block: 'center' })" class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900" role="alert">
                     <div class="flex items-center gap-2">
                         @icon('alert-circle', 'w-5 h-5 text-yellow-500')
                         <span class="font-bold">Увага! Перевищено добову дозу</span>
@@ -209,6 +209,19 @@
                     </div>
                 </div>
             @endif
+        </fieldset>
+
+        {{-- Section: Additional Note --}}
+        <fieldset class="fieldset">
+            <legend class="legend">Додаткова інформація</legend>
+            <div class="form-group group mb-4">
+                <label class="label">Примітка лікаря (опціонально)</label>
+                <textarea class="block w-full p-4 text-sm text-gray-900 bg-white border border-gray-200 rounded-2xl focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                          rows="2"
+                          placeholder="Додаткові вказівки або коментар до рецепту..."
+                          wire:model="ePrescriptionForm.note"
+                ></textarea>
+            </div>
         </fieldset>
 
         {{-- Section 4: Authentication --}}
@@ -236,7 +249,7 @@
             <button type="button" class="button-minor" @click="showEPrescriptionDrawer = false">
                 {{ __('forms.cancel') }}
             </button>
-            <button type="submit" class="button-primary" @if($ePrescriptionShowDailyDoseWarning || ($ePrescriptionWarningMessage && str_contains($ePrescriptionWarningMessage, 'неможливе'))) disabled class="opacity-50 cursor-not-allowed button-primary" @endif>
+            <button type="submit" class="button-primary">
                 Сформувати Заявку
             </button>
         </div>

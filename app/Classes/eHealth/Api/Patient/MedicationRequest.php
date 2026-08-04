@@ -36,6 +36,14 @@ class MedicationRequest extends PatientApiBase
      */
     public function signRequest(string $requestId, array $payload): PromiseInterface|EHealthResponse
     {
+        if (isset($payload['signed_content']) && !isset($payload['signed_medication_request_request'])) {
+            $payload['signed_medication_request_request'] = $payload['signed_content'];
+            unset($payload['signed_content']);
+        }
+        if (!isset($payload['signed_content_encoding'])) {
+            $payload['signed_content_encoding'] = 'base64';
+        }
+
         return $this->patch("/api/medication_request_requests/{$requestId}/actions/sign", $payload);
     }
 

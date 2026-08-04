@@ -300,10 +300,10 @@ abstract class CarePlanComponent extends Component
     {
         $this->actionType = $actionType;
         $this->activityToSign = $activityId;
-        if ($requestUuid) {
-            if ($actionType === 'cancel_prescription') {
+        if ($requestUuid !== null && $requestUuid !== '') {
+            if (in_array($actionType, ['cancel_prescription', 'sign_eprescription', 'reject_prescription'], true)) {
                 $this->ePrescriptionRequestIdToSign = $requestUuid;
-            } elseif ($actionType === 'cancel_referral') {
+            } elseif (in_array($actionType, ['cancel_referral', 'sign_servicerequest', 'sign_devicerequest'], true)) {
                 $this->referralRequestIdToSign = $requestUuid;
             }
         }
@@ -504,12 +504,12 @@ abstract class CarePlanComponent extends Component
     {
         $this->activePrescriptions = array_values(array_filter(
             $this->activePrescriptions,
-            static fn (array $prescription): bool => (int) ($prescription['based_on_id'] ?? 0) === $activityId
+            static fn (array $prescription): bool => (int) ($prescription['based_on_id'] ?? $prescription['basedOnId'] ?? 0) === $activityId
         ));
 
         $this->activeReferrals = array_values(array_filter(
             $this->activeReferrals,
-            static fn (array $referral): bool => (int) ($referral['based_on_id'] ?? 0) === $activityId
+            static fn (array $referral): bool => (int) ($referral['based_on_id'] ?? $referral['basedOnId'] ?? 0) === $activityId
         ));
     }
 

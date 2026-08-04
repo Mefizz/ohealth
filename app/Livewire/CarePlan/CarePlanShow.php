@@ -1744,13 +1744,31 @@ class CarePlanShow extends Component
         ];
 
         if ($this->actionType === 'cancel_activity') {
-            // API-007-006-0005: sign create-shaped snapshot + detail.status_reason only.
-            // Do not use GET details — they diverge from the stored create content.
-            $basePayload = $activityRepository->resolveActivityCreationPayloadForCancelSigning($activity);
+            // API-007-006-0005: signed content must match activity stored in eHealth DB.
+            // Use remote activity snapshot and change only detail.status_reason.
+            $basePayload = $activityRepository->resolveActivityPayloadForCancelSigning(
+                $activity,
+                $this->carePlan->person->uuid,
+                $this->carePlan->uuid,
+            );
             $payload = $activityRepository->buildActivityCancelSignPayload(
                 $basePayload,
                 $statusReasonCodeableConcept,
             );
+
+            $debugContext = $activityRepository->buildCancelSignatureDebugContext($basePayload, $payload);
+            Log::info(
+                'CarePlanShow cancel debug: original vs signed content (status_reason excluded)',
+                [
+                    'activity_uuid' => (string) $activity->uuid,
+                    'person_uuid' => (string) $this->carePlan->person->uuid,
+                    'care_plan_uuid' => (string) $this->carePlan->uuid,
+                    'diff_count' => $debugContext['diff_count_excluding_status_reason'],
+                    'diffs' => $debugContext['diffs_excluding_status_reason'],
+                ]
+            );
+            Log::info('CarePlanShow cancel debug original payload: ' . json_encode($debugContext['original_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            Log::info('CarePlanShow cancel debug signed payload: ' . json_encode($debugContext['signed_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         } else {
             $basePayload = $activityRepository->resolveActivityPayloadBase(
                 $activity,

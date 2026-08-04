@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Classes\eHealth\EHealth;
+use App\Core\Arr;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
@@ -846,6 +847,43 @@ class CarePlanActivityRepository
     }
 
     /**
+     * Raw payload for cancel PKCS#7 signing.
+     *
+     * For API-007-006-0005 we intentionally keep eHealth GET response structure as-is
+     * (except wrapper extraction) and only add detail.status_reason later.
+     *
+     * @return array<string, mixed>
+     */
+    public function resolveActivityPayloadForCancelSigning(
+        CarePlanActivity $activity,
+        string $personUuid,
+        string $carePlanUuid,
+    ): array {
+        if (!empty($activity->uuid)) {
+            try {
+                $response = EHealth::carePlanActivity()->getDetails(
+                    $personUuid,
+                    $carePlanUuid,
+                    (string) $activity->uuid,
+                );
+
+                $activityPayload = $response->getData();
+                if (isset($activityPayload['data']) && is_array($activityPayload['data'])) {
+                    $activityPayload = $activityPayload['data'];
+                }
+
+                if (is_array($activityPayload) && $activityPayload !== []) {
+                    return $activityPayload;
+                }
+            } catch (\Throwable) {
+                // Fallback below.
+            }
+        }
+
+        return $this->formatCarePlanActivityRequest($activity);
+    }
+
+    /**
      * Detail block for complete PATCH body (transition fields required by eHealth).
      * Note: unlike cancel, the complete action schema only allows 'status_reason' in detail.
      * Including 'do_not_perform' causes a validation error: "schema does not allow additional properties".
@@ -878,31 +916,38 @@ class CarePlanActivityRepository
     ): array {
         $payload = $activityPayload;
 
-        // Cancel schema expects author as a list (same as create). GET may return a single object.
-        if (isset($payload['author']) && is_array($payload['author']) && !array_is_list($payload['author'])) {
-            $payload['author'] = [$payload['author']];
-        }
-
         if (!isset($payload['detail']) || !is_array($payload['detail'])) {
             $payload['detail'] = [];
-        }
-
-        $status = $payload['detail']['status'] ?? 'scheduled';
-        if (strtolower((string) $status) === 'processed') {
-            $payload['detail']['status'] = 'scheduled';
-        }
-
-        // After eHealth sync, Quantity.unit is often filled from GET ("шт") even when create
-        // signed content never had unit — that alone causes "Signed content doesn't match".
-        foreach (['quantity', 'daily_amount'] as $quantityKey) {
-            if (isset($payload['detail'][$quantityKey]) && is_array($payload['detail'][$quantityKey])) {
-                unset($payload['detail'][$quantityKey]['unit']);
-            }
         }
 
         $payload['detail']['status_reason'] = $statusReasonCodeableConcept;
 
         return $payload;
+    }
+
+    /**
+     * Build diagnostics for cancel signature content mismatch.
+     *
+     * @param  array<string, mixed>  $originalPayload
+     * @param  array<string, mixed>  $payloadForSign
+     * @return array<string, mixed>
+     */
+    public function buildCancelSignatureDebugContext(array $originalPayload, array $payloadForSign): array
+    {
+        $originalSnake = Arr::toSnakeCase($originalPayload);
+        $signedSnake = Arr::toSnakeCase($payloadForSign);
+
+        $originalComparable = $this->removeStatusReason($originalSnake);
+        $signedComparable = $this->removeStatusReason($signedSnake);
+
+        $diffs = $this->diffPayload($originalComparable, $signedComparable);
+
+        return [
+            'original_snake' => $originalSnake,
+            'signed_snake' => $signedSnake,
+            'diff_count_excluding_status_reason' => count($diffs),
+            'diffs_excluding_status_reason' => $diffs,
+        ];
     }
 
     /**
@@ -1028,5 +1073,52 @@ class CarePlanActivityRepository
         }
 
         return $cleaned;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function removeStatusReason(array $payload): array
+    {
+        if (isset($payload['detail']) && is_array($payload['detail'])) {
+            unset($payload['detail']['status_reason']);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  mixed  $left
+     * @param  mixed  $right
+     * @return list<string>
+     */
+    private function diffPayload(mixed $left, mixed $right, string $path = ''): array
+    {
+        if (is_array($left) && is_array($right)) {
+            $diffs = [];
+            $keys = array_values(array_unique(array_merge(array_keys($left), array_keys($right))));
+
+            foreach ($keys as $key) {
+                $nextPath = $path === '' ? (string) $key : $path . '.' . $key;
+                $leftHas = array_key_exists($key, $left);
+                $rightHas = array_key_exists($key, $right);
+
+                if (!$leftHas || !$rightHas) {
+                    $diffs[] = $nextPath . ' (key missing in ' . (!$leftHas ? 'original' : 'signed') . ')';
+                    continue;
+                }
+
+                $diffs = array_merge($diffs, $this->diffPayload($left[$key], $right[$key], $nextPath));
+            }
+
+            return $diffs;
+        }
+
+        if ($left !== $right) {
+            return [$path . ' (value mismatch)'];
+        }
+
+        return [];
     }
 }

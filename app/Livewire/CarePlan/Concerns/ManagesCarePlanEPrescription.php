@@ -177,6 +177,8 @@ trait ManagesCarePlanEPrescription
             'inform_with' => !empty($this->ePrescriptionAuthMethods) ? ($this->ePrescriptionAuthMethods[0]['uuid'] ?? '') : '',
             'container_dosage' => '',
             'program_id' => $activity->program,
+            'note' => '',
+            'route' => 'oral',
         ];
 
         $this->ePrescriptionShowDailyDoseWarning = false;
@@ -189,6 +191,9 @@ trait ManagesCarePlanEPrescription
 
     public function updatedEPrescriptionForm($value, $name): void
     {
+        $this->ePrescriptionWarningMessage = '';
+        $this->ePrescriptionShowDailyDoseWarning = false;
+
         if (str_contains($name, 'started_at') || str_contains($name, 'duration')) {
             $this->calculateTreatmentDates();
         }
@@ -235,6 +240,9 @@ trait ManagesCarePlanEPrescription
 
     public function validateEPrescription(): void
     {
+        $this->ePrescriptionWarningMessage = '';
+        $this->ePrescriptionShowDailyDoseWarning = false;
+
         if (empty($this->ePrescriptionForm['inform_with'])) {
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Необхідно обрати метод автентифікації пацієнта']);
 
@@ -256,12 +264,14 @@ trait ManagesCarePlanEPrescription
         if ($maxDosage > 0 && $qty > $maxDosage) {
             $unit = $this->ePrescriptionForm['medication_unit'] ?? '';
             $this->ePrescriptionWarningMessage = "Увага! За даним рецептом перевищено максимально допустиму кількість лікарського засобу [{$this->ePrescriptionSelectedProduct['name']}], що дозволена до виписування в 1 рецепті. Максимально допустима кількість ЛЗ становить {$maxDosage} {$unit}. Будь-ласка, поверніться та скоригуйте електронний рецепт!";
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->ePrescriptionWarningMessage]);
 
             return;
         }
 
         if ($qty > $this->ePrescriptionRemainingQty && $this->ePrescriptionSelectedActivity['quantity'] !== null) {
             $this->ePrescriptionWarningMessage = "Кількість ЛЗ в рецепті ({$qty}) перевищує залишкову кількість у плані лікування ({$this->ePrescriptionRemainingQty}). Виписування неможливе.";
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->ePrescriptionWarningMessage]);
 
             return;
         }
@@ -284,6 +294,7 @@ trait ManagesCarePlanEPrescription
 
                     if ($remainingDays > $allowedDaysBeforeEnd) {
                         $this->ePrescriptionWarningMessage = "Повторний Е-Рецепт на той же МНН можна виписати за {$allowedDaysBeforeEnd} днів до закінчення терміну лікування попереднього Е-Рецепту. Попередній рецепт діє до " . $lastEnd->format('d.m.Y') . " (залишилось {$remainingDays} днів).";
+                        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->ePrescriptionWarningMessage]);
 
                         return;
                     }
@@ -300,6 +311,7 @@ trait ManagesCarePlanEPrescription
 
         if ($exceededRecommended || $exceededPlan) {
             $this->ePrescriptionShowDailyDoseWarning = true;
+            $this->dispatch('flashMessage', ['type' => 'warning', 'message' => 'Перевищено добову дозу лікарського засобу! Будь ласка, перевірте попередження та підтвердіть виписування.']);
 
             return;
         }
@@ -383,6 +395,7 @@ trait ManagesCarePlanEPrescription
             $this->refreshCarePlan();
 
         } catch (EHealthValidationException $e) {
+            $e->report();
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to sign E-Prescription validation: ' . $translatedMsg);
             Session::flash('error', $translatedMsg);
@@ -404,7 +417,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            if (strtolower((string) $requestRecord->status) === 'new') {
+            if (in_array(strtolower((string) $requestRecord->status), ['new', 'draft'], true)) {
                 $this->medicationLifecycle->reject($this->carePlan, $requestRecord);
                 $this->refreshCarePlan();
                 $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Електронний рецепт успішно відхилено.']);
@@ -413,6 +426,7 @@ trait ManagesCarePlanEPrescription
                 $this->openSignatureModal('reject_prescription');
             }
         } catch (EHealthValidationException $e) {
+            $e->report();
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to reject prescription validation: ' . $translatedMsg);
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => $translatedMsg]);
@@ -452,6 +466,7 @@ trait ManagesCarePlanEPrescription
             $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Електронний рецепт успішно відхилено.']);
 
         } catch (EHealthValidationException $e) {
+            $e->report();
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to reject prescription validation: ' . $translatedMsg);
             Session::flash('error', $translatedMsg);

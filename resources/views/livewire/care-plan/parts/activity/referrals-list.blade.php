@@ -76,7 +76,7 @@
                                 @php
                                     $signAction = $referralKind === 'service_request' ? 'sign_servicerequest' : 'sign_devicerequest';
                                 @endphp
-                                <button type="button" class="text-green-500 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300 transition-colors flex items-center gap-1" title="Підписати КЕП" wire:click="$set('referralRequestIdToSign', '{{ $referral['uuid'] }}'); openSignatureModal('{{ $signAction }}')">
+                                <button type="button" class="text-green-500 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300 transition-colors flex items-center gap-1" title="Підписати КЕП" wire:click="openSignatureModal('{{ $signAction }}', null, '{{ $referral['uuid'] }}')">
                                     @icon('key', 'w-4 h-4')
                                     <span class="text-xs">Підписати</span>
                                 </button>

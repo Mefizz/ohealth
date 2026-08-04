@@ -18,6 +18,7 @@ final class MedicalEventsRequestStatuses
         'rejected',
         'declined',
         'entered-in-error',
+        'entered_in_error',
         'expired',
         'DRAFT',
         'NEW',
@@ -25,6 +26,7 @@ final class MedicalEventsRequestStatuses
         'REJECTED',
         'DECLINED',
         'ENTERED-IN-ERROR',
+        'ENTERED_IN_ERROR',
         'EXPIRED',
     ];
 }

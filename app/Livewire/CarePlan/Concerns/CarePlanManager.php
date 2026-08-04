@@ -56,8 +56,12 @@ trait CarePlanManager
             return;
         }
 
-        if ($this->actionType === 'cancel_prescription') {
-            $this->signCancelPrescription();
+        if ($this->actionType === 'cancel_prescription' || $this->actionType === 'reject_prescription') {
+            if ($this->actionType === 'reject_prescription') {
+                $this->signRejectPrescription();
+            } else {
+                $this->signCancelPrescription();
+            }
 
             return;
         }

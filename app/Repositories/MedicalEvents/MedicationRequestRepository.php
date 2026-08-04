@@ -13,6 +13,11 @@ use Throwable;
  */
 class MedicationRequestRepository extends BaseRepository
 {
+    public function __construct(MedicationRequestRequest $model)
+    {
+        parent::__construct($model);
+    }
+
     /**
      * Create medication request request in DB for patient with related dosage instructions.
      *
@@ -45,6 +50,7 @@ class MedicationRequestRepository extends BaseRepository
                 'container_dosage' => $data['container_dosage'] ?? null,
                 'note' => $data['note'] ?? null,
                 'inform_with' => $data['inform_with'] ?? null,
+                'ehealth_payload' => $data['ehealth_payload'] ?? null,
             ]);
 
             if (!empty($data['dosage_instructions'])) {

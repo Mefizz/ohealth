@@ -145,9 +145,12 @@ class EHealthValidationException extends EHealthException
 
         $invalidErrors = Arr::get($this->details, 'error.invalid') ?? Arr::get($this->details, 'invalid') ?? [];
 
-        $errorList = collect($invalidErrors)->map(function ($detail) use ($eHealthFieldTranslations) {
+        $errorList = collect($invalidErrors)->map(function ($detail) use ($eHealthFieldTranslations): ?string {
             $eHealthKey = Arr::get($detail, 'entry') ?? Arr::get($detail, 'param') ?? 'unknown';
             $message = Arr::get($detail, 'rules.0.description') ?? Arr::get($detail, 'msg') ?? '';
+            if (empty($message)) {
+                $message = Arr::get($this->details, 'error.message') ?? Arr::get($this->details, 'message') ?? '';
+            }
             $ruleName = Arr::get($detail, 'rules.0.rule');
 
             if ($eHealthKey === 'status') {
@@ -217,11 +220,23 @@ class EHealthValidationException extends EHealthException
             }
 
             if (empty($translatedMessage)) {
-                $translatedMessage = __('errors.ehealth.messages.untranslated_error_message', ['message' => $message ?: __('errors.ehealth.messages.request_error')]);
+                $fallbackMessage = $message ?: (Arr::get($this->details, 'error.message') ?? __('errors.ehealth.messages.request_error'));
+                $translatedMessage = __('errors.ehealth.messages.untranslated_error_message', ['message' => $fallbackMessage]);
+            }
+
+            if ($eHealthKey === 'unknown') {
+                return (string) $translatedMessage;
             }
 
             return "{$translatedKey}: {$translatedMessage}";
         })->filter()->implode("\n");
+
+        if (empty($errorList)) {
+            $mainMessage = Arr::get($this->details, 'error.message') ?? Arr::get($this->details, 'message') ?? '';
+            if (!empty($mainMessage)) {
+                $errorList = (string) $mainMessage;
+            }
+        }
 
         $header = __('errors.ehealth.validation_error_header');
 

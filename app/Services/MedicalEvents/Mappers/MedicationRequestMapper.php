@@ -189,18 +189,17 @@ class MedicationRequestMapper implements FhirMapperContract
             'person_id' => $uuids['person_uuid'],
             'employee_id' => $uuids['employee_uuid'],
             'division_id' => $uuids['division_uuid'] ?? null,
-            'created_at' => $data['created_at'] ?? now()->toDateString(),
-            'started_at' => $data['started_at'],
-            'ended_at' => $data['ended_at'],
+            'created_at' => !empty($data['created_at']) ? \Carbon\Carbon::parse($data['created_at'])->format('Y-m-d') : now()->format('Y-m-d'),
+            'started_at' => !empty($data['started_at']) ? \Carbon\Carbon::parse($data['started_at'])->format('Y-m-d') : null,
+            'ended_at' => !empty($data['ended_at']) ? \Carbon\Carbon::parse($data['ended_at'])->format('Y-m-d') : null,
             'medication_id' => $data['medication_id'],
             'medication_qty' => (float) $data['medication_qty'],
             'intent' => $data['intent'] ?? 'order',
             'category' => $data['category'] ?? 'community',
         ];
 
-        $programs = [];
         if (!empty($data['medication_program_id'])) {
-            $programs = [['id' => $data['medication_program_id']]];
+            $request['medical_program_id'] = $data['medication_program_id'];
         }
 
         if ($carePlanUuid && !empty($data['based_on_uuid'])) {
@@ -231,13 +230,64 @@ class MedicationRequestMapper implements FhirMapperContract
         }
 
         if (!empty($data['container_dosage'])) {
-            $request['container_dosage'] = $data['container_dosage'];
+            if (is_string($data['container_dosage']) && str_contains($data['container_dosage'], '|')) {
+                [$val, $unit, $code] = array_pad(explode('|', $data['container_dosage']), 3, '');
+                $request['container_dosage'] = [
+                    'system' => 'MEDICATION_UNIT',
+                    'code' => $code ?: ($unit ?: 'PIECE'),
+                    'value' => (float) $val,
+                ];
+            } else {
+                $request['container_dosage'] = $data['container_dosage'];
+            }
         }
 
-        $payload = ['medication_request_request' => array_filter($request, static fn ($value) => $value !== null && $value !== '')];
-        $payload['programs'] = $programs;
+        if (!empty($data['note'])) {
+            $request['note'] = $data['note'];
+        }
 
-        return $payload;
+        return ['medication_request_request' => array_filter($request, static fn ($value) => $value !== null && $value !== '')];
+    }
+
+    /**
+     * Build payload for PreQualify Medication Request Request (ESOZ API-005-044-0001).
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, string|null>  $uuids
+     * @param  string|null  $carePlanUuid
+     * @return array<string, mixed>
+     */
+    public function toPrequalifyPayload(array $data, array $uuids, ?string $carePlanUuid = null): array
+    {
+        $payload = $this->toCreateRequestPayload($data, $uuids, $carePlanUuid);
+        $request = $payload['medication_request_request'];
+
+        unset($request['medical_program_id']);
+
+        $programs = [];
+        if (!empty($data['medication_program_id'])) {
+            $programs[] = ['id' => $data['medication_program_id']];
+        }
+
+        return [
+            'medication_request_request' => $request,
+            'programs' => $programs,
+        ];
+    }
+
+    /**
+     * Build payload content to be digitally signed (ESOZ API-005-044-0006).
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, string|null>  $uuids
+     * @param  string|null  $carePlanUuid
+     * @return array<string, mixed>
+     */
+    public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null): array
+    {
+        $wrapped = $this->toCreateRequestPayload($data, $uuids, $carePlanUuid);
+
+        return $wrapped['medication_request_request'] ?? [];
     }
 
     /**
@@ -248,10 +298,13 @@ class MedicationRequestMapper implements FhirMapperContract
     {
         return array_values(array_map(function (array $inst, int $index): array {
             $unit = $inst['dose_and_rate'][0]['dose_quantity_unit'] ?? 'од.';
+            $text = !empty($inst['text']) ? $inst['text'] : 'За призначенням лікаря';
+            $patientInstruction = !empty($inst['patient_instruction']) ? $inst['patient_instruction'] : $text;
+
             $dosage = [
                 'sequence' => $inst['sequence'] ?? ($index + 1),
-                'text' => $inst['text'] ?: 'За призначенням лікаря',
-                'patient_instruction' => $inst['patient_instruction'] ?? ($inst['text'] ?: null),
+                'text' => $text,
+                'patient_instruction' => $patientInstruction,
                 'as_needed_boolean' => (bool) ($inst['as_needed_boolean'] ?? false),
             ];
 

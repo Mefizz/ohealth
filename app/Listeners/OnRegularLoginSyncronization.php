@@ -44,7 +44,7 @@ class OnRegularLoginSyncronization implements ShouldQueue
         try {
             setPermissionsTeamId($event->legalEntity->id);
 
-            Repository::employee()->bindOwnerlessEmployeesToUsers($event->legalEntity, $event->user);
+            Repository::employee()->bindOwnerlessEmployeesToUsers($event->legalEntity);
 
             if ($event->user->party) {
                 Repository::party()->syncUserEmployeesAndRoles($event->user->party, $event->legalEntity);

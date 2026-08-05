@@ -150,18 +150,18 @@ readonly class EmployeeRepository
      *
      * Employees synced from eHealth arrive without `user_id`, so they never grant roles.
      * The owning account is resolved by the email of the employee request the position was
-     * created from. When that email has no account, the party (one person) decides: its only
-     * user, or — if several accounts share the party — the user this sync runs for, since
-     * they are proven to be the same person.
+     * created from. When that email has no account of its own, the party decides: a party is
+     * one person, so the position belongs to that person's first account. Email changes leave
+     * several accounts on one party, and picking the first one keeps the result the same no
+     * matter who triggers the sync.
      *
      * Sets `employees.user_id`, fills the `employee_users` pivot and links the user to the
      * party when the user has none yet.
      *
      * @param  LegalEntity  $legalEntity
-     * @param  User|null  $preferredUser  The user the sync/login runs for.
      * @return array<int, int> IDs of parties whose employees were bound.
      */
-    public function bindOwnerlessEmployeesToUsers(LegalEntity $legalEntity, ?User $preferredUser = null): array
+    public function bindOwnerlessEmployeesToUsers(LegalEntity $legalEntity): array
     {
         $statuses = $legalEntity->status === Status::REORGANIZED->value
             ? [Status::APPROVED->value, Status::REORGANIZED->value]
@@ -186,7 +186,7 @@ readonly class EmployeeRepository
         $affectedPartyIds = [];
 
         foreach ($employees as $employee) {
-            $owner = $this->resolveEmployeeOwner($employee, $usersByParty, $preferredUser);
+            $owner = $this->resolveEmployeeOwner($employee, $usersByParty);
 
             if (!$owner) {
                 continue;
@@ -215,16 +215,14 @@ readonly class EmployeeRepository
     }
 
     /**
-     * Account the position belongs to: by request email, otherwise via the party.
+     * Account the position belongs to: by request email, otherwise the party's first user.
      *
      * @param  Employee  $employee
      * @param  Collection<int, Collection<int, User>>  $usersByParty
-     * @param  User|null  $preferredUser
      * @return User|null
      */
-    protected function resolveEmployeeOwner(Employee $employee, Collection $usersByParty, ?User $preferredUser): ?User
+    protected function resolveEmployeeOwner(Employee $employee, Collection $usersByParty): ?User
     {
-        $partyUsers = $usersByParty->get((int) $employee->partyId, collect());
         $email = $this->resolveEmployeeOwnerEmail($employee);
 
         if ($email) {
@@ -240,18 +238,9 @@ readonly class EmployeeRepository
             }
         }
 
-        // The email is unknown to us, so it cannot tell accounts apart
-        if ($partyUsers->count() === 1) {
-            return $partyUsers->first();
-        }
-
-        // Several accounts of the same person share the party: give the position to the one
-        // the sync runs for. Any of them is the rightful owner, this one is at least in use.
-        if ($preferredUser && (int) $preferredUser->partyId === (int) $employee->partyId) {
-            return $preferredUser;
-        }
-
-        return null;
+        return $usersByParty->get((int) $employee->partyId, collect())
+            ->sortBy('id')
+            ->first();
     }
 
     /**

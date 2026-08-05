@@ -418,13 +418,50 @@ class SyncUserEmployeesAndRolesTest extends TestCase
     }
 
     #[Test]
-    public function ownerless_employee_stays_unbound_when_party_has_several_users(): void
+    public function ownerless_employee_in_multi_user_party_is_bound_to_the_first_user(): void
     {
         $legalEntity = $this->createLegalEntity();
         $party = $this->createParty();
 
-        $this->createUser($party, 'first@example.com', '2026-07-01 10:00:00');
-        $this->createUser($party, 'second@example.com', '2026-07-02 10:00:00');
+        // Same person, several accounts left behind by email changes
+        $firstUser = $this->createUser($party, 'first-account@example.com', '2026-07-01 10:00:00');
+        $laterUser = $this->createUser($party, 'later-account@example.com', '2026-07-02 10:00:00');
+
+        $employee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
+
+        EmployeeRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'legal_entity_id' => $legalEntity->id,
+            'status' => RequestStatus::APPROVED->value,
+            'position' => 'P14',
+            'start_date' => $employee->getRawOriginal('start_date'),
+            'employee_type' => Role::HR->value,
+            'email' => 'unknown@example.com',
+            'party_id' => $party->id,
+            'employee_id' => $employee->id,
+            'applied_at' => '2026-06-01 10:00:00',
+        ]);
+
+        setPermissionsTeamId($legalEntity->id);
+
+        $affectedParties = Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity);
+
+        $this->assertSame([$party->id], $affectedParties);
+        $this->assertSame($firstUser->id, $employee->fresh()->user_id);
+
+        Repository::party()->syncUserEmployeesAndRoles($party->fresh(), $legalEntity->fresh());
+
+        $firstUser->unsetRelation('roles');
+        $laterUser->unsetRelation('roles');
+        $this->assertTrue($firstUser->hasRole(Role::HR->value));
+        $this->assertFalse($laterUser->hasRole(Role::HR->value));
+    }
+
+    #[Test]
+    public function ownerless_employee_stays_unbound_when_party_has_no_users(): void
+    {
+        $legalEntity = $this->createLegalEntity();
+        $party = $this->createParty();
 
         $employee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
 
@@ -447,44 +484,6 @@ class SyncUserEmployeesAndRolesTest extends TestCase
 
         $this->assertSame([], $affectedParties);
         $this->assertNull($employee->fresh()->user_id);
-    }
-
-    #[Test]
-    public function ownerless_employee_in_multi_user_party_is_bound_to_the_preferred_user(): void
-    {
-        $legalEntity = $this->createLegalEntity();
-        $party = $this->createParty();
-
-        // Same person, several accounts left behind by email changes
-        $this->createUser($party, 'stale-account@example.com', '2026-07-01 10:00:00');
-        $loggedInUser = $this->createUser($party, 'current-account@example.com', '2026-07-02 10:00:00');
-
-        $employee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
-
-        EmployeeRequest::create([
-            'uuid' => (string) Str::uuid(),
-            'legal_entity_id' => $legalEntity->id,
-            'status' => RequestStatus::APPROVED->value,
-            'position' => 'P14',
-            'start_date' => $employee->getRawOriginal('start_date'),
-            'employee_type' => Role::HR->value,
-            'email' => 'unknown@example.com',
-            'party_id' => $party->id,
-            'employee_id' => $employee->id,
-            'applied_at' => '2026-06-01 10:00:00',
-        ]);
-
-        setPermissionsTeamId($legalEntity->id);
-
-        $affectedParties = Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity, $loggedInUser);
-
-        $this->assertSame([$party->id], $affectedParties);
-        $this->assertSame($loggedInUser->id, $employee->fresh()->user_id);
-
-        Repository::party()->syncUserEmployeesAndRoles($party->fresh(), $legalEntity->fresh());
-
-        $loggedInUser->unsetRelation('roles');
-        $this->assertTrue($loggedInUser->hasRole(Role::HR->value));
     }
 
     private function createLegalEntity(string $typeName = 'OUTPATIENT'): LegalEntity

@@ -408,9 +408,19 @@
                                         @php
                                             $positionEmail = null;
                                             if ($position instanceof Employee) {
-                                                $positionEmail = $party->loadMissing('users')->users->where(fn($user) => $user->id === $position->user_id)->first()?->email ?? null;
+                                                $position->loadMissing('users');
+                                                $positionEmail = $position->users->sortBy('id')->first()?->email
+                                                    ?? ($position->user_id
+                                                        ? \App\Models\User::query()->whereKey($position->user_id)->value('email')
+                                                        : null)
+                                                    ?? \App\Models\Employee\EmployeeRequest::query()
+                                                        ->where('employee_id', $position->id)
+                                                        ->whereNotNull('email')
+                                                        ->latest('applied_at')
+                                                        ->value('email');
                                             } else if ($position instanceof EmployeeRequest) {
-                                                $positionEmail = $position->revision->data['party']['email'] ?? null;
+                                                $positionEmail = $position->email
+                                                    ?? $position->revision->data['party']['email'] ?? null;
                                             }
                                         @endphp
                                         <tr>

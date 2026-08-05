@@ -31,8 +31,12 @@ class EmployeeApi
         setPermissionsTeamId($legalEntity->id);
 
         $role = Session::get('first_login_role');
+        $hasRolesForLegalEntity = $user
+            && $user->roles()->where('roles.guard_name', 'ehealth')->exists();
 
-        if (!$user || $role) {
+        // Use the temporary first-login role only when the user has no roles yet in this LE.
+        // Once roles are synced, always request scopes from assigned roles.
+        if ($role && (!$user || !$hasRolesForLegalEntity)) {
             $permissions = Role::where('name', $role)
                 ->whereGuardName('ehealth')
                 ->firstOrFail()
@@ -42,7 +46,7 @@ class EmployeeApi
 
             $scope = implode(' ', $permissions);
         } else {
-            $scope = $user->getScopes();
+            $scope = $user?->getScopes() ?? '';
         }
 
         $data = [

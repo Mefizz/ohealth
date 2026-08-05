@@ -10,6 +10,7 @@ use App\Core\Arr;
 use App\Enums\Status;
 use App\Models\LegalEntity;
 use App\Models\Relations\Party;
+use App\Models\User;
 use App\Models\Employee\Employee;
 use Illuminate\Support\Facades\DB;
 use App\Enums\Employee\RequestStatus;
@@ -97,7 +98,7 @@ readonly class EmployeeRepository
      * 3. Joins these aggregated subqueries to the main 'parties' query.
      * 4. Sorts results by the greatest (most recent) timestamp found in either relation.
      *
-     * @param int $legalEntityId
+     * @param  int  $legalEntityId
      * @return Builder
      */
     public function getPartiesWithLatestActivityQuery(int $legalEntityId): Builder
@@ -143,6 +144,108 @@ readonly class EmployeeRepository
     }
 
     /**
+     * Bind employees that have no owner yet to the users they belong to.
+     *
+     * Employees synced from eHealth arrive without `user_id`, so they never grant roles.
+     * The owning account is resolved through the employee request the position was created from:
+     * its `email` identifies the eHealth user. Sets `employees.user_id`, fills the
+     * `employee_users` pivot and links the user to the party when the user has none yet.
+     *
+     * @param  LegalEntity  $legalEntity
+     * @return array<int, int> IDs of parties whose employees were bound.
+     */
+    public function bindOwnerlessEmployeesToUsers(LegalEntity $legalEntity): array
+    {
+        $statuses = $legalEntity->status === Status::REORGANIZED->value
+            ? [Status::APPROVED->value, Status::REORGANIZED->value]
+            : [Status::APPROVED->value];
+
+        $employees = Employee::query()
+            ->where('legal_entity_id', $legalEntity->id)
+            ->whereNull('user_id')
+            ->whereIn('status', $statuses)
+            ->whereNotNull('party_id')
+            ->get();
+
+        if ($employees->isEmpty()) {
+            return [];
+        }
+
+        $affectedPartyIds = [];
+
+        foreach ($employees as $employee) {
+            $email = $this->resolveEmployeeOwnerEmail($employee);
+
+            if (!$email) {
+                continue;
+            }
+
+            $user = User::query()->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])->first();
+
+            if (!$user) {
+                continue;
+            }
+
+            // Never steal an account that already identifies another person
+            if ($user->party_id !== null && (int) $user->party_id !== (int) $employee->party_id) {
+                continue;
+            }
+
+            DB::transaction(function () use ($employee, $user) {
+                if ($user->party_id === null) {
+                    $user->party_id = $employee->party_id;
+                    $user->save();
+                }
+
+                $employee->update(['user_id' => $user->id]);
+                $employee->users()->syncWithoutDetaching([$user->id]);
+            });
+
+            $affectedPartyIds[] = (int) $employee->party_id;
+
+            Log::info('Ownerless employee bound to user.', [
+                'employee_id' => $employee->id,
+                'user_id' => $user->id,
+                'legal_entity_id' => $legalEntity->id,
+            ]);
+        }
+
+        return array_values(array_unique($affectedPartyIds));
+    }
+
+    /**
+     * Email of the account that owns the position, taken from its employee request.
+     *
+     * @param  Employee  $employee
+     * @return string|null
+     */
+    protected function resolveEmployeeOwnerEmail(Employee $employee): ?string
+    {
+        $byEmployeeId = EmployeeRequest::query()
+            ->where('employee_id', $employee->id)
+            ->whereNotNull('email')
+            ->latest('applied_at')
+            ->value('email');
+
+        if ($byEmployeeId) {
+            return $byEmployeeId;
+        }
+
+        return EmployeeRequest::query()
+            ->where('legal_entity_id', $employee->legal_entity_id)
+            ->where('employee_type', $employee->employeeType)
+            ->where('position', $employee->position)
+            ->when(
+                $employee->getRawOriginal('start_date') === null,
+                fn (Builder $query) => $query->whereNull('start_date'),
+                fn (Builder $query) => $query->where('start_date', $employee->getRawOriginal('start_date'))
+            )
+            ->whereNotNull('email')
+            ->latest('applied_at')
+            ->value('email');
+    }
+
+    /**
      * The logic behind the party update or create is as follows:
      * 1. Check party by UUID. Possible scenario: the party already exists in the system
      * 2. If user already has a party, update it.
@@ -162,16 +265,16 @@ readonly class EmployeeRepository
             $model->party()->associate($newParty)->save();
 
             // If the model doesn't have a related party but the party already exists, update it and relate - the scenario of a new employee with already created person/party
-        } else if ($partyByUuid && !$model->party) {
+        } elseif ($partyByUuid && !$model->party) {
             $partyByUuid->update($party);
             $model->party()->associate($partyByUuid)->save();
 
             // The model already has a related party, update it and change the UUID - the case when eHealth creates another party, probably merge scenario
-        } else if (!$partyByUuid && $model->party) {
+        } elseif (!$partyByUuid && $model->party) {
             $model->party()->update($party);
 
             // Both the model and the party exist, check if they are the same
-        } else if ($partyByUuid && $model->party) {
+        } elseif ($partyByUuid && $model->party) {
 
             // uuid is the same, just update
             if ($partyByUuid->uuid === $model->party->uuid) {
@@ -181,8 +284,8 @@ readonly class EmployeeRepository
                 $model->party()->update($party);
 
                 Log::warning('Potential party merge scenario detected', [
-                    'model_party_uuid'          => $model->party->uuid,
-                    'ehealth_party_uuid'        => $partyByUuid->uuid,
+                    'model_party_uuid' => $model->party->uuid,
+                    'ehealth_party_uuid' => $partyByUuid->uuid,
                     'updated_with_ehealth_data' => true
                 ]);
             }

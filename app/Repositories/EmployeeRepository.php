@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\DB;
 use App\Enums\Employee\RequestStatus;
 use App\Models\Employee\EmployeeRequest;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 
 readonly class EmployeeRepository
 {
@@ -150,10 +149,11 @@ readonly class EmployeeRepository
      *
      * Employees synced from eHealth arrive without `user_id`, so they never grant roles.
      * The owning account is resolved by the email of the employee request the position was
-     * created from. When that email has no account of its own, the party decides: a party is
-     * one person, so the position belongs to that person's first account. Email changes leave
-     * several accounts on one party, and picking the first one keeps the result the same no
-     * matter who triggers the sync.
+     * created from, because that email is what eHealth itself knows the position by.
+     *
+     * A position is deliberately not handed to an account merely for sharing a party. eHealth
+     * grants scopes by its own role policies, so a role invented here makes it reject the whole
+     * authorize request instead of just the surplus scopes, locking the user out of login.
      *
      * Sets `employees.user_id`, fills the `employee_users` pivot and links the user to the
      * party when the user has none yet.
@@ -178,15 +178,10 @@ readonly class EmployeeRepository
             return [];
         }
 
-        $usersByParty = User::query()
-            ->whereIn('party_id', $employees->pluck('party_id')->unique()->all())
-            ->get()
-            ->groupBy(fn (User $user) => (int) $user->partyId);
-
         $affectedPartyIds = [];
 
         foreach ($employees as $employee) {
-            $owner = $this->resolveEmployeeOwner($employee, $usersByParty);
+            $owner = $this->resolveEmployeeOwner($employee);
 
             if (!$owner) {
                 continue;
@@ -215,32 +210,27 @@ readonly class EmployeeRepository
     }
 
     /**
-     * Account the position belongs to: by request email, otherwise the party's first user.
+     * Account the position belongs to, identified by the email of its employee request.
      *
      * @param  Employee  $employee
-     * @param  Collection<int, Collection<int, User>>  $usersByParty
      * @return User|null
      */
-    protected function resolveEmployeeOwner(Employee $employee, Collection $usersByParty): ?User
+    protected function resolveEmployeeOwner(Employee $employee): ?User
     {
         $email = $this->resolveEmployeeOwnerEmail($employee);
 
-        if ($email) {
-            $byEmail = User::query()->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])->first();
-
-            // Never steal an account that already identifies another person
-            if ($byEmail && ($byEmail->partyId === null || (int) $byEmail->partyId === (int) $employee->partyId)) {
-                return $byEmail;
-            }
-
-            if ($byEmail) {
-                return null;
-            }
+        if (!$email) {
+            return null;
         }
 
-        return $usersByParty->get((int) $employee->partyId, collect())
-            ->sortBy('id')
-            ->first();
+        $owner = User::query()->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])->first();
+
+        // Never steal an account that already identifies another person
+        if ($owner && $owner->partyId !== null && (int) $owner->partyId !== (int) $employee->partyId) {
+            return null;
+        }
+
+        return $owner;
     }
 
     /**

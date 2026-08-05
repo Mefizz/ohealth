@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Employee;
 
+use App\Classes\eHealth\Api\EmployeeApi;
 use App\Enums\Employee\RequestStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Jobs\EmployeeDetailsUpsert;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
@@ -378,54 +380,14 @@ class SyncUserEmployeesAndRolesTest extends TestCase
     }
 
     #[Test]
-    public function ownerless_employee_is_bound_to_the_only_user_of_the_party(): void
+    public function ownerless_employee_is_not_given_to_a_party_member_with_a_foreign_request_email(): void
     {
         $legalEntity = $this->createLegalEntity();
         $party = $this->createParty();
 
-        // The account we log in with; the position below was created in eHealth under another email
-        $user = $this->createUser($party, 'openhealthkopylets+outp35@example.com', '2026-07-16 23:59:40');
-
-        $owned = $this->createEmployee($legalEntity, $party, Role::OWNER->value, 'P1', $user->id, '2026-07-17 10:00:00');
-        $ownerless = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
-
-        EmployeeRequest::create([
-            'uuid' => (string) Str::uuid(),
-            'legal_entity_id' => $legalEntity->id,
-            'status' => RequestStatus::APPROVED->value,
-            'position' => 'P14',
-            'start_date' => $ownerless->getRawOriginal('start_date'),
-            'employee_type' => Role::HR->value,
-            'email' => 'openhealthkopylets+outp25@example.com',
-            'party_id' => $party->id,
-            'employee_id' => $ownerless->id,
-            'applied_at' => '2026-06-01 10:00:00',
-        ]);
-
-        setPermissionsTeamId($legalEntity->id);
-
-        $affectedParties = Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity);
-
-        $this->assertSame([$party->id], $affectedParties);
-        $this->assertSame($user->id, $ownerless->fresh()->user_id);
-        $this->assertSame($user->id, $owned->fresh()->user_id);
-
-        Repository::party()->syncUserEmployeesAndRoles($party->fresh(), $legalEntity->fresh());
-
-        $user->unsetRelation('roles');
-        $this->assertTrue($user->hasRole(Role::OWNER->value));
-        $this->assertTrue($user->hasRole(Role::HR->value));
-    }
-
-    #[Test]
-    public function ownerless_employee_in_multi_user_party_is_bound_to_the_first_user(): void
-    {
-        $legalEntity = $this->createLegalEntity();
-        $party = $this->createParty();
-
-        // Same person, several accounts left behind by email changes
-        $firstUser = $this->createUser($party, 'first-account@example.com', '2026-07-01 10:00:00');
-        $laterUser = $this->createUser($party, 'later-account@example.com', '2026-07-02 10:00:00');
+        // The position was created in eHealth under an email we have no account for. Granting it
+        // to a party member would claim a role eHealth does not give them, breaking their login.
+        $partyUser = $this->createUser($party, 'party-member@example.com', '2026-07-01 10:00:00');
 
         $employee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
 
@@ -436,7 +398,7 @@ class SyncUserEmployeesAndRolesTest extends TestCase
             'position' => 'P14',
             'start_date' => $employee->getRawOriginal('start_date'),
             'employee_type' => Role::HR->value,
-            'email' => 'unknown@example.com',
+            'email' => 'someone-else@example.com',
             'party_id' => $party->id,
             'employee_id' => $employee->id,
             'applied_at' => '2026-06-01 10:00:00',
@@ -446,15 +408,13 @@ class SyncUserEmployeesAndRolesTest extends TestCase
 
         $affectedParties = Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity);
 
-        $this->assertSame([$party->id], $affectedParties);
-        $this->assertSame($firstUser->id, $employee->fresh()->user_id);
+        $this->assertSame([], $affectedParties);
+        $this->assertNull($employee->fresh()->user_id);
 
         Repository::party()->syncUserEmployeesAndRoles($party->fresh(), $legalEntity->fresh());
 
-        $firstUser->unsetRelation('roles');
-        $laterUser->unsetRelation('roles');
-        $this->assertTrue($firstUser->hasRole(Role::HR->value));
-        $this->assertFalse($laterUser->hasRole(Role::HR->value));
+        $partyUser->unsetRelation('roles');
+        $this->assertFalse($partyUser->hasRole(Role::HR->value));
     }
 
     #[Test]
@@ -484,6 +444,49 @@ class SyncUserEmployeesAndRolesTest extends TestCase
 
         $this->assertSame([], $affectedParties);
         $this->assertNull($employee->fresh()->user_id);
+    }
+
+    #[Test]
+    public function scope_rejection_is_detected_and_retried_with_the_last_granted_scopes(): void
+    {
+        $legalEntity = $this->createLegalEntity();
+        $party = $this->createParty();
+        $user = $this->createUser($party, 'owner@example.com', '2026-07-16 23:59:40');
+
+        setPermissionsTeamId($legalEntity->id);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        Auth::shouldUse('ehealth');
+
+        $divisionRead = Permission::findOrCreate('division:read', 'ehealth');
+        $employeeRead = Permission::findOrCreate('employee:read', 'ehealth');
+
+        $ownerRole = \App\Models\Role::findByName(Role::OWNER->value, 'ehealth');
+        $ownerRole->givePermissionTo($divisionRead);
+        $ownerRole->givePermissionTo($employeeRead);
+        $user->assignRole($ownerRole);
+
+        // What eHealth granted on the previous login, stored as direct permissions
+        $user->givePermissionTo($divisionRead);
+        $user->givePermissionTo($employeeRead);
+
+        $isScopeRejection = new ReflectionMethod(EmployeeApi::class, 'isScopeRejection');
+        $lastGrantedScope = new ReflectionMethod(EmployeeApi::class, 'lastGrantedScope');
+
+        $scopeError = new EHealthValidationException([
+            'error' => ['message' => 'User requested scope that is not allowed by role based access policies.'],
+        ]);
+        $otherError = new EHealthValidationException([
+            'error' => ['message' => 'Employee not found'],
+        ]);
+
+        $this->assertTrue($isScopeRejection->invoke(null, $scopeError));
+        $this->assertFalse($isScopeRejection->invoke(null, $otherError));
+
+        $granted = $lastGrantedScope->invoke(null, $user->fresh());
+
+        $this->assertStringContainsString('division:read', $granted);
+        $this->assertStringContainsString('employee:read', $granted);
+        $this->assertSame('', $lastGrantedScope->invoke(null, null));
     }
 
     private function createLegalEntity(string $typeName = 'OUTPATIENT'): LegalEntity

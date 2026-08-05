@@ -408,16 +408,15 @@
                                         @php
                                             $positionEmail = null;
                                             if ($position instanceof Employee) {
-                                                $position->loadMissing('users');
                                                 $positionEmail = $position->users->sortBy('id')->first()?->email
                                                     ?? ($position->user_id
-                                                        ? \App\Models\User::query()->whereKey($position->user_id)->value('email')
+                                                        ? $party->users->firstWhere('id', $position->user_id)?->email
                                                         : null)
-                                                    ?? \App\Models\Employee\EmployeeRequest::query()
+                                                    ?? $party->employeeRequests
                                                         ->where('employee_id', $position->id)
                                                         ->whereNotNull('email')
-                                                        ->latest('applied_at')
-                                                        ->value('email');
+                                                        ->sortByDesc('applied_at')
+                                                        ->first()?->email;
                                             } else if ($position instanceof EmployeeRequest) {
                                                 $positionEmail = $position->email
                                                     ?? $position->revision->data['party']['email'] ?? null;

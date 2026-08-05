@@ -7,9 +7,15 @@
 <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 shadow-sm">
     <div class="flex items-center justify-between mb-4">
         <h3 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Виписані Е-Рецепти</h3>
-        @if($linkedPrescriptions->isNotEmpty())
-            <span class="text-xs text-gray-400 dark:text-gray-500">{{ $linkedPrescriptions->count() }} шт.</span>
-        @endif
+        <div class="flex items-center gap-4">
+            @if($linkedPrescriptions->isNotEmpty())
+                <span class="text-xs text-gray-400 dark:text-gray-500">{{ $linkedPrescriptions->count() }} шт.</span>
+            @endif
+            <button type="button" wire:click="syncEPrescriptions" wire:loading.attr="disabled" class="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 transition flex items-center gap-1" title="Оновити статуси з ЕСОЗ">
+                @icon('refresh', 'w-3.5 h-3.5')
+                <span>Синхронізувати з ЕСОЗ</span>
+            </button>
+        </div>
     </div>
 
     @if($linkedPrescriptions->isEmpty())
@@ -64,11 +70,14 @@
                         @if($status === 'active')
                             <button type="button" class="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1" title="Друк пам'ятки"
                                     @click="
-                                        $wire.loadPrintoutForm('{{ $uuid }}').then(() => {
+                                        $wire.loadPrintoutForm('{{ $uuid }}').then((content) => {
                                             let printWindow = window.open('', '_blank');
-                                            printWindow.document.body.innerHTML = $wire.printableContent;
-                                            printWindow.focus();
-                                            printWindow.print();
+                                            if (printWindow) {
+                                                printWindow.document.open();
+                                                printWindow.document.write(content || $wire.printableContent || '<h3>Дані для друку відсутні</h3>');
+                                                printWindow.document.close();
+                                                setTimeout(() => { printWindow.focus(); printWindow.print(); }, 250);
+                                            }
                                         });
                                     ">
                                 @icon('printer', 'w-4 h-4')
@@ -77,6 +86,10 @@
                             <button type="button" class="text-yellow-600 hover:text-yellow-800 transition-colors flex items-center gap-1" title="Повторно надіслати SMS" wire:click="resendPrescriptionSms('{{ $uuid }}')">
                                 @icon('refresh', 'w-4 h-4')
                                 <span class="text-xs">SMS</span>
+                            </button>
+                            <button type="button" class="text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1" title="Історія погашення в аптеках" wire:click="checkDispenseHistory('{{ $uuid }}')">
+                                @icon('file-text', 'w-4 h-4')
+                                <span class="text-xs">Погашення</span>
                             </button>
                         @endif
                         @if(in_array($status, ['new', 'draft', 'active'], true))

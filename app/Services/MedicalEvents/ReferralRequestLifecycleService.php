@@ -160,6 +160,10 @@ class ReferralRequestLifecycleService
             ? 'Направлення на послугу (ServiceRequest)'
             : 'Направлення на виріб (DeviceRequest)';
         $employeeName = $record->employee?->full_name ?? '—';
+        $patientName = $carePlan->person->full_name ?? ($carePlan->person->primaryName ? ($carePlan->person->primaryName->last_name . ' ' . $carePlan->person->primaryName->first_name) : 'Пацієнт');
+        $adviceText = $record instanceof ServiceRequestRequest
+            ? 'Зверніться до будь-якого медичного закладу, що надає відповідні послуги за контрактом з НСЗУ.'
+            : 'Зверніться до аптеки або закладу, що бере участь у програмі реімбурсації чи відпуску відповідних медичних виробів за контрактом з НСЗУ.';
 
         return "
             <div style='font-family: sans-serif; padding: 40px; max-width: 600px; margin: 0 auto; border: 1px solid #ccc; border-radius: 8px;'>
@@ -169,7 +173,7 @@ class ReferralRequestLifecycleService
                 <table style='width: 100%; font-size: 14px; border-collapse: collapse;'>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Тип:</td><td style='padding: 8px 0;'>" . e($name) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Статус:</td><td style='padding: 8px 0;'>" . e((string) $record->status) . "</td></tr>
-                    <tr><td style='padding: 8px 0; font-weight: bold;'>Пацієнт:</td><td style='padding: 8px 0;'>" . e($carePlan->person->full_name) . "</td></tr>
+                    <tr><td style='padding: 8px 0; font-weight: bold;'>Пацієнт:</td><td style='padding: 8px 0;'>" . e($patientName) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Код послуги/виробу:</td><td style='padding: 8px 0;'>" . e($code) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Кількість:</td><td style='padding: 8px 0;'>" . e((string) $record->quantity) . " од.</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Термін дії:</td><td style='padding: 8px 0;'>з " . e(\Carbon\Carbon::parse($record->started_at)->format('d.m.Y')) . " по " . e(\Carbon\Carbon::parse($record->ended_at)->format('d.m.Y')) . "</td></tr>
@@ -177,7 +181,7 @@ class ReferralRequestLifecycleService
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Примітки:</td><td style='padding: 8px 0;'>" . e((string) $record->note) . "</td></tr>
                 </table>
                 <div style='margin-top: 40px; text-align: center; font-size: 12px; color: #888;'>
-                    Зверніться до будь-якого медичного закладу, що надає відповідні послуги за контрактом з НСЗУ.
+                    " . e($adviceText) . "
                 </div>
             </div>
         ";

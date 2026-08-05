@@ -307,24 +307,6 @@
                         <span>Направлення</span>
                     </a>
                 </li>
-                
-                <li>
-                    <a href="{{ route('medication-requests.index', [legalEntity()]) }}"
-                       class="menu-item-simple {{ request()->routeIs('medication-requests.*') ? 'menu-item-active' : '' }}"
-                    >
-                        @icon('health-document')
-                        <span>Е-Рецепти</span>
-                    </a>
-                </li>
-
-                <li>
-                    <a href="{{ route('device-requests.index', [legalEntity()]) }}"
-                       class="menu-item-simple {{ request()->routeIs('device-requests.*') ? 'menu-item-active' : '' }}"
-                    >
-                        @icon('health-document')
-                        <span>Медичні Вироби</span>
-                    </a>
-                </li>
 
                 @can('viewAny', Equipment::class)
                     <li>

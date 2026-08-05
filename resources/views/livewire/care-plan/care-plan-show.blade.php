@@ -481,7 +481,7 @@
         @elseif($actionType === 'complete_activity')
             @include('livewire.care-plan.parts.modals.complete-activity-modal', ['method' => 'sign'])
         @elseif($actionType === 'reject_prescription')
-            @include('components.signature-modal', ['method' => 'signRejectPrescription'])
+            @include('livewire.care-plan.parts.modals.reject-prescription-modal', ['method' => 'signRejectPrescription'])
         @else
             @include('components.signature-modal', ['method' => 'sign'])
         @endif

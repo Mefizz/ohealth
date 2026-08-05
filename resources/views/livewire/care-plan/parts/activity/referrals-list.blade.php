@@ -93,10 +93,10 @@
                                                 printWindow.document.open();
                                                 printWindow.document.write('<!DOCTYPE html><html><head><meta charset=&quot;utf-8&quot;><title>Пам\'ятка</title></head><body>' + html + '</body></html>');
                                                 printWindow.document.close();
-                                                printWindow.onload = () => {
-                                                    printWindow.focus();
+                                                printWindow.focus();
+                                                setTimeout(() => {
                                                     printWindow.print();
-                                                };
+                                                }, 250);
                                             });
                                         ">
                                     @icon('printer', 'w-4 h-4')

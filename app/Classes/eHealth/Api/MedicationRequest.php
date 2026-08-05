@@ -82,4 +82,126 @@ class MedicationRequest
     {
         return EHealth::medicationRequest()->rejectRequest($id)->getData();
     }
+
+    /**
+     * Get Medication Requests by search parameters (API-005-043-0001).
+     *
+     * @param  string  $patientId
+     * @param  array  $query
+     * @return array
+     * @throws ApiException
+     */
+    public static function getBySearchParams(string $patientId, array $query = []): array
+    {
+        return EHealth::medicationRequest()->getBySearchParams($patientId, $query)->getData();
+    }
+
+    /**
+     * Get Medication Request Requests by search parameters (API-005-044-0003).
+     *
+     * @param  string  $patientId
+     * @param  array  $query
+     * @return array
+     * @throws ApiException
+     */
+    public static function getRequestsBySearchParams(string $patientId, array $query = []): array
+    {
+        return EHealth::medicationRequest()->getRequestsBySearchParams($patientId, $query)->getData();
+    }
+
+    /**
+     * Resend SMS code for active Medication Request.
+     */
+    public static function resendSms(string $patientId, string $id): array
+    {
+        return EHealth::medicationRequest()->resendSms($patientId, $id)->getData();
+    }
+
+    /**
+     * Qualify Medication Request by ID.
+     */
+    public static function qualify(string $id, array $payload = []): array
+    {
+        return EHealth::medicationRequest()->qualify($id, $payload)->getData();
+    }
+
+    /**
+     * Get Medication Requests in Care Plan context.
+     */
+    public static function getByCarePlan(string $carePlanId, array $query = []): array
+    {
+        return EHealth::medicationRequest()->getByCarePlan($carePlanId, $query)->getData();
+    }
+
+    /**
+     * Get Medication Request details (dispenses/redemptions).
+     */
+    public static function getDetails(string $patientId, string $id, array $query = []): array
+    {
+        return EHealth::medicationRequest()->getDetails($patientId, $id, $query)->getData();
+    }
+
+    /**
+     * Get Medication Request printout form.
+     */
+    public static function getPrintoutForm(string $patientId, string $id): array
+    {
+        return EHealth::medicationRequest()->getPrintoutForm($patientId, $id)->getData();
+    }
+
+    /**
+     * Block Medication Request.
+     */
+    public static function block(string $patientId, string $id, array $payload = []): array
+    {
+        return EHealth::medicationRequest()->block($patientId, $id, $payload)->getData();
+    }
+
+    /**
+     * Unblock Medication Request.
+     */
+    public static function unblock(string $patientId, string $id, array $payload = []): array
+    {
+        return EHealth::medicationRequest()->unblock($patientId, $id, $payload)->getData();
+    }
+
+    /**
+     * Get Medication Request details in composition context.
+     */
+    public static function getInCompositionContext(string $patientId, string $compositionId, string $id, array $query = []): array
+    {
+        return EHealth::medicationRequest()->getInCompositionContext($patientId, $compositionId, $id, $query)->getData();
+    }
+
+    /**
+     * Get Medication Request by ID by pharmacy user.
+     */
+    public static function getByIdByPharmacy(string $id, array $query = []): array
+    {
+        return EHealth::medicationRequest()->getByIdByPharmacy($id, $query)->getData();
+    }
+
+    /**
+     * Block Medication Request by pharmacy user.
+     */
+    public static function blockByPharmacy(string $id, array $payload = []): array
+    {
+        return EHealth::medicationRequest()->blockByPharmacy($id, $payload)->getData();
+    }
+
+    /**
+     * Unblock Medication Request by pharmacy user.
+     */
+    public static function unblockByPharmacy(string $id, array $payload = []): array
+    {
+        return EHealth::medicationRequest()->unblockByPharmacy($id, $payload)->getData();
+    }
+
+    /**
+     * Reject Medication Request by pharmacy user.
+     */
+    public static function rejectByPharmacy(string $id, array $payload = []): array
+    {
+        return EHealth::medicationRequest()->rejectByPharmacy($id, $payload)->getData();
+    }
 }

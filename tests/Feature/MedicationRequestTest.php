@@ -18,13 +18,67 @@ class MedicationRequestTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+    protected LegalEntity $legalEntity;
+    protected Employee $employee;
+
+    protected function migrateDatabases(): void
+    {
+        $this->artisan('migrate:fresh', [
+            '--path' => [
+                database_path('migrations'),
+                database_path('migrations/install'),
+                database_path('migrations/update/0_1'),
+            ],
+            '--realpath' => true,
+        ]);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
-        $this->legalEntity = LegalEntity::factory()->create();
-        $this->employee = Employee::factory()->create(['user_id' => $this->user->id, 'legal_entity_id' => $this->legalEntity->id]);
+        $party = \App\Models\Relations\Party::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'first_name' => 'Іван',
+            'last_name' => 'Петренко',
+            'tax_id' => '9876543210',
+            'birth_date' => '1980-08-08',
+            'gender' => 'MALE',
+        ]);
+
+        $this->user = User::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'email' => 'test_' . \Illuminate\Support\Str::random(6) . '@example.com',
+            'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            'party_id' => $party->id,
+        ]);
+
+        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+            ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
+
+        $this->legalEntity = LegalEntity::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'status' => 'ACTIVE',
+            'sync_status' => 'COMPLETED',
+            'legal_entity_type_id' => $typeId,
+            'is_active' => true,
+        ]);
+        $this->instance('legalEntity', $this->legalEntity);
+
+        $this->employee = Employee::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'full_name' => 'Д-р Іван Петренко',
+            'employee_type' => 'DOCTOR',
+            'status' => 'APPROVED',
+            'legal_entity_id' => $this->legalEntity->id,
+            'is_active' => true,
+            'position' => 'Doctor',
+            'start_date' => now()->format('Y-m-d'),
+            'user_id' => $this->user->id,
+            'party_id' => $party->id,
+        ]);
+        $this->user->employees()->attach($this->employee->id);
     }
 
     public function test_it_can_prequalify_medication_request()
@@ -51,7 +105,7 @@ class MedicationRequestTest extends TestCase
     {
         $this->actingAs($this->user);
 
-        Livewire::test('medication-request.medication-request-index', ['legalEntity' => $this->legalEntity])
+        Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestIndex::class, ['legalEntity' => $this->legalEntity])
             ->assertStatus(200)
             ->assertSee('Електронні Рецепти');
     }
@@ -60,16 +114,15 @@ class MedicationRequestTest extends TestCase
     {
         $this->actingAs($this->user);
 
-        // Mock the Lifecycle Service
         $mockService = Mockery::mock(MedicationRequestLifecycleService::class);
         $mockService->shouldReceive('preQualify')->once()->andReturn([]);
         $this->app->instance(MedicationRequestLifecycleService::class, $mockService);
 
-        Livewire::test('medication-request.medication-request-form', ['legalEntity' => $this->legalEntity])
+        Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
             ->set('patientId', 'uuid-123')
             ->set('medicalProgram', 'program-123')
             ->set('dosageInstruction', 'Take 1 pill')
-            ->set('duration', 30)
+            ->set('duration', '30')
             ->call('preQualify')
             ->assertSee('PreQualify успішно пройдено');
     }

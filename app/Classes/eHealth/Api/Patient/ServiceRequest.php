@@ -6,6 +6,8 @@ namespace App\Classes\eHealth\Api\Patient;
 
 use App\Classes\eHealth\EHealthResponse;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class ServiceRequest extends PatientApiBase
 {
@@ -32,6 +34,8 @@ class ServiceRequest extends PatientApiBase
      */
     public function getById(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator($this->validateDetails(...));
+
         return $this->get(self::URL . "/{$patientId}/service_requests/{$id}", $query);
     }
 
@@ -53,5 +57,58 @@ class ServiceRequest extends PatientApiBase
     public function resendSms(string $patientId, string $id): PromiseInterface|EHealthResponse
     {
         return $this->post(self::URL . "/{$patientId}/service_requests/{$id}/actions/resend", []);
+    }
+
+    protected function validateDetails(EHealthResponse $response): array
+    {
+        $data = $this->replaceEHealthPropNames($response->getData());
+        $toValidate = isset($data[0]) && is_array($data[0]) ? $data[0] : $data;
+
+        $validator = Validator::make($toValidate, [
+            'uuid' => 'required|string',
+            'status' => 'required|string',
+            'requisition' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error(
+                'ServiceRequest details validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+            throw new \Illuminate\Validation\ValidationException($validator);
+        }
+
+        return $data;
+    }
+
+    protected function validateMany(EHealthResponse $response): array
+    {
+        $transformedData = [];
+        $items = $response->getData();
+        if (isset($items['data']) && is_array($items['data'])) {
+            $items = $items['data'];
+        }
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (is_array($item)) {
+                    $transformedData[] = $this->replaceEHealthPropNames($item);
+                }
+            }
+        }
+
+        $validator = Validator::make($transformedData, [
+            '*' => 'array',
+            '*.uuid' => 'required|string',
+            '*.status' => 'required|string',
+            '*.requisition' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error(
+                'ServiceRequest many validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+            throw new \Illuminate\Validation\ValidationException($validator);
+        }
+
+        return $response->getData();
     }
 }

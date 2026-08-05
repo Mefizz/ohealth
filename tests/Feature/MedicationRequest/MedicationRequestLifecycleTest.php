@@ -427,13 +427,10 @@ class MedicationRequestLifecycleTest extends TestCase
             'inform_with' => 'otp-method-uuid|OTP|+380991112233'
         ]);
 
-        // Mock eHealth cancel API
-        $mockApi = Mockery::mock(MedicationRequestApi::class);
-        $cancelResponse = Mockery::mock(EHealthResponse::class);
-        $cancelResponse->shouldReceive('successful')->andReturn(true);
-        $cancelResponse->shouldReceive('getData')->andReturn(['status' => 'cancelled']);
-        $mockApi->shouldReceive('cancel')->once()->andReturn($cancelResponse);
-        $this->instance(MedicationRequestApi::class, $mockApi);
+        // Mock eHealth reject API
+        $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
+        $mockApi->shouldReceive('getBySearchParams')->andReturn([]);
+        $mockApi->shouldReceive('rejectMedicationRequest')->once()->andReturn(['status' => 'rejected']);
 
         // Mock SignatureService
         $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);
@@ -446,21 +443,21 @@ class MedicationRequestLifecycleTest extends TestCase
             'carePlan' => $carePlan,
             'activity' => $this->carePlanActivity,
         ])
-            ->call('cancelPrescription', $uuid)
+            ->call('rejectPrescription', $uuid)
             ->assertSet('showSignatureModal', true)
             ->assertSet('ePrescriptionRequestIdToSign', $uuid)
-            ->assertSet('actionType', 'cancel_prescription')
+            ->assertSet('actionType', 'reject_prescription')
             ->set('statusReason', 'entered-in-error')
             ->set('form.password', '12345678')
             ->set('form.knedp', 'acsk_test')
             ->set('form.keyContainerUpload', \Illuminate\Http\UploadedFile::fake()->create('key.dat', 10))
-            ->call('signCancelPrescription')
+            ->call('signRejectPrescription')
             ->assertSet('showSignatureModal', false);
 
         // Assert database updated
         $this->assertDatabaseHas('medication_request_requests', [
             'uuid' => $uuid,
-            'status' => 'cancelled'
+            'status' => 'rejected'
         ]);
     }
 

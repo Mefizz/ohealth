@@ -52,12 +52,12 @@ class CompleteSync extends EHealthJob
         setPermissionsTeamId($this->legalEntity->id);
 
         try {
-            $partyIds = Repository::employee()->bindOwnerlessEmployeesToUsers($this->legalEntity);
-
             $user = $this->user ?? ($this->batch()?->options['user'] ?? null);
 
-            if ($user?->party_id !== null) {
-                $partyIds[] = (int) $user->party_id;
+            $partyIds = Repository::employee()->bindOwnerlessEmployeesToUsers($this->legalEntity, $user);
+
+            if ($user?->partyId !== null) {
+                $partyIds[] = (int) $user->partyId;
             }
 
             foreach (array_unique($partyIds) as $partyId) {

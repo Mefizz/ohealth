@@ -31,7 +31,7 @@ class SyncUserRolesAfterVerification
         setPermissionsTeamId($legalEntity->id);
 
         // Positions synced from eHealth have no owner yet; bind them before assigning roles
-        Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity);
+        Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity, $user);
 
         Repository::party()->syncUserEmployeesAndRoles($user->party->fresh(), $legalEntity);
     }

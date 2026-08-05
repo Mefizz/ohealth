@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use App\Enums\Employee\RequestStatus;
 use App\Models\Employee\EmployeeRequest;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 readonly class EmployeeRepository
 {
@@ -148,9 +149,14 @@ readonly class EmployeeRepository
      * Bind employees that have no owner yet to the users they belong to.
      *
      * Employees synced from eHealth arrive without `user_id`, so they never grant roles.
-     * The owning account is resolved through the employee request the position was created from:
-     * its `email` identifies the eHealth user. Sets `employees.user_id`, fills the
-     * `employee_users` pivot and links the user to the party when the user has none yet.
+     * The owning account is resolved by the email of the employee request the position was
+     * created from. When that email has no account, but the party identifies exactly one
+     * user, the position belongs to that user: a party is one person, so their positions
+     * cannot belong to anybody else. Parties with several users stay untouched, because
+     * there the email is the only thing telling the accounts apart.
+     *
+     * Sets `employees.user_id`, fills the `employee_users` pivot and links the user to the
+     * party when the user has none yet.
      *
      * @param  LegalEntity  $legalEntity
      * @return array<int, int> IDs of parties whose employees were bound.
@@ -172,46 +178,70 @@ readonly class EmployeeRepository
             return [];
         }
 
+        $usersByParty = User::query()
+            ->whereIn('party_id', $employees->pluck('party_id')->unique()->all())
+            ->get()
+            ->groupBy(fn (User $user) => (int) $user->partyId);
+
         $affectedPartyIds = [];
 
         foreach ($employees as $employee) {
-            $email = $this->resolveEmployeeOwnerEmail($employee);
+            $owner = $this->resolveEmployeeOwner($employee, $usersByParty);
 
-            if (!$email) {
+            if (!$owner) {
                 continue;
             }
 
-            $user = User::query()->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])->first();
-
-            if (!$user) {
-                continue;
-            }
-
-            // Never steal an account that already identifies another person
-            if ($user->party_id !== null && (int) $user->party_id !== (int) $employee->party_id) {
-                continue;
-            }
-
-            DB::transaction(function () use ($employee, $user) {
-                if ($user->party_id === null) {
-                    $user->party_id = $employee->party_id;
-                    $user->save();
+            DB::transaction(function () use ($employee, $owner) {
+                if ($owner->partyId === null) {
+                    $owner->partyId = $employee->partyId;
+                    $owner->save();
                 }
 
-                $employee->update(['user_id' => $user->id]);
-                $employee->users()->syncWithoutDetaching([$user->id]);
+                $employee->update(['user_id' => $owner->id]);
+                $employee->users()->syncWithoutDetaching([$owner->id]);
             });
 
-            $affectedPartyIds[] = (int) $employee->party_id;
+            $affectedPartyIds[] = (int) $employee->partyId;
 
             Log::info('Ownerless employee bound to user.', [
                 'employee_id' => $employee->id,
-                'user_id' => $user->id,
+                'user_id' => $owner->id,
                 'legal_entity_id' => $legalEntity->id,
             ]);
         }
 
         return array_values(array_unique($affectedPartyIds));
+    }
+
+    /**
+     * Account the position belongs to: by request email, otherwise the party's only user.
+     *
+     * @param  Employee  $employee
+     * @param  Collection<int, Collection<int, User>>  $usersByParty
+     * @return User|null
+     */
+    protected function resolveEmployeeOwner(Employee $employee, Collection $usersByParty): ?User
+    {
+        $partyUsers = $usersByParty->get((int) $employee->partyId, collect());
+        $email = $this->resolveEmployeeOwnerEmail($employee);
+
+        if ($email) {
+            $byEmail = User::query()->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])->first();
+
+            // Never steal an account that already identifies another person
+            if ($byEmail && ($byEmail->partyId === null || (int) $byEmail->partyId === (int) $employee->partyId)) {
+                return $byEmail;
+            }
+
+            if ($byEmail) {
+                return null;
+            }
+        }
+
+        // The email is unknown to us, so it cannot tell accounts apart. Only a party with a
+        // single user unambiguously identifies the owner.
+        return $partyUsers->count() === 1 ? $partyUsers->first() : null;
     }
 
     /**
@@ -233,7 +263,7 @@ readonly class EmployeeRepository
         }
 
         return EmployeeRequest::query()
-            ->where('legal_entity_id', $employee->legal_entity_id)
+            ->where('legal_entity_id', $employee->legalEntityId)
             ->where('employee_type', $employee->employeeType)
             ->where('position', $employee->position)
             ->when(

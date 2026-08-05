@@ -377,6 +377,78 @@ class SyncUserEmployeesAndRolesTest extends TestCase
         $this->assertSame($user->id, $employee->fresh()->user_id);
     }
 
+    #[Test]
+    public function ownerless_employee_is_bound_to_the_only_user_of_the_party(): void
+    {
+        $legalEntity = $this->createLegalEntity();
+        $party = $this->createParty();
+
+        // The account we log in with; the position below was created in eHealth under another email
+        $user = $this->createUser($party, 'openhealthkopylets+outp35@example.com', '2026-07-16 23:59:40');
+
+        $owned = $this->createEmployee($legalEntity, $party, Role::OWNER->value, 'P1', $user->id, '2026-07-17 10:00:00');
+        $ownerless = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
+
+        EmployeeRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'legal_entity_id' => $legalEntity->id,
+            'status' => RequestStatus::APPROVED->value,
+            'position' => 'P14',
+            'start_date' => $ownerless->getRawOriginal('start_date'),
+            'employee_type' => Role::HR->value,
+            'email' => 'openhealthkopylets+outp25@example.com',
+            'party_id' => $party->id,
+            'employee_id' => $ownerless->id,
+            'applied_at' => '2026-06-01 10:00:00',
+        ]);
+
+        setPermissionsTeamId($legalEntity->id);
+
+        $affectedParties = Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity);
+
+        $this->assertSame([$party->id], $affectedParties);
+        $this->assertSame($user->id, $ownerless->fresh()->user_id);
+        $this->assertSame($user->id, $owned->fresh()->user_id);
+
+        Repository::party()->syncUserEmployeesAndRoles($party->fresh(), $legalEntity->fresh());
+
+        $user->unsetRelation('roles');
+        $this->assertTrue($user->hasRole(Role::OWNER->value));
+        $this->assertTrue($user->hasRole(Role::HR->value));
+    }
+
+    #[Test]
+    public function ownerless_employee_stays_unbound_when_party_has_several_users(): void
+    {
+        $legalEntity = $this->createLegalEntity();
+        $party = $this->createParty();
+
+        $this->createUser($party, 'first@example.com', '2026-07-01 10:00:00');
+        $this->createUser($party, 'second@example.com', '2026-07-02 10:00:00');
+
+        $employee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-06-01 10:00:00');
+
+        EmployeeRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'legal_entity_id' => $legalEntity->id,
+            'status' => RequestStatus::APPROVED->value,
+            'position' => 'P14',
+            'start_date' => $employee->getRawOriginal('start_date'),
+            'employee_type' => Role::HR->value,
+            'email' => 'unknown@example.com',
+            'party_id' => $party->id,
+            'employee_id' => $employee->id,
+            'applied_at' => '2026-06-01 10:00:00',
+        ]);
+
+        setPermissionsTeamId($legalEntity->id);
+
+        $affectedParties = Repository::employee()->bindOwnerlessEmployeesToUsers($legalEntity);
+
+        $this->assertSame([], $affectedParties);
+        $this->assertNull($employee->fresh()->user_id);
+    }
+
     private function createLegalEntity(string $typeName = 'OUTPATIENT'): LegalEntity
     {
         $typeId = DB::table('legal_entity_types')->where('name', $typeName)->value('id')

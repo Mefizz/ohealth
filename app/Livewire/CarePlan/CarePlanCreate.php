@@ -383,11 +383,11 @@ class CarePlanCreate extends BasePatientComponent
      */
     protected function handleValidationFailed(ValidationException $exception, bool $closeModal = false): void
     {
-        $firstKey = array_key_first($exception->validator->errors()->toArray());
+        $message = $exception->validator->errors()->first() ?: (__('validation.failed') ?? 'Форма містить помилки');
 
-        session()->flash('error', __('validation.failed') ?? 'Форма містить помилки');
-
-        $this->dispatch('validation-failed-scroll', firstErrorKey: $firstKey);
+        session()->flash('error', $message);
+        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+        $this->dispatch('scroll-to-error');
         $this->setErrorBag($exception->validator->getMessageBag());
 
         if ($closeModal) {
@@ -425,6 +425,7 @@ class CarePlanCreate extends BasePatientComponent
     {
         if (!empty($this->form->periodEnd)) {
             session()->flash('error', __('care-plan.period_end_warning'));
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => __('care-plan.period_end_warning')]);
         }
 
         try {
@@ -433,11 +434,15 @@ class CarePlanCreate extends BasePatientComponent
         } catch (\Exception $e) {
             Log::error('CarePlanCreate: failed to load auth methods: ' . $e->getMessage());
             session()->flash('error', 'Не вдалося завантажити методи аутентифікації');
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити методи аутентифікації']);
         }
     }
 
     public function selectAuthMethod(string $methodUuid): void
     {
+        $this->currentAuthMethod = collect($this->authMethods)->first(function ($method) use ($methodUuid) {
+            return ($method['id'] ?? $method['uuid'] ?? null) === $methodUuid;
+        });
         $this->showMethodSelectionModal = false;
         $this->createApproval($methodUuid);
     }
@@ -480,7 +485,7 @@ class CarePlanCreate extends BasePatientComponent
             $this->approvalId = $result->approvalId;
 
             if ($result->requiresOtp()) {
-                $this->currentAuthMethod = $result->authMethod;
+                $this->currentAuthMethod = $result->authMethod ?? $this->currentAuthMethod;
                 $this->openAuthModal();
 
                 return;
@@ -490,7 +495,9 @@ class CarePlanCreate extends BasePatientComponent
             $this->redirectRoute('care-plans.show', [legalEntity(), $carePlan->id], navigate: true);
         } catch (\Exception $e) {
             Log::error('CarePlanCreate: failed to create approval: ' . $e->getMessage());
-            session()->flash('error', 'Не вдалося створити запит на дозвіл: ' . $e->getMessage());
+            $msg = 'Не вдалося створити запит на дозвіл: ' . $e->getMessage();
+            session()->flash('error', $msg);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg]);
         }
     }
 
@@ -513,7 +520,9 @@ class CarePlanCreate extends BasePatientComponent
         $this->pollingLinkId = null;
 
         if ($status->isFailed()) {
-            session()->flash('error', $status->errorMessage ?: 'Не вдалося обробити запит на дозвіл. Спробуйте ще раз.');
+            $msg = $status->errorMessage ?: 'Не вдалося обробити запит на дозвіл. Спробуйте ще раз.';
+            session()->flash('error', $msg);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg]);
 
             return;
         }
@@ -523,7 +532,7 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         if ($status->requiresOtp()) {
-            $this->currentAuthMethod = $status->authMethod;
+            $this->currentAuthMethod = $status->authMethod ?? $this->currentAuthMethod;
             $this->openAuthModal();
 
             return;
@@ -540,8 +549,9 @@ class CarePlanCreate extends BasePatientComponent
     public function save(CarePlanRepository $repository): void
     {
         if (Auth::user()?->cannot('create', CarePlan::class)) {
-            throw new \Exception('DEBUG: cannot create care plan. User: ' . Auth::user()?->id . ' has care_plan:write? ' . (Auth::user()?->hasPermissionTo('care_plan:write') ? 'yes' : 'no') . ' roles: ' . json_encode(Auth::user()?->roles?->pluck('name')));
-            session()->flash('error', __('care-plan.no_permission_create'));
+            $msg = __('care-plan.no_permission_create') ?? 'У вас немає прав для створення плану лікування';
+            session()->flash('error', $msg);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg]);
 
             return;
         }
@@ -721,11 +731,21 @@ class CarePlanCreate extends BasePatientComponent
     }
 
     /**
-     * Verify the SMS code.
+     * Verify the SMS code or confirm offline document verification.
      */
     public function verify(): void
     {
         $this->validate($this->approvalVerificationRules());
+
+        if ($this->isOfflineAuthMethod()) {
+            Log::info('CarePlanCreate: offline document verification confirmed for approval ID: ' . $this->approvalId);
+            $this->closeAuthModal();
+            Session::flash('flash_message', 'План лікування успішно активовано (за документами пацієнта).');
+            $carePlan = CarePlan::where('uuid', $this->carePlanUuid)->first();
+            $this->redirectRoute('care-plans.show', [legalEntity(), $carePlan?->id ?? $this->carePlanUuid], navigate: true);
+
+            return;
+        }
 
         try {
             $response = app(CarePlanApprovalService::class)->verify(
@@ -959,8 +979,28 @@ class CarePlanCreate extends BasePatientComponent
             ]);
 
             if ($this->approvalId) {
+                $authMethod = $finalResponse['response_data']['urgent']['authentication_method_current'] ??
+                              $finalResponse['result']['urgent']['authentication_method_current'] ??
+                              $finalResponse['urgent']['authentication_method_current'] ??
+                              $entity['urgent']['authentication_method_current'] ??
+                              ($matchedApproval['authentication_method_current'] ?? null);
+
+                if (empty($authMethod)) {
+                    try {
+                        $authMethods = EHealth::person()->getAuthMethods($this->patientUuid ?: $this->uuid)->getData();
+                        $authMethod = $authMethods[0] ?? null;
+                    } catch (\Exception $e) {
+                        Log::warning('CarePlanCreate: failed to load auth methods after approval created: ' . $e->getMessage());
+                    }
+                }
+
+                $this->currentAuthMethod = $authMethod;
                 $this->showAuthModal = true;
-                session()->flash('success', 'План успішно створено. Пацієнту надіслано SMS для активації.');
+
+                $msg = $this->isOfflineAuthMethod($this->currentAuthMethod)
+                    ? 'План успішно створено. Пацієнт авторизований за документами (СМС не потрібне, перевірте посвідчення особи).'
+                    : 'План успішно створено. Пацієнту надіслано SMS для активації.';
+                session()->flash('success', $msg);
 
                 return;
             }
@@ -985,7 +1025,9 @@ class CarePlanCreate extends BasePatientComponent
         } catch (EHealthConnectionException $exception) {
             $this->carePlanUuid = $generatedUuid ?? $this->carePlanUuid;
             Log::error('CarePlan: connection error: ' . $exception->getMessage());
-            session()->flash('error', __('care-plan.connection_error'));
+            $msg = __('care-plan.connection_error') ?? 'Помилка з\'єднання з ЕСОЗ';
+            session()->flash('error', $msg);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg]);
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             $this->carePlanUuid = $generatedUuid ?? $this->carePlanUuid;
@@ -1051,11 +1093,13 @@ class CarePlanCreate extends BasePatientComponent
             }
 
             session()->flash('error', $msg);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg]);
             $this->showSignatureModal = false;
         } catch (\RuntimeException $exception) {
             $this->carePlanUuid = $generatedUuid ?? $this->carePlanUuid;
             Log::error('CarePlan: runtime error: ' . $exception->getMessage());
             session()->flash('error', $exception->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             $this->carePlanUuid = $generatedUuid ?? $this->carePlanUuid;
@@ -1064,7 +1108,9 @@ class CarePlanCreate extends BasePatientComponent
                 'line' => $exception->getLine(),
                 'trace' => $exception->getTraceAsString(),
             ]);
-            session()->flash('error', __('care-plan.unexpected_error'));
+            $msg = $exception->getMessage() ?: (__('care-plan.unexpected_error') ?? 'Неочікувана помилка при створенні плану лікування');
+            session()->flash('error', $msg);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $msg]);
             $this->showSignatureModal = false;
         }
     }

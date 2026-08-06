@@ -16,7 +16,7 @@ use App\Models\User;
 use App\Services\MedicalEvents\CarePlanApprovalCreateOutcome;
 use App\Services\MedicalEvents\CarePlanApprovalJobOutcome;
 use App\Services\MedicalEvents\CarePlanApprovalService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Str;
 use Mockery;
@@ -24,7 +24,7 @@ use Tests\TestCase;
 
 class CarePlanApprovalServiceTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateDatabases()
     {

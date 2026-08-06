@@ -113,16 +113,12 @@ class ServiceRequestMapper implements FhirMapperContract
      * @param  array<string, string|null>  $uuids
      * @return array{service_request: array<string, mixed>}
      */
-    public function toPrequalifyPayload(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    public function toPrequalifyPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $serviceRequest = [
             'status' => 'active',
             'intent' => $data['intent'] ?? 'order',
             'priority' => $data['priority'] ?? 'routine',
-            'based_on' => [
-                $this->resourceIdentifier('care_plan', $carePlanUuid),
-                $this->resourceIdentifier('activity', $activityUuid),
-            ],
             'code' => [
                 'identifier' => [
                     'type' => [
@@ -137,6 +133,13 @@ class ServiceRequestMapper implements FhirMapperContract
             'requester_employee' => $this->resourceIdentifier('employee', (string) $uuids['employee_uuid']),
             'requester_legal_entity' => $this->resourceIdentifier('legal_entity', (string) $uuids['legal_entity_uuid']),
         ];
+
+        if (!empty($carePlanUuid) && !empty($activityUuid)) {
+            $serviceRequest['based_on'] = [
+                $this->resourceIdentifier('care_plan', $carePlanUuid),
+                $this->resourceIdentifier('activity', $activityUuid),
+            ];
+        }
 
         if (!empty($uuids['encounter_uuid'])) {
             $serviceRequest['context'] = $this->resourceIdentifier('encounter', (string) $uuids['encounter_uuid']);
@@ -189,8 +192,9 @@ class ServiceRequestMapper implements FhirMapperContract
      * @param  array<string, mixed>  $data
      * @param  array<string, string|null>  $uuids
      * @return array{service_request: array<string, mixed>, programs?: list<array<string, mixed>>}
+     *
      */
-    public function toCreateSignedPayload(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    public function toCreateSignedPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $payload = $this->toPrequalifyPayload($data, $uuids, $carePlanUuid, $activityUuid);
         $payload['service_request']['id'] = $data['uuid'];
@@ -206,7 +210,7 @@ class ServiceRequestMapper implements FhirMapperContract
      * @param  array<string, string|null>  $uuids
      * @return array<string, mixed>
      */
-    public function toCreateSignedContent(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $wrapped = $this->toCreateSignedPayload($data, $uuids, $carePlanUuid, $activityUuid);
         $content = $wrapped['service_request'];

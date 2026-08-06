@@ -9,12 +9,12 @@ use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\MedicalEvents\Sql\Medications\DosageInstruction;
 use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 class MedicationRequestMapperTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     public function test_to_create_request_payload_maps_correctly()
     {

@@ -14,7 +14,7 @@ use App\Models\Relations\Party;
 use App\Models\User;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Mockery;
@@ -27,7 +27,7 @@ use Tests\TestCase;
  */
 class CarePlanApprovalSyncFiltersTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateDatabases()
     {

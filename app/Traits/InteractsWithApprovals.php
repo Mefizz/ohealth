@@ -50,9 +50,26 @@ trait InteractsWithApprovals
      */
     protected function approvalVerificationRules(): array
     {
+        if ($this->isOfflineAuthMethod()) {
+            return [
+                'verificationCode' => ['nullable'],
+            ];
+        }
+
         return [
             'verificationCode' => ['required', 'string', 'size:4'],
         ];
+    }
+
+    /**
+     * Check if the current authentication method is OFFLINE or document-based (no SMS required).
+     */
+    public function isOfflineAuthMethod(?array $authMethod = null): bool
+    {
+        $method = $authMethod ?? $this->currentAuthMethod;
+        $type = $method['type'] ?? null;
+
+        return $type === 'OFFLINE' || $type === 'THIRD_PERSON' || ($type !== 'OTP' && !is_null($type));
     }
 
     /**

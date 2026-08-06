@@ -13,7 +13,7 @@ use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
@@ -22,7 +22,7 @@ use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 
 class MedicationRequestLifecycleTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected Person $person;
     protected Encounter $encounter;

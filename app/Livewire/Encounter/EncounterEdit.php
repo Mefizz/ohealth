@@ -23,12 +23,16 @@ use App\Exceptions\EHealth\EHealthException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
+use App\Livewire\Encounter\Concerns\ManagesEncounterEPrescription;
+use App\Livewire\Encounter\Concerns\ManagesEncounterReferrals;
 use Livewire\Attributes\Locked;
 use Throwable;
 
 class EncounterEdit extends EncounterComponent
 {
     use HandlesEncounterCancellation;
+    use ManagesEncounterEPrescription;
+    use ManagesEncounterReferrals;
 
     #[Locked]
     public int $encounterId;
@@ -183,6 +187,18 @@ class EncounterEdit extends EncounterComponent
      */
     public function sign(): void
     {
+        if ($this->actionType === 'sign_eprescription') {
+            $this->signEncounterEPrescription();
+
+            return;
+        }
+
+        if ($this->actionType === 'sign_referral') {
+            $this->signEncounterReferral();
+
+            return;
+        }
+
         if ($this->isReadonly) {
             return;
         }

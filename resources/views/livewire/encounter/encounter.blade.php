@@ -305,6 +305,7 @@
                             <fieldset class="fieldset-card p-5">
                                 <legend class="legend">{{ __('patients.prescriptions') }}</legend>
                                 <button
+                                    wire:click="openEncounterEPrescriptionDrawer"
                                     type="button"
                                     class="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                 >
@@ -316,6 +317,7 @@
                             <fieldset class="fieldset-card p-5">
                                 <legend class="legend">{{ __('patients.referrals') }}</legend>
                                 <button
+                                    wire:click="openEncounterReferralDrawer"
                                     type="button"
                                     class="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                 >
@@ -370,6 +372,25 @@
                             </button>
                         @endif
 
+                        @if ($this instanceof EncounterEdit)
+                            <button
+                                wire:click="openEncounterEPrescriptionDrawer"
+                                type="button"
+                                class="button-primary-outline flex items-center gap-2"
+                            >
+                                @icon('plus', 'w-4 h-4')
+                                <span>Додати рецепт</span>
+                            </button>
+                            <button
+                                wire:click="openEncounterReferralDrawer"
+                                type="button"
+                                class="button-primary-outline flex items-center gap-2"
+                            >
+                                @icon('plus', 'w-4 h-4')
+                                <span>Додати направлення</span>
+                            </button>
+                        @endif
+
                         @unless ($isReadonly)
                             <button
                                 wire:click.prevent="save"
@@ -418,11 +439,16 @@
 
     @if ($this instanceof EncounterEdit && $this->canBeCancelled)
         @include('livewire.encounter.encounter-cancellation', [
-                                    'formPath' => 'cancellationForm',
-                                    'description' => array_filter($this->selectedRecords)
-                                        ? __('patients.messages.encounter_records_cancel_modal_description')
-                                        : __('patients.messages.encounter_cancel_modal_description')
-                                ])
+                                                    'formPath' => 'cancellationForm',
+                                                    'description' => array_filter($this->selectedRecords)
+                                                        ? __('patients.messages.encounter_records_cancel_modal_description')
+                                                        : __('patients.messages.encounter_cancel_modal_description')
+                                                ])
+    @endif
+
+    @if ($this instanceof EncounterEdit)
+        @include('livewire.encounter.parts.encounter-eprescription-drawer')
+        @include('livewire.encounter.parts.encounter-referral-drawer')
     @endif
     <livewire:components.x-message :key="time()" />
     <x-forms.loading />

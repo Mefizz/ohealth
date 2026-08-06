@@ -10,7 +10,7 @@ use App\Models\Employee\Employee;
 use App\Models\Relations\Party;
 use App\Models\User;
 use App\Models\Person\Person;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Livewire\Livewire;
 use Tests\TestCase;
 use Mockery;
@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
 
 class CarePlanApprovalsTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateDatabases()
     {

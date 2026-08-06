@@ -10,7 +10,7 @@ use App\Models\LegalEntity;
 use App\Models\Employee\Employee;
 use App\Models\Relations\Party;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Livewire\Livewire;
 use Tests\TestCase;
 use Mockery;
@@ -20,7 +20,7 @@ use App\Classes\eHealth\EHealthResponse;
 
 class CarePlanIndexTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateDatabases()
     {

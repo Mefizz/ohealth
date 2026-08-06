@@ -86,6 +86,13 @@ class EHealthValidationException extends EHealthException
                     $entry = $item['entry'] ?? 'unknow field';
                     $description = $item['rules'][0]['description'] ?? 'no description';
 
+                    if (str_contains($entry, 'product_reference.identifier.value') && str_contains($description, 'Value is not allowed by prescribable_device_codes dictionary configuration')) {
+                        return 'Код медичного виробу: Вибраний код не дозволений поточною конфігурацією словника для призначень в ЕСОЗ';
+                    }
+                    if (str_contains($entry, 'program.identifier.value') && str_contains($description, 'No appropriate participants found for this medical program')) {
+                        return 'Медична програма: Не знайдено відповідних учасників (закладів або підрозділів) для обраної медичної програми';
+                    }
+
                     return "$entry: $description";
                 })
                 ->implode(', ');
@@ -141,6 +148,12 @@ class EHealthValidationException extends EHealthException
             'authored_on' => __('care-plan.ehealth_fields.authored_on'),
             'medical_programs.[0]' => 'Медична програма',
             'medical_programs' => 'Медична програма',
+            'detail.product_reference.identifier.value' => 'Код медичного виробу',
+            'product_reference.identifier.value' => 'Код медичного виробу',
+            'detail.program.identifier.value' => 'Медична програма',
+            'program.identifier.value' => 'Медична програма',
+            'device_definition' => 'Медичний виріб',
+            'prescribable_device_codes' => 'Дозволені медичні вироби для призначення',
         ];
 
         $invalidErrors = Arr::get($this->details, 'error.invalid') ?? Arr::get($this->details, 'invalid') ?? [];
@@ -204,6 +217,10 @@ class EHealthValidationException extends EHealthException
                 $translatedMessage = __('errors.ehealth.messages.authored_on_out_of_range');
             } elseif (str_contains($message, 'Medical program is not allowed for this action')) {
                 $translatedMessage = __('errors.ehealth.messages.medical_program_not_allowed');
+            } elseif (str_contains($message, 'Value is not allowed by prescribable_device_codes dictionary configuration')) {
+                $translatedMessage = 'Вибраний код медичного виробу не дозволений поточною конфігурацією словника для призначень в ЕСОЗ';
+            } elseif (str_contains($message, 'No appropriate participants found for this medical program')) {
+                $translatedMessage = 'Не знайдено відповідних учасників (закладів або підрозділів) для обраної медичної програми';
             } elseif (!empty($message)) {
                 $translatedMessage = $message;
             }

@@ -11,13 +11,13 @@ use App\Models\Contracts\Contract;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
 use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class DeviceProgramParticipationGuardTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateDatabases(): void
     {

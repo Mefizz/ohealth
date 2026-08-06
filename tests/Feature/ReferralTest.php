@@ -9,14 +9,14 @@ use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\User;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Livewire\Livewire;
 use Tests\TestCase;
 use Mockery;
 
 class ReferralTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected User $user;
     protected LegalEntity $legalEntity;

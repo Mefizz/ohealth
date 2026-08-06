@@ -41,6 +41,8 @@ class EncounterComponent extends Component
 
     public bool $showSignatureModal = false;
 
+    public ?string $actionType = null;
+
     /**
      * Person ID (set when the patient is a person).
      *

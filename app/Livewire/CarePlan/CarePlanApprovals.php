@@ -122,6 +122,12 @@ class CarePlanApprovals extends Component
         ]);
 
         try {
+            if ($this->selectedAuthMethodUuid) {
+                $this->currentAuthMethod = collect($this->authMethods)->first(function ($method) {
+                    return ($method['id'] ?? $method['uuid'] ?? null) === $this->selectedAuthMethodUuid;
+                });
+            }
+
             $carePlan = CarePlan::findOrFail($this->carePlanId);
             $service = app(CarePlanApprovalService::class);
 
@@ -144,7 +150,7 @@ class CarePlanApprovals extends Component
 
             if ($result->requiresOtp()) {
                 $this->approvalId = $result->approvalId;
-                $this->currentAuthMethod = $result->authMethod;
+                $this->currentAuthMethod = $result->authMethod ?? $this->currentAuthMethod;
                 $this->openAuthModal();
 
                 return;
@@ -196,7 +202,7 @@ class CarePlanApprovals extends Component
         }
 
         if ($status->requiresOtp()) {
-            $this->currentAuthMethod = $status->authMethod;
+            $this->currentAuthMethod = $status->authMethod ?? $this->currentAuthMethod;
             $this->openAuthModal();
 
             return;
@@ -216,6 +222,16 @@ class CarePlanApprovals extends Component
     public function verify(): void
     {
         $this->validate($this->approvalVerificationRules());
+
+        if ($this->isOfflineAuthMethod()) {
+            Log::info('CarePlanApprovals: offline document verification confirmed for approval ID: ' . $this->approvalId);
+            Session::flash('success', __('care-plan.approval_verified') ?: 'Дозвіл підтверджено.');
+            $this->closeAuthModal();
+            $this->reset('newApproval');
+            $this->fetchApprovals();
+
+            return;
+        }
 
         try {
             $response = app(CarePlanApprovalService::class)->verify(

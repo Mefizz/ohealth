@@ -15,7 +15,7 @@ use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\Relations\Party;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -23,7 +23,7 @@ use Tests\TestCase;
 
 class UserGetCarePlanWriterEmployeeTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     private LegalEntity $legalEntity;
 

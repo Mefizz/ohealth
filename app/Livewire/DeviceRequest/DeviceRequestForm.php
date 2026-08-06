@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Livewire\DeviceRequest;
 
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\LegalEntity;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use Exception;
+use Illuminate\Support\Facades\Session;
 use Livewire\Component;
 
 class DeviceRequestForm extends Component
@@ -21,6 +23,7 @@ class DeviceRequestForm extends Component
     public bool $isDraftCreated = false;
     public ?string $draftId = null;
     public ?string $statusMessage = null;
+    public bool $showSignatureModal = false;
 
     protected array $rules = [
         'patientId' => 'required|string',
@@ -44,8 +47,16 @@ class DeviceRequestForm extends Component
             $response = $service->preQualify($payload);
 
             $this->statusMessage = "PreQualify успішно пройдено. Можна створювати чернетку.";
+        } catch (EHealthValidationException $e) {
+            $e->report();
+            $message = $e->getFormattedMessage();
+            $this->statusMessage = "Помилка PreQualify: " . $message;
+            Session::flash('error', $message);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
         } catch (Exception $e) {
             $this->statusMessage = "Помилка PreQualify: " . $e->getMessage();
+            Session::flash('error', $this->statusMessage);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
         }
     }
 
@@ -74,8 +85,16 @@ class DeviceRequestForm extends Component
             $this->draftId = $response['id'] ?? 'dummy-uuid-device-1234';
 
             $this->statusMessage = "Чернетка медичного виробу створена (ID: {$this->draftId}). Очікується підпис КЕП.";
+        } catch (EHealthValidationException $e) {
+            $e->report();
+            $message = $e->getFormattedMessage();
+            $this->statusMessage = "Помилка створення чернетки: " . $message;
+            Session::flash('error', $message);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
         } catch (Exception $e) {
             $this->statusMessage = "Помилка створення чернетки: " . $e->getMessage();
+            Session::flash('error', $this->statusMessage);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
         }
     }
 
@@ -83,6 +102,9 @@ class DeviceRequestForm extends Component
     {
         if (!$this->isDraftCreated || !$this->draftId) {
             $this->statusMessage = "Спершу створіть чернетку!";
+            Session::flash('error', $this->statusMessage);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
+            $this->showSignatureModal = false;
 
             return;
         }
@@ -97,11 +119,24 @@ class DeviceRequestForm extends Component
             $service->sign($this->draftId, $payload);
 
             $this->statusMessage = "Призначення успішно підписано КЕП та переведено у статус «Активний»!";
+            Session::flash('success', $this->statusMessage);
+            $this->dispatch('flashMessage', ['type' => 'success', 'message' => $this->statusMessage]);
+            $this->showSignatureModal = false;
 
             // Dispatch event to parent to refresh list
             $this->dispatch('device-request-created');
+        } catch (EHealthValidationException $e) {
+            $e->report();
+            $message = $e->getFormattedMessage();
+            $this->statusMessage = "Помилка підписання: " . $message;
+            Session::flash('error', $message);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            $this->showSignatureModal = false;
         } catch (Exception $e) {
             $this->statusMessage = "Помилка підписання: " . $e->getMessage();
+            Session::flash('error', $this->statusMessage);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
+            $this->showSignatureModal = false;
         }
     }
 

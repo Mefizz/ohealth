@@ -148,6 +148,99 @@ class MedicationRequestLifecycleService
     }
 
     /**
+     * Create Medication Request (Draft) directly from Encounter without Care Plan.
+     */
+    public function createEncounterDraft(\App\Models\MedicalEvents\Sql\Encounter $encounter, array $formData = [], array $employeeContext = []): string
+    {
+        $dbData = [
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $employeeContext['employee_id'] ?? null,
+            'person_id' => $encounter->person_id,
+            'division_id' => $employeeContext['division_id'] ?? null,
+            'status' => 'draft',
+            'started_at' => $formData['started_at'] ?? now()->toDateString(),
+            'ended_at' => $formData['ended_at'] ?? now()->addDays(30)->toDateString(),
+            'medication_id' => $formData['medication_id'] ?? null,
+            'medication_qty' => (float) ($formData['medication_qty'] ?? 1),
+            'medication_program_id' => $formData['program_id'] ?? null,
+            'intent' => 'order',
+            'category' => 'community',
+            'based_on_id' => null,
+            'context_id' => $encounter->id,
+            'based_on_uuid' => null,
+            'container_dosage' => $formData['container_dosage'] ?? null,
+            'note' => $formData['note'] ?? null,
+            'dosage_instructions' => [
+                [
+                    'sequence' => 1,
+                    'text' => !empty($formData['signature_text']) ? $formData['signature_text'] : 'За призначенням лікаря',
+                    'patient_instruction' => !empty($formData['patient_instruction']) ? $formData['patient_instruction'] : (!empty($formData['signature_text']) ? $formData['signature_text'] : 'За призначенням лікаря'),
+                    'route' => $formData['route'] ?? 'oral',
+                    'dose_and_rate' => [
+                        [
+                            'dose_quantity_value' => (float) ($formData['max_dose_per_administration'] ?? 1.0),
+                            'dose_quantity_unit' => $formData['medication_unit'] ?? 'од.',
+                        ],
+                    ],
+                    'max_dose_per_administration' => (float) ($formData['max_dose_per_administration'] ?? 1.0),
+                    'max_dose_per_period' => (float) ($formData['max_dose_per_period'] ?? 1.0),
+                ],
+            ],
+            'inform_with' => $formData['inform_with'] ?? null,
+        ];
+
+        $personUuid = \App\Models\Person\Person::find($encounter->person_id)?->uuid;
+        $episodeUuid = $encounter->episode?->value ?? null;
+
+        $uuids = [
+            'person_uuid' => $personUuid,
+            'encounter_uuid' => $encounter->uuid,
+            'episode_uuid' => $episodeUuid,
+            'employee_uuid' => $employeeContext['employee_uuid'] ?? null,
+            'legal_entity_uuid' => $employeeContext['legal_entity_uuid'] ?? null,
+            'division_uuid' => $employeeContext['division_id'] ? \App\Models\Division::find($employeeContext['division_id'])?->uuid : null,
+        ];
+
+        $mapper = new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper();
+
+        if (!empty($dbData['medication_program_id'])) {
+            $prequalifyPayload = $mapper->toPrequalifyPayload($dbData, $uuids, null);
+            $response = MedicationRequest::preQualify($prequalifyPayload);
+
+            if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
+                $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response);
+                app(\App\Services\MedicalEvents\EHealthJobResolver::class)->assertPrequalifyValid($finalResponse);
+            }
+        }
+
+        $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, null);
+        Log::debug('ePrescription (Encounter) Create Request Payload:', $createPayload);
+        $createResponse = MedicationRequest::createMedicationRequest($createPayload);
+
+        if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
+            $finalCreateResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($createResponse);
+            Log::debug('ePrescription (Encounter) Create Response from eHealth:', ['response' => $createResponse, 'resolved' => $finalCreateResponse]);
+            if (($finalCreateResponse['status'] ?? null) === 'failed') {
+                throw new \App\Exceptions\EHealth\EHealthValidationException($finalCreateResponse);
+            }
+            $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
+            $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
+            $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
+            $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
+        } else {
+            Log::debug('ePrescription (Encounter) Create Response from eHealth:', ['response' => $createResponse]);
+            $dbData['request_number'] = $createResponse['request_number'] ?? ($createResponse['data']['request_number'] ?? null);
+            $dbData['uuid'] = $createResponse['id'] ?? ($createResponse['data']['id'] ?? $dbData['uuid']);
+            $payloadToStore = $createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $createResponse);
+            $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
+        }
+
+        app(MedicationRequestRepository::class)->store($dbData, (int) $encounter->person_id);
+
+        return $dbData['uuid'];
+    }
+
+    /**
      * Sign Medication Request.
      */
     public function sign(mixed $idOrCarePlan, mixed $payloadOrRequestRecord, array $formData = [], string $informWith = '', float $remainingQty = 0.0): array
@@ -167,7 +260,7 @@ class MedicationRequestLifecycleService
 
         $signedContent = $formData['signed_medication_request_request'] ?? ($formData['signed_content'] ?? ($formData['signed_data'] ?? null));
 
-        if (empty($signedContent) && isset($formData['password'], $formData['knedp']) && $idOrCarePlan instanceof \App\Models\CarePlan && $requestRecord instanceof \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest) {
+        if (empty($signedContent) && isset($formData['password'], $formData['knedp']) && ($idOrCarePlan instanceof \App\Models\CarePlan || $idOrCarePlan instanceof \App\Models\MedicalEvents\Sql\Encounter) && $requestRecord instanceof \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest) {
             $signPayload = $this->buildSignPayload($idOrCarePlan, $requestRecord, $informWith);
 
             $signedContent = signatureService()->signData(
@@ -301,7 +394,7 @@ class MedicationRequestLifecycleService
      * @param  string  $informWith
      * @return array<string, mixed>
      */
-    protected function buildSignPayload(\App\Models\CarePlan $carePlan, \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest $requestRecord, string $informWith): array
+    protected function buildSignPayload(\App\Models\CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel, \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest $requestRecord, string $informWith): array
     {
         if (!empty($requestRecord->ehealth_payload) && is_array($requestRecord->ehealth_payload)) {
             $signedContent = $requestRecord->ehealth_payload;
@@ -313,8 +406,11 @@ class MedicationRequestLifecycleService
             return $signedContent;
         }
 
+        $personUuid = $contextModel instanceof \App\Models\CarePlan
+            ? ($contextModel->person->uuid ?? null)
+            : (\App\Models\Person\Person::find($contextModel->person_id)?->uuid ?? null);
+
         try {
-            $personUuid = $carePlan->person->uuid ?? null;
             if ($personUuid) {
                 $response = \App\Classes\eHealth\Api\MedicationRequest::getRequestsBySearchParams((string) $personUuid, ['id' => $requestRecord->uuid]);
                 $fetchedData = $response['data'][0] ?? ($response[0] ?? null);
@@ -332,10 +428,9 @@ class MedicationRequestLifecycleService
         $employee = \App\Models\Employee\Employee::find($requestRecord->employee_id);
         $division = \App\Models\Division::find($requestRecord->division_id);
         $encounter = \App\Models\MedicalEvents\Sql\Encounter::find($requestRecord->context_id);
-        $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
 
         $uuids = [
-            'person_uuid' => $carePlan->person->uuid,
+            'person_uuid' => $personUuid,
             'encounter_uuid' => $encounter ? $encounter->uuid : null,
             'employee_uuid' => $employee ? $employee->uuid : null,
             'division_uuid' => $division ? $division->uuid : null,

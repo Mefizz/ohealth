@@ -762,6 +762,9 @@ trait CarePlanManager
 
     public function selectAuthMethod(string $methodUuid): void
     {
+        $this->currentAuthMethod = collect($this->authMethods)->first(function ($method) use ($methodUuid) {
+            return ($method['id'] ?? $method['uuid'] ?? null) === $methodUuid;
+        });
         $this->showMethodSelectionModal = false;
         $this->createApproval($methodUuid);
     }
@@ -799,7 +802,7 @@ trait CarePlanManager
             $this->approvalId = $result->approvalId;
 
             if ($result->requiresOtp()) {
-                $this->currentAuthMethod = $result->authMethod;
+                $this->currentAuthMethod = $result->authMethod ?? $this->currentAuthMethod;
                 $this->openAuthModal();
 
                 return;
@@ -842,7 +845,7 @@ trait CarePlanManager
         }
 
         if ($status->requiresOtp()) {
-            $this->currentAuthMethod = $status->authMethod;
+            $this->currentAuthMethod = $status->authMethod ?? $this->currentAuthMethod;
             $this->openAuthModal();
 
             return;
@@ -855,6 +858,15 @@ trait CarePlanManager
     public function verify(): void
     {
         $this->validate($this->approvalVerificationRules());
+
+        if ($this->isOfflineAuthMethod()) {
+            Log::info('CarePlanManager: offline document verification confirmed for approval ID: ' . $this->approvalId);
+            $this->closeAuthModal();
+            $this->syncPlanStatus();
+            Session::flash('success', 'План лікування успішно активовано (за документами пацієнта).');
+
+            return;
+        }
 
         try {
             $response = app(CarePlanApprovalService::class)->verify(

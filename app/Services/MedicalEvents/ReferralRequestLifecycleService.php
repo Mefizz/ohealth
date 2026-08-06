@@ -137,6 +137,78 @@ class ReferralRequestLifecycleService
         return $this->persistLocalDraft($dbData, $carePlan->person_id, 'device_request');
     }
 
+    public function createEncounterDraft(\App\Models\MedicalEvents\Sql\Encounter $encounter, array $formData, float $qty, array $employeeContext): string
+    {
+        $kind = $formData['kind'] ?? 'service_request';
+        $dbData = [
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $employeeContext['employee_id'] ?? null,
+            'person_id' => $encounter->person_id,
+            'division_id' => $employeeContext['division_id'] ?? null,
+            'status' => 'draft',
+            'started_at' => convertToYmd($formData['started_at'] ?? now()->toDateString()),
+            'ended_at' => convertToYmd($formData['ended_at'] ?? now()->addMonths(1)->toDateString()),
+            'quantity' => $qty,
+            'quantity_system' => $formData['quantity_system'] ?? 'SERVICE_UNIT',
+            'quantity_code' => $formData['quantity_code'] ?? 'PIECE',
+            'program_id' => $formData['program_id'] ?? null,
+            'intent' => $formData['intent'] ?? 'order',
+            'category' => $formData['category'] ?? null,
+            'based_on_id' => null,
+            'context_id' => $encounter->id,
+            'priority' => $formData['priority'] ?? 'routine',
+            'note' => $formData['note'] ?? null,
+            'supporting_info' => $formData['supporting_info'] ?? null,
+            'based_on_uuid' => null,
+        ];
+
+        $personUuid = \App\Models\Person\Person::find($encounter->person_id)?->uuid;
+
+        $uuids = [
+            'person_uuid' => $personUuid,
+            'encounter_uuid' => $encounter->uuid,
+            'episode_uuid' => $encounter->episode?->value ?? null,
+            'employee_uuid' => $employeeContext['employee_uuid'] ?? null,
+            'legal_entity_uuid' => $employeeContext['legal_entity_uuid'] ?? null,
+        ];
+
+        if ($kind === 'service_request') {
+            $dbData['service_id'] = $formData['service_id'] ?? null;
+            $mapper = Fhir::serviceRequest();
+
+            if (!empty($dbData['program_id']) && $personUuid) {
+                $prequalifyPayload = $mapper->toPrequalifyPayload(
+                    $dbData,
+                    $uuids,
+                    null,
+                    null
+                );
+                $this->runPrequalify(
+                    EHealth::serviceRequest()->prequalify((string) $personUuid, $prequalifyPayload)
+                );
+            }
+
+            return $this->persistLocalDraft($dbData, (int) $encounter->person_id, 'service_request');
+        }
+
+        $dbData['device_id'] = $formData['device_id'] ?? null;
+        $dbData['device_code_type'] = $formData['device_code_type'] ?? 'DEVICE_DEFINITION';
+        $mapper = Fhir::deviceRequest();
+        if ($personUuid) {
+            $prequalifyPayload = $mapper->toPrequalifyPayload(
+                $dbData,
+                $uuids,
+                null,
+                null
+            );
+            $this->runPrequalify(
+                EHealth::deviceRequest()->prequalify((string) $personUuid, $prequalifyPayload)
+            );
+        }
+
+        return $this->persistLocalDraft($dbData, (int) $encounter->person_id, 'device_request');
+    }
+
     public function resendSms(string $personUuid, string $requestId, string $kind): EHealthResponse
     {
         return $kind === 'service_request'
@@ -144,7 +216,7 @@ class ReferralRequestLifecycleService
             : EHealth::deviceRequest()->resendSms($personUuid, $requestId);
     }
 
-    public function buildPrintoutHtml(CarePlan $carePlan, string $requestId): string
+    public function buildPrintoutHtml(CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel, string $requestId): string
     {
         $record = Repository::serviceRequest()->findByUuid($requestId)
             ?? Repository::deviceRequest()->findByUuid($requestId);
@@ -160,7 +232,8 @@ class ReferralRequestLifecycleService
             ? 'Направлення на послугу (ServiceRequest)'
             : 'Направлення на виріб (DeviceRequest)';
         $employeeName = $record->employee?->full_name ?? '—';
-        $patientName = $carePlan->person->full_name ?? ($carePlan->person->primaryName ? ($carePlan->person->primaryName->last_name . ' ' . $carePlan->person->primaryName->first_name) : 'Пацієнт');
+        $patient = $contextModel instanceof CarePlan ? $contextModel->person : \App\Models\Person\Person::find($contextModel->person_id);
+        $patientName = $patient?->full_name ?? ($patient?->primaryName ? ($patient->primaryName->last_name . ' ' . $patient->primaryName->first_name) : 'Пацієнт');
         $adviceText = $record instanceof ServiceRequestRequest
             ? 'Зверніться до будь-якого медичного закладу, що надає відповідні послуги за контрактом з НСЗУ.'
             : 'Зверніться до аптеки або закладу, що бере участь у програмі реімбурсації чи відпуску відповідних медичних виробів за контрактом з НСЗУ.';
@@ -237,29 +310,30 @@ class ReferralRequestLifecycleService
      * @return array<string, mixed>
      */
     public function syncReferralFromRemote(
-        CarePlan $carePlan,
-        CarePlanActivity $activity,
+        CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel,
+        ?CarePlanActivity $activity,
         ServiceRequestRequest|DeviceRequestRequest $requestRecord,
         string $kind,
         array $localDbData,
         ?array $remote = null
     ): array {
-        $remote ??= $this->fetchRemoteReferral($carePlan->person->uuid, (string) $requestRecord->uuid, $kind);
+        $personUuid = $contextModel instanceof CarePlan ? $contextModel->person->uuid : \App\Models\Person\Person::find($contextModel->person_id)?->uuid;
+        $remote ??= $this->fetchRemoteReferral((string) $personUuid, (string) $requestRecord->uuid, $kind);
         $dbData = array_merge($localDbData, $this->mapRemoteReferralFields($remote, $kind));
 
         $dbData['employee_id'] = $localDbData['employee_id'] ?? $requestRecord->employee_id;
         $dbData['division_id'] = $localDbData['division_id'] ?? $requestRecord->division_id;
-        $dbData['based_on_id'] = $localDbData['based_on_id'] ?? $requestRecord->based_on_id ?? $activity->id;
-        $dbData['context_id'] = $localDbData['context_id'] ?? $requestRecord->context_id ?? $carePlan->encounter?->id;
+        $dbData['based_on_id'] = $localDbData['based_on_id'] ?? $requestRecord->based_on_id ?? $activity?->id;
+        $dbData['context_id'] = $localDbData['context_id'] ?? $requestRecord->context_id ?? ($contextModel instanceof CarePlan ? $contextModel->encounter?->id : $contextModel->id);
 
-        $this->persistSignedReferral($dbData, $kind, $carePlan->person_id);
+        $this->persistSignedReferral($dbData, $kind, (int) $contextModel->person_id);
 
         return $dbData;
     }
 
     public function trySyncDraftFromEHealth(
-        CarePlan $carePlan,
-        CarePlanActivity $activity,
+        CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel,
+        ?CarePlanActivity $activity,
         ServiceRequestRequest|DeviceRequestRequest $requestRecord,
         string $kind
     ): bool {
@@ -267,10 +341,15 @@ class ReferralRequestLifecycleService
             return false;
         }
 
+        $personUuid = $contextModel instanceof CarePlan ? $contextModel->person->uuid : \App\Models\Person\Person::find($contextModel->person_id)?->uuid;
+        if (!$personUuid) {
+            return false;
+        }
+
         try {
             $response = $kind === 'service_request'
-                ? EHealth::serviceRequest()->getById($carePlan->person->uuid, (string) $requestRecord->uuid)
-                : EHealth::deviceRequest()->getById($carePlan->person->uuid, (string) $requestRecord->uuid);
+                ? EHealth::serviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid)
+                : EHealth::deviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid);
             $remote = $response->getData();
         } catch (EHealthResponseException|EHealthValidationException) {
             return false;
@@ -285,8 +364,8 @@ class ReferralRequestLifecycleService
             return false;
         }
 
-        $localDbData = $this->buildLocalSyncBaseData($requestRecord, $activity, $carePlan);
-        $this->syncReferralFromRemote($carePlan, $activity, $requestRecord, $kind, $localDbData, $remote);
+        $localDbData = $this->buildLocalSyncBaseData($requestRecord, $activity, $contextModel);
+        $this->syncReferralFromRemote($contextModel, $activity, $requestRecord, $kind, $localDbData, $remote);
 
         return true;
     }
@@ -394,8 +473,8 @@ class ReferralRequestLifecycleService
      */
     private function buildLocalSyncBaseData(
         ServiceRequestRequest|DeviceRequestRequest $requestRecord,
-        CarePlanActivity $activity,
-        CarePlan $carePlan
+        ?CarePlanActivity $activity,
+        CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel
     ): array {
         $startedAt = $requestRecord->started_at;
         $endedAt = $requestRecord->ended_at;
@@ -404,11 +483,11 @@ class ReferralRequestLifecycleService
             'uuid' => $requestRecord->uuid,
             'employee_id' => $requestRecord->employee_id,
             'division_id' => $requestRecord->division_id,
-            'based_on_id' => $requestRecord->based_on_id ?? $activity->id,
-            'context_id' => $requestRecord->context_id ?? $carePlan->encounter?->id,
+            'based_on_id' => $requestRecord->based_on_id ?? $activity?->id,
+            'context_id' => $requestRecord->context_id ?? ($contextModel instanceof CarePlan ? $contextModel->encounter?->id : $contextModel->id),
             'quantity' => $requestRecord->quantity,
-            'quantity_system' => $activity->quantity_system ?: 'SERVICE_UNIT',
-            'quantity_code' => $activity->quantity_code ?: 'PIECE',
+            'quantity_system' => $activity?->quantity_system ?: 'SERVICE_UNIT',
+            'quantity_code' => $activity?->quantity_code ?: 'PIECE',
             'intent' => $requestRecord->intent ?? 'order',
             'category' => $requestRecord->category,
             'program_id' => $requestRecord->program_id,
@@ -421,13 +500,13 @@ class ReferralRequestLifecycleService
             'ended_at' => $endedAt instanceof \DateTimeInterface
                 ? $endedAt->format('Y-m-d')
                 : (string) $endedAt,
-            'based_on_uuid' => $activity->uuid,
+            'based_on_uuid' => $activity?->uuid,
         ];
 
         if ($requestRecord instanceof ServiceRequestRequest) {
-            $dbData['service_id'] = $requestRecord->service_id ?: $activity->product_reference;
+            $dbData['service_id'] = $requestRecord->service_id ?: $activity?->product_reference;
         } else {
-            $dbData['device_id'] = $requestRecord->device_id ?: $activity->product_reference;
+            $dbData['device_id'] = $requestRecord->device_id ?: $activity?->product_reference;
         }
 
         return $dbData;

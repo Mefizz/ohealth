@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Services\MedicalEvents;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 class MedicationRequestLifecycleServiceTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateDatabases(): void
     {

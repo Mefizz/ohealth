@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Livewire\CarePlan;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Livewire\Livewire;
 use Tests\TestCase;
 
 class CarePlanEPrescriptionTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     public function test_can_open_prescription_modal()
     {

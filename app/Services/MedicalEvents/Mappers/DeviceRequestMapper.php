@@ -104,7 +104,7 @@ class DeviceRequestMapper implements FhirMapperContract
      * @param  array<string, string|null>  $uuids
      * @return array{device_request: array<string, mixed>, programs?: list<array<string, mixed>>}
      */
-    public function toPrequalifyPayload(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    public function toPrequalifyPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         return $this->wrapDeviceRequestPayload(
             $this->buildDeviceRequestBody($data, $uuids, $carePlanUuid, $activityUuid),
@@ -119,7 +119,7 @@ class DeviceRequestMapper implements FhirMapperContract
      * @param  array<string, string|null>  $uuids
      * @return array{device_request: array<string, mixed>, programs?: list<array<string, mixed>>}
      */
-    public function toCreateSignedPayload(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    public function toCreateSignedPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $deviceRequest = $this->buildDeviceRequestBody($data, $uuids, $carePlanUuid, $activityUuid);
         $deviceRequest['id'] = $data['uuid'];
@@ -135,7 +135,7 @@ class DeviceRequestMapper implements FhirMapperContract
      * @param  array<string, string|null>  $uuids
      * @return array<string, mixed>
      */
-    public function toCreateSignedContent(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $wrapped = $this->toCreateSignedPayload($data, $uuids, $carePlanUuid, $activityUuid);
         $content = $wrapped['device_request'];
@@ -152,7 +152,7 @@ class DeviceRequestMapper implements FhirMapperContract
      * @param  array<string, string|null>  $uuids
      * @return array<string, mixed>
      */
-    private function buildDeviceRequestBody(array $data, array $uuids, string $carePlanUuid, string $activityUuid): array
+    private function buildDeviceRequestBody(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $occurrence = $this->mapOccurrence($data);
 
@@ -163,13 +163,16 @@ class DeviceRequestMapper implements FhirMapperContract
             'encounter' => !empty($uuids['encounter_uuid'])
                 ? $this->resourceIdentifier('encounter', (string) $uuids['encounter_uuid'])
                 : (!empty($uuids['episode_uuid']) ? $this->resourceIdentifier('episode_of_care', (string) $uuids['episode_uuid']) : null),
-            'basedOn' => [
-                $this->resourceIdentifier('care_plan', $carePlanUuid),
-                $this->resourceIdentifier('activity', $activityUuid),
-            ],
             'requester' => $this->resourceIdentifier('employee', (string) $uuids['employee_uuid']),
             'authoredOn' => $this->resolveAuthoredOn($occurrence['occurrencePeriod']),
         ];
+
+        if (!empty($carePlanUuid) && !empty($activityUuid)) {
+            $deviceRequest['basedOn'] = [
+                $this->resourceIdentifier('care_plan', $carePlanUuid),
+                $this->resourceIdentifier('activity', $activityUuid),
+            ];
+        }
 
         // eHealth requires exactly one of `code` (CodeableConcept) or `code_reference`
         // (Reference to device_definitions) — they are siblings, not nested under `code`.

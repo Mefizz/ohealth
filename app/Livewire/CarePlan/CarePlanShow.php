@@ -18,7 +18,6 @@ use App\Repositories\CarePlanActivityRepository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -438,7 +437,7 @@ class CarePlanShow extends Component
         }
 
         if (!filled($this->selectedProgram)) {
-            Session::flash('error', __('care-plan.select_program_first'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.select_program_first'), 'type' => 'error']);
 
             return;
         }
@@ -500,7 +499,7 @@ class CarePlanShow extends Component
     {
         $activity = $repository->findById($activityId);
         if (!$activity || $activity->care_plan_id !== $this->carePlan->id) {
-            Session::flash('error', __('care-plan.activity_not_found'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_not_found'), 'type' => 'error']);
             $this->cancelDeleteActivity();
 
             return;
@@ -512,21 +511,21 @@ class CarePlanShow extends Component
             : (string) $statusVal);
 
         if (!in_array($activityStatus, ['draft', 'new'], true)) {
-            Session::flash('error', __('care-plan.activity_delete_only_draft'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_delete_only_draft'), 'type' => 'error']);
             $this->cancelDeleteActivity();
 
             return;
         }
 
         if (!$repository->deleteById($activityId)) {
-            Session::flash('error', __('care-plan.activity_delete_has_referrals'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_delete_has_referrals'), 'type' => 'error']);
             $this->cancelDeleteActivity();
 
             return;
         }
 
         $this->cancelDeleteActivity();
-        Session::flash('success', __('care-plan.activity_deleted'));
+        $this->dispatch('flashMessage', ['message' => __('care-plan.activity_deleted'), 'type' => 'success']);
         $this->refreshCarePlan();
     }
 
@@ -620,7 +619,7 @@ class CarePlanShow extends Component
 
                 if (!$hasValidDiagnosis) {
                     $message = __('care-plan.medical_program_diagnosis_mismatch');
-                    Session::flash('error', $message);
+                    $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
                     $this->addError('activityForm.program', $message);
 
                     return;
@@ -632,7 +631,7 @@ class CarePlanShow extends Component
             $validated = $this->validate($rules);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
-            Session::flash('error', $exception->validator->errors()->first());
+            $this->dispatch('flashMessage', ['message' => $exception->validator->errors()->first(), 'type' => 'error']);
 
             return;
         }
@@ -641,7 +640,7 @@ class CarePlanShow extends Component
         $activityEnd = convertToYmd($validated['activityForm']['scheduled_period_end']);
         $periodError = $this->validateActivityPeriodAgainstCarePlan($activityStart, $activityEnd);
         if ($periodError !== null) {
-            Session::flash('error', $periodError);
+            $this->dispatch('flashMessage', ['message' => $periodError, 'type' => 'error']);
             $this->addError('activityForm.scheduled_period_start', $periodError);
 
             return;
@@ -671,7 +670,7 @@ class CarePlanShow extends Component
                 $quantityCode = strtoupper((string) ($validated['activityForm']['quantity_code'] ?? ''));
                 if ($quantityCode !== strtoupper($expectedUnit)) {
                     $message = __('care-plan.medication_unit_mismatch', ['unit' => $expectedUnit]);
-                    Session::flash('error', $message);
+                    $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
                     $this->addError('activityForm.quantity_code', $message);
 
                     return;
@@ -686,7 +685,7 @@ class CarePlanShow extends Component
                     $quotient = $quantity / $packageStep;
                     if (abs($quotient - round($quotient)) > 1e-6) {
                         $message = __('care-plan.medication_qty_packaging', ['count' => $packageStep]);
-                        Session::flash('error', $message);
+                        $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
                         $this->addError('activityForm.quantity', $message);
 
                         return;
@@ -694,7 +693,7 @@ class CarePlanShow extends Component
                 }
             } elseif (!empty($this->activityForm['product_reference'])) {
                 $message = 'Не вдалося перевірити одиниці виміру препарату. Будь ласка, знайдіть і оберіть препарат зі списку ще раз.';
-                Session::flash('error', $message);
+                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
                 $this->addError('activityForm.quantity_code', $message);
 
                 return;
@@ -706,7 +705,7 @@ class CarePlanShow extends Component
             $quantity = (int) ($validated['activityForm']['quantity'] ?? 0);
             if ($packagingCount > 0 && $quantity % $packagingCount !== 0) {
                 $message = __('care-plan.device_quantity_packaging', ['count' => $packagingCount]);
-                Session::flash('error', $message);
+                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
                 $this->addError('activityForm.quantity', $message);
 
                 return;
@@ -747,14 +746,14 @@ class CarePlanShow extends Component
 
         if (!empty($this->activityForm['id'])) {
             $repository->updateById($this->activityForm['id'], $activityData);
-            Session::flash('success', __('care-plan.activity_updated'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_updated'), 'type' => 'success']);
         } else {
             $activityData['care_plan_id'] = $this->carePlan->id;
             $activityData['author_id'] = Auth::user()?->activeDoctorEmployee()?->id;
             $activityData['status'] = CarePlanStatus::DRAFT->value;
 
             $repository->create($activityData);
-            Session::flash('success', __('care-plan.activity_draft_saved'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_draft_saved'), 'type' => 'success']);
         }
 
         $this->refreshCarePlan();
@@ -1240,7 +1239,7 @@ class CarePlanShow extends Component
         try {
             $validated = $this->validate($this->rulesForSigning());
         } catch (ValidationException $exception) {
-            Session::flash('error', $exception->validator->errors()->first());
+            $this->dispatch('flashMessage', ['message' => $exception->validator->errors()->first(), 'type' => 'error']);
             $this->setErrorBag($exception->validator->getMessageBag());
             $this->showSignatureModal = false;
 
@@ -1265,7 +1264,7 @@ class CarePlanShow extends Component
 
                 return;
             }
-            Session::flash('error', __('care-plan.care_plan_not_synced'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_not_synced'), 'type' => 'error']);
             $this->showSignatureModal = false;
 
             return;
@@ -1456,12 +1455,12 @@ class CarePlanShow extends Component
 
             $this->refreshCarePlan();
 
-            Session::flash('success', __('care-plan.care_plan_updated'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_updated'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.connection_error'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -1473,11 +1472,11 @@ class CarePlanShow extends Component
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getFormattedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            Session::flash('error', $msg);
+            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.unexpected_error'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
         }
     }
@@ -1541,12 +1540,12 @@ class CarePlanShow extends Component
 
             $this->refreshCarePlan();
 
-            Session::flash('success', __('care-plan.signed_and_sent'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.signed_and_sent'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.connection_error'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -1558,11 +1557,11 @@ class CarePlanShow extends Component
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getFormattedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            Session::flash('error', $msg);
+            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.unexpected_error'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
         }
     }
@@ -1570,7 +1569,7 @@ class CarePlanShow extends Component
     private function signActivity(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
     {
         if (!$this->activityToSign) {
-            Session::flash('error', __('care-plan.no_activity_selected'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.no_activity_selected'), 'type' => 'error']);
             $this->showSignatureModal = false;
 
             return;
@@ -1578,7 +1577,7 @@ class CarePlanShow extends Component
 
         $activity = $activityRepository->findById($this->activityToSign);
         if (!$activity) {
-            Session::flash('error', __('care-plan.activity_not_found'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_not_found'), 'type' => 'error']);
             $this->showSignatureModal = false;
 
             return;
@@ -1590,7 +1589,7 @@ class CarePlanShow extends Component
         }
 
         if (str_contains(strtolower((string) $activity->kind), 'device') && empty($activity->program)) {
-            Session::flash('error', __('care-plan.device_program_required_before_sign'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.device_program_required_before_sign'), 'type' => 'error']);
             $this->showSignatureModal = false;
 
             return;
@@ -1599,7 +1598,7 @@ class CarePlanShow extends Component
         if (str_contains(strtolower((string) $activity->kind), 'device')) {
             $deviceWarning = $this->getDeviceSignReadinessWarning($activity);
             if ($deviceWarning !== null) {
-                Session::flash('error', $deviceWarning);
+                $this->dispatch('flashMessage', ['message' => $deviceWarning, 'type' => 'error']);
                 $this->showSignatureModal = false;
 
                 return;
@@ -1711,12 +1710,12 @@ class CarePlanShow extends Component
             }
 
             $this->refreshCarePlan();
-            Session::flash('success', __('care-plan.activity_signed'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_signed'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanActivity: connection error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.connection_error'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -1730,17 +1729,17 @@ class CarePlanShow extends Component
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getTranslatedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            Session::flash('error', $msg);
+            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (\RuntimeException $exception) {
             Log::error('CarePlanActivity: signature error: ' . $exception->getMessage());
-            Session::flash('error', $exception->getMessage());
+            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanActivity: unexpected error: ' . $exception->getMessage(), [
                 'exception' => $exception
             ]);
-            Session::flash('error', __('care-plan.unexpected_error'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
         }
     }
@@ -1748,7 +1747,7 @@ class CarePlanShow extends Component
     private function signStatusActivity(CarePlanActivityRepository $activityRepository): void
     {
         if (!$this->activityToSign) {
-            Session::flash('error', __('care-plan.no_activity_selected'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.no_activity_selected'), 'type' => 'error']);
             $this->showSignatureModal = false;
 
             return;
@@ -1940,18 +1939,18 @@ class CarePlanShow extends Component
             $activityRepository->updateById($activity->id, $updateData);
 
             $this->refreshCarePlan();
-            Session::flash('success', __('care-plan.activity_updated'));
+            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_updated'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
         } catch (EHealthValidationException $exception) {
             Log::error('CarePlanActivityStatus: eHealth validation error: ' . $exception->getMessage(), [
                 'details' => $exception->getDetails()
             ]);
-            Session::flash('error', $exception->getTranslatedMessage());
+            $this->dispatch('flashMessage', ['message' => $exception->getTranslatedMessage(), 'type' => 'error']);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanActivityStatus: error: ' . $exception->getMessage());
-            Session::flash('error', $exception->getMessage());
+            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
             $this->showSignatureModal = false;
         }
     }
@@ -2019,7 +2018,7 @@ class CarePlanShow extends Component
             }
 
             $this->syncPlanStatus();
-            Session::flash('success', 'План лікування успішно активовано.');
+            $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to create approval: ' . $e->getMessage());
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося створити запит на дозвіл: ' . $e->getMessage()]);
@@ -2062,7 +2061,7 @@ class CarePlanShow extends Component
         }
 
         $this->syncPlanStatus();
-        Session::flash('success', 'План лікування успішно активовано.');
+        $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
     }
 
     public function verify(): void
@@ -2079,7 +2078,7 @@ class CarePlanShow extends Component
             if ($response->successful()) {
                 $this->closeAuthModal();
                 $this->syncPlanStatus();
-                Session::flash('success', 'План лікування успішно активовано.');
+                $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
             }
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to verify approval: ' . $e->getMessage());
@@ -2305,12 +2304,6 @@ class CarePlanShow extends Component
         if (filled($this->selectedProgram)) {
             return $this->selectedProgram;
         }
-        $tos = is_array($this->carePlan->terms_of_service)
-            ? ($this->carePlan->terms_of_service['coding'][0]['code'] ?? null)
-            : $this->carePlan->terms_of_service;
-        if (strtoupper((string) $tos) === 'INPATIENT') {
-            return null;
-        }
 
         return self::DEFAULT_MEDICATION_PROGRAM_ID;
     }
@@ -2319,12 +2312,6 @@ class CarePlanShow extends Component
     {
         if (filled($this->selectedProgram)) {
             return $this->selectedProgram;
-        }
-        $tos = is_array($this->carePlan->terms_of_service)
-            ? ($this->carePlan->terms_of_service['coding'][0]['code'] ?? null)
-            : $this->carePlan->terms_of_service;
-        if (strtoupper((string) $tos) === 'INPATIENT') {
-            return null;
         }
         $devicePrograms = array_keys($this->dictionaries['medical_programs_device'] ?? []);
         if ($devicePrograms === []) {

@@ -120,7 +120,8 @@ class EncounterForm extends BaseForm
             'encounter.referralNumber' => [
                 Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'electronic'),
                 'nullable',
-                'uuid'
+                'string',
+                'max:255'
             ],
             'encounter.paperReferral' => [
                 Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'paper'),
@@ -995,7 +996,8 @@ class EncounterForm extends BaseForm
                     Rule::requiredIf($isElectronicReferral),
                     Rule::prohibitedIf($isPaperReferral),
                     'nullable',
-                    'uuid',
+                    'string',
+                    'max:255',
                 ];
             }),
 
@@ -1514,8 +1516,8 @@ class EncounterForm extends BaseForm
             ->contains(static fn (array $condition): bool => ($condition['primarySource'] ?? false) === true);
 
         $encounterWriterEmployeeUuid = $hasPrimarySourceCondition ? Auth::user()
-                ->getEncounterWriterEmployee($this->encounter['classCode'] ?? null)
-                ?->uuid : null;
+            ->getEncounterWriterEmployee($this->encounter['classCode'] ?? null)
+            ?->uuid : null;
 
         $requiredParticipantUuids = collect($this->procedures ?? [])
             ->concat($this->diagnosticReports ?? [])

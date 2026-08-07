@@ -38,6 +38,38 @@
 
     {{-- Content --}}
     <form wire:submit.prevent="saveActivity">
+        @if (session()->has('error'))
+            <div
+                x-init="$el.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+                class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-gray-800 dark:text-red-400"
+                role="alert"
+            >
+                <div class="flex items-center gap-2">
+                    @icon('alert-circle', 'w-5 h-5 text-red-500')
+                    <span class="font-bold">Увага!</span>
+                </div>
+                <div class="mt-2">{{ session('error') }}</div>
+            </div>
+        @endif
+
+        @if ($errors->any())
+            <div
+                x-init="$el.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+                class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-gray-800 dark:text-red-400"
+                role="alert"
+            >
+                <div class="flex items-center gap-2">
+                    @icon('alert-circle', 'w-5 h-5 text-red-500')
+                    <span class="font-bold">Будь ласка, виправте помилки:</span>
+                </div>
+                <ul class="mt-2 list-inside list-disc">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         {{-- Main Data Section --}}
         <fieldset class="fieldset">
             <legend class="legend">{{ __('care-plan.main_data') }}</legend>

@@ -34,6 +34,69 @@ class EncounterCreate extends EncounterComponent
 
     private EncounterPackageBuilder $packageBuilder;
 
+    public ?int $prepersonId = null;
+
+    public bool $showReferralRedeemModal = false;
+    public string $referralToRedeemUuid = '';
+    public string $createdEncounterUuidForRedeem = '';
+
+    private function resolveReferralUuid(string $referralNum): ?string
+    {
+        if (empty($referralNum) || \Illuminate\Support\Str::isUuid($referralNum)) {
+            return $referralNum;
+        }
+
+        try {
+            $searchResult = \App\Classes\eHealth\Api\ServiceRequest::searchForServiceRequestsByParams(['requisition' => $referralNum]);
+            if (!empty($searchResult['data']) && is_array($searchResult['data']) && count($searchResult['data']) > 0) {
+                $status = $searchResult['data'][0]['status'] ?? '';
+                if (!in_array($status, ['active', 'program_processing'])) {
+                    $statusName = __('forms.status.' . $status) ?? $status;
+                    throw new \Exception("Направлення не дійсне (має статус: $statusName). Для взаємодії потрібне активне направлення.");
+                }
+
+                return $searchResult['data'][0]['id'];
+            }
+        } catch (\Exception $e) {
+            throw $e;
+        }
+
+        return null;
+    }
+
+    private function resolveAllReferrals(array &$validated): void
+    {
+        if (($validated['encounter']['referralType'] ?? '') === 'electronic' && !empty($validated['encounter']['referralNumber'])) {
+            try {
+                $uuid = $this->resolveReferralUuid($validated['encounter']['referralNumber']);
+                if (!$uuid) {
+                    throw new \Exception('Направлення не знайдено в ЕСОЗ');
+                }
+                $validated['encounter']['referralNumber'] = $uuid;
+            } catch (\Exception $e) {
+                $this->addError('form.encounter.referralNumber', $e->getMessage());
+                throw $e;
+            }
+        }
+
+        if (!empty($validated['procedures']) && is_array($validated['procedures'])) {
+            foreach ($validated['procedures'] as $index => $procedure) {
+                if (($procedure['referralType'] ?? '') === 'electronic' && !empty($procedure['basedOnIdentifier'])) {
+                    try {
+                        $uuid = $this->resolveReferralUuid($procedure['basedOnIdentifier']);
+                        if (!$uuid) {
+                            throw new \Exception('Направлення не знайдено в ЕСОЗ');
+                        }
+                        $validated['procedures'][$index]['basedOnIdentifier'] = $uuid;
+                    } catch (\Exception $e) {
+                        $this->addError("form.procedures.{$index}.basedOnIdentifier", $e->getMessage());
+                        throw $e;
+                    }
+                }
+            }
+        }
+    }
+
     public function boot(): void
     {
         parent::boot();
@@ -74,6 +137,13 @@ class EncounterCreate extends EncounterComponent
         try {
             $this->syncEncounterParticipants();
             $validated = $this->form->validate();
+            try {
+                $this->resolveAllReferrals($validated);
+            } catch (\Exception $e) {
+                $this->dispatch('scroll-to-error');
+
+                return;
+            }
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
@@ -131,6 +201,13 @@ class EncounterCreate extends EncounterComponent
         // First validate the encounter data
         try {
             $validatedData = $this->form->validate();
+            try {
+                $this->resolveAllReferrals($validatedData);
+            } catch (\Exception $e) {
+                $this->dispatch('scroll-to-error');
+
+                return;
+            }
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
@@ -212,19 +289,17 @@ class EncounterCreate extends EncounterComponent
             Session::flash('success', 'Взаємодію успішно створено та надіслано до ЕСОЗ.');
             $this->showSignatureModal = false;
 
-            if ($this->prepersonId !== null) {
-                $this->redirectRoute(
-                    'prepersons.encounter.edit',
-                    [legalEntity(), 'preperson' => $this->prepersonId, 'encounterId' => $createdEncounterId],
-                    navigate: true
-                );
-            } else {
-                $this->redirectRoute(
-                    'encounter.edit',
-                    [legalEntity(), 'person' => $this->personId, 'encounterId' => $createdEncounterId],
-                    navigate: true
-                );
+            if (($this->form->encounter['referralType'] ?? '') === 'electronic' && !empty($this->form->encounter['referralNumber'])) {
+                $this->referralToRedeemUuid = $this->resolveReferralUuid($this->form->encounter['referralNumber']);
+                $this->createdEncounterUuidForRedeem = $encounterUuid;
+                if ($this->referralToRedeemUuid) {
+                    $this->showReferralRedeemModal = true;
+
+                    return; // Prevent redirect, show modal
+                }
             }
+
+            $this->redirectAfterCreate($createdEncounterId);
 
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error while submitting encounter');
@@ -329,6 +404,56 @@ class EncounterCreate extends EncounterComponent
             $exception->handle('Error when create episode');
 
             return;
+        }
+    }
+
+    public function closeRedeemModal(): void
+    {
+        $this->showReferralRedeemModal = false;
+        $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
+        if ($encounter) {
+            $this->redirectAfterCreate($encounter->id);
+        } else {
+            $this->redirectRoute('patients.encounters', [legalEntity(), 'patient' => $this->personId]);
+        }
+    }
+
+    public function redeemReferral(\App\Services\MedicalEvents\ReferralRequestLifecycleService $service): void
+    {
+        try {
+            if ($this->referralToRedeemUuid && $this->createdEncounterUuidForRedeem) {
+                $service->completeReferral($this->referralToRedeemUuid, $this->createdEncounterUuidForRedeem);
+                $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Направлення успішно погашено!']);
+            }
+        } catch (\Exception $e) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося погасити направлення: ' . $e->getMessage()]);
+        }
+
+        $this->showReferralRedeemModal = false;
+
+        // Find local encounter ID by UUID to redirect properly
+        $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
+        if ($encounter) {
+            $this->redirectAfterCreate($encounter->id);
+        } else {
+            $this->redirectRoute('patients.encounters', [legalEntity(), 'patient' => $this->personId]);
+        }
+    }
+
+    public function redirectAfterCreate(int $encounterId): void
+    {
+        if ($this->prepersonId !== null) {
+            $this->redirectRoute(
+                'prepersons.encounter.edit',
+                [legalEntity(), 'preperson' => $this->prepersonId, 'encounterId' => $encounterId],
+                navigate: true
+            );
+        } else {
+            $this->redirectRoute(
+                'encounter.edit',
+                [legalEntity(), 'person' => $this->personId, 'encounterId' => $encounterId],
+                navigate: true
+            );
         }
     }
 }

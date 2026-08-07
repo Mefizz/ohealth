@@ -57,9 +57,11 @@ class ProcedureMapper implements FhirMapperContract
         }
 
         if (!empty($data['basedOnIdentifier'])) {
-            $result['basedOn'] = FhirResource::make()
-                ->coding('eHealth/resources', 'service_request')
-                ->toIdentifier($data['basedOnIdentifier']);
+            $result['basedOn'] = [
+                FhirResource::make()
+                    ->coding('eHealth/resources', 'service_request')
+                    ->toIdentifier($data['basedOnIdentifier'])
+            ];
         }
 
         $paperReferral = PaperReferralMapper::toFhir($data);
@@ -213,7 +215,7 @@ class ProcedureMapper implements FhirMapperContract
             'divisionId' => data_get($data, 'division.identifier.value', ''),
             'outcomeCode' => data_get($data, 'outcome.coding.0.code', ''),
             'note' => data_get($data, 'note', ''),
-            'basedOnIdentifier' => data_get($data, 'basedOn.identifier.value', ''),
+            'basedOnIdentifier' => data_get($data, 'basedOn.0.identifier.value', data_get($data, 'basedOn.identifier.value', '')),
             ...PaperReferralMapper::fromFhir($data),
             'performedType' => match (true) {
                 !empty($performedDateTime) => 'date_time',

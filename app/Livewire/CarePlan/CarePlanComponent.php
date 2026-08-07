@@ -11,8 +11,7 @@ use App\Traits\InteractsWithApprovals;
 use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
 use App\Services\Dictionary\DictionaryManager;
-use App\Services\MedicalEvents\MedicationRequestLifecycleService;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
@@ -26,18 +25,6 @@ abstract class CarePlanComponent extends Component
     use InteractsWithApprovals;
 
     public CarePlan $carePlan;
-
-    protected ReferralRequestLifecycleService $referralLifecycle;
-
-    protected MedicationRequestLifecycleService $medicationLifecycle;
-
-    public function boot(
-        ReferralRequestLifecycleService $referralLifecycle,
-        MedicationRequestLifecycleService $medicationLifecycle,
-    ): void {
-        $this->referralLifecycle = $referralLifecycle;
-        $this->medicationLifecycle = $medicationLifecycle;
-    }
 
     public bool $showSignatureModal = false;
     public string $actionType = ''; // 'cancel', 'complete', 'sign_activity', 'complete_activity', 'cancel_activity'
@@ -289,7 +276,11 @@ abstract class CarePlanComponent extends Component
         $this->carePlanUuid = $this->carePlan->uuid;
         $this->patientId = $this->carePlan->person->uuid;
         $this->loadDeviceProgramParticipationState();
-        $this->activePrescriptions = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::whereIn('based_on_id', $this->carePlan->activities->pluck('id'))->get()->toArray();
+
+        $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
+        $this->activePrescriptions = class_exists($medicationRequestClass)
+            ? $medicationRequestClass::whereIn('based_on_id', $this->carePlan->activities->pluck('id'))->get()->toArray()
+            : [];
         $this->loadActiveReferrals();
 
         $action = request()->query('action');
@@ -381,25 +372,38 @@ abstract class CarePlanComponent extends Component
     {
         $this->carePlan->refresh();
         $this->carePlan->load(['person', 'author.party', 'categoryConcept', 'activities.kindConcept.coding']);
-        $this->activePrescriptions = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::whereIn('based_on_id', $this->carePlan->activities->pluck('id'))->get()->toArray();
+
+        $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
+        $this->activePrescriptions = class_exists($medicationRequestClass)
+            ? $medicationRequestClass::whereIn('based_on_id', $this->carePlan->activities->pluck('id'))->get()->toArray()
+            : [];
+
         $this->loadActiveReferrals();
     }
 
     protected function loadActiveReferrals(): void
     {
         $activityIds = $this->carePlan->activities->pluck('id');
+        $serviceReferrals = collect();
+        $deviceReferrals = collect();
 
-        $serviceReferrals = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::query()
-            ->with('employee')
-            ->whereIn('based_on_id', $activityIds)
-            ->get()
-            ->map(fn (\App\Models\MedicalEvents\Sql\ServiceRequestRequest $record): array => $this->normalizeReferralForView($record, 'service_request'));
+        $serviceRequestClass = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::class;
+        if (class_exists($serviceRequestClass)) {
+            $serviceReferrals = $serviceRequestClass::query()
+                ->with('employee')
+                ->whereIn('based_on_id', $activityIds)
+                ->get()
+                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'service_request'));
+        }
 
-        $deviceReferrals = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::query()
-            ->with('employee')
-            ->whereIn('based_on_id', $activityIds)
-            ->get()
-            ->map(fn (\App\Models\MedicalEvents\Sql\DeviceRequestRequest $record): array => $this->normalizeReferralForView($record, 'device_request'));
+        $deviceRequestClass = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
+        if (class_exists($deviceRequestClass)) {
+            $deviceReferrals = $deviceRequestClass::query()
+                ->with('employee')
+                ->whereIn('based_on_id', $activityIds)
+                ->get()
+                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'device_request'));
+        }
 
         $this->activeReferrals = $serviceReferrals->merge($deviceReferrals)->values()->all();
     }
@@ -407,32 +411,30 @@ abstract class CarePlanComponent extends Component
     /**
      * @return array<string, mixed>
      */
-    protected function normalizeReferralForView(
-        \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $record,
-        string $kind
-    ): array {
+    protected function normalizeReferralForView(Model $record, string $kind): array
+    {
         return [
-            'uuid' => $record->uuid,
+            'uuid' => $record->getAttribute('uuid'),
             'kind' => $kind,
-            'based_on_id' => $record->based_on_id,
-            'status' => $record->status,
-            'status_label' => $this->resolveReferralStatusLabel((string) $record->status),
-            'request_number' => $record->request_number,
-            'quantity' => $record->quantity,
-            'started_at' => $record->started_at,
-            'ended_at' => $record->ended_at,
-            'service_id' => $record instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest ? $record->service_id : null,
-            'device_id' => $record instanceof \App\Models\MedicalEvents\Sql\DeviceRequestRequest ? $record->device_id : null,
-            'product_code' => $record instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest
-                ? $record->service_id
-                : ($record instanceof \App\Models\MedicalEvents\Sql\DeviceRequestRequest ? $record->device_id : null),
-            'category' => $record->category,
-            'category_label' => $this->referralCategoryLabel($record->category),
-            'priority' => $record->priority,
-            'priority_label' => $this->referralPriorityLabel($record->priority),
-            'note' => $record->note,
-            'program_id' => $record->program_id,
-            'employee_name' => $record->employee?->full_name,
+            'based_on_id' => $record->getAttribute('based_on_id'),
+            'status' => $record->getAttribute('status'),
+            'status_label' => $this->resolveReferralStatusLabel((string) $record->getAttribute('status')),
+            'request_number' => $record->getAttribute('request_number'),
+            'quantity' => $record->getAttribute('quantity'),
+            'started_at' => $record->getAttribute('started_at'),
+            'ended_at' => $record->getAttribute('ended_at'),
+            'service_id' => $kind === 'service_request' ? $record->getAttribute('service_id') : null,
+            'device_id' => $kind === 'device_request' ? $record->getAttribute('device_id') : null,
+            'product_code' => $kind === 'service_request'
+                ? $record->getAttribute('service_id')
+                : $record->getAttribute('device_id'),
+            'category' => $record->getAttribute('category'),
+            'category_label' => $this->referralCategoryLabel($record->getAttribute('category')),
+            'priority' => $record->getAttribute('priority'),
+            'priority_label' => $this->referralPriorityLabel($record->getAttribute('priority')),
+            'note' => $record->getAttribute('note'),
+            'program_id' => $record->getAttribute('program_id'),
+            'employee_name' => $record->employee?->full_name ?? null,
         ];
     }
 

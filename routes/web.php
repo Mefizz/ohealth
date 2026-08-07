@@ -87,10 +87,6 @@ Route::post('/send-email', [EmailController::class, 'sendEmail'])->name('send.em
 
 Route::get('/ehealth/oauth', EHealthLoginController::class)->name('ehealth.oauth.callback');
 
-Route::get('/git-check', function () {
-    return shell_exec('git log -p -n 10 resources/views/livewire/encounter/encounter.blade.php app/Livewire/Encounter/');
-});
-
 Route::middleware('guest')->group(function () {
     Route::get('login', Login::class)->middleware('mis.2fa')->name('login');
     Route::get('register', Register::class)->name('register');

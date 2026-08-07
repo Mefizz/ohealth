@@ -68,9 +68,9 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $existingDraft = $this->referralLifecycle->findDraftByActivity($activity);
+        $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
         if ($existingDraft) {
-            if ($this->referralLifecycle->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
+            if (app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
                 if ($activity->status === 'scheduled') {
                     $activity->update(['status' => 'in-progress']);
                 }
@@ -100,7 +100,7 @@ trait ManagesCarePlanReferrals
 
         // Calculate remaining quantity
         $activityQty = (float) ($activity->quantity ?? 0);
-        $issuedQty = $this->referralLifecycle->sumIssuedQuantity($activity);
+        $issuedQty = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->sumIssuedQuantity($activity);
         $this->referralRemainingQty = $activity->quantity === null
             ? 1.0
             : max(0.0, $activityQty - $issuedQty);
@@ -189,7 +189,7 @@ trait ManagesCarePlanReferrals
 
         $activity = \App\Models\CarePlanActivity::find($this->referralForm['activity_id']);
         if ($activity) {
-            $existingDraft = $this->referralLifecycle->findDraftByActivity($activity);
+            $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
             if ($existingDraft) {
                 $this->referralRequestIdToSign = $existingDraft->uuid;
                 $signAction = $this->referralForm['kind'] === 'service_request'
@@ -204,13 +204,13 @@ trait ManagesCarePlanReferrals
         try {
             $this->carePlan->loadMissing(['encounter', 'person']);
 
-            $employeeContext = $this->referralLifecycle->resolveEmployeeContext(
+            $employeeContext = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
                 $this->carePlan,
                 $activity,
                 Auth::user()?->activeDoctorEmployee()?->id
             );
 
-            $this->referralRequestIdToSign = $this->referralLifecycle->createDraft(
+            $this->referralRequestIdToSign = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createDraft(
                 $this->carePlan,
                 $this->referralForm,
                 $qty,
@@ -234,7 +234,7 @@ trait ManagesCarePlanReferrals
     public function resendReferralSms(string $requestId, string $kind): void
     {
         try {
-            $response = $this->referralLifecycle->resendSms($this->carePlan->person->uuid, $requestId, $kind);
+            $response = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
 
             if ($response->successful()) {
                 $this->dispatch('flashMessage', [
@@ -377,7 +377,7 @@ trait ManagesCarePlanReferrals
                     }
 
                     $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
-                    $dbData = $this->referralLifecycle->syncReferralFromRemote(
+                    $dbData = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
                         $this->carePlan,
                         $activity,
                         $requestRecord,
@@ -485,7 +485,7 @@ trait ManagesCarePlanReferrals
     public function loadReferralPrintoutForm(string $requestId): string
     {
         try {
-            $html = $this->referralLifecycle->buildPrintoutHtml($this->carePlan, $requestId);
+            $html = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->buildPrintoutHtml($this->carePlan, $requestId);
             $this->printableContent = $html;
 
             return $html;
@@ -528,7 +528,7 @@ trait ManagesCarePlanReferrals
             ];
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
-            $this->referralLifecycle->syncReferralFromRemote(
+            app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
                 $this->carePlan,
                 $activity,
                 $requestRecord,
@@ -668,7 +668,7 @@ trait ManagesCarePlanReferrals
         \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $requestRecord,
         \App\Models\CarePlanActivity $activity
     ): array {
-        $context = $this->referralLifecycle->resolveEmployeeContext(
+        $context = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
             $this->carePlan,
             $activity,
             $requestRecord->employee_id

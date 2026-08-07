@@ -322,10 +322,10 @@ trait ManagesCarePlanEPrescription
     public function submitEPrescriptionRequest(): void
     {
         try {
-            $employeeContext = $this->medicationLifecycle->resolveEmployeeContext($this->carePlan);
+            $employeeContext = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->resolveEmployeeContext($this->carePlan);
             $activity = \App\Models\CarePlanActivity::find($this->ePrescriptionForm['activity_id']);
 
-            $uuid = $this->medicationLifecycle->createDraft(
+            $uuid = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->createDraft(
                 $this->carePlan,
                 $activity,
                 $this->ePrescriptionForm,
@@ -459,7 +459,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            $result = $this->medicationLifecycle->sign(
+            $result = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->sign(
                 $this->carePlan,
                 $requestRecord,
                 $this->form,
@@ -502,7 +502,7 @@ trait ManagesCarePlanEPrescription
 
         try {
             if (in_array(strtolower((string) $requestRecord->status), ['new', 'draft'], true)) {
-                $this->medicationLifecycle->reject($this->carePlan, $requestRecord);
+                app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->reject($this->carePlan, $requestRecord);
                 $this->refreshCarePlan();
                 $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Електронний рецепт успішно відхилено.']);
             } else {
@@ -540,7 +540,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            $this->medicationLifecycle->reject(
+            app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->reject(
                 $this->carePlan,
                 $requestRecord,
                 $this->form,
@@ -571,7 +571,7 @@ trait ManagesCarePlanEPrescription
     public function resendPrescriptionSms(string $prescriptionId): void
     {
         try {
-            $response = $this->medicationLifecycle->resendSms($this->carePlan->person->uuid, $prescriptionId);
+            $response = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $prescriptionId);
             if ($response->successful()) {
                 $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'СМС з кодом погашення успішно надіслано повторно пацієнту.']);
             } else {
@@ -586,7 +586,7 @@ trait ManagesCarePlanEPrescription
     public function loadPrintoutForm(string $prescriptionId): string
     {
         try {
-            $printout = $this->medicationLifecycle->fetchPrintoutFromEhealth(
+            $printout = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->fetchPrintoutFromEhealth(
                 $this->carePlan->person->uuid,
                 $prescriptionId
             );
@@ -604,7 +604,7 @@ trait ManagesCarePlanEPrescription
 
             $ehealthData = is_array($printout) ? $printout : null;
 
-            $this->printableContent = $this->medicationLifecycle->buildFallbackPrintoutHtml(
+            $this->printableContent = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->buildFallbackPrintoutHtml(
                 $this->carePlan,
                 $prescriptionId,
                 $this->ePrescriptionForm['signature_text'] ?? null,
@@ -685,7 +685,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            $this->medicationLifecycle->block($this->carePlan->person->uuid, $prescriptionId, [
+            app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->block($this->carePlan->person->uuid, $prescriptionId, [
                 'status_reason' => 'Призупинення або блокування призначення',
             ]);
             $requestRecord->update(['status' => 'blocked']);
@@ -707,7 +707,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            $this->medicationLifecycle->unblock($this->carePlan->person->uuid, $prescriptionId, []);
+            app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->unblock($this->carePlan->person->uuid, $prescriptionId, []);
             $requestRecord->update(['status' => 'active']);
             $this->refreshCarePlan();
             $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Рецепт успішно розблоковано в ЕСОЗ.']);
@@ -720,7 +720,7 @@ trait ManagesCarePlanEPrescription
     public function checkDispenseHistory(string $prescriptionId): void
     {
         try {
-            $dispenses = $this->medicationLifecycle->getDispenseHistory($this->carePlan->person->uuid, $prescriptionId);
+            $dispenses = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->getDispenseHistory($this->carePlan->person->uuid, $prescriptionId);
             $items = $dispenses['data'] ?? ($dispenses[0] ?? []);
 
             if (empty($items) || !is_array($items)) {

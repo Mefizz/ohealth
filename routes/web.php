@@ -225,6 +225,11 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 Route::get('/', \App\Livewire\MedicationRequest\MedicationRequestIndex::class)->name('index');
             });
 
+            // --- Device Requests (Медичні Вироби) ---
+            Route::prefix('device-requests')->name('device-requests.')->group(function () {
+                Route::get('/', \App\Livewire\DeviceRequest\DeviceRequestIndex::class)->name('index');
+            });
+
 // --- Group of Contracts (Already signed/active) ---
             Route::prefix('contract')->name('contract.')->group(function () {
                 // Main page of existing contracts

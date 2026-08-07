@@ -137,6 +137,81 @@ class DeviceProgramParticipationGuard
     }
 
     /**
+     * Whether a device definition from the program catalog may be used for Care Plan Activity.
+     *
+     * When program_devices is absent (older payloads / mocks), treat as allowed if the device
+     * was already returned for medical_program_id. When present, require an active row with
+     * care_plan_activity_allowed=true and a valid start/end window.
+     *
+     * @param  array<string, mixed>  $device
+     */
+    public function deviceAllowsCarePlanActivity(array $device, ?string $programId = null): bool
+    {
+        $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
+        if (!filter_var($isActive, FILTER_VALIDATE_BOOLEAN)) {
+            return false;
+        }
+
+        $programDevices = $device['program_devices'] ?? null;
+        if (!is_array($programDevices) || $programDevices === []) {
+            return true;
+        }
+
+        return $this->resolveProgramDevice($device, $programId) !== null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $device
+     * @return array<string, mixed>|null
+     */
+    public function resolveProgramDevice(array $device, ?string $programId = null): ?array
+    {
+        $programDevices = $device['program_devices'] ?? null;
+        if (!is_array($programDevices) || $programDevices === []) {
+            return null;
+        }
+
+        $today = now()->startOfDay();
+
+        foreach ($programDevices as $programDevice) {
+            if (!is_array($programDevice)) {
+                continue;
+            }
+
+            if ($programId !== null && $programId !== '') {
+                $rowProgramId = (string) ($programDevice['medical_program_id']
+                    ?? $programDevice['program_id']
+                    ?? $programDevice['medicalProgramId']
+                    ?? '');
+                // Rows returned under medical_program_id filter often omit program id on the nested object.
+                if ($rowProgramId !== '' && $rowProgramId !== $programId) {
+                    continue;
+                }
+            }
+
+            if (array_key_exists('care_plan_activity_allowed', $programDevice)
+                && !filter_var($programDevice['care_plan_activity_allowed'], FILTER_VALIDATE_BOOLEAN)
+            ) {
+                continue;
+            }
+
+            $startDate = $programDevice['start_date'] ?? null;
+            if (is_string($startDate) && $startDate !== '' && $today->lt(\Carbon\Carbon::parse($startDate)->startOfDay())) {
+                continue;
+            }
+
+            $endDate = $programDevice['end_date'] ?? null;
+            if (is_string($endDate) && $endDate !== '' && $today->gt(\Carbon\Carbon::parse($endDate)->endOfDay())) {
+                continue;
+            }
+
+            return $programDevice;
+        }
+
+        return null;
+    }
+
+    /**
      * @return 'active'|'inactive'|'missing'|null active/inactive/missing, or null when lookup failed
      */
     private function lookupDeviceInProgramCatalog(string $programId, string $deviceDefinitionId): ?string
@@ -158,11 +233,20 @@ class DeviceProgramParticipationGuard
                 }
 
                 $id = (string) ($device['id'] ?? $device['uuid'] ?? '');
-                if ($id === $deviceDefinitionId) {
-                    $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
-
-                    return $isActive ? 'active' : 'inactive';
+                if ($id !== $deviceDefinitionId) {
+                    continue;
                 }
+
+                $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
+                if (!filter_var($isActive, FILTER_VALIDATE_BOOLEAN)) {
+                    return 'inactive';
+                }
+
+                if (!$this->deviceAllowsCarePlanActivity($device, $programId)) {
+                    return 'inactive';
+                }
+
+                return 'active';
             }
 
             return 'missing';

@@ -164,6 +164,9 @@ class CarePlanShow extends Component
                 'MEDICATION_REQUEST_REJECT_REASON',
                 'eHealth/MEDICATION_REQUEST_REJECT_REASON',
             ]);
+            $this->dictionaries['device_unit'] = $this->basicDictionaryCodes($basics, [
+                'device_unit',
+            ]);
         } catch (\Exception $exception) {
             Log::warning('CarePlanShow: failed to load basic dictionaries: ' . $exception->getMessage());
         }
@@ -701,8 +704,34 @@ class CarePlanShow extends Component
         }
 
         if (str_contains($kindLower, 'device') && !empty($this->selectedProduct)) {
-            $packagingCount = (int) ($this->selectedProduct['packaging']['packaging_count'] ?? 0);
+            $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
+            $programForDevice = $validated['activityForm']['program']
+                ?? $this->activityForm['program']
+                ?? $this->resolveDeviceProgramId();
+            if (!$guard->deviceAllowsCarePlanActivity($this->selectedProduct, $programForDevice)) {
+                $message = __('care-plan.device_care_plan_activity_not_allowed');
+                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                $this->addError('activityForm.product_reference', $message);
+
+                return;
+            }
+
+            $packaging = $this->selectedProduct['packaging'] ?? [];
+            $packagingCount = (int) ($packaging['packaging_count'] ?? 0);
+            $packagingUnit = isset($packaging['packaging_unit'])
+                ? $this->normalizeDeviceUnitCode((string) $packaging['packaging_unit'])
+                : null;
             $quantity = (int) ($validated['activityForm']['quantity'] ?? 0);
+            $quantityCode = $this->normalizeDeviceUnitCode((string) ($validated['activityForm']['quantity_code'] ?? ''));
+
+            if ($packagingUnit !== null && $quantityCode !== '' && strcasecmp($packagingUnit, $quantityCode) !== 0) {
+                $message = __('care-plan.device_quantity_unit_mismatch', ['unit' => $packagingUnit]);
+                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                $this->addError('activityForm.quantity_code', $message);
+
+                return;
+            }
+
             if ($packagingCount > 0 && $quantity % $packagingCount !== 0) {
                 $message = __('care-plan.device_quantity_packaging', ['count' => $packagingCount]);
                 $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
@@ -710,6 +739,14 @@ class CarePlanShow extends Component
 
                 return;
             }
+
+            // Persist dictionary-normalized unit code for the eHealth payload.
+            if ($packagingUnit !== null) {
+                $this->activityForm['quantity_code'] = $packagingUnit;
+                $validated['activityForm']['quantity_code'] = $packagingUnit;
+            }
+            $this->activityForm['quantity_system'] = 'device_unit';
+            $validated['activityForm']['quantity_system'] = 'device_unit';
         }
 
         // Compile reason reference identifiers from linked justifications
@@ -890,15 +927,14 @@ class CarePlanShow extends Component
             }
 
             $devices = $this->sortDeviceSearchResults($devices, $query);
+            $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
             $this->deviceSearchCatalog = array_values(array_filter(
                 array_map(
                     fn (array $device): array => $this->enrichDeviceForDisplay($device),
                     $devices
                 ),
-                function (array $device): bool {
-                    $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
-
-                    return filter_var($isActive, FILTER_VALIDATE_BOOLEAN);
+                function (array $device) use ($guard, $programId): bool {
+                    return $guard->deviceAllowsCarePlanActivity($device, $programId);
                 }
             ));
 
@@ -1173,9 +1209,10 @@ class CarePlanShow extends Component
         } elseif ($kind === 'device_request') {
             $this->activityForm['quantity_system'] = 'device_unit';
             $packaging = $product['packaging'] ?? null;
-            $this->activityForm['quantity_code'] = is_array($packaging) && !empty($packaging['packaging_unit'])
-                ? strtolower((string) $packaging['packaging_unit'])
+            $packagingUnit = is_array($packaging) && !empty($packaging['packaging_unit'])
+                ? (string) $packaging['packaging_unit']
                 : 'piece';
+            $this->activityForm['quantity_code'] = $this->normalizeDeviceUnitCode($packagingUnit);
             $this->activityForm['program'] = $this->resolveDeviceProgramId();
             if (is_array($packaging) && !empty($packaging['packaging_count'])) {
                 $this->activityForm['quantity'] = (int) $packaging['packaging_count'];
@@ -1183,7 +1220,12 @@ class CarePlanShow extends Component
 
             $this->applyDeviceProductFieldsFromSelection($product);
 
-            $this->deviceSelectionWarning = '';
+            $programDevice = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
+                ->resolveProgramDevice($product, $this->activityForm['program'] ?: null);
+            $maxDaily = isset($programDevice['max_daily_count']) ? (int) $programDevice['max_daily_count'] : null;
+            $this->deviceSelectionWarning = $maxDaily !== null && $maxDaily > 0
+                ? __('care-plan.device_max_daily_count_hint', ['count' => $maxDaily])
+                : '';
             $this->showMedicalDeviceSearchDrawer = false;
             $this->showMedicalDeviceFormDrawer = true;
         }
@@ -1299,7 +1341,7 @@ class CarePlanShow extends Component
                 ? ($this->carePlan->category['coding'][0]['code'] ?? null)
                 : $this->carePlan->category);
         try {
-            $response = \EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
+            $response = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
             $eHealthPlanData = $response->getData();
             if (isset($eHealthPlanData['data']) && is_array($eHealthPlanData['data'])) {
                 $eHealthPlanData = $eHealthPlanData['data'];
@@ -1308,6 +1350,7 @@ class CarePlanShow extends Component
             \Illuminate\Support\Facades\Log::error('CarePlanShow: failed to fetch care plan details before status change: ' . $e->getMessage());
             $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
             $this->showSignatureModal = false;
+
             return;
         }
 
@@ -2302,6 +2345,28 @@ class CarePlanShow extends Component
         }
 
         return null;
+    }
+
+    /**
+     * Match active keys from the device_unit dictionary (eHealth expects dictionary codes as-is).
+     */
+    private function normalizeDeviceUnitCode(string $code): string
+    {
+        $code = trim($code);
+        if ($code === '') {
+            return $code;
+        }
+
+        $dictionary = $this->dictionaries['device_unit'] ?? [];
+        if (is_array($dictionary) && $dictionary !== []) {
+            foreach (array_keys($dictionary) as $key) {
+                if (strcasecmp((string) $key, $code) === 0) {
+                    return (string) $key;
+                }
+            }
+        }
+
+        return strtolower($code);
     }
 
     /**

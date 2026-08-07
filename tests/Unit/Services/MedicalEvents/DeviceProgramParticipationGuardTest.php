@@ -120,6 +120,38 @@ class DeviceProgramParticipationGuardTest extends TestCase
         $this->assertSame([$programId], $participating);
     }
 
+    public function test_device_allows_care_plan_activity_respects_program_devices_flag(): void
+    {
+        $guard = app(DeviceProgramParticipationGuard::class);
+
+        $allowed = [
+            'is_active' => true,
+            'program_devices' => [[
+                'care_plan_activity_allowed' => true,
+                'start_date' => '2024-07-01',
+                'end_date' => null,
+                'max_daily_count' => 5,
+            ]],
+        ];
+        $blocked = [
+            'is_active' => true,
+            'program_devices' => [[
+                'care_plan_activity_allowed' => false,
+                'start_date' => '2024-07-01',
+                'end_date' => null,
+                'max_daily_count' => 5,
+            ]],
+        ];
+        $withoutRows = [
+            'is_active' => true,
+        ];
+
+        $this->assertTrue($guard->deviceAllowsCarePlanActivity($allowed));
+        $this->assertFalse($guard->deviceAllowsCarePlanActivity($blocked));
+        $this->assertTrue($guard->deviceAllowsCarePlanActivity($withoutRows));
+        $this->assertSame(5, $guard->resolveProgramDevice($allowed)['max_daily_count'] ?? null);
+    }
+
     private function createLegalEntity(): LegalEntity
     {
         $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')

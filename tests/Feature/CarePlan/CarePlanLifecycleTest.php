@@ -877,6 +877,13 @@ class CarePlanLifecycleTest extends TestCase
                 'model_number' => 'ULTRA',
                 'classification_types' => [['code' => '10001', 'name' => 'Глюкометр']],
                 'packaging' => ['packaging_count' => 1, 'packaging_type' => 'piece', 'packaging_unit' => 'piece'],
+                'program_devices' => [[
+                    'care_plan_activity_allowed' => true,
+                    'device_request_allowed' => true,
+                    'max_daily_count' => 5,
+                    'start_date' => '2024-07-01',
+                    'end_date' => null,
+                ]],
             ],
             [
                 'id' => $targetId,
@@ -884,6 +891,27 @@ class CarePlanLifecycleTest extends TestCase
                 'model_number' => 'AC-TS',
                 'classification_types' => [['code' => '30221', 'name' => 'Тест-смужки']],
                 'packaging' => ['packaging_count' => 50, 'packaging_type' => 'box', 'packaging_unit' => 'piece'],
+                'program_devices' => [[
+                    'care_plan_activity_allowed' => true,
+                    'device_request_allowed' => true,
+                    'max_daily_count' => 5,
+                    'start_date' => '2024-07-01',
+                    'end_date' => null,
+                ]],
+            ],
+            [
+                'id' => '22222222-2222-2222-2222-222222222222',
+                'device_names' => [['name' => 'Blocked Device']],
+                'model_number' => 'BLOCKED',
+                'classification_types' => [['code' => '99999', 'name' => 'Blocked']],
+                'packaging' => ['packaging_count' => 1, 'packaging_type' => 'piece', 'packaging_unit' => 'piece'],
+                'program_devices' => [[
+                    'care_plan_activity_allowed' => false,
+                    'device_request_allowed' => true,
+                    'max_daily_count' => 1,
+                    'start_date' => '2024-07-01',
+                    'end_date' => null,
+                ]],
             ],
         ];
 
@@ -919,6 +947,7 @@ class CarePlanLifecycleTest extends TestCase
             ->assertSet('deviceSearchTotalEntries', 2)
             ->assertSee('Accu-Chek Active тест-смужки')
             ->assertSee('OneTouch Ultra')
+            ->assertDontSee('Blocked Device')
             ->set('searchQuery', 'Accu-Chek')
             ->assertSet('deviceSearchTotalEntries', 1)
             ->assertSee('Accu-Chek Active тест-смужки')

@@ -1,7 +1,7 @@
 <section class="section-form">
     <x-header-navigation class="breadcrumb-form">
         <x-slot name="title">
-            Призначення — план №{{ $carePlan->requisition ?? $carePlan->id }}
+            {{ __('care-plan.prescriptions') }} — {{ __('care-plan.care_plan') }} №{{ $carePlan->requisition ?? $carePlan->id }}
         </x-slot>
     </x-header-navigation>
 
@@ -33,14 +33,14 @@
                     class="button-minor"
                     wire:navigate
                 >
-                    Редагувати
+                    {{ __('forms.edit') }}
                 </a>
                 <button
                     type="button"
                     class="button-primary-outline"
                     wire:click="openSignatureModal('sign_activity', {{ $activity->id }})"
                 >
-                    Підписати призначення
+                    {{ __('care-plan.sign_activity') }}
                 </button>
             @elseif (in_array(strtoupper($activityStatus), ['ACTIVE', 'SCHEDULED', 'IN-PROGRESS', 'IN_PROGRESS', 'ON-HOLD', 'PROCESSED']))
                 @if ($resolvedKind === 'medication_request')
@@ -49,12 +49,12 @@
                         class="button-primary"
                         wire:click="initEPrescriptionForm({{ $activity->id }})"
                     >
-                        Виписати Е-Рецепт
+                        {{ __('care-plan.issue_eprescription') }}
                     </button>
                 @endif
                 @if (in_array($resolvedKind, ['service_request', 'device_request'], true))
                     <button type="button" class="button-primary" wire:click="initReferralForm({{ $activity->id }})">
-                        Створити направлення
+                        {{ __('care-plan.create_referral') }}
                     </button>
                 @endif
                 <button
@@ -62,22 +62,22 @@
                     class="button-minor"
                     wire:click="openSignatureModal('complete_activity', {{ $activity->id }})"
                 >
-                    Завершити
+                    {{ __('forms.complete') }}
                 </button>
                 <button
                     type="button"
                     class="button-minor border-red-200 text-red-500"
                     wire:click="openSignatureModal('cancel_activity', {{ $activity->id }})"
                 >
-                    Скасувати
+                    {{ __('forms.cancel') }}
                 </button>
             @endif
         </div>
 
         @include('livewire.care-plan.parts.activity.detail-card', [
-                                    'dictionaries' => $dictionaries,
-                                    'activityProductLabel' => $activityProductLabel,
-                                ])
+                    'dictionaries' => $dictionaries,
+                    'activityProductLabel' => $activityProductLabel,
+                ])
 
         @if ($resolvedKind === 'medication_request')
             @include('livewire.care-plan.parts.activity.prescriptions-list')
@@ -89,14 +89,12 @@
             @include('livewire.care-plan.parts.modals.cancel-activity-modal', ['method' => 'sign'])
         @elseif ($actionType === 'complete_activity')
             @include('livewire.care-plan.parts.modals.complete-activity-modal', ['method' => 'sign'])
-        @elseif ($actionType === 'reject_prescription')
-            @include('livewire.care-plan.parts.modals.reject-prescription-modal', ['method' => 'signRejectPrescription'])
         @else
             @include('components.signature-modal', ['method' => 'sign'])
         @endif
 
         @if ($isPolling)
-            <div wire:poll.3s.keep-alive="checkApprovalJobStatus" class="hidden"></div>
+            <div wire:poll.2s="checkApprovalJobStatus" class="hidden"></div>
         @endif
         @if ($showAuthModal)
             @include('livewire.care-plan.modals.authentication')

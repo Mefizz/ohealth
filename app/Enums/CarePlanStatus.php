@@ -24,16 +24,16 @@ enum CarePlanStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::DRAFT => __('forms.status.draft'),
-            self::PENDING => __('forms.status.new'),
-            self::ACTIVE => __('forms.status.active'),
-            self::ON_HOLD => __('forms.status.on_hold'),
-            self::REVOKED => __('forms.status.revoked'),
-            self::COMPLETED => __('forms.status.completed'),
-            self::TERMINATED => __('forms.status.terminated') ?? 'Припинено',
-            self::CANCELLED => __('forms.status.cancelled') ?? 'Скасовано',
-            self::ENTERED_IN_ERROR => __('forms.status.entered_in_error'),
-            self::UNKNOWN => __('forms.status.unknown'),
+            self::DRAFT => __('care-plan.status.draft'),
+            self::PENDING => __('care-plan.status.new'),
+            self::ACTIVE => __('care-plan.status.active'),
+            self::ON_HOLD => __('care-plan.status.on-hold'),
+            self::REVOKED => __('care-plan.status.revoked'),
+            self::COMPLETED => __('care-plan.status.completed'),
+            self::TERMINATED => __('care-plan.status.terminated'),
+            self::CANCELLED => __('care-plan.status.cancelled'),
+            self::ENTERED_IN_ERROR => __('care-plan.status.entered-in-error'),
+            self::UNKNOWN => __('care-plan.status.unknown'),
         };
     }
 

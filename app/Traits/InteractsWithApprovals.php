@@ -22,6 +22,11 @@ trait InteractsWithApprovals
     public string $verificationCode = '';
 
     /**
+     * Phone number shown in the OTP authentication modal (read-only display).
+     */
+    public ?string $phoneNumber = null;
+
+    /**
      * Indicates whether the SMS has already been resent.
      */
     public bool $smsResent = false;
@@ -77,6 +82,12 @@ trait InteractsWithApprovals
      */
     public function openAuthModal(): void
     {
+        if (is_array($this->currentAuthMethod ?? null)) {
+            $this->phoneNumber = $this->currentAuthMethod['phone_number']
+                ?? $this->currentAuthMethod['phoneNumber']
+                ?? $this->phoneNumber;
+        }
+
         $this->showAuthModal = true;
         $this->verificationCode = '';
         $this->smsResent = false;

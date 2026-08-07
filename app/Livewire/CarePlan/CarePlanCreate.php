@@ -216,6 +216,7 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         $this->form->periodStart = now()->format('d.m.Y');
+        $this->form->periodStartTime = now()->format('H:i');
 
         $this->refreshAuthorDisplay();
         $this->loadDoctorsAndDictionaries();
@@ -444,6 +445,14 @@ class CarePlanCreate extends BasePatientComponent
             return ($method['id'] ?? $method['uuid'] ?? null) === $methodUuid;
         });
         $this->showMethodSelectionModal = false;
+
+        $selected = collect($this->authMethods)->first(fn ($m) => ($m['id'] ?? ($m['uuid'] ?? null)) === $methodUuid);
+        if ($selected && !empty($selected['phone_number'])) {
+            $this->phoneNumber = $selected['phone_number'];
+        } elseif ($selected && !empty($selected['phoneNumber'])) {
+            $this->phoneNumber = $selected['phoneNumber'];
+        }
+
         $this->createApproval($methodUuid);
     }
 

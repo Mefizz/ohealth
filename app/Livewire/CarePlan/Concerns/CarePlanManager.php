@@ -795,6 +795,13 @@ trait CarePlanManager
         $this->currentAuthMethod = collect($this->authMethods)->first(function ($method) use ($methodUuid) {
             return ($method['id'] ?? $method['uuid'] ?? null) === $methodUuid;
         });
+
+        if (is_array($this->currentAuthMethod)) {
+            $this->phoneNumber = $this->currentAuthMethod['phone_number']
+                ?? $this->currentAuthMethod['phoneNumber']
+                ?? null;
+        }
+
         $this->showMethodSelectionModal = false;
         $this->createApproval($methodUuid);
     }

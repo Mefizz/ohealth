@@ -82,6 +82,7 @@
         @if ($resolvedKind === 'medication_request')
             @include('livewire.care-plan.parts.activity.prescriptions-list')
         @elseif (in_array($resolvedKind, ['service_request', 'device_request'], true))
+            @include('livewire.care-plan.parts.activity.referrals-list')
         @endif
 
         @if ($actionType === 'cancel_activity')
@@ -105,6 +106,7 @@
         @endif
 
         @include('livewire.care-plan.parts.modals.eprescription-form-drawer')
+        @include('livewire.care-plan.parts.modals.referral-form-drawer')
     </div>
 
     <livewire:components.x-message :key="time()" />

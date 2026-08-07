@@ -215,7 +215,12 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                     ->can('view', 'employeeRole');
             });
 
-                        // --- Medication Requests (ePrescriptions) ---
+                                    // --- Referrals ---
+            Route::prefix('referrals')->name('referrals.')->group(function () {
+                Route::get('/', \App\Livewire\Referral\ReferralIndex::class)->name('index');
+            });
+
+// --- Medication Requests (ePrescriptions) ---
             Route::prefix('medication-requests')->name('medication-requests.')->group(function () {
                 Route::get('/', \App\Livewire\MedicationRequest\MedicationRequestIndex::class)->name('index');
             });

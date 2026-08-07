@@ -223,6 +223,8 @@ class EHealthValidationException extends EHealthException
                 $translatedMessage = 'Не знайдено відповідних учасників (закладів або підрозділів) для обраної медичної програми';
             } elseif (str_contains($message, 'Code field of daily_amount object should be equal to denumerator_unit of one of medication\'s innms')) {
                 $translatedMessage = 'Код одиниці добової дози (daily_amount) повинен збігатися з denumerator_unit одного з INNM обраного лікарського засобу';
+            } elseif (str_contains($message, 'Activity can be completed only if it has in_progress status')) {
+                $translatedMessage = 'Призначення може бути виконане тільки якщо воно має статус "В процесі" (in_progress)';
             } elseif (!empty($message)) {
                 $translatedMessage = $message;
             }

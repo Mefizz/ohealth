@@ -1298,102 +1298,22 @@ class CarePlanShow extends Component
             ?? (is_array($this->carePlan->category)
                 ? ($this->carePlan->category['coding'][0]['code'] ?? null)
                 : $this->carePlan->category);
-
-        $encounter = $this->carePlan->encounter;
-        if (!$encounter && $this->carePlan->encounterIdentifier?->value) {
-            $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->carePlan->encounterIdentifier->value)
-                ->with(['diagnoses.condition'])
-                ->first();
-        }
-
-        $addresses = [];
-        if ($encounter) {
-            $encounter->loadMissing(['diagnoses.condition']);
-            foreach ($encounter->diagnoses as $d) {
-                $conditionUuid = $d->condition?->value;
-                if ($conditionUuid) {
-                    $actualCondition = \App\Models\MedicalEvents\Sql\Condition::where('uuid', $conditionUuid)->with('code.coding')->first();
-                    if ($actualCondition) {
-                        $coding = $actualCondition->code?->coding?->first();
-                        if ($coding) {
-                            $addresses[] = [
-                                'coding' => [
-                                    [
-                                        'system' => $coding->system,
-                                        'code' => $coding->code
-                                    ]
-                                ]
-                            ];
-                        }
-                    }
-                }
+        try {
+            $response = \EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
+            $eHealthPlanData = $response->getData();
+            if (isset($eHealthPlanData['data']) && is_array($eHealthPlanData['data'])) {
+                $eHealthPlanData = $eHealthPlanData['data'];
             }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('CarePlanShow: failed to fetch care plan details before status change: ' . $e->getMessage());
+            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
+            $this->showSignatureModal = false;
+            return;
         }
 
-        if (empty($addresses) && !empty($this->carePlan->addresses)) {
-            $addresses = $this->carePlan->addresses;
-        }
-
-        $periodStart = null;
-        $periodEnd = null;
-
-        if ($this->carePlan->effectivePeriod?->start) {
-            $periodStart = convertToEHealthISO8601($this->carePlan->effectivePeriod->start);
-        } elseif ($this->carePlan->period_start) {
-            $periodStart = convertToEHealthISO8601($this->carePlan->period_start->format('Y-m-d') . ' 00:00:00');
-        }
-
-        if ($this->carePlan->effectivePeriod?->end) {
-            $periodEnd = convertToEHealthISO8601($this->carePlan->effectivePeriod->end);
-        } elseif ($this->carePlan->period_end) {
-            $periodEnd = convertToEHealthISO8601($this->carePlan->period_end->format('Y-m-d') . ' 23:59:59');
-        }
-
-        $period = array_filter([
-            'start' => $periodStart,
-            'end' => $periodEnd,
-        ]);
-
-        $payload = removeEmptyKeys([
-            'id' => $this->carePlan->uuid,
-            'intent' => 'order',
-            'status' => $statusMap[$this->actionType] ?? 'cancelled',
-            'status_reason' => $statusReasonCodeableConcept,
-            'category' => [
-                'coding' => [
-                    [
-                        'system' => $categorySystem,
-                        'code' => $categoryCode,
-                    ]
-                ]
-            ],
-            'title' => $this->carePlan->title,
-            'period' => $period,
-            'addresses' => !empty($addresses) ? $addresses : null,
-            'encounter' => ($encounter?->uuid ?? $this->carePlan->encounterIdentifier?->value) ? [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'encounter']]
-                    ],
-                    'value' => $encounter?->uuid ?? $this->carePlan->encounterIdentifier->value
-                ]
-            ] : null,
-            'author' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
-                    ],
-                    'value' => $this->carePlan->author?->uuid ?? Auth::user()?->activeDoctorEmployee()?->uuid
-                ]
-            ],
-            'description' => $this->carePlan->description ?: null,
-            'note' => $this->carePlan->note ?: null,
-            'terms_of_service' => [
-                'coding' => [
-                    ['system' => 'PROVIDING_CONDITION', 'code' => $this->carePlan->terms_of_service]
-                ]
-            ]
-        ]);
+        $payload = $eHealthPlanData;
+        $payload['status'] = $statusMap[$this->actionType] ?? 'cancelled';
+        $payload['status_reason'] = $statusReasonCodeableConcept;
 
         Log::info('CarePlanShow: Signing status change. actionType=' . $this->actionType, [
             'payload' => $payload,

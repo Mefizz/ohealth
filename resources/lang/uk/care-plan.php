@@ -94,6 +94,7 @@ return [
 
     // Medications drawer
     'new_medication_prescription' => 'Нове призначення на ліки',
+    'edit_medication_prescription' => 'Редагування призначення лікарського засобу',
     'program_selection' => 'Вибір програми',
     'prescription_medication' => 'Рецептурний лікарський засіб',
 

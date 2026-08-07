@@ -14,7 +14,7 @@ class Arr extends BaseArr
         $result = [];
 
         foreach ($array as $key => $value) {
-            $newKey = Str::snake($key);
+            $newKey = is_string($key) ? Str::snake($key) : $key;
 
             if (is_array($value)) {
                 $result[$newKey] = self::toSnakeCase($value);

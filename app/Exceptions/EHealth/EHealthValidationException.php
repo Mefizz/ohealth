@@ -221,6 +221,8 @@ class EHealthValidationException extends EHealthException
                 $translatedMessage = 'Вибраний код медичного виробу не дозволений поточною конфігурацією словника для призначень в ЕСОЗ';
             } elseif (str_contains($message, 'No appropriate participants found for this medical program')) {
                 $translatedMessage = 'Не знайдено відповідних учасників (закладів або підрозділів) для обраної медичної програми';
+            } elseif (str_contains($message, 'Code field of daily_amount object should be equal to denumerator_unit of one of medication\'s innms')) {
+                $translatedMessage = 'Код одиниці добової дози (daily_amount) повинен збігатися з denumerator_unit одного з INNM обраного лікарського засобу';
             } elseif (!empty($message)) {
                 $translatedMessage = $message;
             }

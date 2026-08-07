@@ -199,9 +199,10 @@ class CarePlanShow extends Component
 
         $action = request()->query('action');
         if (in_array($action, ['cancel', 'complete'])) {
-            $statusStr = is_array($this->carePlan->status)
-                ? ($this->carePlan->status['coding'][0]['code'] ?? ($this->carePlan->status['text'] ?? ''))
-                : $this->carePlan->status;
+            $cpStatusVal = $this->carePlan->status instanceof \UnitEnum ? $this->carePlan->status->value : $this->carePlan->status;
+            $statusStr = is_array($cpStatusVal)
+                ? ($cpStatusVal['coding'][0]['code'] ?? ($cpStatusVal['text'] ?? ''))
+                : $cpStatusVal;
 
             if (strtolower((string) $statusStr) === 'active') {
                 $this->openSignatureModal($action);
@@ -505,9 +506,10 @@ class CarePlanShow extends Component
             return;
         }
 
-        $activityStatus = strtolower(is_array($activity->status)
-            ? ($activity->status['coding'][0]['code'] ?? ($activity->status['text'] ?? ''))
-            : (string) $activity->status);
+        $statusVal = $activity->status instanceof \UnitEnum ? $activity->status->value : $activity->status;
+        $activityStatus = strtolower(is_array($statusVal)
+            ? ($statusVal['coding'][0]['code'] ?? ($statusVal['text'] ?? ''))
+            : (string) $statusVal);
 
         if (!in_array($activityStatus, ['draft', 'new'], true)) {
             Session::flash('error', __('care-plan.activity_delete_only_draft'));
@@ -645,31 +647,57 @@ class CarePlanShow extends Component
             return;
         }
 
-        if (str_contains($kindLower, 'medication') && !empty($this->selectedProduct)) {
-            $expectedUnit = $this->resolveMedicationDenumeratorUnit($this->selectedProduct);
-            $quantityCode = strtoupper((string) ($validated['activityForm']['quantity_code'] ?? ''));
-            if ($quantityCode !== strtoupper($expectedUnit)) {
-                $message = __('care-plan.medication_unit_mismatch', ['unit' => $expectedUnit]);
+        if (str_contains($kindLower, 'medication')) {
+            $product = $this->selectedProduct;
+
+            if (empty($product) && !empty($this->activityForm['product_reference'])) {
+                try {
+                    $response = EHealth::drug()->getMany(['innm_dosage_id' => $this->activityForm['product_reference']]);
+                    $data = $response->getData();
+                    if (empty($data)) {
+                        $response = EHealth::drug()->getMany(['innm_id' => $this->activityForm['product_reference']]);
+                        $data = $response->getData();
+                    }
+                    if (!empty($data)) {
+                        $product = $data[0];
+                    }
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            }
+
+            if (!empty($product)) {
+                $expectedUnit = $this->resolveMedicationDenumeratorUnit($product);
+                $quantityCode = strtoupper((string) ($validated['activityForm']['quantity_code'] ?? ''));
+                if ($quantityCode !== strtoupper($expectedUnit)) {
+                    $message = __('care-plan.medication_unit_mismatch', ['unit' => $expectedUnit]);
+                    Session::flash('error', $message);
+                    $this->addError('activityForm.quantity_code', $message);
+
+                    return;
+                }
+
+                $packageStep = (float) ($product['packages'][0]['package_min_qty'] ?? 0);
+                if ($packageStep <= 0) {
+                    $packageStep = (float) ($product['packages'][0]['package_qty'] ?? 0);
+                }
+                $quantity = (float) ($validated['activityForm']['quantity'] ?? 0);
+                if ($packageStep > 0) {
+                    $quotient = $quantity / $packageStep;
+                    if (abs($quotient - round($quotient)) > 1e-6) {
+                        $message = __('care-plan.medication_qty_packaging', ['count' => $packageStep]);
+                        Session::flash('error', $message);
+                        $this->addError('activityForm.quantity', $message);
+
+                        return;
+                    }
+                }
+            } elseif (!empty($this->activityForm['product_reference'])) {
+                $message = 'Не вдалося перевірити одиниці виміру препарату. Будь ласка, знайдіть і оберіть препарат зі списку ще раз.';
                 Session::flash('error', $message);
                 $this->addError('activityForm.quantity_code', $message);
 
                 return;
-            }
-
-            $packageStep = (float) ($this->selectedProduct['packages'][0]['package_min_qty'] ?? 0);
-            if ($packageStep <= 0) {
-                $packageStep = (float) ($this->selectedProduct['packages'][0]['package_qty'] ?? 0);
-            }
-            $quantity = (float) ($validated['activityForm']['quantity'] ?? 0);
-            if ($packageStep > 0) {
-                $quotient = $quantity / $packageStep;
-                if (abs($quotient - round($quotient)) > 1e-6) {
-                    $message = __('care-plan.medication_qty_packaging', ['count' => $packageStep]);
-                    Session::flash('error', $message);
-                    $this->addError('activityForm.quantity', $message);
-
-                    return;
-                }
             }
         }
 

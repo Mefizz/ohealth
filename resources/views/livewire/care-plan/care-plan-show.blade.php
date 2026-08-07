@@ -505,7 +505,8 @@
                                     </td>
                                     <td class="px-4 py-4">
                                         @php
-                                            $activityStatus = is_array($activity->status) ? ($activity->status['coding'][0]['code'] ?? ($activity->status['text'] ?? '')) : $activity->status;
+                                            $statusVal = $activity->status instanceof \UnitEnum ? $activity->status->value : $activity->status;
+                                            $activityStatus = is_array($statusVal) ? ($statusVal['coding'][0]['code'] ?? ($statusVal['text'] ?? '')) : $statusVal;
                                             $statusKey = 'care-plan.status.' . strtolower($activityStatus);
                                             $activityStatusDisplay = \Illuminate\Support\Facades\Lang::has($statusKey)
                                                 ? __($statusKey)

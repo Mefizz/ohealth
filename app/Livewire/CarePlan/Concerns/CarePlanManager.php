@@ -37,13 +37,33 @@ trait CarePlanManager
             return;
         }
 
+        if ($this->actionType === 'complete') {
+            $this->completePlan($repository);
+
+            return;
+        }
+
         if ($this->actionType === 'sign_eprescription') {
+            if (!method_exists($this, 'signEPrescription')) {
+                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                $this->showSignatureModal = false;
+
+                return;
+            }
+
             $this->signEPrescription();
 
             return;
         }
 
         if ($this->actionType === 'sign_servicerequest' || $this->actionType === 'sign_devicerequest') {
+            if (!method_exists($this, 'signReferral')) {
+                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                $this->showSignatureModal = false;
+
+                return;
+            }
+
             $this->signReferral();
 
             return;
@@ -56,16 +76,27 @@ trait CarePlanManager
         }
 
         if ($this->actionType === 'cancel_prescription' || $this->actionType === 'reject_prescription') {
-            if ($this->actionType === 'reject_prescription') {
-                $this->signRejectPrescription();
-            } else {
-                $this->signCancelPrescription();
+            if (!method_exists($this, 'signRejectPrescription')) {
+                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                $this->showSignatureModal = false;
+
+                return;
             }
+
+            // eHealth medication-request flow in this app uses reject (no separate cancel signer).
+            $this->signRejectPrescription();
 
             return;
         }
 
         if ($this->actionType === 'cancel_referral') {
+            if (!method_exists($this, 'signCancelReferral')) {
+                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                $this->showSignatureModal = false;
+
+                return;
+            }
+
             $this->signCancelReferral();
 
             return;
@@ -928,111 +959,6 @@ trait CarePlanManager
         $payloadForSign['status_reason'] = $statusReasonCodeableConcept;
 
         return $payloadForSign;
-    }
-
-    private function buildLocalCarePlanStatusChangePayload(): array
-    {
-        $categoryCoding = $this->carePlan->categoryConcept?->coding?->first();
-        $categorySystem = $categoryCoding?->system ?? 'eHealth/care_plan_categories';
-        $categoryCode = $categoryCoding?->code
-            ?? (is_array($this->carePlan->category)
-                ? ($this->carePlan->category['coding'][0]['code'] ?? null)
-                : $this->carePlan->category);
-
-        $encounter = $this->carePlan->encounter;
-        if (!$encounter && $this->carePlan->encounterIdentifier?->value) {
-            $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->carePlan->encounterIdentifier->value)
-                ->with(['diagnoses.condition'])
-                ->first();
-        }
-
-        $addresses = [];
-        if ($encounter) {
-            $encounter->loadMissing(['diagnoses.condition']);
-            foreach ($encounter->diagnoses as $d) {
-                $conditionUuid = $d->condition?->value;
-                if ($conditionUuid) {
-                    $actualCondition = \App\Models\MedicalEvents\Sql\Condition::where('uuid', $conditionUuid)->with('code.coding')->first();
-                    if ($actualCondition) {
-                        $coding = $actualCondition->code?->coding?->first();
-                        if ($coding) {
-                            $addresses[] = [
-                                'coding' => [
-                                    [
-                                        'system' => $coding->system,
-                                        'code' => $coding->code,
-                                    ],
-                                ],
-                            ];
-                        }
-                    }
-                }
-            }
-        }
-
-        if (empty($addresses) && !empty($this->carePlan->addresses)) {
-            $addresses = $this->carePlan->addresses;
-        }
-
-        $periodStart = null;
-        $periodEnd = null;
-
-        if ($this->carePlan->effectivePeriod?->start) {
-            $periodStart = convertToEHealthISO8601($this->carePlan->effectivePeriod->start);
-        } elseif ($this->carePlan->period_start) {
-            $periodStart = convertToEHealthISO8601($this->carePlan->period_start->format('Y-m-d') . ' 00:00:00');
-        }
-
-        if ($this->carePlan->effectivePeriod?->end) {
-            $periodEnd = convertToEHealthISO8601($this->carePlan->effectivePeriod->end);
-        } elseif ($this->carePlan->period_end) {
-            $periodEnd = convertToEHealthISO8601($this->carePlan->period_end->format('Y-m-d') . ' 23:59:59');
-        }
-
-        $period = array_filter([
-            'start' => $periodStart,
-            'end' => $periodEnd,
-        ]);
-
-        return removeEmptyKeys([
-            'id' => $this->carePlan->uuid,
-            'intent' => 'order',
-            'status' => $this->carePlan->status,
-            'category' => [
-                'coding' => [
-                    [
-                        'system' => $categorySystem,
-                        'code' => $categoryCode,
-                    ],
-                ],
-            ],
-            'title' => $this->carePlan->title,
-            'period' => $period,
-            'addresses' => !empty($addresses) ? $addresses : null,
-            'encounter' => ($encounter?->uuid ?? $this->carePlan->encounterIdentifier?->value) ? [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'encounter']],
-                    ],
-                    'value' => $encounter?->uuid ?? $this->carePlan->encounterIdentifier->value,
-                ],
-            ] : null,
-            'author' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']],
-                    ],
-                    'value' => $this->carePlan->author?->uuid ?? Auth::user()?->activeDoctorEmployee()?->uuid,
-                ],
-            ],
-            'description' => $this->carePlan->description ?: null,
-            'note' => $this->carePlan->note ?: null,
-            'terms_of_service' => $this->carePlan->terms_of_service ? [
-                'coding' => [
-                    ['system' => 'PROVIDING_CONDITION', 'code' => $this->carePlan->terms_of_service],
-                ],
-            ] : null,
-        ]);
     }
 
     public function syncPlanStatus(): void

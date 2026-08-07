@@ -4,52 +4,24 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Exceptions\EHealth\EHealthConnectionException;
-use App\Traits\InteractsWithApprovals;
-use App\Enums\CarePlanStatus;
 use App\Classes\eHealth\EHealth;
-use App\Core\Arr;
-use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\EHealth\EHealthValidationException;
+use App\Enums\CarePlanStatus;
+use App\Livewire\CarePlan\Concerns\CarePlanManager;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
-use App\Repositories\CarePlanRepository;
 use App\Repositories\CarePlanActivityRepository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
+use App\Repositories\CarePlanRepository;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
-use Livewire\Component;
-use Livewire\WithFileUploads;
 
-class CarePlanShow extends Component
+class CarePlanShow extends CarePlanComponent
 {
-    use WithFileUploads;
-    use InteractsWithApprovals;
+    use CarePlanManager;
+
     private const DEFAULT_MEDICATION_PROGRAM_ID = '1318eabc-1a1a-42f6-8450-61e11c19eede';
 
     private const DEFAULT_DEVICE_PROGRAM_ID = '85953838-1834-4ed6-8bf4-3f83057380ec';
-
-    public CarePlan $carePlan;
-
-    public bool $showSignatureModal = false;
-    public string $actionType = ''; // 'cancel', 'complete', 'sign_activity', 'complete_activity', 'cancel_activity'
-    public string $statusReason = ''; // Used when cancelling or completing
-    public ?int $activityToSign = null;
-    public array $dictionaries = [];
-    public array $authMethods = [];
-    public bool $showMethodSelectionModal = false;
-    public ?string $carePlanUuid = null;
-
-    // Drawer visibility controls (entangled with Alpine)
-    public bool $showServiceDrawer = false;
-    public bool $showServiceSearchDrawer = false;
-    public bool $showMedicationDrawer = false;
-    public bool $showMedicationSearchDrawer = false;
-    public bool $showMedicationFormDrawer = false;
-    public bool $showMedicalDeviceDrawer = false;
-    public bool $showMedicalDeviceSearchDrawer = false;
-    public bool $showMedicalDeviceFormDrawer = false;
 
     public bool $confirmingActivityDeletion = false;
 
@@ -57,29 +29,20 @@ class CarePlanShow extends Component
 
     public string $deviceSelectionWarning = '';
 
-    /** @var list<string> */
-    public array $participatingDeviceProgramIds = [];
-
-    public string $deviceParticipationWarning = '';
-
-    // Search and selection parameters
-    public string $searchQuery = '';
-    public array $searchResults = [];
-    public int $searchPage = 1;
     public int $deviceSearchTotalPages = 1;
+
     public int $deviceSearchTotalEntries = 0;
+
     public string $deviceSearchModelNumber = '';
+
     /** @var array<int, array<string, mixed>> */
     public array $deviceSearchCatalog = [];
-    public ?array $selectedProduct = null;
-    public ?string $selectedProgram = '';
 
-    // Linked justification references (grounds)
-    public array $linkedGrounds = [];
-    public array $availableReports = [];
-    public array $availableObservations = [];
-
-    // Activity Form state
+    /**
+     * Activity form keeps device/medication unit fields used by drawers on the plan page.
+     *
+     * @var array<string, mixed>
+     */
     public array $activityForm = [
         'id' => null,
         'kind' => 'service_request',
@@ -100,116 +63,9 @@ class CarePlanShow extends Component
         'product_codeable_concept' => '',
     ];
 
-    public array $form = [
-        'knedp' => '',
-        'keyContainerUpload' => null,
-        'password' => '',
-    ];
-
-    public string $outcomeCode = ''; // For outcomeCodeableConcept
-    public array $outcomeReferences = []; // For outcomeReference (IDs of identifiers)
-
-    public array $availableConditions = [];
-
     public function mount(CarePlan $carePlan): void
     {
-        $this->carePlan = $carePlan;
-        $this->carePlan->load(['person', 'author.party', 'categoryConcept.coding', 'activities.kindConcept.coding']);
-
-        // Fetch patient conditions for outcomeReference selection
-        $this->availableConditions = \App\Models\MedicalEvents\Sql\Condition::where('person_id', $this->carePlan->person_id)
-            ->with('code.coding')->get()->map(fn ($c) => [
-                'uuid' => $c->uuid,
-                'name' => ($c->code?->text ?: null) ?? ($c->code?->coding?->first()?->code ?: null) ?? 'Unknown Condition',
-                'date' => $c->onset_date ? \Carbon\Carbon::parse($c->onset_date)->format('d.m.Y') : '-',
-            ])->toArray();
-
-        // Fetch patient diagnostic reports for justifications (grounds)
-        $this->availableReports = \App\Models\MedicalEvents\Sql\DiagnosticReport::where('person_id', $this->carePlan->person_id)
-            ->get()->map(fn ($dr) => [
-                'uuid' => $dr->uuid,
-                'name' => $dr->code?->text ?: 'Diagnostic Report',
-                'date' => $dr->issued ? \Carbon\Carbon::parse($dr->issued)->format('d.m.Y') : '-',
-            ])->toArray();
-
-        // Fetch patient observations for justifications (grounds)
-        $this->availableObservations = \App\Models\MedicalEvents\Sql\Observation::where('person_id', $this->carePlan->person_id)
-            ->get()->map(fn ($obs) => [
-                'uuid' => $obs->uuid,
-                'name' => $obs->code?->text ?: 'Observation',
-                'date' => $obs->issued ? \Carbon\Carbon::parse($obs->issued)->format('d.m.Y') : '-',
-            ])->toArray();
-
-        try {
-            $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
-            $this->dictionaries['care_plan_categories'] = $this->basicDictionaryCodes($basics, [
-                'eHealth/care_plan_categories',
-            ]);
-            $this->dictionaries['care_plan_activity_outcomes'] = $this->basicDictionaryCodes($basics, [
-                'eHealth/care_plan_activity_outcomes',
-            ]);
-            $this->dictionaries['care_plan_cancel_reasons'] = $this->basicDictionaryCodes($basics, [
-                'eHealth/care_plan_cancel_reasons',
-            ]);
-            $this->dictionaries['care_plan_complete_reasons'] = $this->basicDictionaryCodes($basics, [
-                'eHealth/care_plan_complete_reasons',
-            ]);
-            $this->dictionaries['care_plan_activity_complete_reasons'] = $this->basicDictionaryCodes($basics, [
-                'eHealth/care_plan_activity_complete_reasons',
-            ]);
-            $this->dictionaries['care_plan_activity_cancel_reasons'] = $this->basicDictionaryCodes($basics, [
-                'eHealth/care_plan_activity_cancel_reasons',
-            ]);
-            $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] = $this->basicDictionaryCodes($basics, [
-                'MEDICATION_REQUEST_REJECT_REASON',
-                'eHealth/MEDICATION_REQUEST_REJECT_REASON',
-            ]);
-            $this->dictionaries['device_unit'] = $this->basicDictionaryCodes($basics, [
-                'device_unit',
-            ]);
-        } catch (\Exception $exception) {
-            Log::warning('CarePlanShow: failed to load basic dictionaries: ' . $exception->getMessage());
-        }
-
-        try {
-            $programs = app(\App\Services\Dictionary\DictionaryManager::class)->medicalPrograms();
-            $this->dictionaries['medical_programs'] = $programs
-                ->pluck('name', 'id')
-                ->toArray() ?? [];
-
-            $activePrograms = $programs->where('is_active', '=', true);
-            $this->dictionaries['medical_programs_medication'] = $activePrograms
-                ->filter(fn (array $program): bool => strtoupper((string) ($program['type'] ?? '')) === \App\Enums\MedicalProgram\Type::MEDICATION->value)
-                ->pluck('name', 'id')
-                ->toArray() ?? [];
-            $devicePrograms = $activePrograms
-                ->filter(fn (array $program): bool => strtoupper((string) ($program['type'] ?? '')) === \App\Enums\MedicalProgram\Type::DEVICE->value);
-            $this->loadDeviceProgramParticipationState();
-            if ($this->participatingDeviceProgramIds !== []) {
-                $devicePrograms = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
-                    ->filterProgramsForParticipation($devicePrograms, $this->participatingDeviceProgramIds);
-            }
-            $this->dictionaries['medical_programs_device'] = $devicePrograms
-                ->pluck('name', 'id')
-                ->toArray() ?? [];
-        } catch (\Exception $exception) {
-            Log::warning('CarePlanShow: failed to load medical programs: ' . $exception->getMessage());
-        }
-
-        $this->carePlanUuid = $this->carePlan->uuid;
-        $this->patientId = $this->carePlan->person->uuid;
-
-        $action = request()->query('action');
-        if (in_array($action, ['cancel', 'complete'])) {
-            $cpStatusVal = $this->carePlan->status instanceof \UnitEnum ? $this->carePlan->status->value : $this->carePlan->status;
-            $statusStr = is_array($cpStatusVal)
-                ? ($cpStatusVal['coding'][0]['code'] ?? ($cpStatusVal['text'] ?? ''))
-                : $cpStatusVal;
-
-            if (strtolower((string) $statusStr) === 'active') {
-                $this->openSignatureModal($action);
-            }
-        }
+        $this->bootCarePlan($carePlan);
 
         $editActivityId = request()->query('edit_activity');
         if (is_numeric($editActivityId)) {
@@ -219,53 +75,23 @@ class CarePlanShow extends Component
         $this->activityForm['scheduled_period_end'] = now()->addDays(10)->format('d.m.Y');
     }
 
-    protected function rulesForSigning(): array
+    public function updatedSelectedProgram(): void
     {
-        $statusReasonRule = in_array($this->actionType, ['sign_activity', 'sign_plan'])
-            ? 'nullable|string'
-            : 'required|string';
+        $this->activityForm['program'] = $this->selectedProgram;
 
-        return [
-            'statusReason' => $statusReasonRule,
-            'form.knedp' => 'required|string',
-            'form.keyContainerUpload' => 'required|file|max:1024',
-            'form.password' => 'required|string',
-        ];
-    }
-
-    public function getStatusReasonsProperty(): array
-    {
-        if ($this->actionType === 'complete') {
-            return $this->dictionaries['care_plan_complete_reasons'] ?? [];
-        }
-        if ($this->actionType === 'complete_activity') {
-            return $this->dictionaries['care_plan_activity_complete_reasons'] ?? [];
-        }
-        if ($this->actionType === 'cancel_activity') {
-            return $this->dictionaries['care_plan_activity_cancel_reasons'] ?? [];
-        }
-        if ($this->actionType === 'reject_prescription') {
-            return $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] ?? [];
+        if (!empty($this->activityForm['id'])) {
+            $this->selectedProduct = null;
+            $this->activityForm['product_reference'] = '';
+            $this->activityForm['product_codeable_concept'] = '';
         }
 
-        return $this->dictionaries['care_plan_cancel_reasons'] ?? [];
-    }
+        $this->searchQuery = '';
+        $this->searchResults = [];
+        $this->searchPage = 1;
 
-    public function openSignatureModal(string $actionType, ?int $activityId = null, ?string $requestUuid = null): void
-    {
-        $this->actionType = $actionType;
-        $this->activityToSign = $activityId;
-        if ($requestUuid !== null && $requestUuid !== '') {
-            if (in_array($actionType, ['cancel_prescription', 'sign_eprescription', 'reject_prescription'], true)) {
-                $this->ePrescriptionRequestIdToSign = $requestUuid;
-            } elseif (in_array($actionType, ['cancel_referral', 'sign_servicerequest', 'sign_devicerequest'], true)) {
-                $this->referralRequestIdToSign = $requestUuid;
-            }
+        if ($this->showMedicalDeviceSearchDrawer) {
+            $this->loadMedicalDeviceSearchResults();
         }
-        $this->statusReason = ''; // Reset reason
-        $this->outcomeCode = ''; // Reset outcome
-        $this->outcomeReferences = []; // Reset references
-        $this->showSignatureModal = true;
     }
 
     public function initActivityForm(string $kind): void
@@ -410,25 +236,6 @@ class CarePlanShow extends Component
             $this->showMedicalDeviceFormDrawer = true;
         } else {
             $this->showServiceDrawer = true;
-        }
-    }
-
-    public function updatedSelectedProgram(): void
-    {
-        $this->activityForm['program'] = $this->selectedProgram;
-
-        if (!empty($this->activityForm['id'])) {
-            $this->selectedProduct = null;
-            $this->activityForm['product_reference'] = '';
-            $this->activityForm['product_codeable_concept'] = '';
-        }
-
-        $this->searchQuery = '';
-        $this->searchResults = [];
-        $this->searchPage = 1;
-
-        if ($this->showMedicalDeviceSearchDrawer) {
-            $this->loadMedicalDeviceSearchResults();
         }
     }
 
@@ -963,10 +770,6 @@ class CarePlanShow extends Component
         $this->searchResults = array_slice($this->deviceSearchCatalog, $offset, $perPage);
     }
 
-    /**
-     * @param  array<string, mixed>  $filters
-     * @return array<int, array<string, mixed>>
-     */
     private function fetchAllDeviceDefinitions(array $filters): array
     {
         $pageSize = (int) config('ehealth.api.page_size', 300);
@@ -995,10 +798,6 @@ class CarePlanShow extends Component
         return array_values($indexed);
     }
 
-    /**
-     * @param  array<int, array<string, mixed>>  $devices
-     * @return array<int, array<string, mixed>>
-     */
     private function filterDevicesByQuery(array $devices, string $query): array
     {
         $needle = mb_strtolower($query);
@@ -1033,10 +832,6 @@ class CarePlanShow extends Component
         }));
     }
 
-    /**
-     * @param  array<int, array<string, mixed>>  $devices
-     * @return array<int, array<string, mixed>>
-     */
     private function sortDeviceSearchResults(array $devices, string $query): array
     {
         usort($devices, function (array $left, array $right) use ($query): int {
@@ -1058,9 +853,6 @@ class CarePlanShow extends Component
         return $devices;
     }
 
-    /**
-     * @param  array<string, mixed>  $device
-     */
     private function deviceSearchRelevanceScore(array $device, string $query): int
     {
         $needle = mb_strtolower($query);
@@ -1091,10 +883,6 @@ class CarePlanShow extends Component
         return 100;
     }
 
-    /**
-     * @param  array<string, mixed>  $device
-     * @return array<string, mixed>
-     */
     private function enrichDeviceForDisplay(array $device): array
     {
         $device['display_name'] = $this->resolveDeviceDisplayName($device);
@@ -1105,9 +893,6 @@ class CarePlanShow extends Component
         return $device;
     }
 
-    /**
-     * @param  array<string, mixed>  $device
-     */
     private function resolveDeviceDisplayName(array $device): string
     {
         if (!empty($device['name']) && is_string($device['name'])) {
@@ -1130,9 +915,6 @@ class CarePlanShow extends Component
         return (string) ($device['model_number'] ?? $device['id'] ?? '');
     }
 
-    /**
-     * @param  array<string, mixed>  $device
-     */
     private function resolveDeviceTypeName(array $device): string
     {
         if (!empty($device['type_name'])) {
@@ -1151,9 +933,6 @@ class CarePlanShow extends Component
         return '-';
     }
 
-    /**
-     * @param  array<string, mixed>  $device
-     */
     private function formatDevicePackaging(array $device): string
     {
         $packaging = $device['packaging'] ?? null;
@@ -1276,865 +1055,6 @@ class CarePlanShow extends Component
             ->toArray();
     }
 
-    public function sign(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
-    {
-        try {
-            $validated = $this->validate($this->rulesForSigning());
-        } catch (ValidationException $exception) {
-            $this->dispatch('flashMessage', ['message' => $exception->validator->errors()->first(), 'type' => 'error']);
-            $this->setErrorBag($exception->validator->getMessageBag());
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        if ($this->actionType === 'sign_activity') {
-            $this->signActivity($repository, $activityRepository);
-
-            return;
-        }
-
-        if (in_array($this->actionType, ['complete_activity', 'cancel_activity'])) {
-            $this->signStatusActivity($activityRepository);
-
-            return;
-        }
-
-        if (empty($this->carePlan->uuid)) {
-            if ($this->actionType === 'sign_plan') {
-                $this->signPlan($repository);
-
-                return;
-            }
-            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_not_synced'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        $this->carePlan->loadMissing(['encounter', 'encounterIdentifier', 'effectivePeriod', 'author', 'categoryConcept.coding']);
-
-        // Action-specific payload
-        $statusMap = [
-            'cancel' => CarePlanStatus::ENTERED_IN_ERROR->value,
-            'complete' => CarePlanStatus::COMPLETED->value,
-        ];
-
-        $systemMap = [
-            'cancel' => 'eHealth/care_plan_cancel_reasons',
-            'complete' => 'eHealth/care_plan_complete_reasons',
-        ];
-
-        $statusReasonCodeableConcept = [
-            'coding' => [
-                [
-                    'system' => $systemMap[$this->actionType] ?? 'eHealth/care_plan_cancel_reasons',
-                    'code' => $this->statusReason,
-                ]
-            ]
-        ];
-
-        $categoryCoding = $this->carePlan->categoryConcept?->coding?->first();
-        $categorySystem = $categoryCoding?->system ?? 'eHealth/care_plan_categories';
-        $categoryCode = $categoryCoding?->code
-            ?? (is_array($this->carePlan->category)
-                ? ($this->carePlan->category['coding'][0]['code'] ?? null)
-                : $this->carePlan->category);
-        try {
-            $response = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-            $eHealthPlanData = $response->getData();
-            if (isset($eHealthPlanData['data']) && is_array($eHealthPlanData['data'])) {
-                $eHealthPlanData = $eHealthPlanData['data'];
-            }
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('CarePlanShow: failed to fetch care plan details before status change: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        $payload = $eHealthPlanData;
-        $payload['status'] = $statusMap[$this->actionType] ?? 'cancelled';
-        $payload['status_reason'] = $statusReasonCodeableConcept;
-
-        Log::info('CarePlanShow: Signing status change. actionType=' . $this->actionType, [
-            'payload' => $payload,
-            'snake_case_payload' => Arr::toSnakeCase($payload)
-        ]);
-
-        try {
-            $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($payload),
-                $this->form['password'],
-                $this->form['knedp'],
-                $this->form['keyContainerUpload'],
-                Auth::user()->party->taxId
-            );
-
-            // Send to eHealth based on action type
-            $apiMethod = $this->actionType === 'complete' ? 'complete' : 'cancel';
-
-            $eHealthResponse = EHealth::carePlan()->{$apiMethod}(
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-                [
-                    'signed_data' => $signedContent,
-                    'signed_data_encoding' => 'base64',
-                    'status_reason' => $statusReasonCodeableConcept,
-                ]
-            );
-
-            $responseData = $eHealthResponse->getData();
-            $finalResponse = $responseData;
-
-            // Job Polling
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                throw new EHealthValidationException($finalResponse);
-            }
-
-            // Extract status
-            $carePlanStatus = $finalResponse['status'] ?? $payload['status'];
-            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
-                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
-                $carePlanStatus = $entity['status'] ?? $carePlanStatus;
-            }
-
-            // Update local state
-            $repository->updateById($this->carePlan->id, [
-                'status' => $carePlanStatus,
-            ]);
-
-            $this->refreshCarePlan();
-
-            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_updated'), 'type' => 'success']);
-            $this->showSignatureModal = false;
-
-        } catch (EHealthConnectionException $exception) {
-            Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (EHealthValidationException|EHealthResponseException $exception) {
-            if (method_exists($exception, 'report')) {
-                $exception->report();
-            }
-            Log::error('CarePlanShow: eHealth error: ' . $exception->getMessage(), [
-                'details' => method_exists($exception, 'getDetails') ? $exception->getDetails() : null
-            ]);
-            $msg = $exception instanceof EHealthValidationException
-                ? $exception->getFormattedMessage()
-                : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
-            Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        }
-    }
-
-    private function signPlan(CarePlanRepository $repository): void
-    {
-        $legalEntity = legalEntity();
-
-        // Build eHealth payload from model
-        $carePlanPayload = removeEmptyKeys([
-            'intent' => 'order',
-            'status' => CarePlanStatus::DRAFT->value,
-            'category' => is_array($this->carePlan->category) ? ($this->carePlan->category['coding'][0]['code'] ?? null) : $this->carePlan->category,
-            'context' => $this->carePlan->context ? ['identifier' => ['type_code' => $this->carePlan->context]] : null,
-            'title' => $this->carePlan->title,
-            'period' => array_filter([
-                'start' => $this->carePlan->period_start ? $this->carePlan->period_start->format('Y-m-d') : null,
-                'end' => $this->carePlan->period_end ? $this->carePlan->period_end->format('Y-m-d') : null,
-            ]),
-            'addresses' => $this->carePlan->addresses, // Already stored as array of diagnoses
-            'supporting_info' => array_merge(
-                array_map(fn ($e) => ['display' => $e['name']], $this->carePlan->supporting_info['episodes'] ?? []),
-                array_map(fn ($m) => ['display' => $m['name']], $this->carePlan->supporting_info['medical_records'] ?? [])
-            ),
-            'encounter' => $this->carePlan->encounter?->uuid ? ['identifier' => ['value' => $this->carePlan->encounter->uuid]] : null,
-            'care_manager' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
-                    ],
-                    'value' => Auth::user()?->activeDoctorEmployee()?->uuid
-                ]
-            ],
-            'description' => $this->carePlan->description ?: null,
-            'note' => $this->carePlan->note ?: null,
-            'inform_with' => $this->carePlan->inform_with ?: null,
-        ]);
-
-        try {
-            $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($carePlanPayload),
-                $this->form['password'],
-                $this->form['knedp'],
-                $this->form['keyContainerUpload'],
-                Auth::user()->party->taxId
-            );
-
-            $eHealthResponse = EHealth::carePlan()->create($this->carePlan->person->uuid, [
-                'signed_data' => $signedContent,
-                'signed_data_encoding' => 'base64',
-            ]);
-
-            $responseData = $eHealthResponse->getData();
-
-            // Update local model
-            $repository->updateById($this->carePlan->id, [
-                'uuid' => $responseData['id'] ?? null,
-                'status' => $responseData['status'] ?? 'new',
-                'requisition' => $responseData['requisition'] ?? null,
-            ]);
-
-            $this->refreshCarePlan();
-
-            $this->dispatch('flashMessage', ['message' => __('care-plan.signed_and_sent'), 'type' => 'success']);
-            $this->showSignatureModal = false;
-
-        } catch (EHealthConnectionException $exception) {
-            Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (EHealthValidationException|EHealthResponseException $exception) {
-            if (method_exists($exception, 'report')) {
-                $exception->report();
-            }
-            Log::error('CarePlanShow: eHealth error: ' . $exception->getMessage(), [
-                'details' => method_exists($exception, 'getDetails') ? $exception->getDetails() : null
-            ]);
-            $msg = $exception instanceof EHealthValidationException
-                ? $exception->getFormattedMessage()
-                : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
-            Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        }
-    }
-
-    private function signActivity(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
-    {
-        if (!$this->activityToSign) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.no_activity_selected'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        $activity = $activityRepository->findById($this->activityToSign);
-        if (!$activity) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_not_found'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        if (empty($activity->uuid)) {
-            $activity->uuid = \Illuminate\Support\Str::uuid()->toString();
-            $activity->save();
-        }
-
-        if (str_contains(strtolower((string) $activity->kind), 'device') && empty($activity->program)) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.device_program_required_before_sign'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        if (str_contains(strtolower((string) $activity->kind), 'device')) {
-            $deviceWarning = $this->getDeviceSignReadinessWarning($activity);
-            if ($deviceWarning !== null) {
-                $this->dispatch('flashMessage', ['message' => $deviceWarning, 'type' => 'error']);
-                $this->showSignatureModal = false;
-
-                return;
-            }
-        }
-
-        $this->ensureCarePlanEffectivePeriodSynced($repository);
-        $activity->load('carePlan.effectivePeriod');
-
-        // Build Payload
-        $activityPayload = $activityRepository->formatCarePlanActivityRequest($activity);
-        Log::info('CarePlanActivity: Signing activity ID=' . $activity->id . ', UUID=' . $activity->uuid, [
-            'payload' => $activityPayload,
-            'snake_case_payload' => Arr::toSnakeCase($activityPayload)
-        ]);
-
-        try {
-            $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($activityPayload),
-                $this->form['password'],
-                $this->form['knedp'],
-                $this->form['keyContainerUpload'],
-                Auth::user()->party->taxId
-            );
-            Log::info('CarePlanActivity: Signing key succeeded');
-
-            $eHealthResponse = EHealth::carePlanActivity()->create(
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-                [
-                    'signed_data' => $signedContent,
-                    'signed_data_encoding' => 'base64',
-                ]
-            );
-
-            $responseData = $eHealthResponse->getData();
-            Log::info('CarePlanActivity: EHealth response received', ['response' => $responseData]);
-            $finalResponse = $responseData;
-
-            // If it is an async job, poll it
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                Log::info('CarePlanActivity: Polling job: ' . $jobId);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                    Log::info("CarePlanActivity: Job {$jobId} attempt {$attempts} status: " . ($finalResponse['status'] ?? 'unknown'));
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            Log::info('CarePlanActivity: Final response from eHealth/Job', ['final_response' => $finalResponse]);
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                Log::error('CarePlanActivity: Job failed in eHealth. Full details for support:', [
-                    'request_payload_unsigned' => Arr::toSnakeCase($activityPayload),
-                    'ehealth_response_data' => $finalResponse,
-                ]);
-                throw new EHealthValidationException($finalResponse);
-            }
-
-            // Extract the actual CarePlanActivity data
-            $activityUuid = $finalResponse['id'] ?? null;
-            $activityStatus = $finalResponse['status'] ?? 'new';
-
-            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
-                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
-                $activityUuid = $entity['id'] ?? $activityUuid;
-                $activityStatus = $entity['status'] ?? 'active';
-            }
-
-            // If the job was processed but we didn't find the activity uuid directly, try parsing from links
-            if (empty($activityUuid) && isset($finalResponse['links']) && is_array($finalResponse['links'])) {
-                foreach ($finalResponse['links'] as $link) {
-                    if (isset($link['href']) && str_contains($link['href'], '/activities/')) {
-                        $activityUuid = basename($link['href']);
-                        break;
-                    }
-                }
-            }
-
-            if ($activityStatus === 'processed') {
-                $activityStatus = 'scheduled';
-            }
-
-            // Store to Mongo
-            /*
-            try {
-                \App\Models\MedicalEvents\Mongo\CarePlanActivity::create($finalResponse);
-            } catch (\Exception $e) {
-                Log::warning('Failed to save CarePlanActivity to Mongo: ' . $e->getMessage());
-            }
-            */
-
-            $activityRepository->updateById($activity->id, [
-                'status' => $activityStatus,
-                'uuid' => $activityUuid,
-            ]);
-
-            // Sync parent Care Plan to catch status transition (e.g., Draft -> Active) triggered by activity creation
-            try {
-                $planResponse = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-                $repository->syncCarePlans(['data' => [$planResponse->getData()]], $this->carePlan->person_id);
-                $activityRepository->syncActivities($this->carePlan->person, $this->carePlan);
-            } catch (\Exception $e) {
-                Log::warning('CarePlanShow: failed to sync plan status or activities after activity creation: ' . $e->getMessage());
-            }
-
-            $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_signed'), 'type' => 'success']);
-            $this->showSignatureModal = false;
-
-        } catch (EHealthConnectionException $exception) {
-            Log::error('CarePlanActivity: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (EHealthValidationException|EHealthResponseException $exception) {
-            if (method_exists($exception, 'report')) {
-                $exception->report();
-            }
-            Log::error('CarePlanActivity: eHealth request failed with validation/response error. Details for support:', [
-                'message' => $exception->getMessage(),
-                'errors' => method_exists($exception, 'getErrors') ? $exception->getErrors() : null,
-                'request_payload_unsigned' => Arr::toSnakeCase($activityPayload ?? []),
-            ]);
-            $msg = $exception instanceof EHealthValidationException
-                ? $exception->getTranslatedMessage()
-                : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (\RuntimeException $exception) {
-            Log::error('CarePlanActivity: signature error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
-            Log::error('CarePlanActivity: unexpected error: ' . $exception->getMessage(), [
-                'exception' => $exception
-            ]);
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        }
-    }
-
-    private function signStatusActivity(CarePlanActivityRepository $activityRepository): void
-    {
-        if (!$this->activityToSign) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.no_activity_selected'), 'type' => 'error']);
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
-        $activity = $activityRepository->findById($this->activityToSign);
-        if (!$activity) {
-            return;
-        }
-
-        $statusMap = [
-            'cancel_activity' => 'entered_in_error',
-            'complete_activity' => 'completed',
-        ];
-
-        $systemMap = [
-            'cancel_activity' => 'eHealth/care_plan_activity_cancel_reasons',
-            'complete_activity' => 'eHealth/care_plan_activity_complete_reasons',
-        ];
-
-        $statusReasonCodeableConcept = [
-            'coding' => [
-                [
-                    'system' => $systemMap[$this->actionType] ?? 'eHealth/care_plan_activity_cancel_reasons',
-                    'code' => $this->statusReason,
-                ]
-            ]
-        ];
-
-        if ($this->actionType === 'cancel_activity') {
-            // API-007-006-0005: signed content must match activity stored in eHealth DB.
-            // Use remote activity snapshot and change only detail.status_reason.
-            $basePayload = $activityRepository->resolveActivityPayloadForCancelSigning(
-                $activity,
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-            );
-            $payload = $activityRepository->buildActivityCancelSignPayload(
-                $basePayload,
-                $statusReasonCodeableConcept,
-            );
-
-            $debugContext = $activityRepository->buildCancelSignatureDebugContext($basePayload, $payload);
-            Log::info(
-                'CarePlanShow cancel debug: original vs signed content (status_reason excluded)',
-                [
-                    'activity_uuid' => (string) $activity->uuid,
-                    'person_uuid' => (string) $this->carePlan->person->uuid,
-                    'care_plan_uuid' => (string) $this->carePlan->uuid,
-                    'diff_count' => $debugContext['diff_count_excluding_status_reason'],
-                    'diffs' => $debugContext['diffs_excluding_status_reason'],
-                ]
-            );
-            Log::info('CarePlanShow cancel debug original payload: ' . json_encode($debugContext['original_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            Log::info('CarePlanShow cancel debug signed payload: ' . json_encode($debugContext['signed_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        } else {
-            $basePayload = $activityRepository->resolveActivityPayloadBase(
-                $activity,
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-            );
-            $payload = $activityRepository->buildActivityCompleteSignPayload(
-                $basePayload,
-                $this->outcomeCode ?: null,
-                $this->outcomeReferences,
-            );
-        }
-
-        // Log the full JSON string to prevent Monolog from truncating the output in laravel.log
-        Log::info('CarePlanActivityStatus: Full JSON payload to sign: ' . json_encode(Arr::toSnakeCase($payload), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-
-        // Dump and die to inspect the payload in the browser network tab/modal as requested
-        // dd(Arr::toSnakeCase($payload));
-
-        try {
-            $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($payload),
-                $this->form['password'],
-                $this->form['knedp'],
-                $this->form['keyContainerUpload'],
-                Auth::user()->party->taxId
-            );
-            Log::info('CarePlanActivityStatus: Signing key succeeded');
-
-            $apiMethod = $this->actionType === 'complete_activity' ? 'complete' : 'cancel';
-
-            $payloadData = [
-                'signed_data' => $signedContent,
-                'signed_data_encoding' => 'base64',
-            ];
-
-            if ($this->actionType === 'complete_activity') {
-                // eHealth requires 'detail' in the PATCH body (status_reason).
-                // Cancel (API-007-006-0005) carries status_reason only inside signed_data.
-                $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(
-                    $statusReasonCodeableConcept,
-                );
-
-                if ($this->outcomeCode) {
-                    // eHealth expects outcome_codeable_concept as an array (list) of CodeableConcept objects.
-                    $payloadData['outcome_codeable_concept'] = [
-                        [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/care_plan_activity_outcomes',
-                                    'code' => $this->outcomeCode,
-                                ],
-                            ],
-                        ],
-                    ];
-                }
-
-                if (!empty($this->outcomeReferences)) {
-                    $payloadData['outcome_reference'] = collect($this->outcomeReferences)->map(fn ($id) => [
-                        'identifier' => [
-                            'value' => $id,
-                        ]
-                    ])->toArray();
-                }
-            }
-
-            \Illuminate\Support\Facades\Log::info('Cancel payload data being sent: ', $payloadData);
-
-            $eHealthResponse = EHealth::carePlanActivity()->{$apiMethod}(
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-                $activity->uuid,
-                $payloadData
-            );
-
-            $responseData = $eHealthResponse->getData();
-            Log::info('CarePlanActivityStatus: EHealth response received', ['response' => $responseData]);
-            $finalResponse = $responseData;
-
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                Log::info('CarePlanActivityStatus: Polling job: ' . $jobId);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                    Log::info("CarePlanActivityStatus: Job {$jobId} attempt {$attempts} status: " . ($finalResponse['status'] ?? 'unknown'));
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            Log::info('CarePlanActivityStatus: Final response from eHealth/Job', ['final_response' => $finalResponse]);
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                Log::error('CarePlanActivityStatus: Job failed in eHealth', ['final_response' => $finalResponse]);
-                throw new EHealthValidationException($finalResponse);
-            }
-
-            $activityStatus = $finalResponse['status'] ?? $payload['status'];
-            if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
-                $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
-                $activityStatus = $entity['status'] ?? $activityStatus;
-            }
-
-            $updateData = [
-                'status' => $activityStatus,
-            ];
-
-            if ($this->actionType === 'complete_activity') {
-                if ($this->outcomeCode) {
-                    $code = \App\Repositories\MedicalEvents\Repository::codeableConcept()->store([
-                        'coding' => [
-                            [
-                                'system' => 'eHealth/care_plan_activity_outcomes',
-                                'code' => $this->outcomeCode,
-                                'display' => $this->dictionaries['care_plan_activity_outcomes'][$this->outcomeCode] ?? '',
-                            ]
-                        ]
-                    ]);
-                    $updateData['outcome_codeable_concept_id'] = $code->id;
-                }
-
-                if (!empty($this->outcomeReferences)) {
-                    $ids = [];
-                    foreach ($this->outcomeReferences as $uuid) {
-                        $identifier = \App\Repositories\MedicalEvents\Repository::identifier()->store($uuid);
-                        $ids[] = $identifier->id;
-                    }
-                    $activity->outcomeReferences()->sync($ids);
-                }
-            }
-
-            $activityRepository->updateById($activity->id, $updateData);
-
-            $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_updated'), 'type' => 'success']);
-            $this->showSignatureModal = false;
-
-        } catch (EHealthValidationException $exception) {
-            Log::error('CarePlanActivityStatus: eHealth validation error: ' . $exception->getMessage(), [
-                'details' => $exception->getDetails()
-            ]);
-            $this->dispatch('flashMessage', ['message' => $exception->getTranslatedMessage(), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
-            Log::error('CarePlanActivityStatus: error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
-            $this->showSignatureModal = false;
-        }
-    }
-
-    public function openMethodSelectionModal(): void
-    {
-        if (empty($this->carePlan->uuid)) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'План лікування ще не синхронізовано з ЕСОЗ.']);
-
-            return;
-        }
-
-        try {
-            $this->authMethods = EHealth::person()->getAuthMethods($this->carePlan->person->uuid)->getData();
-            $this->showMethodSelectionModal = true;
-        } catch (\Exception $e) {
-            Log::error('CarePlanShow: failed to load auth methods: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити методи аутентифікації']);
-        }
-    }
-
-    public function selectAuthMethod(string $methodUuid): void
-    {
-        $this->showMethodSelectionModal = false;
-        $this->createApproval($methodUuid);
-    }
-
-    protected function createApproval(string $methodUuid): void
-    {
-        try {
-            $employeeUuid = Auth::user()?->getCarePlanWriterEmployee($this->carePlan->terms_of_service)?->uuid;
-
-            if (!$employeeUuid) {
-                $this->dispatch('flashMessage', [
-                    'type' => 'error',
-                    'message' => 'Не вдалося визначити лікаря для створення дозволу.',
-                ]);
-
-                return;
-            }
-
-            $result = app(CarePlanApprovalService::class)->create(
-                carePlan: $this->carePlan,
-                patientUuid: $this->carePlan->person->uuid,
-                employeeUuid: $employeeUuid,
-                accessLevel: 'write',
-                authorizeWith: $methodUuid ?: null,
-            );
-
-            if ($result->isAsync()) {
-                $this->approvalId = $result->approvalId;
-                $this->pollingLinkId = $result->pollingLinkId;
-                $this->isPolling = true;
-
-                return;
-            }
-
-            $this->approvalId = $result->approvalId;
-
-            if ($result->requiresOtp()) {
-                $this->currentAuthMethod = $result->authMethod;
-                $this->openAuthModal();
-
-                return;
-            }
-
-            $this->syncPlanStatus();
-            $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
-        } catch (\Exception $e) {
-            Log::error('CarePlanShow: failed to create approval: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося створити запит на дозвіл: ' . $e->getMessage()]);
-        }
-    }
-
-    public function checkApprovalJobStatus(): void
-    {
-        if (!$this->isPolling || !$this->pollingLinkId) {
-            return;
-        }
-
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($this->pollingLinkId);
-
-        if ($status->isPending()) {
-            return;
-        }
-
-        $this->isPolling = false;
-        $this->pollingLinkId = null;
-
-        if ($status->isFailed()) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => $status->errorMessage ?: 'Не вдалося обробити запит на дозвіл.',
-            ]);
-
-            return;
-        }
-
-        if ($status->approvalId) {
-            $this->approvalId = $status->approvalId;
-        }
-
-        if ($status->requiresOtp()) {
-            $this->currentAuthMethod = $status->authMethod;
-            $this->openAuthModal();
-
-            return;
-        }
-
-        $this->syncPlanStatus();
-        $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
-    }
-
-    public function verify(): void
-    {
-        $this->validate($this->approvalVerificationRules());
-
-        try {
-            $response = app(CarePlanApprovalService::class)->verify(
-                $this->carePlan->person->uuid,
-                $this->approvalId,
-                (int) $this->verificationCode,
-            );
-
-            if ($response->successful()) {
-                $this->closeAuthModal();
-                $this->syncPlanStatus();
-                $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
-            }
-        } catch (\Exception $e) {
-            Log::error('CarePlanShow: failed to verify approval: ' . $e->getMessage());
-            $this->addError('verificationCode', 'Невірний код підтвердження або помилка сервісу');
-        }
-    }
-
-    public function resendSms(): void
-    {
-        if ($this->smsResent) {
-            return;
-        }
-        try {
-            app(CarePlanApprovalService::class)->resendSms($this->carePlan->person->uuid, $this->approvalId);
-            $this->smsResent = true;
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'SMS надіслано повторно']);
-        } catch (\Exception $e) {
-            Log::error('CarePlanShow: failed to resend SMS: ' . $e->getMessage());
-        }
-    }
-
-    public function sync(): void
-    {
-        $this->syncPlanStatus();
-        $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Дані успішно синхронізовано з ЕСОЗ']);
-    }
-
-    public function syncPlanStatus(): void
-    {
-        try {
-            $planResponse = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-            app(CarePlanRepository::class)->syncCarePlans(['data' => [$planResponse->getData()]], $this->carePlan->person_id);
-
-            // Sync approvals as well!
-            app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan);
-
-            $this->refreshCarePlan();
-            $this->dispatch('refreshApprovals');
-        } catch (EHealthResponseException $e) {
-            if ($e->getCode() === 403 || $e->response->status() === 403) {
-                Log::warning('CarePlanShow: 403 access denied when syncing plan status. Prompting for approval.');
-                $this->dispatch('flashMessage', ['type' => 'warning', 'message' => 'Відсутній доступ до плану лікування. Будь ласка, надішліть запит на доступ пацієнту.']);
-                $this->openMethodSelectionModal();
-            } else {
-                Log::warning('CarePlanShow: failed to sync plan status (eHealth): ' . $e->getMessage());
-            }
-        } catch (\Exception $e) {
-            Log::warning('CarePlanShow: failed to sync plan status: ' . $e->getMessage());
-        }
-    }
-
-    private function refreshCarePlan(): void
-    {
-        $this->carePlan->refresh();
-        $this->carePlan->load(['person', 'author.party', 'categoryConcept', 'activities.kindConcept.coding']);
-    }
-
-    private function cleanActivityPayload(array $payload): array
-    {
-        $excludeKeys = [
-            'remaining_quantity',
-            'remaining_quantity_type',
-            'inserted_at',
-            'inserted_by',
-            'updated_at',
-            'updated_by',
-            'status_history',
-            'database_id',
-        ];
-
-        $cleaned = [];
-        foreach ($payload as $key => $value) {
-            $snakeKey = \Illuminate\Support\Str::snake($key);
-            if (in_array($snakeKey, $excludeKeys, true)) {
-                continue;
-            }
-
-            if ($snakeKey === 'author' && is_array($value)) {
-                if (isset($value[0])) {
-                    $value = $value[0];
-                }
-            }
-
-            if (is_array($value)) {
-                $cleaned[$key] = $this->cleanActivityPayload($value);
-            } else {
-                $cleaned[$key] = $value;
-            }
-        }
-
-        return $cleaned;
-    }
-
     private function validateActivityPeriodAgainstCarePlan(string $activityStart, string $activityEnd): ?string
     {
         if ($activityStart > $activityEnd) {
@@ -2189,9 +1109,6 @@ class CarePlanShow extends Component
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $product
-     */
     private function resolveMedicationDenumeratorUnit(array $product): string
     {
         $ingredients = $product['ingredients'] ?? [];
@@ -2221,9 +1138,6 @@ class CarePlanShow extends Component
         $this->applyDeviceProductFieldsFromSelection($this->selectedProduct);
     }
 
-    /**
-     * @param  array<string, mixed>  $product
-     */
     private function applyDeviceProductFieldsFromSelection(array $product): void
     {
         $programId = $this->resolveDeviceProgramId();
@@ -2287,10 +1201,6 @@ class CarePlanShow extends Component
         return $devicePrograms[0];
     }
 
-    /**
-     * @param  list<string>  $names
-     * @return array<string, string>
-     */
     private function basicDictionaryCodes(\App\Services\Dictionary\Collections\BasicDictionaryCollection $basics, array $names): array
     {
         foreach ($names as $name) {
@@ -2326,9 +1236,6 @@ class CarePlanShow extends Component
         };
     }
 
-    /**
-     * @param  array<string, mixed>  $device
-     */
     private function resolveDeviceClassificationCode(array $device): ?string
     {
         if (!empty($device['classification_type_code'])) {
@@ -2347,9 +1254,6 @@ class CarePlanShow extends Component
         return null;
     }
 
-    /**
-     * Match active keys from the device_unit dictionary (eHealth expects dictionary codes as-is).
-     */
     private function normalizeDeviceUnitCode(string $code): string
     {
         $code = trim($code);
@@ -2369,9 +1273,6 @@ class CarePlanShow extends Component
         return strtolower($code);
     }
 
-    /**
-     * @return array<int, string>
-     */
     private function resolveDeviceRequestAllowedCodeTypes(?string $programId): array
     {
         if (empty($programId)) {
@@ -2388,15 +1289,6 @@ class CarePlanShow extends Component
         }
     }
 
-    protected function loadDeviceProgramParticipationState(): void
-    {
-        $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
-        $this->participatingDeviceProgramIds = $guard->resolveParticipatingProgramIds(legalEntity());
-        $this->deviceParticipationWarning = $this->participatingDeviceProgramIds === []
-            ? __('care-plan.device_program_participation_sync_hint')
-            : '';
-    }
-
     protected function getDeviceSignReadinessWarning(CarePlanActivity $activity): ?string
     {
         $assessment = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
@@ -2409,7 +1301,7 @@ class CarePlanShow extends Component
         return $assessment->blockingMessage();
     }
 
-    public function render()
+    protected function renderCarePlan()
     {
         $this->carePlan->load(['person', 'author.party', 'categoryConcept', 'activities.kindConcept.coding']);
 

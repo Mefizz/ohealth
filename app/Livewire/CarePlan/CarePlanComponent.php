@@ -131,7 +131,60 @@ abstract class CarePlanComponent extends Component
     public string $outcomeCode = ''; // For outcomeCodeableConcept
     public array $outcomeReferences = []; // For outcomeReference (IDs of identifiers)
 
+    public ?string $selectedOutcomeReference = null;
+
     public array $availableConditions = [];
+
+    /**
+     * @return list<array{uuid: string, type: string, name: string, date: string}>
+     */
+    public function getSelectedOutcomeReferencesDetailsProperty(): array
+    {
+        $catalog = collect($this->availableConditions)
+            ->map(fn (array $item): array => $item + ['type' => 'Діагноз/Стан'])
+            ->concat(collect($this->availableObservations)->map(fn (array $item): array => $item + ['type' => 'Спостереження']))
+            ->concat(collect($this->availableReports)->map(fn (array $item): array => $item + ['type' => 'Діагностичний звіт']))
+            ->keyBy('uuid');
+
+        return collect($this->outcomeReferences)
+            ->map(function (string $uuid) use ($catalog): ?array {
+                $item = $catalog->get($uuid);
+                if (!is_array($item)) {
+                    return null;
+                }
+
+                return [
+                    'uuid' => $uuid,
+                    'type' => (string) ($item['type'] ?? ''),
+                    'name' => (string) ($item['name'] ?? $uuid),
+                    'date' => (string) ($item['date'] ?? '-'),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    public function addOutcomeReference(): void
+    {
+        if ($this->selectedOutcomeReference === null || $this->selectedOutcomeReference === '') {
+            return;
+        }
+
+        if (!in_array($this->selectedOutcomeReference, $this->outcomeReferences, true)) {
+            $this->outcomeReferences[] = $this->selectedOutcomeReference;
+        }
+
+        $this->selectedOutcomeReference = null;
+    }
+
+    public function removeOutcomeReference(string $uuid): void
+    {
+        $this->outcomeReferences = array_values(array_filter(
+            $this->outcomeReferences,
+            static fn (string $reference): bool => $reference !== $uuid
+        ));
+    }
 
     protected function bootCarePlan(CarePlan $carePlan): void
     {
@@ -187,6 +240,14 @@ abstract class CarePlanComponent extends Component
             $this->dictionaries['care_plan_activity_cancel_reasons'] = $basics->byName('eHealth/care_plan_activity_cancel_reasons')
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
+
+            $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] = $basics->byName('MEDICATION_REQUEST_REJECT_REASON')
+                ?->asCodeDescription()
+                ?->toArray()
+                ?? $basics->byName('eHealth/MEDICATION_REQUEST_REJECT_REASON')
+                    ?->asCodeDescription()
+                    ?->toArray()
+                ?? [];
 
             // Load medical programs (split by type; device/medication lists are role-filtered)
             $programs = app(DictionaryManager::class)->medicalPrograms();
@@ -271,6 +332,9 @@ abstract class CarePlanComponent extends Component
         }
         if ($this->actionType === 'cancel_activity') {
             return $this->dictionaries['care_plan_activity_cancel_reasons'] ?? [];
+        }
+        if (in_array($this->actionType, ['reject_prescription', 'cancel_prescription'], true)) {
+            return $this->dictionaries['MEDICATION_REQUEST_REJECT_REASON'] ?? [];
         }
 
         return $this->dictionaries['care_plan_cancel_reasons'] ?? [];

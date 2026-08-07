@@ -1,6 +1,8 @@
-<fieldset class="fieldset bg-white dark:bg-gray-800 !rounded-xl !shadow-none !border-gray-100 dark:!border-gray-700 !max-w-full !p-6 !mb-6" x-data="{
+<fieldset class="fieldset bg-white dark:bg-gray-800 !rounded-xl !shadow-none !border-gray-100 dark:!border-gray-700 !max-w-full !p-6 !mb-6"
+          x-data="{
     localEpisodes: $wire.entangle('form.episodes'),
-    localMedicalRecords: $wire.entangle('form.medical_records'),
+    localMedicalRecords: $wire.entangle('form.medicalRecords'),
+    availableEpisodes: @js($availableEpisodes ?? []),
 
     openModal: false,
     openMedicalModal: false,
@@ -8,14 +10,15 @@
     modalTarget: '',
     isNew: true,
     itemIndex: 0,
-    modalForm: { date: '', name: '' },
+    modalForm: { date: '', name: '', uuid: '' },
 
     initAdd(target) {
         this.modalTarget = target;
         this.isNew = true;
         this.modalForm = {
             date: new Date().toISOString().split('T')[0],
-            name: ''
+            name: '',
+            uuid: ''
         };
         this.openModal = true;
     },
@@ -65,7 +68,7 @@
 
     <div class="mt-4 space-y-10">
         <div class="space-y-4">
-            <template x-if="localEpisodes.length > 0">
+            <template x-if="localEpisodes && localEpisodes.length > 0">
                 <div class="overflow-x-auto index-table-wrapper">
                     <table class="index-table">
                         <thead class="index-table-thead">
@@ -97,7 +100,7 @@
         </div>
 
         <div class="space-y-4">
-            <template x-if="localMedicalRecords.length > 0">
+            <template x-if="localMedicalRecords && localMedicalRecords.length > 0">
                 <div class="overflow-x-auto index-table-wrapper">
                     <table class="index-table">
                         <thead class="index-table-thead">
@@ -134,42 +137,56 @@
              style="display: none"
              class="modal"
              @keydown.escape.prevent.stop="openModal = false">
-            <div x-show="openModal" x-transition.opacity class="fixed inset-0 bg-black/25"></div>
+            <div x-show="openModal" x-transition.opacity class="fixed inset-0 bg-black/25 backdrop-blur-sm z-[100]"></div>
             <div x-show="openModal" x-transition @click="openModal = false"
-                 class="relative flex min-h-screen items-center justify-center p-4">
+                 class="relative flex min-h-screen items-center justify-center p-4 z-[101]">
                 <div @click.stop x-trap.noscroll.inert="openModal"
-                     class="modal-content h-fit w-full max-w-2xl rounded-2xl shadow-lg bg-white">
-                    <h3 class="modal-header !flex !justify-start gap-2">
+                     class="modal-content h-fit w-full max-w-2xl rounded-2xl shadow-lg bg-white dark:bg-gray-800">
+                    <h3 class="modal-header !flex !justify-start gap-2 border-b border-gray-100 dark:border-gray-700 p-6">
                         <span x-text="isNew ? '{{ __('forms.add') }}' : '{{ __('forms.edit') }}'"></span>
                         <span x-text="modalTarget === 'episode' ? '{{ mb_strtolower(__('care-plan.episode')) }}' : '{{ mb_strtolower(__('care-plan.medical_record')) }}'"></span>
                     </h3>
                     <form @submit.prevent="save()">
                         <div class="p-6 space-y-4">
-                            <div class="relative">
-                                <svg class="svg-input absolute left-1 !top-2/3 transform -translate-y-1/2 pointer-events-none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M6 5V4a1 1 0 1 1 2 0v1h3V4a1 1 0 1 1 2 0v1h3V4a1 1 0 1 1 2 0v1h1a2 2 0 0 1 2 2v2H3V7a2 2 0 0 1 2-2h1ZM3 19v-8h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm5-6a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2H8Z" clip-rule="evenodd"/>
-                                </svg>
-                                <label for="documentIssuedAt" class="label-modal">{{__('forms.date')}}<span class="text-red-600"> *</span></label>
-                                <input x-model="modalDocument.issuedAt"
+                            <div class="form-group group">
+                                <label for="modalDate" class="label-modal">{{ __('forms.date') }} <span class="text-red-600">*</span></label>
+                                <input type="text"
+                                       id="modalDate"
+                                       x-model="modalForm.date"
+                                       class="input-modal datepicker-input w-full"
                                        datepicker-format="{{ frontendDateFormat() }}"
-                                       type="text" name="documentIssuedAt"
-                                       id="documentIssuedAt"
-                                       class="input-modal datepicker-input"
-                                       autocomplete="off">
+                                       autocomplete="off"
+                                       required>
                             </div>
-                            <div>
+                            <div x-show="modalTarget === 'episode' && availableEpisodes.length > 0" class="form-group group">
+                                <label class="label-modal">{{ __('care-plan.episode') }} <span class="text-red-600">*</span></label>
+                                <select x-model="modalForm.uuid" class="input-select peer w-full"
+                                    @change="
+                                        let ep = availableEpisodes.find(e => e.uuid === modalForm.uuid);
+                                        if (ep) {
+                                            modalForm.name = ep.name;
+                                            modalForm.date = ep.date;
+                                        }
+                                    ">
+                                    <option value="">{{ __('forms.select') }}</option>
+                                    <template x-for="ep in availableEpisodes" :key="ep.uuid">
+                                        <option :value="ep.uuid" x-text="ep.name + ' (' + ep.date + ')'"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div x-show="modalTarget !== 'episode' || availableEpisodes.length === 0" class="form-group group">
                                 <label class="label-modal">{{ __('care-plan.name_description') }} <span class="text-red-600">*</span></label>
                                 <input type="text" x-model="modalForm.name"
                                        :placeholder="modalTarget === 'episode' ? '{{ __('care-plan.episode_name_placeholder') }}' : '{{ __('care-plan.record_name_placeholder') }}'"
-                                       class="input-modal w-full" required>
+                                       class="input-modal w-full">
                             </div>
                         </div>
-                        <div class="mt-6 flex flex-row items-center gap-4 border-t border-gray-200 p-6">
+                        <div class="mt-6 flex flex-row items-center gap-4 border-t border-gray-100 dark:border-gray-700 p-6">
                             <button type="button" @click="openModal = false" class="button-minor">
-                                {{__('forms.cancel')}}
+                                {{ __('forms.cancel') }}
                             </button>
-                            <button type="submit" class="button-primary" :disabled="!modalForm.date || !modalForm.name">
-                                {{__('forms.save')}}
+                            <button type="submit" class="button-primary" :disabled="(modalTarget === 'episode' && availableEpisodes.length > 0 && !modalForm.uuid) || !modalForm.date || (!modalForm.name && !modalForm.uuid)">
+                                {{ __('forms.save') }}
                             </button>
                         </div>
                     </form>
@@ -183,15 +200,15 @@
              style="display: none"
              class="modal"
              @keydown.escape.prevent.stop="openMedicalModal = false">
-            <div x-show="openMedicalModal" x-transition.opacity class="fixed inset-0 bg-black/25"></div>
+            <div x-show="openMedicalModal" x-transition.opacity class="fixed inset-0 bg-black/25 backdrop-blur-sm z-[100]"></div>
             <div x-show="openMedicalModal" x-transition @click="openMedicalModal = false"
-                 class="relative flex min-h-screen items-center justify-center p-4">
+                 class="relative flex min-h-screen items-center justify-center p-4 z-[101]">
                 <div @click.stop x-trap.noscroll.inert="openMedicalModal"
-                     class="modal-content h-fit w-full max-w-2xl rounded-2xl shadow-lg bg-white">
+                     class="modal-content h-fit w-full max-w-2xl rounded-2xl shadow-lg bg-white dark:bg-gray-800">
 
                     <div class="p-6">
                         <form @submit.prevent="saveMedical()">
-                        <fieldset class="fieldset">
+                        <fieldset class="fieldset !shadow-none !border-gray-100 dark:!border-gray-700">
                             <legend class="legend">
                                 {{ __('care-plan.search_medical_records') ?? 'Пошук медичних записів' }}
                             </legend>
@@ -200,7 +217,7 @@
                                 <div class="flex items-center me-6">
                                     <input id="current-interaction" type="radio" value="current" x-model="searchType" name="search-type"
                                            class="w-4 h-4 text-neutral-primary border-default-medium bg-neutral-secondary-medium rounded-full checked:border-brand focus:ring-2 focus:outline-none focus:ring-brand-subtle border border-default appearance-none">
-                                    <label for="current-interaction" class="select-none ms-2 text-sm font-medium text-heading whitespace-nowrap">
+                                    <label for="current-interaction" class="select-none ms-2 text-sm font-medium text-heading whitespace-nowrap text-gray-700 dark:text-gray-300">
                                         {{ __('care-plan.current_interaction') }}
                                     </label>
                                 </div>
@@ -208,27 +225,26 @@
                                 <div class="flex items-center">
                                     <input id="search-ehealth" type="radio" value="ehealth" x-model="searchType" name="search-type"
                                            class="w-4 h-4 text-neutral-primary border-default-medium bg-neutral-secondary-medium rounded-full checked:border-brand focus:ring-2 focus:outline-none focus:ring-brand-subtle border border-default appearance-none">
-                                    <label for="search-ehealth" class="select-none ms-2 text-sm font-medium text-heading whitespace-nowrap">
+                                    <label for="search-ehealth" class="select-none ms-2 text-sm font-medium text-heading whitespace-nowrap text-gray-700 dark:text-gray-300">
                                         {{ __('care-plan.search_in_ehealth') }}
                                     </label>
                                 </div>
                             </div>
                         </fieldset>
 
-                        <div x-show="searchType === 'ehealth'">
-                            <fieldset class="fieldset">
-
-                                <div class="mb-8 flex items-center gap-1 font-semibold text-gray-900 dark:text-white">
+                        <div x-show="searchType === 'ehealth'" class="mt-4">
+                            <fieldset class="fieldset !shadow-none !border-gray-100 dark:!border-gray-700">
+                                <div class="mb-4 flex items-center gap-1 font-semibold text-gray-900 dark:text-white">
                                     @icon('search-outline', 'w-4.5 h-4.5')
                                     <p>{{ __('care-plan.search') }}</p>
                                 </div>
 
                                 <div class="form-row-2" x-data="{
                                    open: false,
-                                   selectedType: $wire.entangle('medical_record_type'),
+                                   selectedType: $wire.entangle('medicalRecordType'),
                                    types: {
-                                   'CONDITION': 'Стани/діагнози',
-                                   'OBSERVATION': 'Спостереження'
+                                   'CONDITION': '{{ __('care-plan.conditions/diagnoses') }}',
+                                   'OBSERVATION': '{{ __('care-plan.observations') }}'
                                    }
                                    }">
 
@@ -270,17 +286,15 @@
                                         </div>
                                     </div>
                                     <div class="form-group group">
-                                        <label for="episode" class="label">
-                                            {{ __('care-plan.episode') }}
-                                        </label>
-
                                         <select id="episode"
                                                 name="episode"
                                                 class="input-select peer"
-                                                type="text"
                                         >
                                             <option selected value="">{{ __('forms.select') }}</option>
                                         </select>
+                                        <label for="episode" class="label">
+                                            {{ __('care-plan.episode') }}
+                                        </label>
 
                                         @error('care-plan.episode')
                                         <p class="text-error">{{ $message }}</p>
@@ -290,12 +304,12 @@
                             </fieldset>
                         </div>
 
-                        <div class="mt-6 flex flex-row items-center gap-4 border-t border-gray-200 p-6">
+                        <div class="mt-6 flex flex-row items-center gap-4 border-t border-gray-100 dark:border-gray-700 pt-4">
                             <button type="button" @click="openMedicalModal = false" class="button-minor">
-                                {{__('forms.cancel')}}
+                                {{ __('forms.cancel') }}
                             </button>
                             <button type="submit" class="button-primary">
-                                {{__('forms.save')}}
+                                {{ __('forms.save') }}
                             </button>
                         </div>
                         </form>

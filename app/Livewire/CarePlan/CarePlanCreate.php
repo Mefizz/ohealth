@@ -52,6 +52,7 @@ class CarePlanCreate extends BasePatientComponent
     public bool $showAdditionalSearchParams = false;
     public ?array $dictionaries = [];
     public array $doctors = [];
+    public ?string $phoneNumber = null;
 
     /**
      * Dictionaries to load via FormTrait::getDictionary().
@@ -216,6 +217,7 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         $this->form->periodStart = now()->format('d.m.Y');
+        $this->form->periodStartTime = now()->format('H:i');
 
         $this->refreshAuthorDisplay();
         $this->loadDoctorsAndDictionaries();
@@ -439,6 +441,14 @@ class CarePlanCreate extends BasePatientComponent
     public function selectAuthMethod(string $methodUuid): void
     {
         $this->showMethodSelectionModal = false;
+
+        $selected = collect($this->authMethods)->first(fn ($m) => ($m['id'] ?? ($m['uuid'] ?? null)) === $methodUuid);
+        if ($selected && !empty($selected['phone_number'])) {
+            $this->phoneNumber = $selected['phone_number'];
+        } elseif ($selected && !empty($selected['phoneNumber'])) {
+            $this->phoneNumber = $selected['phoneNumber'];
+        }
+
         $this->createApproval($methodUuid);
     }
 

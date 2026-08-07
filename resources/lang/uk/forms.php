@@ -419,7 +419,13 @@ return [
         'dracs_death_unverified' => 'Потребує підтвердження смерті',
         'unknown' => 'Невідомо',
         'stopped' => 'Припинено',
-        'entered_in_error' => 'Внесено помилково'
+        'entered_in_error' => 'Внесено помилково',
+        'completed' => 'Завершено',
+        'on_hold' => 'Призупинено',
+        'on-hold' => 'Призупинено',
+        'cancelled' => 'Скасовано',
+        'revoked' => 'Відкликано',
+        'terminated' => 'Припинено',
     ],
 
     // Reorganization types

@@ -47,7 +47,9 @@ class CarePlanUpdate extends CarePlanCreate
         $this->form->title = $carePlan->title ?? '';
         $this->form->intent = 'order';
         $this->form->periodStart = $carePlan->period_start?->format('d.m.Y') ?? '';
+        $this->form->periodStartTime = $carePlan->period_start?->format('H:i') ?? '';
         $this->form->periodEnd = $carePlan->period_end?->format('d.m.Y') ?? '';
+        $this->form->periodEndTime = $carePlan->period_end?->format('H:i') ?? '';
         $this->form->encounter = $carePlan->encounter?->uuid ?? '';
         $this->form->description = $carePlan->description ?? '';
         $this->form->note = $carePlan->note ?? '';

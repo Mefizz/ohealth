@@ -1,7 +1,7 @@
 <section class="section-form">
     <x-header-navigation class="breadcrumb-form">
         <x-slot name="title">
-            Призначення — план №{{ $carePlan->requisition ?? $carePlan->id }}
+            {{ __('care-plan.prescriptions') }} — {{ __('care-plan.care_plan') }} №{{ $carePlan->requisition ?? $carePlan->id }}
         </x-slot>
     </x-header-navigation>
 
@@ -27,18 +27,18 @@
                 <a href="{{ route('care-plans.show', [legalEntity(), $carePlan->id, 'edit_activity' => $activity->id]) }}"
                    class="button-minor"
                    wire:navigate>
-                    Редагувати
+                    {{ __('forms.edit') }}
                 </a>
-                <button type="button" class="button-primary-outline" wire:click="openSignatureModal('sign_activity', {{ $activity->id }})">Підписати призначення</button>
+                <button type="button" class="button-primary-outline" wire:click="openSignatureModal('sign_activity', {{ $activity->id }})">{{ __('care-plan.sign_activity') }}</button>
             @elseif(in_array(strtoupper($activityStatus), ['ACTIVE', 'SCHEDULED', 'IN-PROGRESS', 'IN_PROGRESS', 'ON-HOLD', 'PROCESSED']))
                 @if($resolvedKind === 'medication_request')
-                    <button type="button" class="button-primary" wire:click="initEPrescriptionForm({{ $activity->id }})">Виписати Е-Рецепт</button>
+                    <button type="button" class="button-primary" wire:click="initEPrescriptionForm({{ $activity->id }})">{{ __('care-plan.issue_eprescription') }}</button>
                 @endif
                 @if(in_array($resolvedKind, ['service_request', 'device_request'], true))
-                    <button type="button" class="button-primary" wire:click="initReferralForm({{ $activity->id }})">Створити направлення</button>
+                    <button type="button" class="button-primary" wire:click="initReferralForm({{ $activity->id }})">{{ __('care-plan.create_referral') }}</button>
                 @endif
-                <button type="button" class="button-minor" wire:click="openSignatureModal('complete_activity', {{ $activity->id }})">Завершити</button>
-                <button type="button" class="button-minor text-red-500 border-red-200" wire:click="openSignatureModal('cancel_activity', {{ $activity->id }})">Скасувати</button>
+                <button type="button" class="button-minor" wire:click="openSignatureModal('complete_activity', {{ $activity->id }})">{{ __('forms.complete') }}</button>
+                <button type="button" class="button-minor text-red-500 border-red-200" wire:click="openSignatureModal('cancel_activity', {{ $activity->id }})">{{ __('forms.cancel') }}</button>
             @endif
         </div>
 

@@ -303,16 +303,16 @@
                     <a href="{{ route('referrals.index', [legalEntity()]) }}"
                        class="menu-item-simple {{ request()->routeIs('referrals.*') ? 'menu-item-active' : '' }}"
                     >
-                        @icon('health-document')
+                        @icon('referrals')
                         <span>Направлення</span>
                     </a>
                 </li>
-                
+
                 <li>
                     <a href="{{ route('medication-requests.index', [legalEntity()]) }}"
                        class="menu-item-simple {{ request()->routeIs('medication-requests.*') ? 'menu-item-active' : '' }}"
                     >
-                        @icon('health-document')
+                        @icon('medication-requests')
                         <span>Е-Рецепти</span>
                     </a>
                 </li>
@@ -321,7 +321,7 @@
                     <a href="{{ route('device-requests.index', [legalEntity()]) }}"
                        class="menu-item-simple {{ request()->routeIs('device-requests.*') ? 'menu-item-active' : '' }}"
                     >
-                        @icon('health-document')
+                        @icon('device-requests')
                         <span>Медичні Вироби</span>
                     </a>
                 </li>

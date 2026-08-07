@@ -231,18 +231,21 @@
                             </div>
 
                             <div class="record-inner-column flex-1">
-                                <div class="record-inner-label">Назва</div>
+                                <div class="record-inner-label">{{ __('care-plan.name') }}</div>
                                 <div
                                     class="record-inner-value text-[17px] font-semibold text-gray-900 dark:text-gray-100">{{ $plan->title }}</div>
                             </div>
 
                             <div
                                 class="record-inner-column-bordered w-full md:w-36 shrink-0">
-                                <div class="record-inner-label">Статус:</div>
+                                <div class="record-inner-label">{{ __('forms.status.label') }}:</div>
                                 <div>
-                                    @php($status = CarePlanStatus::from(data_get($plan, 'status')))
-                                    <span @class([$status->color()])>
-                                        {{ $status->label() ?? '-' }}
+                                    @php
+                                        $rawStatus = is_array($plan->status) ? ($plan->status['coding'][0]['code'] ?? ($plan->status['text'] ?? '')) : $plan->status;
+                                        $statusEnum = CarePlanStatus::tryFrom(strtolower(str_replace('_', '-', (string) $rawStatus))) ?? CarePlanStatus::UNKNOWN;
+                                    @endphp
+                                    <span class="{{ $statusEnum->color() }}">
+                                        {{ $statusEnum->label() }}
                                     </span>
                                 </div>
                             </div>
@@ -305,28 +308,27 @@
                                 <!-- First Row of Details -->
                                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-3 mb-4">
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Створено</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('forms.created') ?? 'Створено' }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->created_at?->format(config('app.date_format')) ?? '-' }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Початок</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('forms.start_date') ?? 'Початок' }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->period_start?->format(config('app.date_format')) ?? '-' }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Кінець</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('forms.end_date') ?? 'Кінець' }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->period_end?->format(config('app.date_format')) ?? '-' }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Лікар</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.doctor') ?? 'Лікар' }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words uppercase">{{ $plan->author_name }}</div>
                                     </div>
                                     <div class="min-w-0 col-span-1">
-                                        <div class="record-inner-label text-[10px] uppercase">Умови надання медичної
-                                            допомоги
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.terms_of_service') }}
                                         </div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->care_provision_conditions }}</div>
@@ -336,23 +338,23 @@
                                 <!-- Second Row of Details -->
                                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-3">
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Медичний стан/діагноз
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.condition_diagnosis') }}
                                         </div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->medical_condition }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Розширений опис</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.extended_description') }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->extended_description }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Допоміжна інформація</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.supporting_information') }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->additional_info }}</div>
                                     </div>
                                     <div class="min-w-0">
-                                        <div class="record-inner-label text-[10px] uppercase">Нотатки</div>
+                                        <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.notes') }}</div>
                                         <div
                                             class="record-inner-value text-[14px] font-semibold break-words">{{ $plan->notes }}</div>
                                     </div>
@@ -361,12 +363,12 @@
 
                             <div class="record-inner-id-col">
                                 <div class="min-w-0">
-                                    <div class="record-inner-label text-[10px] uppercase">ID ECO3</div>
+                                    <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.ehealth_id') }}</div>
                                     <div
                                         class="record-inner-id-value">{{ $plan->ehealth_id }}</div>
                                 </div>
                                 <div class="min-w-0">
-                                    <div class="record-inner-label text-[10px] uppercase">ID Епізоду</div>
+                                    <div class="record-inner-label text-[10px] uppercase">{{ __('care-plan.episode_id') ?? 'ID Епізоду' }}</div>
                                     <div
                                         class="record-inner-id-value">{{ $plan->episode_id }}</div>
                                 </div>

@@ -232,4 +232,308 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->assertStringContainsString('Тестова інструкція', $html);
         $this->assertStringContainsString('(ПАМ\'ЯТКА)', $html);
     }
+
+    public function test_find_eligible_encounters_requires_today_period_and_current_performer(): void
+    {
+        $performer = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => $this->employee->uuid,
+        ]);
+        $this->encounter->update(['performer_id' => $performer->id]);
+        $this->encounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
+        $otherPerformer = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => (string) Str::uuid(),
+        ]);
+        $otherEncounter = Encounter::create([
+            'uuid' => (string) Str::uuid(),
+            'person_id' => $this->person->id,
+            'status' => 'finished',
+            'episode_id' => $this->encounter->episode_id,
+            'class_id' => $this->encounter->class_id,
+            'type_id' => $this->encounter->type_id,
+            'performer_id' => $otherPerformer->id,
+            'ehealth_inserted_at' => now(),
+        ]);
+        $otherEncounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
+        $yesterdayEncounter = Encounter::create([
+            'uuid' => (string) Str::uuid(),
+            'person_id' => $this->person->id,
+            'status' => 'finished',
+            'episode_id' => $this->encounter->episode_id,
+            'class_id' => $this->encounter->class_id,
+            'type_id' => $this->encounter->type_id,
+            'performer_id' => $performer->id,
+            'ehealth_inserted_at' => now()->subDay(),
+        ]);
+        $yesterdayEncounter->period()->create([
+            'start' => now()->subDay()->startOfDay(),
+            'end' => now()->subDay(),
+        ]);
+
+        $service = new MedicationRequestLifecycleService();
+        $eligible = $service->findEligibleEncountersForEPrescription(
+            (int) $this->person->id,
+            $this->employee->uuid
+        );
+
+        $this->assertCount(1, $eligible);
+        $this->assertSame($this->encounter->id, $eligible->first()->id);
+    }
+
+    public function test_create_draft_requires_selected_eligible_encounter(): void
+    {
+        $performer = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => $this->employee->uuid,
+        ]);
+        $this->encounter->update(['performer_id' => $performer->id]);
+        $this->encounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
+        $service = new MedicationRequestLifecycleService();
+        $employeeContext = [
+            'employee_id' => $this->employee->id,
+            'employee_uuid' => $this->employee->uuid,
+            'division_id' => null,
+            'legal_entity_uuid' => null,
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(__('care-plan.eprescription_encounter_required'));
+
+        $service->createDraft(
+            $this->carePlan->fresh(['person']),
+            $this->activity,
+            [
+                'signature_text' => 'По 1 таблетці 2 рази на день',
+                'max_dose_per_administration' => 1,
+                'max_dose_per_period' => 2,
+                'medication_id' => 'INN-101',
+                'medication_qty' => 10,
+            ],
+            $employeeContext
+        );
+    }
+
+    public function test_create_draft_rejects_encounter_of_another_performer(): void
+    {
+        $otherPerformer = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => (string) Str::uuid(),
+        ]);
+        $this->encounter->update(['performer_id' => $otherPerformer->id]);
+        $this->encounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
+        $service = new MedicationRequestLifecycleService();
+        $employeeContext = [
+            'employee_id' => $this->employee->id,
+            'employee_uuid' => $this->employee->uuid,
+            'division_id' => null,
+            'legal_entity_uuid' => null,
+        ];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(__('care-plan.eprescription_encounter_none'));
+
+        $service->createDraft(
+            $this->carePlan->fresh(['person']),
+            $this->activity,
+            [
+                'encounter_id' => $this->encounter->id,
+                'signature_text' => 'По 1 таблетці 2 рази на день',
+                'max_dose_per_administration' => 1,
+                'max_dose_per_period' => 2,
+                'medication_id' => 'INN-101',
+                'medication_qty' => 10,
+            ],
+            $employeeContext
+        );
+    }
+
+    public function test_create_draft_persists_selected_eligible_encounter(): void
+    {
+        $performer = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => $this->employee->uuid,
+        ]);
+        $this->encounter->update(['performer_id' => $performer->id]);
+        $this->encounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
+        $createdUuid = (string) Str::uuid();
+        $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
+        $mockApi->shouldReceive('createMedicationRequest')
+            ->once()
+            ->andReturn([
+                'id' => $createdUuid,
+                'request_number' => '1111222233334444',
+                'status' => 'NEW',
+            ]);
+
+        $service = new MedicationRequestLifecycleService();
+        $employeeContext = [
+            'employee_id' => $this->employee->id,
+            'employee_uuid' => $this->employee->uuid,
+            'division_id' => null,
+            'legal_entity_uuid' => null,
+        ];
+
+        $uuid = $service->createDraft(
+            $this->carePlan->fresh(['person']),
+            $this->activity,
+            [
+                'encounter_id' => $this->encounter->id,
+                'signature_text' => 'По 1 таблетці 2 рази на день',
+                'max_dose_per_administration' => 1,
+                'max_dose_per_period' => 2,
+                'medication_id' => 'INN-101',
+                'medication_qty' => 10,
+                'medication_unit' => 'шт.',
+                'inform_with' => 'auth-1|OTP|+380******01',
+            ],
+            $employeeContext
+        );
+
+        $this->assertSame($createdUuid, $uuid);
+        $this->assertDatabaseHas('medication_request_requests', [
+            'uuid' => $createdUuid,
+            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->activity->id,
+        ]);
+    }
+
+    public function test_create_draft_requires_signature_text(): void
+    {
+        $performer = \App\Models\MedicalEvents\Sql\Identifier::create([
+            'value' => $this->employee->uuid,
+        ]);
+        $this->encounter->update(['performer_id' => $performer->id]);
+        $this->encounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
+        $service = new MedicationRequestLifecycleService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(__('care-plan.eprescription_signature_required'));
+
+        $service->createDraft(
+            $this->carePlan->fresh(['person']),
+            $this->activity,
+            [
+                'encounter_id' => $this->encounter->id,
+                'signature_text' => '   ',
+                'max_dose_per_administration' => 1,
+                'max_dose_per_period' => 2,
+            ],
+            [
+                'employee_id' => $this->employee->id,
+                'employee_uuid' => $this->employee->uuid,
+            ]
+        );
+    }
+
+    public function test_post_sign_success_message_sms_vs_print(): void
+    {
+        $service = new MedicationRequestLifecycleService();
+
+        $sms = $service->buildPostSignSuccessMessage(
+            '5555666677778888',
+            'auth-uuid|OTP|+380******99',
+            false
+        );
+        $this->assertStringContainsString('5555666677778888', $sms);
+        $this->assertStringContainsString('СМС', $sms);
+        $this->assertStringContainsString('+380******99', $sms);
+
+        $print = $service->buildPostSignSuccessMessage(
+            '5555666677778888',
+            'auth-uuid|OFFLINE|Документи',
+            false
+        );
+        $this->assertStringContainsString('друкованій інформаційній памʼятці', $print);
+
+        $printDisabled = $service->buildPostSignSuccessMessage(
+            '5555666677778888',
+            'auth-uuid|OTP|+380******99',
+            true
+        );
+        $this->assertStringContainsString('друкованій інформаційній памʼятці', $printDisabled);
+    }
+
+    public function test_remaining_qty_warning_when_leftover_less_than_qty(): void
+    {
+        $service = new MedicationRequestLifecycleService();
+
+        $this->assertTrue($service->shouldWarnRemainingQty(15.0, 10.0));
+        $this->assertFalse($service->shouldWarnRemainingQty(30.0, 10.0));
+        $this->assertTrue($service->shouldWarnRemainingQty(10.0, 10.0));
+
+        $message = $service->buildRemainingQtyWarningMessage(15.0, 'шт.');
+        $this->assertStringContainsString('15', $message);
+        $this->assertStringContainsString('шт.', $message);
+        $this->assertStringContainsString('лікаря-спеціаліста', $message);
+    }
+
+    public function test_sign_sets_tv_success_and_remaining_warning(): void
+    {
+        $requestRecord = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id,
+            'status' => 'new',
+            'medication_id' => 'INN-101',
+            'medication_qty' => 10.0,
+            'intent' => 'order',
+            'based_on_id' => $this->activity->id,
+            'context_id' => $this->encounter->id,
+            'inform_with' => 'auth-1|OTP|+380******12',
+            'request_number' => '9999000011112222',
+            'ehealth_payload' => [
+                'id' => (string) Str::uuid(),
+                'request_number' => '9999000011112222',
+            ],
+        ]);
+
+        $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
+        $mockApi->shouldReceive('signMedicationRequest')
+            ->once()
+            ->andReturn([
+                'status' => 'ACTIVE',
+                'request_number' => '9999000011112222',
+            ]);
+
+        $service = new MedicationRequestLifecycleService();
+        $result = $service->sign(
+            $this->carePlan->fresh(['person']),
+            $requestRecord,
+            [
+                'signed_medication_request_request' => 'mock-signed',
+                'request_notification_disabled' => false,
+                'medication_unit' => 'шт.',
+            ],
+            (string) $requestRecord->inform_with,
+            15.0
+        );
+
+        $this->assertStringContainsString('СМС', $result['success_message']);
+        $this->assertTrue($result['show_remaining_qty_warning'] ?? false);
+        $this->assertStringContainsString('15', $result['warning_message']);
+        $this->assertDatabaseHas('medication_request_requests', [
+            'uuid' => $requestRecord->uuid,
+            'status' => 'active',
+        ]);
+    }
 }

@@ -114,6 +114,18 @@ trait CarePlanManager
             return;
         }
 
+        if ($this->actionType === 'cancel') {
+            $planCancelBlock = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+                ->planCancelBlockReason($this->carePlan);
+
+            if ($planCancelBlock !== null) {
+                $this->dispatch('flashMessage', ['message' => $planCancelBlock, 'type' => 'error']);
+                $this->showSignatureModal = false;
+
+                return;
+            }
+        }
+
         $this->carePlan->loadMissing(['encounter', 'encounterIdentifier', 'effectivePeriod', 'author', 'categoryConcept.coding']);
 
         $systemMap = [
@@ -581,6 +593,16 @@ trait CarePlanManager
 
         $activity = $activityRepository->findById($this->activityToSign);
         if (!$activity) {
+            return;
+        }
+
+        $openDocsBlock = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+            ->activityStatusChangeBlockReason($activity, (string) $this->actionType);
+
+        if ($openDocsBlock !== null) {
+            $this->dispatch('flashMessage', ['message' => $openDocsBlock, 'type' => 'error']);
+            $this->showSignatureModal = false;
+
             return;
         }
 

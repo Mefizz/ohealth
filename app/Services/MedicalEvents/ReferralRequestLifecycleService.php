@@ -244,10 +244,14 @@ class ReferralRequestLifecycleService
             ? 'Зверніться до будь-якого медичного закладу, що надає відповідні послуги за контрактом з НСЗУ.'
             : 'Зверніться до аптеки або закладу, що бере участь у програмі реімбурсації чи відпуску відповідних медичних виробів за контрактом з НСЗУ.';
 
+        $requisition = (string) ($record->request_number ?: $record->uuid);
+        $barcodeHtml = $this->buildCode128BarcodeHtml($requisition);
+
         return "
             <div style='font-family: sans-serif; padding: 40px; max-width: 600px; margin: 0 auto; border: 1px solid #ccc; border-radius: 8px;'>
                 <h2 style='text-align: center; color: #1e3a8a;'>ІНФОРМАЦІЙНА ДОВІДКА НАПРАВЛЕННЯ</h2>
-                <p style='text-align: center; font-size: 14px; color: #555;'>Електронне направлення № " . e($record->request_number ?: $record->uuid) . "</p>
+                <p style='text-align: center; font-size: 14px; color: #555;'>Електронне направлення № " . e($requisition) . "</p>
+                <div style='text-align: center; margin: 16px 0;'>" . $barcodeHtml . "</div>
                 <hr style='border-top: 1px solid #eee; margin: 20px 0;'/>
                 <table style='width: 100%; font-size: 14px; border-collapse: collapse;'>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Тип:</td><td style='padding: 8px 0;'>" . e($name) . "</td></tr>
@@ -264,6 +268,29 @@ class ReferralRequestLifecycleService
                 </div>
             </div>
         ";
+    }
+
+    /**
+     * TV 3.17.1.10.2.1 — requisition as CODE128 barcode on the printout.
+     */
+    public function buildCode128BarcodeHtml(string $requisition): string
+    {
+        $value = trim($requisition);
+        if ($value === '') {
+            return '';
+        }
+
+        try {
+            $generator = new \Picqer\Barcode\BarcodeGeneratorPNG();
+            $binary = $generator->getBarcode($value, $generator::TYPE_CODE_128, 2, 60);
+
+            return '<img alt="CODE128 '.e($value).'" src="data:image/png;base64,'.base64_encode($binary).'" style="max-width:100%;height:auto;" />'
+                .'<div style="font-family:monospace;font-size:12px;margin-top:4px;">'.e($value).'</div>';
+        } catch (\Throwable $exception) {
+            \Illuminate\Support\Facades\Log::warning('Failed to render CODE128 barcode for referral printout: '.$exception->getMessage());
+
+            return '<div style="font-family:monospace;font-size:14px;">'.e($value).'</div>';
+        }
     }
 
     /**

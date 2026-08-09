@@ -102,6 +102,19 @@ trait CarePlanManager
             return;
         }
 
+        if ($this->actionType === 'recall_referral') {
+            if (!method_exists($this, 'signRecallReferral')) {
+                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                $this->showSignatureModal = false;
+
+                return;
+            }
+
+            $this->signRecallReferral();
+
+            return;
+        }
+
         if (empty($this->carePlan->uuid)) {
             if ($this->actionType === 'sign_plan') {
                 $this->signPlan($repository);

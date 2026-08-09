@@ -54,7 +54,18 @@ class ReferralController extends Controller
                 return response()->json(['success' => false, 'message' => 'Не знайдено активного лікаря'], 403);
             }
 
-            $response = $lifecycleService->takeIntoWork($uuid, $employee, $request->input('payload', []));
+            $patientUuid = $request->input('patient_uuid') ?? $request->input('patient_id');
+            $payload = $request->input('payload', []);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            $response = $lifecycleService->takeIntoWork(
+                $uuid,
+                $employee,
+                is_string($patientUuid) && $patientUuid !== '' ? $patientUuid : null,
+                $payload
+            );
 
             return response()->json([
                 'success' => true,
@@ -107,11 +118,23 @@ class ReferralController extends Controller
      */
     public function cancelUsage(string $uuid, Request $request, ReferralRequestLifecycleService $lifecycleService): JsonResponse
     {
+        $request->validate([
+            'patient_id' => 'required_without:patient_uuid|string',
+            'patient_uuid' => 'required_without:patient_id|string',
+        ]);
+
         try {
-            $response = $lifecycleService->cancelUsage(
-                $uuid,
-                $request->input('payload', [])
-            );
+            $patientId = (string) ($request->input('patient_id') ?? $request->input('patient_uuid'));
+            $payload = $request->input('payload', []);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            if ($request->filled('explanatory_letter') && empty($payload['explanatory_letter'])) {
+                $payload['explanatory_letter'] = $request->input('explanatory_letter');
+            }
+
+            $response = $lifecycleService->cancelUsage($uuid, $patientId, $payload);
 
             return response()->json([
                 'success' => true,

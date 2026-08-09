@@ -173,10 +173,10 @@ class MedicationRequest extends PatientApiBase
             $payload['signed_medication_reject'] = $payload['signed_content'];
         }
 
+        // Keep reject_reason_code (+ optional reject_reason) in the HTTP body for ESOZ.
+        // Signed blob also carries reject_reason_code; person_id is only for MIS routing.
         unset(
             $payload['person_id'],
-            $payload['reject_reason'],
-            $payload['reject_reason_code'],
             $payload['signed_content'],
             $payload['signed_data']
         );

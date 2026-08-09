@@ -20,7 +20,16 @@
 
     <div class="shift-content mt-8 flow-root pl-3.5">
         <div class="max-w-screen-xl">
-            <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <p class="font-semibold">Device executor — відкладено (Spec 004 T063)</p>
+                <p class="mt-2">
+                    Пошук / process / complete для DeviceRequest на стороні виконавця не реалізовано в Phase 6.
+                    Використовуйте ServiceRequest executor (`ReferralIndex`) для направлень на послуги. Повний device
+                    executor — окремий follow-up після eHealth support (#601 / #607).
+                </p>
+            </div>
+
+            <div class="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <div class="mb-4 w-full">
                     <p class="text-sm font-normal text-gray-500 dark:text-gray-400">
                         Тут буде відображатися список призначених медичних виробів (напр. тест-смужки) для пацієнтів.

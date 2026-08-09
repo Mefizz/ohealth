@@ -23,16 +23,18 @@ use App\Exceptions\EHealth\EHealthException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
-// use App\Livewire\Encounter\Concerns\ManagesEncounterEPrescription;
-// use App\Livewire\Encounter\Concerns\ManagesEncounterReferrals;
+use App\Livewire\Encounter\Concerns\ManagesEncounterEPrescription;
+use App\Livewire\Encounter\Concerns\ManagesEncounterReferrals;
+use App\Livewire\Encounter\Concerns\ResolvesEncounterStandaloneContext;
 use Livewire\Attributes\Locked;
 use Throwable;
 
 class EncounterEdit extends EncounterComponent
 {
     use HandlesEncounterCancellation;
-    // use ManagesEncounterEPrescription;
-    // use ManagesEncounterReferrals;
+    use ResolvesEncounterStandaloneContext;
+    use ManagesEncounterEPrescription;
+    use ManagesEncounterReferrals;
 
     #[Locked]
     public int $encounterId;

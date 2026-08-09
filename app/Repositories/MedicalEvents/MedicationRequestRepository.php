@@ -99,6 +99,50 @@ class MedicationRequestRepository extends BaseRepository
             ->toArray();
     }
 
+    /**
+     * Patient-scoped MRR search with TV 3.9.4.1 basic filters (status + period).
+     *
+     * @param  array{
+     *     status?: string|null,
+     *     started_at_from?: string|null,
+     *     started_at_to?: string|null,
+     *     ended_at_from?: string|null,
+     *     ended_at_to?: string|null
+     * }  $filters
+     * @return list<array<string, mixed>>
+     */
+    public function searchByPersonId(int $personId, array $filters = []): array
+    {
+        $query = $this->model
+            ->newQuery()
+            ->with(['dosageInstructions.doseRate'])
+            ->where('person_id', $personId);
+
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status !== '') {
+            $query->whereRaw('LOWER(status) = ?', [strtolower($status)]);
+        }
+
+        if (!empty($filters['started_at_from'])) {
+            $query->whereDate('started_at', '>=', $filters['started_at_from']);
+        }
+        if (!empty($filters['started_at_to'])) {
+            $query->whereDate('started_at', '<=', $filters['started_at_to']);
+        }
+        if (!empty($filters['ended_at_from'])) {
+            $query->whereDate('ended_at', '>=', $filters['ended_at_from']);
+        }
+        if (!empty($filters['ended_at_to'])) {
+            $query->whereDate('ended_at', '<=', $filters['ended_at_to']);
+        }
+
+        return $query
+            ->orderByDesc('started_at')
+            ->orderByDesc('id')
+            ->get()
+            ->toArray();
+    }
+
     public function findByUuid(string $uuid): ?MedicationRequestRequest
     {
         return $this->model->newQuery()->where('uuid', $uuid)->first();

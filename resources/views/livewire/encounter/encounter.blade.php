@@ -433,17 +433,17 @@
         </div>
     </div>
 
-    @unless ($isReadonly)
+    @if ($this instanceof EncounterEdit || !$isReadonly)
         <x-signature-modal method="sign" />
-    @endunless
+    @endif
 
     @if ($this instanceof EncounterEdit && $this->canBeCancelled)
         @include('livewire.encounter.encounter-cancellation', [
-                                                    'formPath' => 'cancellationForm',
-                                                    'description' => array_filter($this->selectedRecords)
-                                                        ? __('patients.messages.encounter_records_cancel_modal_description')
-                                                        : __('patients.messages.encounter_cancel_modal_description')
-                                                ])
+                                                            'formPath' => 'cancellationForm',
+                                                            'description' => array_filter($this->selectedRecords)
+                                                                ? __('patients.messages.encounter_records_cancel_modal_description')
+                                                                : __('patients.messages.encounter_cancel_modal_description')
+                                                        ])
     @endif
 
     @if ($this instanceof EncounterEdit)

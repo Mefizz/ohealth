@@ -163,8 +163,42 @@ trait ManagesCarePlanEPrescription
             }
         }
 
+        $this->ePrescriptionShowDailyDoseWarning = false;
+        $this->ePrescriptionShowRemainingQtyWarning = false;
+        $this->ePrescriptionRemainingQtyWarningMessage = '';
+        $this->ePrescriptionSelectedActivity = $activity->toArray();
+
+        $employeeContext = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)
+            ->resolveEmployeeContext($this->carePlan);
+        $eligibleEncounters = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)
+            ->findEligibleEncountersForEPrescription(
+                (int) $this->carePlan->person_id,
+                $employeeContext['employee_uuid'] ?? null
+            );
+
+        $this->ePrescriptionEligibleEncounters = $eligibleEncounters
+            ->map(static function ($encounter): array {
+                $endedAt = $encounter->period?->end;
+                $dateLabel = $endedAt
+                    ? \Carbon\Carbon::parse($endedAt)->format('d.m.Y H:i')
+                    : ($encounter->created_at?->format('d.m.Y H:i') ?? '');
+
+                return [
+                    'id' => (int) $encounter->id,
+                    'uuid' => (string) $encounter->uuid,
+                    'label' => trim("Завершена взаємодія від {$dateLabel} ({$encounter->uuid})"),
+                ];
+            })
+            ->values()
+            ->all();
+
+        $defaultEncounterId = count($this->ePrescriptionEligibleEncounters) === 1
+            ? (string) $this->ePrescriptionEligibleEncounters[0]['id']
+            : '';
+
         $this->ePrescriptionForm = [
             'activity_id' => $activity->id,
+            'encounter_id' => $defaultEncounterId,
             'medication_id' => $activity->product_reference,
             'started_at' => now()->toDateString(),
             'duration' => 10,
@@ -181,9 +215,25 @@ trait ManagesCarePlanEPrescription
             'route' => 'oral',
         ];
 
-        $this->ePrescriptionShowDailyDoseWarning = false;
-        $this->ePrescriptionShowRemainingQtyWarning = false;
-        $this->ePrescriptionSelectedActivity = $activity->toArray();
+        // Prefer OTP/THIRD_PERSON option value with pipe encoding when available.
+        if (!empty($this->ePrescriptionAuthMethods)) {
+            $first = $this->ePrescriptionAuthMethods[0];
+            $methodId = $first['uuid'] ?? $first['id'] ?? '';
+            $type = $first['type'] ?? '';
+            $valueLabel = $first['phone_number'] ?? $first['alias'] ?? '';
+            if ($methodId !== '') {
+                $this->ePrescriptionForm['inform_with'] = "{$methodId}|{$type}|{$valueLabel}";
+            }
+        }
+
+        if ($this->ePrescriptionEligibleEncounters === []) {
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.eprescription_encounter_none'),
+            ]);
+
+            return;
+        }
 
         $this->calculateTreatmentDates();
         $this->showEPrescriptionDrawer = true;
@@ -243,8 +293,38 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionWarningMessage = '';
         $this->ePrescriptionShowDailyDoseWarning = false;
 
+        if (empty($this->ePrescriptionForm['encounter_id'])) {
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.eprescription_encounter_required'),
+            ]);
+
+            return;
+        }
+
         if (empty($this->ePrescriptionForm['inform_with'])) {
             $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Необхідно обрати метод автентифікації пацієнта']);
+
+            return;
+        }
+
+        $signatureText = trim((string) ($this->ePrescriptionForm['signature_text'] ?? ''));
+        if ($signatureText === '') {
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.eprescription_signature_required'),
+            ]);
+
+            return;
+        }
+
+        $maxDoseAdmin = (float) ($this->ePrescriptionForm['max_dose_per_administration'] ?? 0);
+        $maxDosePeriod = (float) ($this->ePrescriptionForm['max_dose_per_period'] ?? 0);
+        if ($maxDoseAdmin <= 0 || $maxDosePeriod <= 0) {
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.eprescription_dose_required'),
+            ]);
 
             return;
         }
@@ -303,15 +383,34 @@ trait ManagesCarePlanEPrescription
         }
 
         $dailyDose = (float) $this->ePrescriptionForm['max_dose_per_period'];
+        $drugName = (string) ($this->ePrescriptionSelectedProduct['name'] ?? 'ЛЗ');
+        $unit = (string) ($this->ePrescriptionForm['medication_unit'] ?? 'од.');
+        $maxDailyDosage = (float) ($this->ePrescriptionSelectedProduct['max_daily_dosage'] ?? 0);
         $recommendedDailyDose = (float) ($this->ePrescriptionSelectedProduct['daily_dosage'] ?? 0);
         $planDailyAmount = (float) ($this->ePrescriptionSelectedActivity['daily_amount'] ?? 0);
+
+        if ($maxDailyDosage > 0 && $dailyDose > $maxDailyDosage) {
+            $message = __('care-plan.eprescription_max_daily_dosage_exceeded', [
+                'name' => $drugName,
+                'max' => $maxDailyDosage,
+                'unit' => $unit,
+            ]);
+            $this->ePrescriptionWarningMessage = $message;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+
+            return;
+        }
 
         $exceededRecommended = $recommendedDailyDose > 0 && $dailyDose > $recommendedDailyDose;
         $exceededPlan = $planDailyAmount > 0 && $dailyDose > $planDailyAmount;
 
         if ($exceededRecommended || $exceededPlan) {
             $this->ePrescriptionShowDailyDoseWarning = true;
-            $this->dispatch('flashMessage', ['type' => 'warning', 'message' => 'Перевищено добову дозу лікарського засобу! Будь ласка, перевірте попередження та підтвердіть виписування.']);
+            $warning = $exceededPlan
+                ? __('care-plan.eprescription_plan_daily_amount_warning', ['name' => $drugName])
+                : __('care-plan.eprescription_daily_dose_warning', ['name' => $drugName]);
+            $this->ePrescriptionWarningMessage = $warning;
+            $this->dispatch('flashMessage', ['type' => 'warning', 'message' => $warning]);
 
             return;
         }
@@ -462,10 +561,21 @@ trait ManagesCarePlanEPrescription
             $result = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->sign(
                 $this->carePlan,
                 $requestRecord,
-                $this->form,
+                array_merge($this->form, [
+                    'request_notification_disabled' => filter_var(
+                        $this->ePrescriptionSelectedProgram['settings']['request_notification_disabled'] ?? false,
+                        FILTER_VALIDATE_BOOLEAN
+                    ),
+                    'medication_unit' => $this->ePrescriptionForm['medication_unit'] ?? 'од.',
+                ]),
                 $requestRecord->inform_with ?? '',
                 $this->ePrescriptionRemainingQty
             );
+
+            if (!empty($result['show_remaining_qty_warning']) || !empty($result['warning_message'])) {
+                $this->ePrescriptionShowRemainingQtyWarning = true;
+                $this->ePrescriptionRemainingQtyWarningMessage = (string) ($result['warning_message'] ?? '');
+            }
 
             if (!empty($result['warning_message'])) {
                 $this->dispatch('flashMessage', [

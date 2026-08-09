@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\Api\MedicationRequest;
+use App\Enums\Person\EncounterStatus;
+use App\Models\MedicalEvents\Sql\Encounter;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
-use Exception;
-use Illuminate\Support\Facades\Log;
 use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
+use Exception;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class MedicationRequestLifecycleService
@@ -51,15 +54,30 @@ class MedicationRequestLifecycleService
 
         $carePlan = $carePlanOrPayload;
 
-        $activeEncounter = \App\Models\MedicalEvents\Sql\Encounter::query()
-            ->where('person_id', $carePlan->person_id)
-            ->where('status', 'finished')
-            ->whereDate('created_at', today())
-            ->latest('id')
-            ->first();
+        $signatureText = trim((string) ($formData['signature_text'] ?? ''));
+        if ($signatureText === '') {
+            throw new \InvalidArgumentException(__('care-plan.eprescription_signature_required'));
+        }
 
-        if (!$activeEncounter) {
-            throw new \Exception('Для виписування рецепту необхідно мати збережену взаємодію з пацієнтом. Будь ласка, створіть взаємодію сьогодні перед виписуванням рецепту.');
+        $maxDosePerAdministration = (float) ($formData['max_dose_per_administration'] ?? 0);
+        $maxDosePerPeriod = (float) ($formData['max_dose_per_period'] ?? 0);
+        if ($maxDosePerAdministration <= 0 || $maxDosePerPeriod <= 0) {
+            throw new \InvalidArgumentException(__('care-plan.eprescription_dose_required'));
+        }
+
+        $selectedEncounterId = isset($formData['encounter_id']) && $formData['encounter_id'] !== ''
+            ? (int) $formData['encounter_id']
+            : null;
+
+        $activeEncounter = $this->resolveEligibleEncounterForCreate(
+            (int) $carePlan->person_id,
+            $employeeContext['employee_uuid'] ?? null,
+            $selectedEncounterId
+        );
+
+        $patientInstruction = trim((string) ($formData['patient_instruction'] ?? ''));
+        if ($patientInstruction === '') {
+            $patientInstruction = $signatureText;
         }
 
         $dbData = [
@@ -83,17 +101,17 @@ class MedicationRequestLifecycleService
             'dosage_instructions' => [
                 [
                     'sequence' => 1,
-                    'text' => !empty($formData['signature_text']) ? $formData['signature_text'] : 'За призначенням лікаря',
-                    'patient_instruction' => !empty($formData['patient_instruction']) ? $formData['patient_instruction'] : (!empty($formData['signature_text']) ? $formData['signature_text'] : 'За призначенням лікаря'),
+                    'text' => $signatureText,
+                    'patient_instruction' => $patientInstruction,
                     'route' => $formData['route'] ?? 'oral',
                     'dose_and_rate' => [
                         [
-                            'dose_quantity_value' => (float) ($formData['max_dose_per_administration'] ?? 1.0),
+                            'dose_quantity_value' => $maxDosePerAdministration,
                             'dose_quantity_unit' => $formData['medication_unit'] ?? 'од.',
                         ]
                     ],
-                    'max_dose_per_administration' => (float) ($formData['max_dose_per_administration'] ?? 1.0),
-                    'max_dose_per_period' => (float) ($formData['max_dose_per_period'] ?? 1.0),
+                    'max_dose_per_administration' => $maxDosePerAdministration,
+                    'max_dose_per_period' => $maxDosePerPeriod,
                 ]
             ],
             'inform_with' => $formData['inform_with'] ?? null,
@@ -288,8 +306,34 @@ class MedicationRequestLifecycleService
 
         $requestRecord->update(['status' => 'active']);
 
-        if (!isset($result['success_message'])) {
-            $result['success_message'] = 'Рецепт успішно підписано КЕП та переведено у статус «Активний»!';
+        $requestNumber = (string) (
+            $result['request_number']
+            ?? ($result['medication_request']['request_number'] ?? null)
+            ?? $requestRecord->requestNumber
+            ?? $requestRecord->request_number
+            ?? $requestRecord->uuid
+        );
+
+        $informWithRaw = $informWith !== ''
+            ? $informWith
+            : (string) ($requestRecord->informWith ?? $requestRecord->inform_with ?? '');
+
+        $notificationDisabled = filter_var(
+            $formData['request_notification_disabled'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        $result['success_message'] = $this->buildPostSignSuccessMessage(
+            $requestNumber,
+            $informWithRaw,
+            $notificationDisabled
+        );
+
+        $medicationQty = (float) ($requestRecord->medicationQty ?? $requestRecord->medication_qty ?? 0);
+        if ($this->shouldWarnRemainingQty($remainingQty, $medicationQty)) {
+            $unit = (string) ($formData['medication_unit'] ?? 'од.');
+            $result['warning_message'] = $this->buildRemainingQtyWarningMessage($remainingQty, $unit);
+            $result['show_remaining_qty_warning'] = true;
         }
 
         return $result;
@@ -824,5 +868,104 @@ HTML;
         }
 
         return $localId;
+    }
+
+    /**
+     * TV 3.9.1.1.2 — finished encounters by current performer with period.end = today.
+     *
+     * @return Collection<int, Encounter>
+     */
+    public function findEligibleEncountersForEPrescription(int $personId, ?string $employeeUuid): Collection
+    {
+        if ($employeeUuid === null || $employeeUuid === '') {
+            return collect();
+        }
+
+        return Encounter::query()
+            ->where('person_id', $personId)
+            ->where('status', EncounterStatus::FINISHED)
+            ->whereHas('performer', static function ($query) use ($employeeUuid): void {
+                $query->where('value', $employeeUuid);
+            })
+            ->whereHas('period', static function ($query): void {
+                $query->whereDate('end', today());
+            })
+            ->with(['period', 'performer'])
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    /**
+     * Resolve and validate encounter selected for MRR create (TV 3.9.1.1.2).
+     */
+    public function resolveEligibleEncounterForCreate(int $personId, ?string $employeeUuid, ?int $selectedEncounterId): Encounter
+    {
+        $eligible = $this->findEligibleEncountersForEPrescription($personId, $employeeUuid);
+
+        if ($eligible->isEmpty()) {
+            throw new \RuntimeException(__('care-plan.eprescription_encounter_none'));
+        }
+
+        if ($selectedEncounterId === null || $selectedEncounterId <= 0) {
+            throw new \InvalidArgumentException(__('care-plan.eprescription_encounter_required'));
+        }
+
+        $selected = $eligible->firstWhere('id', $selectedEncounterId);
+        if (!$selected instanceof Encounter) {
+            throw new \InvalidArgumentException(__('care-plan.eprescription_encounter_invalid'));
+        }
+
+        return $selected;
+    }
+
+    /**
+     * TV 3.9.3.15 — SMS vs print success copy after sign.
+     */
+    public function buildPostSignSuccessMessage(
+        string $requestNumber,
+        string $informWithRaw,
+        bool $requestNotificationDisabled,
+        ?string $maskedPhone = null
+    ): string {
+        $parts = explode('|', $informWithRaw);
+        $authType = strtoupper(trim((string) ($parts[1] ?? '')));
+        $phoneFromInform = trim((string) ($parts[2] ?? ''));
+        $phone = $maskedPhone !== null && $maskedPhone !== ''
+            ? $maskedPhone
+            : ($phoneFromInform !== '' ? $phoneFromInform : '•••');
+
+        $usesSms = !$requestNotificationDisabled
+            && in_array($authType, ['OTP', 'THIRD_PERSON'], true);
+
+        if ($usesSms) {
+            return __('care-plan.eprescription_signed_sms', [
+                'number' => $requestNumber,
+                'phone' => $phone,
+            ]);
+        }
+
+        return __('care-plan.eprescription_signed_print', [
+            'number' => $requestNumber,
+        ]);
+    }
+
+    /**
+     * TV 3.9.3.19 — warn when leftover after this Rx is less than medication_qty.
+     */
+    public function shouldWarnRemainingQty(float $remainingBefore, float $medicationQty): bool
+    {
+        if ($medicationQty <= 0) {
+            return false;
+        }
+
+        return ($remainingBefore - $medicationQty) < $medicationQty;
+    }
+
+    public function buildRemainingQtyWarningMessage(float $remainingBefore, string $unit): string
+    {
+        return __('care-plan.eprescription_remaining_qty_warning', [
+            'remaining' => $remainingBefore,
+            'unit' => $unit !== '' ? $unit : 'од.',
+        ]);
     }
 }

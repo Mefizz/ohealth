@@ -58,10 +58,13 @@ abstract class CarePlanComponent extends Component
     public bool $ePrescriptionSkipTreatmentPeriod = true;
     public bool $ePrescriptionShowDailyDoseWarning = false;
     public bool $ePrescriptionShowRemainingQtyWarning = false;
+    public string $ePrescriptionRemainingQtyWarningMessage = '';
     public string $ePrescriptionWarningMessage = '';
     public array $ePrescriptionMultiples = [];
     public array $ePrescriptionPackages = [];
     public array $ePrescriptionAuthMethods = [];
+    /** @var list<array{id:int,uuid:string,label:string}> */
+    public array $ePrescriptionEligibleEncounters = [];
     public ?string $ePrescriptionRequestIdToSign = null;
     public string $printableContent = '';
     public array $activePrescriptions = [];

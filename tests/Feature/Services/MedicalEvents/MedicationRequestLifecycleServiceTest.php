@@ -4,12 +4,36 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Services\MedicalEvents;
 
+use App\Models\CarePlan;
+use App\Models\CarePlanActivity;
+use App\Models\Employee\Employee;
+use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+use App\Models\Person\Person;
+use App\Models\User;
+use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Mockery;
 use Tests\TestCase;
 
 class MedicationRequestLifecycleServiceTest extends TestCase
 {
     use DatabaseTransactions;
+
+    protected Person $person;
+
+    protected CarePlan $carePlan;
+
+    protected CarePlanActivity $activity;
+
+    protected Employee $employee;
+
+    protected Encounter $encounter;
+
+    protected User $user;
 
     protected function migrateDatabases(): void
     {
@@ -23,25 +47,183 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         ]);
     }
 
-    public function test_create_draft_successfully_creates_request()
+    protected function setUp(): void
     {
-        $this->assertTrue(true); // Placeholder for complex mock setup
+        parent::setUp();
+
+        $this->person = Person::create([
+            'uuid' => (string) Str::uuid(),
+            'birth_date' => '1985-05-15',
+            'gender' => 'MALE',
+            'patient_signed' => true,
+            'process_disclosure_data_consent' => true,
+        ]);
+
+        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+            ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
+
+        $legalEntity = LegalEntity::create([
+            'uuid' => (string) Str::uuid(),
+            'status' => 'ACTIVE',
+            'sync_status' => 'COMPLETED',
+            'legal_entity_type_id' => $typeId,
+            'is_active' => true,
+        ]);
+
+        $party = \App\Models\Relations\Party::create([
+            'uuid' => (string) Str::uuid(),
+            'first_name' => 'Іван',
+            'last_name' => 'Петренко',
+            'tax_id' => '9876543210',
+            'birth_date' => '1980-08-08',
+            'gender' => 'MALE',
+        ]);
+
+        $this->user = User::create([
+            'uuid' => (string) Str::uuid(),
+            'email' => 'mr_lifecycle_' . Str::random(6) . '@example.com',
+            'password' => Hash::make('password'),
+            'party_id' => $party->id,
+        ]);
+
+        $this->employee = Employee::create([
+            'uuid' => (string) Str::uuid(),
+            'full_name' => 'Д-р Іван Петренко',
+            'employee_type' => 'DOCTOR',
+            'status' => 'APPROVED',
+            'legal_entity_id' => $legalEntity->id,
+            'is_active' => true,
+            'position' => 'Doctor',
+            'start_date' => now()->format('Y-m-d'),
+            'user_id' => $this->user->id,
+            'party_id' => $party->id,
+        ]);
+
+        $identifierId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) Str::uuid()])->id;
+        $codingId = \App\Models\MedicalEvents\Sql\Coding::create(['code' => 'AMB', 'system' => 'eHealth/encounter_classes'])->id;
+        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+
+        $this->encounter = Encounter::create([
+            'uuid' => (string) Str::uuid(),
+            'person_id' => $this->person->id,
+            'status' => 'finished',
+            'episode_id' => $identifierId,
+            'class_id' => $codingId,
+            'type_id' => $ccId,
+            'ehealth_inserted_at' => now(),
+        ]);
+
+        $this->carePlan = CarePlan::create([
+            'uuid' => (string) Str::uuid(),
+            'person_id' => $this->person->id,
+            'author_id' => $this->employee->id,
+            'legal_entity_id' => $legalEntity->id,
+            'period_start' => now()->format('Y-m-d'),
+            'title' => 'Lifecycle plan',
+            'status' => 'active',
+        ]);
+
+        $this->activity = CarePlanActivity::create([
+            'uuid' => (string) Str::uuid(),
+            'care_plan_id' => $this->carePlan->id,
+            'author_id' => $this->employee->id,
+            'status' => 'scheduled',
+            'kind' => 'medication_request',
+            'product_reference' => 'INN-101',
+            'quantity' => 30.0,
+            'program' => 'program-1',
+        ]);
     }
 
-    public function test_sign_successfully_changes_status_to_active()
+    public function test_reject_successfully_rejects_new_request(): void
     {
-        $this->assertTrue(true); // Placeholder for complex mock setup
+        $requestRecord = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id,
+            'status' => 'new',
+            'medication_id' => 'INN-101',
+            'medication_qty' => 10.0,
+            'intent' => 'order',
+            'based_on_id' => $this->activity->id,
+            'context_id' => $this->encounter->id,
+        ]);
+
+        $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
+        $mockApi->shouldReceive('rejectUnsignedMedicationRequest')
+            ->once()
+            ->with((string) $requestRecord->uuid, [])
+            ->andReturn(['status' => 'rejected']);
+
+        $service = new MedicationRequestLifecycleService();
+        $service->reject($this->carePlan->fresh(['person']), $requestRecord);
+
+        $this->assertDatabaseHas('medication_request_requests', [
+            'uuid' => $requestRecord->uuid,
+            'status' => 'rejected',
+        ]);
     }
 
-    public function test_reject_successfully_rejects_new_request()
+    public function test_reject_active_sends_reason_code_and_signed_content(): void
     {
-        $this->assertTrue(true); // Placeholder for complex mock setup
+        $requestRecord = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id,
+            'status' => 'active',
+            'medication_id' => 'INN-101',
+            'medication_qty' => 10.0,
+            'intent' => 'order',
+            'based_on_id' => $this->activity->id,
+            'context_id' => $this->encounter->id,
+        ]);
+
+        $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
+        $mockApi->shouldReceive('getBySearchParams')->andReturn([]);
+        $mockApi->shouldReceive('rejectMedicationRequest')
+            ->once()
+            ->withArgs(function (string $id, array $payload): bool {
+                return ($payload['reject_reason_code'] ?? null) === 'entered-in-error'
+                    && ($payload['signed_content'] ?? null) === 'mock-base64-signature'
+                    && ($payload['signed_content_encoding'] ?? null) === 'base64'
+                    && !empty($payload['person_id']);
+            })
+            ->andReturn(['status' => 'rejected']);
+
+        $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);
+        $this->instance(\App\Services\SignatureService::class, $mockSignatureService);
+        $mockSignatureService->shouldReceive('signData')
+            ->once()
+            ->withArgs(function (array $signPayload): bool {
+                return ($signPayload['reject_reason_code'] ?? null) === 'entered-in-error'
+                    && isset($signPayload['id']);
+            })
+            ->andReturn('mock-base64-signature');
+
+        $this->actingAs($this->user);
+
+        $service = new MedicationRequestLifecycleService();
+        $result = $service->reject(
+            $this->carePlan->fresh(['person']),
+            $requestRecord,
+            [
+                'password' => '12345678',
+                'knedp' => 'acsk_test',
+            ],
+            'entered-in-error'
+        );
+
+        $this->assertSame('rejected', $result['status'] ?? null);
+        $this->assertDatabaseHas('medication_request_requests', [
+            'uuid' => $requestRecord->uuid,
+            'status' => 'rejected',
+        ]);
     }
 
-    public function test_build_fallback_printout_html()
+    public function test_build_fallback_printout_html(): void
     {
-        $service = new \App\Services\MedicalEvents\MedicationRequestLifecycleService();
-        $carePlan = new \App\Models\CarePlan();
+        $service = new MedicationRequestLifecycleService();
+        $carePlan = new CarePlan();
 
         $uuid = '00000000-0000-4000-8000-000000001234';
         $html = $service->buildFallbackPrintoutHtml($carePlan, $uuid, 'Тестова інструкція');

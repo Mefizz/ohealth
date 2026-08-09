@@ -331,11 +331,15 @@ class MedicationRequestLifecycleService
 
         $signedContent = $formData['signed_content'] ?? ($formData['signed_data'] ?? null);
 
+        if ($statusReason === '') {
+            throw new \InvalidArgumentException('Для відхилення активного рецепта потрібен код причини (reject_reason_code).');
+        }
+
         if (empty($signedContent) && isset($formData['password'], $formData['knedp'])) {
+            // ESOZ expects reject_reason_code inside the KEP-signed blob (API-005-043-0006).
             $signPayload = [
                 'id' => (string) $requestRecord->uuid,
                 'reject_reason_code' => $statusReason,
-                'reject_reason' => $statusReason,
             ];
 
             $signedContent = signatureService()->signData(
@@ -350,7 +354,6 @@ class MedicationRequestLifecycleService
         $payload = [
             'person_id' => $personUuid,
             'reject_reason_code' => $statusReason,
-            'reject_reason' => $statusReason,
             'signed_content' => $signedContent,
             'signed_content_encoding' => 'base64',
         ];
@@ -425,9 +428,16 @@ class MedicationRequestLifecycleService
             Log::warning('Could not fetch MedicationRequestRequest from eHealth for signing fallback: ' . $e->getMessage());
         }
 
-        $employee = \App\Models\Employee\Employee::find($requestRecord->employee_id);
-        $division = \App\Models\Division::find($requestRecord->division_id);
-        $encounter = \App\Models\MedicalEvents\Sql\Encounter::find($requestRecord->context_id);
+        $employee = \App\Models\Employee\Employee::find($requestRecord->employeeId);
+        $division = \App\Models\Division::find($requestRecord->divisionId);
+        $encounter = \App\Models\MedicalEvents\Sql\Encounter::find($requestRecord->contextId);
+        $activity = $requestRecord->basedOnId
+            ? \App\Models\CarePlanActivity::find($requestRecord->basedOnId)
+            : null;
+
+        $carePlanUuid = $contextModel instanceof \App\Models\CarePlan
+            ? $contextModel->uuid
+            : ($activity?->carePlan?->uuid ?? null);
 
         $uuids = [
             'person_uuid' => $personUuid,
@@ -438,62 +448,62 @@ class MedicationRequestLifecycleService
 
         $dosageInstructions = [];
         foreach ($requestRecord->dosageInstructions as $inst) {
-            $doseAndRate = !empty($inst->dose_and_rate) && is_string($inst->dose_and_rate)
-                ? json_decode($inst->dose_and_rate, true)
-                : ($inst->dose_and_rate ?: []);
+            $doseAndRate = !empty($inst->doseAndRate) && is_string($inst->doseAndRate)
+                ? json_decode($inst->doseAndRate, true)
+                : ($inst->doseAndRate ?: []);
 
             $timing = !empty($inst->timing) && is_string($inst->timing)
                 ? json_decode($inst->timing, true)
                 : ($inst->timing ?: null);
 
             $text = !empty($inst->text) ? $inst->text : 'За призначенням лікаря';
-            $patientInstruction = !empty($inst->patient_instruction) ? $inst->patient_instruction : $text;
+            $patientInstruction = !empty($inst->patientInstruction) ? $inst->patientInstruction : $text;
 
             $dosageInstructions[] = [
                 'sequence' => $inst->sequence ?? 1,
                 'text' => $text,
                 'patient_instruction' => $patientInstruction,
-                'as_needed_boolean' => (bool) ($inst->as_needed_boolean ?? false),
+                'as_needed_boolean' => (bool) ($inst->asNeededBoolean ?? false),
                 'route' => $inst->route ?? 'oral',
                 'method' => $inst->method ?? null,
                 'timing' => $timing,
                 'dose_and_rate' => $doseAndRate,
-                'max_dose_per_administration' => $inst->max_dose_per_administration !== null ? (float) $inst->max_dose_per_administration : null,
-                'max_dose_per_period' => $inst->max_dose_per_period !== null ? (float) $inst->max_dose_per_period : null,
-                'max_dose_per_lifetime' => $inst->max_dose_per_lifetime !== null ? (float) $inst->max_dose_per_lifetime : null,
+                'max_dose_per_administration' => $inst->maxDosePerAdministration !== null ? (float) $inst->maxDosePerAdministration : null,
+                'max_dose_per_period' => $inst->maxDosePerPeriod !== null ? (float) $inst->maxDosePerPeriod : null,
+                'max_dose_per_lifetime' => $inst->maxDosePerLifetime !== null ? (float) $inst->maxDosePerLifetime : null,
             ];
         }
 
-        $startedAt = !empty($requestRecord->started_at)
-            ? \Carbon\Carbon::parse($requestRecord->started_at)->format('Y-m-d')
+        $startedAt = !empty($requestRecord->startedAt)
+            ? \Carbon\Carbon::parse($requestRecord->startedAt)->format('Y-m-d')
             : null;
 
-        $endedAt = !empty($requestRecord->ended_at)
-            ? \Carbon\Carbon::parse($requestRecord->ended_at)->format('Y-m-d')
+        $endedAt = !empty($requestRecord->endedAt)
+            ? \Carbon\Carbon::parse($requestRecord->endedAt)->format('Y-m-d')
             : null;
 
-        $createdAt = !empty($requestRecord->created_at)
-            ? \Carbon\Carbon::parse($requestRecord->created_at)->format('Y-m-d')
+        $createdAt = !empty($requestRecord->createdAt)
+            ? \Carbon\Carbon::parse($requestRecord->createdAt)->format('Y-m-d')
             : now()->format('Y-m-d');
 
         $data = [
             'created_at' => $createdAt,
             'started_at' => $startedAt,
             'ended_at' => $endedAt,
-            'medication_id' => $requestRecord->medication_id,
-            'medication_qty' => (float) $requestRecord->medication_qty,
-            'medication_program_id' => $requestRecord->medication_program_id,
+            'medication_id' => $requestRecord->medicationId,
+            'medication_qty' => (float) $requestRecord->medicationQty,
+            'medication_program_id' => $requestRecord->medicationProgramId,
             'intent' => $requestRecord->intent ?? 'order',
             'category' => $requestRecord->category ?? 'community',
-            'based_on_uuid' => $requestRecord->based_on_uuid ?? ($activity ? $activity->uuid : null),
-            'container_dosage' => $requestRecord->container_dosage,
+            'based_on_uuid' => $activity?->uuid,
+            'container_dosage' => $requestRecord->containerDosage,
             'note' => $requestRecord->note,
-            'inform_with' => $informWith !== '' ? $informWith : ($requestRecord->inform_with ?? ''),
+            'inform_with' => $informWith !== '' ? $informWith : ($requestRecord->informWith ?? ''),
             'dosage_instructions' => $dosageInstructions,
         ];
 
         $mapper = new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper();
-        $signedContent = $mapper->toCreateSignedContent($data, $uuids, $carePlan->uuid);
+        $signedContent = $mapper->toCreateSignedContent($data, $uuids, $carePlanUuid);
 
         Log::debug('ePrescription Sign Request Payload:', $signedContent);
 

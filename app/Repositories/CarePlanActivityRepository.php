@@ -759,8 +759,35 @@ class CarePlanActivityRepository
                         'kind' => $kindString,
                         'author_id' => $authorId,
                         'product_reference' => $productReferenceValue,
+                        'product_codeable_concept' => is_array($rawProductCodeableConcept)
+                            ? ($rawProductCodeableConcept['coding'][0]['code'] ?? null)
+                            : (is_string($rawProductCodeableConcept) ? $rawProductCodeableConcept : null),
+                        'reason_code' => is_array($rawReasonCode)
+                            ? ($rawReasonCode[0]['coding'][0]['code'] ?? ($rawReasonCode['coding'][0]['code'] ?? null))
+                            : (is_string($rawReasonCode) ? $rawReasonCode : null),
+                        'program' => data_get($detail, 'program.identifier.value')
+                            ?? data_get($detail, 'program')
+                            ?? null,
+                        'status_reason' => is_array($detail['status_reason'] ?? null)
+                            ? ($detail['status_reason']['coding'][0]['code'] ?? ($detail['status_reason']['text'] ?? null))
+                            : ($detail['status_reason'] ?? ($detail['statusReason'] ?? null)),
+                        'remaining_quantity' => data_get($detail, 'remaining_quantity.value')
+                            ?? data_get($detail, 'remainingQuantity.value'),
+                        'remaining_quantity_system' => data_get($detail, 'remaining_quantity.system')
+                            ?? data_get($detail, 'remainingQuantity.system'),
+                        'remaining_quantity_code' => data_get($detail, 'remaining_quantity.code')
+                            ?? data_get($detail, 'remaining_quantity.unit')
+                            ?? data_get($detail, 'remainingQuantity.code')
+                            ?? data_get($detail, 'remainingQuantity.unit'),
                         'reason_reference' => $reasonReferenceArray,
                         'goal' => $goalArray,
+                        'outcome_reference' => collect($rawOutcomeReference ?? [])
+                            ->map(static fn ($ref) => $ref['identifier']['value'] ?? null)
+                            ->filter()
+                            ->implode(', ') ?: null,
+                        'outcome_codeable_concept' => is_array($rawOutcomeCodeableConcept)
+                            ? ($rawOutcomeCodeableConcept['coding'][0]['code'] ?? null)
+                            : (is_string($rawOutcomeCodeableConcept) ? $rawOutcomeCodeableConcept : null),
                     ]
                 );
 

@@ -400,8 +400,21 @@ class CarePlanShow extends CarePlanComponent
             $rules['activityForm.quantity_code'] = 'required|string';
         }
 
-        if (!empty($programId) && !empty($this->dictionaries['medical_programs'][$programId])) {
-            $program = $this->dictionaries['medical_programs'][$programId];
+        $activityValidation = app(\App\Services\MedicalEvents\CarePlanActivityValidationService::class);
+        $programPayload = $this->resolveMedicalProgramPayload(is_string($programId) ? $programId : null);
+
+        if (str_contains($kindLower, 'medication') && $programPayload !== null) {
+            $providingBlock = $activityValidation->providingConditionsBlockReason($this->carePlan, $programPayload);
+            if ($providingBlock !== null) {
+                $this->dispatch('flashMessage', ['message' => $providingBlock, 'type' => 'error']);
+                $this->addError('activityForm.program', $providingBlock);
+
+                return;
+            }
+        }
+
+        if ($programPayload !== null) {
+            $program = $programPayload;
             $allowedIcd10 = \Illuminate\Support\Arr::get($program, 'medical_program_settings.conditions_icd10_am_allowed', []);
             $allowedIcpc2 = \Illuminate\Support\Arr::get($program, 'medical_program_settings.conditions_icpc2_allowed', []);
 
@@ -435,6 +448,14 @@ class CarePlanShow extends CarePlanComponent
                     return;
                 }
             }
+        }
+
+        $rehabBlock = $activityValidation->rehabReasonReferenceBlockReason($this->carePlan, $this->linkedGrounds);
+        if ($rehabBlock !== null) {
+            $this->dispatch('flashMessage', ['message' => $rehabBlock, 'type' => 'error']);
+            $this->addError('linkedGrounds', $rehabBlock);
+
+            return;
         }
 
         try {
@@ -587,6 +608,13 @@ class CarePlanShow extends CarePlanComponent
             'scheduled_period_start' => $activityStart,
             'scheduled_period_end' => $activityEnd,
         ];
+
+        // Local drafts: remaining quantity starts equal to planned quantity until eHealth sync.
+        if (!empty($activityData['quantity']) && empty($this->activityForm['id'])) {
+            $activityData['remaining_quantity'] = $activityData['quantity'];
+            $activityData['remaining_quantity_system'] = $activityData['quantity_system'];
+            $activityData['remaining_quantity_code'] = $activityData['quantity_code'];
+        }
 
         if (!empty($this->activityForm['id'])) {
             $repository->updateById($this->activityForm['id'], $activityData);
@@ -1287,6 +1315,38 @@ class CarePlanShow extends CarePlanComponent
         } catch (\Exception) {
             return [];
         }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function resolveMedicalProgramPayload(?string $programId): ?array
+    {
+        if ($programId === null || $programId === '') {
+            return null;
+        }
+
+        foreach ([
+            $this->dictionaries['medical_programs'][$programId] ?? null,
+            $this->dictionaries['medical_programs_medication'][$programId] ?? null,
+            $this->dictionaries['medical_programs_device'][$programId] ?? null,
+        ] as $candidate) {
+            // UI dictionaries often store id => name (string); only accept full program payloads.
+            if (is_array($candidate) && (isset($candidate['medical_program_settings']) || isset($candidate['id']))) {
+                return $candidate;
+            }
+        }
+
+        try {
+            $program = dictionary()->medicalPrograms()->firstWhere('id', $programId);
+            if (is_array($program) && $program !== []) {
+                return $program;
+            }
+        } catch (\Throwable) {
+            // Dictionary unavailable in some test contexts.
+        }
+
+        return null;
     }
 
     protected function getDeviceSignReadinessWarning(CarePlanActivity $activity): ?string

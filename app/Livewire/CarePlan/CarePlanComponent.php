@@ -353,6 +353,33 @@ abstract class CarePlanComponent extends Component
 
     public function openSignatureModal(string $actionType, ?int $activityId = null, ?string $requestUuid = null): void
     {
+        if (in_array($actionType, ['cancel_activity', 'complete_activity'], true) && $activityId) {
+            $activity = $this->carePlan->activities()->find($activityId)
+                ?? \App\Models\CarePlanActivity::find($activityId);
+
+            if ($activity) {
+                $blockReason = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+                    ->activityStatusChangeBlockReason($activity, $actionType);
+
+                if ($blockReason !== null) {
+                    $this->dispatch('flashMessage', ['message' => $blockReason, 'type' => 'error']);
+
+                    return;
+                }
+            }
+        }
+
+        if ($actionType === 'cancel') {
+            $blockReason = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+                ->planCancelBlockReason($this->carePlan);
+
+            if ($blockReason !== null) {
+                $this->dispatch('flashMessage', ['message' => $blockReason, 'type' => 'error']);
+
+                return;
+            }
+        }
+
         $this->actionType = $actionType;
         $this->activityToSign = $activityId;
         if ($requestUuid !== null && $requestUuid !== '') {

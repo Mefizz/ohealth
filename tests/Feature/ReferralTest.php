@@ -122,7 +122,7 @@ class ReferralTest extends TestCase
             ->andReturn($mockResponse);
 
         $service = app(ReferralRequestLifecycleService::class);
-        $result = $service->completeReferral($uuid, $encounterUuid, $payload);
+        $result = $service->completeReferral($uuid, $encounterUuid, 'encounter', $payload);
 
         $this->assertEquals('completed', $result['status']);
     }

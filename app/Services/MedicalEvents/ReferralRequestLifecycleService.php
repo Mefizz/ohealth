@@ -78,6 +78,9 @@ class ReferralRequestLifecycleService
             'context_id' => $carePlan->encounter?->id ?? null,
             'priority' => $formData['priority'],
             'note' => $formData['note'] ?? null,
+            'patient_instruction' => $formData['patient_instruction'] ?? null,
+            'reason_reference' => $formData['reason_reference'] ?? null,
+            'inform_with' => $formData['inform_with'] ?? null,
             'supporting_info' => $formData['supporting_info'] ?? null,
             'based_on_uuid' => $activity->uuid,
         ];
@@ -158,6 +161,9 @@ class ReferralRequestLifecycleService
             'context_id' => $encounter->id,
             'priority' => $formData['priority'] ?? 'routine',
             'note' => $formData['note'] ?? null,
+            'patient_instruction' => $formData['patient_instruction'] ?? null,
+            'reason_reference' => $formData['reason_reference'] ?? null,
+            'inform_with' => $formData['inform_with'] ?? null,
             'supporting_info' => $formData['supporting_info'] ?? null,
             'based_on_uuid' => null,
         ];
@@ -418,11 +424,18 @@ class ReferralRequestLifecycleService
                 ?? $mapped['category'] ?? null,
             'priority' => $remote['priority'] ?? $mapped['priority'] ?? null,
             'note' => data_get($remote, 'note.0.text') ?? (is_string($remote['note'] ?? null) ? $remote['note'] : null) ?? $mapped['note'] ?? null,
+            'patient_instruction' => $mapped['patient_instruction'] ?? data_get($remote, 'patient_instruction') ?? null,
+            'inform_with' => $mapped['inform_with'] ?? data_get($remote, 'inform_with') ?? null,
         ];
 
         $supportingInfo = $this->mapRemoteSupportingInfo($remote);
         if ($supportingInfo !== []) {
             $dbData['supporting_info'] = $supportingInfo;
+        }
+
+        $reasonReference = $mapped['reason_reference'] ?? [];
+        if ($reasonReference !== []) {
+            $dbData['reason_reference'] = $reasonReference;
         }
 
         if ($kind === 'service_request') {
@@ -493,6 +506,9 @@ class ReferralRequestLifecycleService
             'program_id' => $requestRecord->program_id,
             'priority' => $requestRecord->priority ?? 'routine',
             'note' => $requestRecord->note,
+            'patient_instruction' => $requestRecord->patient_instruction ?? null,
+            'reason_reference' => $requestRecord->reason_reference ?? null,
+            'inform_with' => $requestRecord->inform_with ?? null,
             'supporting_info' => $requestRecord->supporting_info,
             'started_at' => $startedAt instanceof \DateTimeInterface
                 ? $startedAt->format('Y-m-d')
@@ -625,17 +641,33 @@ class ReferralRequestLifecycleService
             }
         }
 
-        // Qualify: optional check — wrap in try/catch so a qualify failure
-        // does not prevent the process (use) call from running.
+        // Qualify must block process when program is present (TV 3.17.3.2 / 3.17.3.3.2).
         if ($programId) {
             try {
-                \App\Classes\eHealth\Api\ServiceRequest::qualify($referralUuid, [
+                $qualifyResponse = \App\Classes\eHealth\Api\ServiceRequest::qualify($referralUuid, [
                     'programs' => [['id' => $programId]],
                 ]);
+                $this->jobResolver->assertPrequalifyValid(
+                    is_array($qualifyResponse) ? $qualifyResponse : []
+                );
+            } catch (EHealthValidationException $e) {
+                throw new \RuntimeException(
+                    __('care-plan.referral_qualify_blocked', [
+                        'reason' => $e->getTranslatedMessage() ?: $e->getFormattedMessage(),
+                    ]),
+                    previous: $e
+                );
             } catch (\Throwable $e) {
-                logger()->warning('Qualify failed (non-blocking): ' . $e->getMessage(), [
+                logger()->warning('Qualify failed (blocking): '.$e->getMessage(), [
                     'referral_uuid' => $referralUuid,
                 ]);
+
+                throw new \RuntimeException(
+                    __('care-plan.referral_qualify_blocked', [
+                        'reason' => $e->getMessage(),
+                    ]),
+                    previous: $e
+                );
             }
         }
 
@@ -677,12 +709,26 @@ class ReferralRequestLifecycleService
 
     /**
      * @param  string  $referralUuid
-     * @param  string  $encounterUuid
+     * @param  string  $resourceUuid  UUID of encounter / procedure / diagnostic_report
+     * @param  string  $resourceType  eHealth resource code: encounter|procedure|diagnostic_report
      * @param  array  $payload  Optional payload for complete
      * @return array
      */
-    public function completeReferral(string $referralUuid, string $encounterUuid, array $payload = []): array
-    {
+    public function completeReferral(
+        string $referralUuid,
+        string $resourceUuid,
+        string $resourceType = 'encounter',
+        array $payload = []
+    ): array {
+        $allowedTypes = ['encounter', 'procedure', 'diagnostic_report'];
+        if (!in_array($resourceType, $allowedTypes, true)) {
+            throw new \InvalidArgumentException(__('care-plan.referral_complete_invalid_emz_type'));
+        }
+
+        if ($resourceUuid === '') {
+            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_required'));
+        }
+
         if (empty($payload)) {
             $payload = [
                 'based_on' => [
@@ -692,14 +738,14 @@ class ReferralRequestLifecycleService
                                 'coding' => [
                                     [
                                         'system' => 'eHealth/resources',
-                                        'code' => 'encounter'
-                                    ]
-                                ]
+                                        'code' => $resourceType,
+                                    ],
+                                ],
                             ],
-                            'value' => $encounterUuid
-                        ]
-                    ]
-                ]
+                            'value' => $resourceUuid,
+                        ],
+                    ],
+                ],
             ];
         }
 
@@ -711,6 +757,29 @@ class ReferralRequestLifecycleService
         }
 
         return $response;
+    }
+
+    /**
+     * Recall Service Request (TV 3.17.1.13) — Active → Recalled (not entered-in-error).
+     *
+     * @param  array<string, mixed>  $payload  Must include explanatory_letter; typically also signed_data
+     * @return array<string, mixed>
+     */
+    public function recallReferral(string $patientUuid, string $referralUuid, array $payload): array
+    {
+        $letter = trim((string) ($payload['explanatory_letter'] ?? ''));
+        if ($letter === '') {
+            throw new \InvalidArgumentException(__('care-plan.referral_recall_letter_required'));
+        }
+
+        $response = \App\Classes\eHealth\Api\ServiceRequest::recall($patientUuid, $referralUuid, $payload);
+
+        $model = Repository::serviceRequest()->findByUuid($referralUuid);
+        if ($model) {
+            $model->update(['status' => 'recalled']);
+        }
+
+        return is_array($response) ? $response : [];
     }
 
     /**

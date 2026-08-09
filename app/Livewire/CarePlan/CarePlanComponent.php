@@ -79,6 +79,9 @@ abstract class CarePlanComponent extends Component
     public ?string $referralRequestIdToSign = null;
     public array $activeReferrals = [];
     public string $referralServiceCategory = '';
+    /** @var list<array{uuid: string, label: string, raw: string}> */
+    public array $referralAuthMethods = [];
+    public string $referralExplanatoryLetter = '';
 
     // Search and selection parameters
     public string $searchQuery = '';
@@ -306,14 +309,21 @@ abstract class CarePlanComponent extends Component
             'sign_eprescription',
             'sign_servicerequest',
             'sign_devicerequest',
+            'recall_referral',
         ], true);
 
-        return [
+        $rules = [
             'statusReason' => $statusReasonOptional ? 'nullable|string' : 'required|string',
             'form.knedp' => 'required|string',
             'form.keyContainerUpload' => 'required|file|max:1024',
             'form.password' => 'required|string',
         ];
+
+        if ($this->actionType === 'recall_referral') {
+            $rules['referralExplanatoryLetter'] = 'required|string|min:3';
+        }
+
+        return $rules;
     }
 
     public function getStatusReasonsProperty(): array
@@ -388,11 +398,14 @@ abstract class CarePlanComponent extends Component
         if ($requestUuid !== null && $requestUuid !== '') {
             if (in_array($actionType, ['cancel_prescription', 'sign_eprescription', 'reject_prescription'], true)) {
                 $this->ePrescriptionRequestIdToSign = $requestUuid;
-            } elseif (in_array($actionType, ['cancel_referral', 'sign_servicerequest', 'sign_devicerequest'], true)) {
+            } elseif (in_array($actionType, ['cancel_referral', 'recall_referral', 'sign_servicerequest', 'sign_devicerequest'], true)) {
                 $this->referralRequestIdToSign = $requestUuid;
             }
         }
         $this->statusReason = ''; // Reset reason
+        if ($actionType !== 'recall_referral') {
+            $this->referralExplanatoryLetter = '';
+        }
         $this->outcomeCode = ''; // Reset outcome
         $this->outcomeReferences = []; // Reset references
         $this->showSignatureModal = true;

@@ -35,6 +35,9 @@ class ServiceRequestRequest extends Model
         'context_id',
         'priority',
         'note',
+        'patient_instruction',
+        'reason_reference',
+        'inform_with',
         'supporting_info'
     ];
 
@@ -42,7 +45,8 @@ class ServiceRequestRequest extends Model
         'started_at' => 'datetime',
         'ended_at' => 'datetime',
         'quantity' => 'decimal:2',
-        'supporting_info' => 'array'
+        'supporting_info' => 'array',
+        'reason_reference' => 'array',
     ];
 
     public function person(): BelongsTo

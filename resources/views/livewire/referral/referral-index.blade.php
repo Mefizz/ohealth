@@ -66,8 +66,10 @@
                         'active' => 'Активне',
                         'completed' => 'Погашене',
                         'entered_in_error' => 'Введено помилково',
+                        'entered-in-error' => 'Введено помилково',
                         'draft' => 'Чернетка',
                         'revoked' => 'Відкликане',
+                        'recalled' => 'Відкликане',
                         'new' => 'Нове',
                         'in_progress' => 'В роботі',
                         'in_queue' => 'В черзі',
@@ -235,23 +237,48 @@
                 </button>
                 <div class="mt-2 text-center">
                     <h3 class="mb-5 text-lg font-bold text-gray-900 dark:text-white">Погашення направлення</h3>
-                    <div class="mb-5 text-left">
-                        <label for="encounterUuid" class="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
-                            Введіть ID взаємодії (ЕМЗ)
+                    <div class="mb-4 text-left">
+                        <label for="emzType" class="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
+                            Тип ЕМЗ *
                         </label>
-                        <input
-                            type="text"
-                            id="encounterUuid"
-                            wire:model="selectedEncounterUuid"
-                            placeholder="Введіть UUID взаємодії..."
-                            class="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-500 dark:focus:ring-blue-500"
-                        />
+                        <select
+                            id="emzType"
+                            wire:model.live="selectedEmzType"
+                            class="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        >
+                            <option value="encounter">Взаємодія (encounter)</option>
+                            <option value="procedure">Процедура (procedure)</option>
+                            <option value="diagnostic_report">Діагностичний звіт (diagnostic_report)</option>
+                        </select>
+                    </div>
+                    <div class="mb-5 text-left">
+                        <label for="emzUuid" class="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
+                            Оберіть ЕМЗ, повʼязане з цим направленням *
+                        </label>
+                        @if (empty($availableEmzResources))
+                            <p class="text-sm text-amber-700 dark:text-amber-300">
+                                Немає локальних ЕМЗ обраного типу з посиланням на це направлення
+                                (encounter.incoming_referral або procedure/diagnostic_report.based_on).
+                            </p>
+                        @else
+                            <select
+                                id="emzUuid"
+                                wire:model="selectedEmzUuid"
+                                class="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                            >
+                                <option value="">Оберіть запис…</option>
+                                @foreach ($availableEmzResources as $resource)
+                                    <option value="{{ $resource['uuid'] }}">{{ $resource['label'] }}</option>
+                                @endforeach
+                            </select>
+                        @endif
                     </div>
                     <div class="flex justify-center gap-3">
                         <button
                             wire:click="confirmComplete"
                             type="button"
                             class="inline-flex items-center rounded-lg bg-blue-600 px-5 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 focus:outline-none disabled:opacity-50 dark:focus:ring-blue-800"
+                            @disabled(empty($selectedEmzUuid))
                         >
                             Підтвердити погашення
                         </button>

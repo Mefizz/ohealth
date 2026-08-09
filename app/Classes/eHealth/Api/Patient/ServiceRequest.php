@@ -22,11 +22,21 @@ class ServiceRequest extends PatientApiBase
     }
 
     /**
-     * Cancel a Service Request (Скасування направлення).
+     * Cancel a Service Request (Скасування направлення як entered-in-error).
      */
     public function cancel(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
         return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/cancel", $payload);
+    }
+
+    /**
+     * Recall a Service Request (відміна за непотрібністю, TV 3.17.1.13).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function recall(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
+    {
+        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/recall", $payload);
     }
 
     /**

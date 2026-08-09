@@ -115,4 +115,22 @@ class ServiceRequest
     {
         return new Request(RequestHttp::METHOD_PATCH, "/api/patients/{$patientId}/service_requests/{$id}/actions/cancel", $payload)->sendRequest();
     }
+
+    /**
+     * Recall a Service Request (відміна за непотрібністю, TV 3.17.1.13).
+     *
+     * Distinct from Cancel (entered-in-error) and cancelUsage (executor release).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     * @throws ApiException
+     */
+    public static function recall(string $patientId, string $id, array $payload = []): array
+    {
+        return new Request(
+            RequestHttp::METHOD_PATCH,
+            "/api/patients/{$patientId}/service_requests/{$id}/actions/recall",
+            $payload
+        )->sendRequest();
+    }
 }

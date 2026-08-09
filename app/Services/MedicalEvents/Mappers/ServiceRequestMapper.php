@@ -173,6 +173,21 @@ class ServiceRequestMapper implements FhirMapperContract
             $serviceRequest['supporting_info'] = $this->mapSupportingInfo($supportingInfo);
         }
 
+        $reasonReference = $this->normalizeSupportingInfo($data['reason_reference'] ?? null);
+        if (!empty($reasonReference)) {
+            $serviceRequest['reason_reference'] = $this->mapSupportingInfo($reasonReference);
+        }
+
+        if (!empty($data['patient_instruction'])) {
+            $serviceRequest['patient_instruction'] = (string) $data['patient_instruction'];
+        }
+
+        $informWith = $data['inform_with'] ?? '';
+        $authMethodId = explode('|', (string) $informWith)[0] ?? '';
+        if ($authMethodId !== '') {
+            $serviceRequest['inform_with'] = $authMethodId;
+        }
+
         $payload = [
             'service_request' => array_filter($serviceRequest, static fn ($value) => $value !== null),
         ];
@@ -363,7 +378,34 @@ class ServiceRequestMapper implements FhirMapperContract
             'context_uuid' => data_get($data, 'context.identifier.value'),
             'priority' => data_get($data, 'priority'),
             'note' => data_get($data, 'note.0.text'),
+            'patient_instruction' => data_get($data, 'patientInstruction') ?? data_get($data, 'patient_instruction'),
+            'reason_reference' => $this->extractIdentifierList($data['reasonReference'] ?? $data['reason_reference'] ?? []),
+            'inform_with' => data_get($data, 'informWith') ?? data_get($data, 'inform_with'),
             'supporting_info' => $supportingInfo
         ];
+    }
+
+    /**
+     * @param  mixed  $items
+     * @return list<array{type?: string, uuid?: string}>
+     */
+    private function extractIdentifierList(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $out[] = [
+                'uuid' => data_get($item, 'identifier.value'),
+                'type' => data_get($item, 'identifier.type.coding.0.code'),
+            ];
+        }
+
+        return $out;
     }
 }

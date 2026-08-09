@@ -118,14 +118,39 @@ trait ManagesCarePlanReferrals
             $activity->scheduled_period_end
         );
 
-        $supportingInfo = [];
-        $activity->reasonReferences()->get()->each(function ($identifier) use (&$supportingInfo) {
+        $reasonReference = [];
+        $activity->reasonReferences()->get()->each(function ($identifier) use (&$reasonReference) {
             $typeCode = $identifier->type->first()?->coding?->first()?->code ?? 'condition';
-            $supportingInfo[] = [
+            $reasonReference[] = [
                 'type' => $typeCode,
                 'uuid' => $identifier->value
             ];
         });
+
+        $informWith = '';
+        $this->referralAuthMethods = [];
+        try {
+            $authMethods = EHealth::person()->getAuthMethods($this->carePlan->person->uuid)->getData();
+            if (is_array($authMethods)) {
+                $this->referralAuthMethods = collect($authMethods)->map(static function (array $method): array {
+                    $uuid = (string) ($method['id'] ?? $method['uuid'] ?? '');
+                    $type = (string) ($method['type'] ?? '');
+                    $value = (string) ($method['phone_number'] ?? $method['value'] ?? '');
+
+                    return [
+                        'uuid' => $uuid,
+                        'label' => trim($type.($value !== '' ? ' · '.$value : '')),
+                        'raw' => $uuid !== '' ? "{$uuid}|{$type}|{$value}" : '',
+                    ];
+                })->filter(static fn (array $m): bool => $m['uuid'] !== '')->values()->all();
+
+                if ($this->referralAuthMethods !== []) {
+                    $informWith = $this->referralAuthMethods[0]['raw'];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('CarePlanShow: failed to load auth methods for referral: '.$e->getMessage());
+        }
 
         $this->referralForm = [
             'activity_id' => $activity->id,
@@ -139,8 +164,11 @@ trait ManagesCarePlanReferrals
             'category' => $this->referralServiceCategory,
             'category_label' => $this->resolveReferralCategoryLabel($this->referralServiceCategory),
             'note' => '',
+            'patient_instruction' => '',
+            'reason_reference' => $reasonReference,
+            'inform_with' => $informWith,
             'program_id' => $activity->program ?? '',
-            'supporting_info' => $supportingInfo
+            'supporting_info' => []
         ];
 
         $this->referralShowRemainingQtyWarning = false;
@@ -408,6 +436,92 @@ trait ManagesCarePlanReferrals
     public function cancelReferral(string $requestId, string $kind): void
     {
         $this->openSignatureModal('cancel_referral', null, $requestId);
+    }
+
+    public function recallReferral(string $requestId, string $kind): void
+    {
+        $this->referralExplanatoryLetter = '';
+        $this->openSignatureModal('recall_referral', null, $requestId);
+    }
+
+    public function signRecallReferral(): void
+    {
+        if (empty($this->referralRequestIdToSign)) {
+            Session::flash('error', 'Не вибрано направлення для відкликання');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        $letter = trim((string) $this->referralExplanatoryLetter);
+        if ($letter === '') {
+            $this->addError('referralExplanatoryLetter', __('care-plan.referral_recall_letter_required'));
+
+            return;
+        }
+
+        $service = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        $device = null;
+        if (!$service) {
+            $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        }
+
+        $record = $service ?: $device;
+        if (!$record) {
+            Session::flash('error', 'Направлення не знайдено');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        if (!$service) {
+            Session::flash('error', __('care-plan.referral_recall_service_only'));
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        try {
+            $payload = [
+                'explanatory_letter' => $letter,
+            ];
+
+            $signedContent = signatureService()->signData(
+                Arr::toSnakeCase($payload),
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                Auth::user()->party->taxId
+            );
+
+            $response = EHealth::serviceRequest()->recall($this->carePlan->person->uuid, $record->uuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
+                'explanatory_letter' => $letter,
+            ]);
+
+            if ($response->successful()) {
+                $record->update(['status' => 'recalled']);
+                $this->showSignatureModal = false;
+                $this->referralExplanatoryLetter = '';
+                $this->refreshCarePlan();
+                $this->dispatch('flashMessage', [
+                    'type' => 'success',
+                    'message' => __('care-plan.referral_recall_success'),
+                ]);
+            } else {
+                throw new \Exception(json_encode($response->getData()));
+            }
+        } catch (EHealthValidationException $e) {
+            $translatedMsg = $e->getTranslatedMessage();
+            Log::error('CarePlanShow: failed to recall referral validation: '.$translatedMsg);
+            Session::flash('error', $translatedMsg);
+            $this->showSignatureModal = false;
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to recall referral: '.$e->getMessage());
+            Session::flash('error', 'Не вдалося відкликати направлення: '.$e->getMessage());
+            $this->showSignatureModal = false;
+        }
     }
 
     public function signCancelReferral(): void

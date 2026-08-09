@@ -47,6 +47,9 @@ class ServiceRequestRequestRepository extends BaseRepository
                     'context_id' => $data['context_id'] ?? null,
                     'priority' => $data['priority'] ?? null,
                     'note' => $data['note'] ?? null,
+                    'patient_instruction' => $data['patient_instruction'] ?? null,
+                    'reason_reference' => $data['reason_reference'] ?? null,
+                    'inform_with' => $data['inform_with'] ?? null,
                     'supporting_info' => $data['supporting_info'] ?? null,
                 ]
             );

@@ -672,6 +672,7 @@ class PatientProcedures extends BasePatientComponent
         ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
 
+
     protected function filterValidationRules(): array
     {
         return [

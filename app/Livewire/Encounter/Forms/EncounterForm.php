@@ -101,7 +101,11 @@ class EncounterForm extends BaseForm
             'encounter.diagnoses.*.rank' => ['nullable', 'integer', 'min:1', 'max:10'],
             'encounter.actions' => [
                 'required_if:encounter.classCode,PHC',
-                'prohibited_unless:encounter.classCode,PHC',
+                function ($attribute, $value, $fail) {
+                    if (($this->encounter['classCode'] ?? '') !== 'PHC' && !empty($value)) {
+                        $fail(__('validation.custom.encounter.actions.prohibited_unless'));
+                    }
+                },
                 'array'
             ],
             'encounter.actions.*.code' => ['required', 'string', new InDictionary('eHealth/ICPC2/actions')],

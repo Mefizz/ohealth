@@ -310,7 +310,7 @@
                         href="{{ route('referrals.index', [legalEntity()]) }}"
                         class="menu-item-simple {{ request()->routeIs('referrals.*') ? 'menu-item-active' : '' }}"
                     >
-                        @icon('health-document')
+                        @icon('referrals')
                         <span>Направлення</span>
                     </a>
                 </li>

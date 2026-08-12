@@ -17,7 +17,7 @@ class CarePlanRepository
     public function getByLegalEntity(int $legalEntityId): Collection
     {
         return CarePlan::where('legal_entity_id', $legalEntityId)
-            ->with(['person', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier'])
+            ->with(['person', 'person.names', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier'])
             ->latest()
             ->get();
     }
@@ -25,7 +25,7 @@ class CarePlanRepository
     public function getByPersonId(int $personId, array $filters = []): Collection
     {
         $query = CarePlan::where('person_id', $personId)
-            ->with(['person', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier']);
+            ->with(['person', 'person.names', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier']);
 
         if (!empty($filters['name'])) {
             $query->where('title', 'like', "%{$filters['name']}%");

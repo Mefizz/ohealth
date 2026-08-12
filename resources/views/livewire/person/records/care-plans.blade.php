@@ -1,7 +1,7 @@
 @use('App\Enums\CarePlanStatus')
 <x-layouts.patient :personId="$personId" :patientFullName="$patientFullName">
     <x-slot name="headerActions">
-        @can('create', \App\Models\CarePlan::class)
+        {{-- @can('create', \App\Models\CarePlan::class) --}}
             <a
                 href="{{ route('care-plans.create', [legalEntity(), $personId]) }}"
                 class="button-primary flex items-center gap-2 px-5 py-2 text-sm shadow-sm"
@@ -9,7 +9,7 @@
                 @icon('plus', 'w-4 h-4')
                 {{ __('patients.starts_interacting') }}
             </a>
-        @endcan
+        {{-- @endcan --}}
 
         <button type="button" class="button-primary-outline px-5 py-2 text-sm whitespace-nowrap">
             {{ __('patients.data_access') }}

@@ -19,6 +19,10 @@ class CarePlanShow extends CarePlanComponent
 {
     use CarePlanManager;
 
+    protected $listeners = [
+        'carePlanUpdated' => '$refresh',
+    ];
+
     private const DEFAULT_MEDICATION_PROGRAM_ID = '1318eabc-1a1a-42f6-8450-61e11c19eede';
 
     private const DEFAULT_DEVICE_PROGRAM_ID = '85953838-1834-4ed6-8bf4-3f83057380ec';
@@ -1351,6 +1355,10 @@ class CarePlanShow extends CarePlanComponent
 
     protected function getDeviceSignReadinessWarning(CarePlanActivity $activity): ?string
     {
+        if (!str_contains(strtolower((string) $activity->kind), 'device')) {
+            return null;
+        }
+
         $assessment = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
             ->assess($this->carePlan, $activity, legalEntity());
 

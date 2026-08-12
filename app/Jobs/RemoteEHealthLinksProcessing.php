@@ -51,9 +51,19 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 
         switch ($entity) {
             case 'job':
-                $jobUuid = basename($this->eHealthLink->href);
+                $jobHref = (string) $this->eHealthLink->href;
+                $jobUuid = basename($jobHref);
+                $jobApi = EHealth::job()->withToken($token);
 
-                return EHealth::job()->withToken($token)->getDetails($jobUuid);
+                try {
+                    return $jobApi->getDetails($jobUuid);
+                } catch (EHealthResponseException $exception) {
+                    if ($exception->response->status() !== 404) {
+                        throw $exception;
+                    }
+
+                    return $jobApi->getDetailsByHref($jobHref);
+                }
                 // TODO: fill the entities below with the correct API calls and data processing logic
             case 'encounter':
                 return null;

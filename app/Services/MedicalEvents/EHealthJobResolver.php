@@ -6,6 +6,7 @@ namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\EHealth\EHealthResponseException;
 
 class EHealthJobResolver
 {
@@ -18,13 +19,23 @@ class EHealthJobResolver
         $finalResponse = $responseData;
 
         if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-            $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
+            $jobHref = (string) $responseData['links'][0]['href'];
+            $jobId = basename($jobHref);
             $jobApi = EHealth::job();
             $attempts = 0;
 
             do {
                 sleep(2);
-                $finalResponse = $jobApi->getDetails($jobId)->getData();
+                try {
+                    $finalResponse = $jobApi->getDetails($jobId)->getData();
+                } catch (EHealthResponseException $exception) {
+                    // Some domains return links as "/jobs/{id}" instead of "/api/jobs/{id}".
+                    if ($exception->response->status() !== 404) {
+                        throw $exception;
+                    }
+
+                    $finalResponse = $jobApi->getDetailsByHref($jobHref)->getData();
+                }
                 $attempts++;
                 $status = strtolower((string) ($finalResponse['status'] ?? ''));
             } while (in_array($status, ['pending', 'processing'], true) && $attempts < $maxAttempts);

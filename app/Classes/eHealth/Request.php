@@ -119,6 +119,7 @@ class Request
             Log::channel('api_errors')->error('API request failed', [
                 'url' => $this->makeApiUrl(),
                 'status' => $response->status(),
+                'request' => $this->params,
                 'errors' => $errors
             ]);
 

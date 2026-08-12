@@ -330,6 +330,15 @@ class EncounterComponent extends Component
         'POSITION'
     ];
 
+    public function updatedFormKeyContainerUpload(): void
+    {
+        if (isset($this->form->keyContainerUpload) && method_exists($this->form->keyContainerUpload, 'getClientOriginalName')) {
+            $this->form->keyContainerFileName = $this->form->keyContainerUpload->getClientOriginalName();
+        } else {
+            $this->form->keyContainerFileName = '';
+        }
+    }
+
     public function boot(): void
     {
         $icd10Cache = $this->dictionaries['eHealth/ICD10_AM/condition_codes'] ?? [];

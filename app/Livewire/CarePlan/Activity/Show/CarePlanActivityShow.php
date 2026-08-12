@@ -45,6 +45,10 @@ class CarePlanActivityShow extends CarePlanComponent
 
     protected function getDeviceSignReadinessWarning(CarePlanActivity $activity): ?string
     {
+        if (!str_contains(strtolower((string) $activity->kind), 'device')) {
+            return null;
+        }
+
         $assessment = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
             ->assess($this->carePlan, $activity, legalEntity());
 

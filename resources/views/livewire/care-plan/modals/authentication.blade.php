@@ -26,24 +26,14 @@
                 >
                     <div>
                         <legend class="legend mb-6 text-2xl font-bold text-gray-900 dark:text-white">
-                            {{ __('patients.enter_new_phone') }}
+                            {{ __('care-plan.auth_modal_title') }}
                         </legend>
 
-                        <div class="mb-8" style="max-width: 320px">
-                            <div class="form-group group">
-                                <input
-                                    type="tel"
-                                    placeholder=" "
-                                    class="peer input @error('phoneNumber') input-error @enderror"
-                                    wire:model="phoneNumber"
-                                    x-mask="+380999999999"
-                                    id="authPhoneNumber"
-                                />
-                                <label class="label" for="authPhoneNumber">{{ __('forms.number') }}</label>
-                                @error('phoneNumber')
-                                    <p class="text-error">{{ $message }}</p>
-                                @enderror
-                            </div>
+                        <div class="mb-6">
+                            <p class="text-sm text-gray-600 dark:text-gray-400">
+                                {{ __('care-plan.sms_sent_to_number') }}
+                                <strong class="ml-1 text-gray-900 dark:text-white">{{ $phoneNumber ?? '-' }}</strong>
+                            </p>
                         </div>
 
                         <div class="pt-2">
@@ -124,27 +114,9 @@
                             </div>
                         </div>
 
-                        <div class="mt-12 flex items-center gap-4">
-                            <button
-                                type="button"
-                                @click="
-                                    showAuthModal = false;
-                                    showMethodSelectionModal = true;
-                                "
-                                class="button-minor px-6 py-2.5"
-                            >
-                                {{ __('forms.back') }}
-                            </button>
-
-                            <button
-                                type="button"
-                                @click="
-                                    showAuthModal = false;
-                                    showMethodSelectionModal = true;
-                                "
-                                class="button-outline-primary px-5 py-2.5"
-                            >
-                                {{ __('patients.to_authentication_methods') }}
+                        <div class="mt-12 flex items-center justify-end gap-4">
+                            <button type="button" @click="showAuthModal = false" class="button-minor px-6 py-2.5">
+                                {{ __('forms.cancel') ?? 'Скасувати' }}
                             </button>
 
                             <button type="button" wire:click="verify" class="button-primary px-6 py-2.5">

@@ -60,13 +60,23 @@
                                         @icon('close-outline', 'w-4 h-4')
                                     </button>
                                 @elseif (in_array(($approval['status'] ?? ''), ['pending', 'NEW']))
-                                    <button
-                                        type="button"
-                                        wire:click="verifyExistingApproval('{{ $approval['uuid'] }}')"
-                                        class="button-primary px-3 py-1 text-xs"
-                                    >
-                                        {{ __('forms.confirm') }}
-                                    </button>
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            wire:click="recreateApproval('{{ $approval['uuid'] }}')"
+                                            class="button-secondary px-3 py-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+                                            title="Перестворити запит, якщо старий завис або СМС не приходить"
+                                        >
+                                            {{ __('care-plan.recreate_approval') ?? 'Запросити новий' }}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            wire:click="verifyExistingApproval('{{ $approval['uuid'] }}')"
+                                            class="button-primary px-3 py-1 text-xs"
+                                        >
+                                            {{ __('forms.confirm') }}
+                                        </button>
+                                    </div>
                                 @endif
                             </td>
                         </tr>

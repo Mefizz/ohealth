@@ -19,24 +19,84 @@
             <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <h3 class="mb-4 text-lg font-semibold">Лікарський засіб</h3>
                 <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div>
-                        <label class="mb-1 block text-sm font-medium">UUID ЛЗ *</label>
+                    <div class="md:col-span-2">
+                        <label class="mb-1 block text-sm font-medium">Медична програма *</label>
+                        <select
+                            class="input-select peer w-full"
+                            wire:model.live="encounterEPrescriptionForm.program_id"
+                        >
+                            <option value="">Оберіть програму</option>
+                            @foreach ($encounterEPrescriptionPrograms as $program)
+                                <option value="{{ $program['id'] }}">{{ $program['name'] }}</option>
+                            @endforeach
+                        </select>
+                        @error('encounterEPrescriptionForm.program_id')
+                            <p class="text-error">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="mb-1 block text-sm font-medium">Пошук лікарського засобу *</label>
+                        <div class="flex gap-2">
+                            <input
+                                type="text"
+                                class="input peer w-full"
+                                placeholder="Введіть щонайменше 3 символи та натисніть Enter"
+                                wire:model="encounterEPrescriptionSearchQuery"
+                                wire:keydown.enter.prevent="searchEncounterEPrescriptionMedications"
+                                @disabled(($encounterEPrescriptionForm['program_id'] ?? '') === '')
+                            />
+                            <button
+                                type="button"
+                                class="button-primary"
+                                wire:click="searchEncounterEPrescriptionMedications"
+                                @disabled(($encounterEPrescriptionForm['program_id'] ?? '') === '')
+                            >
+                                Пошук
+                            </button>
+                        </div>
+                        @if (($encounterEPrescriptionForm['program_id'] ?? '') === '')
+                            <p class="mt-1 text-xs text-gray-500">Спочатку оберіть медичну програму.</p>
+                        @endif
+                    </div>
+                    @if ($encounterEPrescriptionSearchResults !== [])
+                        <div class="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 md:col-span-2">
+                            @foreach ($encounterEPrescriptionSearchResults as $drug)
+                                <button
+                                    type="button"
+                                    wire:click="selectEncounterEPrescriptionMedication('{{ $drug['id'] }}')"
+                                    class="w-full rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:border-blue-300 hover:bg-blue-50"
+                                >
+                                    <div class="font-medium text-gray-900">
+                                        {{ $drug['name'] ?: 'Лікарський засіб' }}
+                                    </div>
+                                    <div class="text-xs text-gray-500">
+                                        МНН: {{ $drug['innm_name'] ?: '-' }} · Форма: {{ $drug['innm_dosage_form'] ?: '-' }}
+                                    </div>
+                                </button>
+                            @endforeach
+                        </div>
+                    @endif
+                    <div class="md:col-span-2">
+                        <label class="mb-1 block text-sm font-medium">Обраний лікарський засіб</label>
                         <input
                             type="text"
                             class="input peer w-full"
-                            wire:model="encounterEPrescriptionForm.medication_id"
+                            value="{{ $encounterEPrescriptionSelectedMedication['name'] ?? '' }}"
+                            placeholder="Лікарський засіб не обрано"
+                            readonly
                         />
+                        <p class="mt-1 text-xs text-gray-500">
+                            UUID: {{ $encounterEPrescriptionForm['medication_id'] ?? '-' }}
+                        </p>
                         @error('encounterEPrescriptionForm.medication_id')
                             <p class="text-error">{{ $message }}</p>
                         @enderror
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Програма (опційно)</label>
-                        <input
-                            type="text"
-                            class="input peer w-full"
-                            wire:model="encounterEPrescriptionForm.program_id"
-                        />
+                        <label class="mb-1 block text-sm font-medium">Категорія</label>
+                        <select class="input-select peer w-full" wire:model="encounterEPrescriptionForm.category">
+                            <option value="community">Амбулаторно</option>
+                        </select>
                     </div>
                     <div>
                         <label class="mb-1 block text-sm font-medium">Кількість *</label>
@@ -47,6 +107,9 @@
                             class="input peer w-full"
                             wire:model="encounterEPrescriptionForm.medication_qty"
                         />
+                        @if (!empty($encounterEPrescriptionSelectedMedication))
+                            <p class="mt-1 text-xs text-gray-500">Кількість має відповідати фасуванню обраного ЛЗ.</p>
+                        @endif
                     </div>
                     <div>
                         <label class="mb-1 block text-sm font-medium">Одиниця</label>
@@ -115,7 +178,7 @@
                     <select class="input-select peer w-full" wire:model="encounterEPrescriptionForm.inform_with">
                         <option value="">Оберіть</option>
                         @foreach ($encounterEPrescriptionAuthMethods as $method)
-                            <option value="{{ $method['uuid'] }}">{{ $method['label'] }}</option>
+                            <option value="{{ $method['value'] ?? $method['uuid'] }}">{{ $method['label'] }}</option>
                         @endforeach
                     </select>
                     @error('encounterEPrescriptionForm.inform_with')

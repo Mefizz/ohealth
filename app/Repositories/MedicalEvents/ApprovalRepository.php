@@ -153,8 +153,10 @@ class ApprovalRepository extends BaseRepository
             }
 
             $inactiveQuery->update(['status' => 'inactive']);
+        } catch (\App\Exceptions\EHealth\EHealthValidationException $e) {
+            \Illuminate\Support\Facades\Log::error('MedicalEvents\ApprovalRepository syncing failed: ' . $e->getFormattedMessage());
         } catch (\Exception $e) {
-            Log::error('MedicalEvents\\ApprovalRepository syncing failed: '.$e->getMessage());
+            \Illuminate\Support\Facades\Log::error('MedicalEvents\ApprovalRepository syncing failed: ' . $e->getMessage());
         }
     }
 
@@ -321,8 +323,13 @@ class ApprovalRepository extends BaseRepository
         DB::transaction(function () use ($approvalModel, $modelData, $approvableModel) {
             $approvalModelUuid = $modelData['uuid'] ?? ($modelData['id'] ?? null);
 
-            $existing = $approvalModel::query()
-                ->where('id', $approvalModel?->id)
+            $approvalQuery = $approvalModel?->newQuery() ?? Approval::query();
+            $existing = $approvalQuery
+                ->when(
+                    $approvalModel?->id !== null,
+                    static fn ($query) => $query->where('id', $approvalModel->id),
+                    static fn ($query) => $query->where('uuid', $approvalModelUuid)
+                )
                 ->withAllRelations()
                 ->first();
 
@@ -332,9 +339,13 @@ class ApprovalRepository extends BaseRepository
 
             $reason = $this->syncIdentifier($existing, $modelData['reason'] ?? null, 'reason');
 
-            if ($grantedTo) {
-                $grantedToType = $grantedTo?->type->first()?->coding->first()?->code ?? null;
-            }
+            $grantedToType = $grantedTo?->type->first()?->coding->first()?->code
+                ?? Arr::get($modelData, 'granted_to.identifier.type.coding.0.code')
+                ?? $existing?->grantedToType
+                ?? 'legal_entity';
+
+            $grantedToId = $grantedTo?->id
+                ?? $existing?->grantedToId;
 
             $authMethod = AuthenticationMethod::getByModelAndUuid($approvableModel)->first();
 
@@ -343,8 +354,8 @@ class ApprovalRepository extends BaseRepository
                 'approvable_id' => $approvableModel->id,
                 'approvable_type' => get_class($approvableModel),
                 'created_by_id' => $createdBy?->id,
-                'granted_to_id' => $grantedTo?->id,
-                'granted_to_type' => $grantedToType ?? null,
+                'granted_to_id' => $grantedToId,
+                'granted_to_type' => $grantedToType,
                 'granted_by_id' => null,
                 'authorize_with' => $modelData['authorize_with'] ?? null,
                 'authentication_method_id' => $authMethod?->id,

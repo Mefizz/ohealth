@@ -1,21 +1,51 @@
-@props(['method', 'agreementText' => null])
+@props([
+    'method',
+    'agreementText' => null,
+    'onlyActions' => null,
+    'exceptActions' => null,
+])
+
+@php
+    $inputId = 'keyContainerUpload-'.Str::slug((string) $method, '-');
+    $knedpId = 'knedp-'.Str::slug((string) $method, '-');
+    $passwordId = 'password-'.Str::slug((string) $method, '-');
+    $uploadedKeyName = is_object($this->form ?? null)
+        ? (string) ($this->form->keyContainerFileName ?? '')
+        : (string) data_get($this->form ?? [], 'keyContainerFileName', '');
+@endphp
 
 <template x-teleport="body">
     <div
         x-data="{
             showSignatureModal: $wire.entangle('showSignatureModal'),
-            fileName: '{{ __('forms.no_file_chosen') }}',
-            setFileNameFromInput(event) {
-                const file = event.target.files?.[0];
-                if (file) {
-                    this.fileName = file.name;
-                } else {
-                    this.fileName = '{{ __('forms.no_file_chosen') }}';
+            onlyActions: {{ Js::from($onlyActions) }},
+            exceptActions: {{ Js::from($exceptActions) }},
+            isKeyUploading: false,
+            isVisible() {
+                if (! this.showSignatureModal) {
+                    return false;
                 }
+
+                const actionType = $wire.actionType ?? null;
+
+                if (Array.isArray(this.onlyActions) && this.onlyActions.length > 0) {
+                    return this.onlyActions.includes(actionType);
+                }
+
+                if (Array.isArray(this.exceptActions) && this.exceptActions.length > 0) {
+                    return ! this.exceptActions.includes(actionType);
+                }
+
+                return true;
             }
          }"
-        x-effect="if (! showSignatureModal) { if ($refs.keyContainerUpload) $refs.keyContainerUpload.value = ''; this.fileName = '{{ __('forms.no_file_chosen') }}'; }"
-        x-show="showSignatureModal"
+        x-effect="
+            if (! showSignatureModal) {
+                if ($refs.keyContainerUpload) $refs.keyContainerUpload.value = '';
+                this.isKeyUploading = false;
+            }
+        "
+        x-show="isVisible()"
         x-cloak
         role="dialog"
         aria-modal="true"
@@ -28,10 +58,18 @@
                 class="modal-content mx-auto w-full max-w-4xl"
                 @click.stop
                 x-transition
-                x-trap.noscroll.inert="showSignatureModal"
+                x-trap.noscroll.inert="isVisible()"
             >
                 {{-- Title --}}
-                <h3 class="modal-header">@yield('title', __('forms.sign_with_KEP'))</h3>
+                <h3 class="modal-header">
+                    @if (isset($this->actionType) && $this->actionType === 'sign_eprescription')
+                        Підписання заявки електронного рецепта (КЕП)
+                    @elseif (isset($this->actionType) && $this->actionType === 'sign_referral')
+                        Підписання заявки електронного направлення (КЕП)
+                    @else
+                        @yield('title', __('forms.sign_with_KEP'))
+                    @endif
+                </h3>
 
                 {{-- Content --}}
                 <div class="p-6">
@@ -87,8 +125,8 @@
 
                             {{-- KEP Provider --}}
                             <div>
-                                <label for="knedp" class="default-label">{{ __('forms.knedp') }} *</label>
-                                <select class="input-modal" wire:model="form.knedp" name="knedp" id="knedp">
+                                <label for="{{ $knedpId }}" class="default-label">{{ __('forms.knedp') }} *</label>
+                                <select class="input-modal" wire:model="form.knedp" name="knedp" id="{{ $knedpId }}">
                                     <option value="" selected>{{ __('forms.select') }}</option>
                                     @foreach (signatureService()->getCertificateAuthorities() as $certificateType)
                                         <option
@@ -107,30 +145,31 @@
 
                             {{-- Key File --}}
                             <div>
-                                <label for="keyContainerUpload" class="default-label">
+                                <label for="{{ $inputId }}" class="default-label">
                                     {{ __('forms.key_container_upload') }} *
                                 </label>
                                 <div class="file-input-wrapper">
-                                    <label for="keyContainerUpload" class="file-input-button">
+                                    <label for="{{ $inputId }}" class="file-input-button">
                                         {{ __('forms.choose_file') }}
                                     </label>
-                                    <span class="file-input-text" x-text="fileName"></span>
+                                    <span class="file-input-text">
+                                        {{ $uploadedKeyName !== '' ? $uploadedKeyName : __('forms.no_file_chosen') }}
+                                    </span>
                                     <input
                                         type="file"
                                         wire:model="form.keyContainerUpload"
                                         class="hidden"
-                                        id="keyContainerUpload"
+                                        id="{{ $inputId }}"
                                         name="keyContainerUpload"
                                         x-ref="keyContainerUpload"
                                         accept=".dat,.pfx,.pk8,.zs2,.jks,.p7s"
-                                        @change="setFileNameFromInput($event)"
+                                        x-on:livewire-upload-start="isKeyUploading = true"
+                                        x-on:livewire-upload-finish="isKeyUploading = false"
+                                        x-on:livewire-upload-error="isKeyUploading = false"
+                                        x-on:livewire-upload-cancel="isKeyUploading = false"
                                     />
                                 </div>
-                                <div
-                                    wire:loading
-                                    wire:target="form.keyContainerUpload"
-                                    class="mt-2 text-sm text-gray-500"
-                                >
+                                <div x-show="isKeyUploading" class="mt-2 text-sm text-gray-500">
                                     {{ __('general.loading') }}...
                                 </div>
 
@@ -141,12 +180,13 @@
 
                             {{-- Password --}}
                             <div>
-                                <label for="password" class="default-label">{{ __('forms.password') }} *</label>
+                                <label for="{{ $passwordId }}" class="default-label"
+                                    >{{ __('forms.password') }} *</label>
                                 <input
                                     type="password"
                                     wire:model="form.password"
                                     class="default-input"
-                                    id="password"
+                                    id="{{ $passwordId }}"
                                     name="password"
                                     autocomplete="current-password"
                                 />

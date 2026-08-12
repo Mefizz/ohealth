@@ -92,6 +92,11 @@ abstract class EHealthRequest extends PendingRequest
         }
 
         if ($response->status() === 422) {
+            Log::error('eHealth validation failed 422', [
+                'url' => $url,
+                'request' => $this->sanitizeOptionsForLog($options),
+                'response' => $response->json()
+            ]);
             throw new EHealthValidationException($response->json());
         }
 

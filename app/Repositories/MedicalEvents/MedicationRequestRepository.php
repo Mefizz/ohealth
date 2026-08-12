@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -136,11 +137,153 @@ class MedicationRequestRepository extends BaseRepository
             $query->whereDate('ended_at', '<=', $filters['ended_at_to']);
         }
 
-        return $query
+        $requests = $query
             ->orderByDesc('started_at')
             ->orderByDesc('id')
-            ->get()
-            ->toArray();
+            ->get();
+
+        $activityIds = $requests
+            ->pluck('basedOnId')
+            ->filter(static fn ($id): bool => (int) $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $carePlanIdsByActivity = $activityIds === []
+            ? []
+            : CarePlanActivity::query()
+                ->whereIn('id', $activityIds)
+                ->pluck('care_plan_id', 'id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+
+        return $requests
+            ->map(fn (MedicationRequestRequest $request): array => $this->toPatientRegistryRow($request, $carePlanIdsByActivity))
+            ->all();
+    }
+
+    /**
+     * Flatten a local MRR into UI-ready fields for the patient eRx registry.
+     *
+     * @return array{
+     *     id: int|null,
+     *     uuid: string,
+     *     requestNumber: string,
+     *     status: string,
+     *     statusLabel: string,
+     *     statusBadge: string,
+     *     medicationName: string,
+     *     medicationQty: string,
+     *     startedAt: string|null,
+     *     endedAt: string|null,
+     *     periodLabel: string,
+     *     programName: string,
+     *     categoryLabel: string,
+     *     basisLabel: string,
+     *     encounterId: int|null,
+     *     activityId: int|null,
+     *     carePlanId: int|null
+     * }
+     */
+    public function toPatientRegistryRow(MedicationRequestRequest $request, array $carePlanIdsByActivity = []): array
+    {
+        $payload = is_array($request->ehealthPayload) ? $request->ehealthPayload : [];
+        $status = strtolower((string) $request->status);
+        $startedAt = $request->startedAt;
+        $endedAt = $request->endedAt;
+        $qty = $request->medicationQty;
+        $qtyLabel = $qty !== null && $qty !== ''
+            ? rtrim(rtrim(number_format((float) $qty, 2, '.', ''), '0'), '.')
+            : '';
+
+        $medicationName = (string) (
+            data_get($payload, 'medication_info.medication_name')
+            ?: data_get($payload, 'medication_name')
+            ?: data_get($payload, 'medication.name')
+            ?: ''
+        );
+        if ($medicationName === '' || preg_match('/^[0-9a-f-]{36}$/i', $medicationName) === 1) {
+            $medicationName = 'Лікарський засіб';
+        }
+
+        $programName = (string) (
+            data_get($payload, 'medical_program.name')
+            ?: data_get($payload, 'medical_program_name')
+            ?: ''
+        );
+
+        $category = strtolower((string) ($request->category ?: data_get($payload, 'category') ?: ''));
+        $categoryLabel = match ($category) {
+            'community' => 'Амбулаторно',
+            'inpatient' => 'Стаціонар',
+            default => $category !== '' ? $category : '—',
+        };
+
+        $activityId = $request->basedOnId !== null ? (int) $request->basedOnId : null;
+        $encounterId = $request->contextId !== null ? (int) $request->contextId : null;
+        $carePlanId = ($activityId !== null && $activityId > 0)
+            ? (int) ($carePlanIdsByActivity[$activityId] ?? 0)
+            : 0;
+        $carePlanId = $carePlanId > 0 ? $carePlanId : null;
+        $basisLabel = match (true) {
+            $activityId !== null && $activityId > 0 => 'План лікування',
+            $encounterId !== null && $encounterId > 0 => 'Взаємодія',
+            default => '—',
+        };
+
+        $periodLabel = '—';
+        if ($startedAt !== null && $endedAt !== null) {
+            $periodLabel = $startedAt->format('d.m.Y').' — '.$endedAt->format('d.m.Y');
+        } elseif ($startedAt !== null) {
+            $periodLabel = 'з '.$startedAt->format('d.m.Y');
+        }
+
+        return [
+            'id' => $request->id,
+            'uuid' => (string) $request->uuid,
+            'requestNumber' => (string) ($request->requestNumber ?: $request->uuid),
+            'status' => (string) $request->status,
+            'statusLabel' => $this->statusLabel($status),
+            'statusBadge' => $this->statusBadge($status),
+            'medicationName' => $medicationName,
+            'medicationQty' => $qtyLabel !== '' ? $qtyLabel : '—',
+            'startedAt' => $startedAt?->toDateString(),
+            'endedAt' => $endedAt?->toDateString(),
+            'periodLabel' => $periodLabel,
+            'programName' => $programName !== '' ? $programName : '—',
+            'categoryLabel' => $categoryLabel,
+            'basisLabel' => $basisLabel,
+            'encounterId' => $encounterId,
+            'activityId' => $activityId,
+            'carePlanId' => $carePlanId,
+        ];
+    }
+
+    private function statusLabel(string $status): string
+    {
+        return match ($status) {
+            'new' => 'Новий',
+            'draft' => 'Чернетка',
+            'signed' => 'Підписаний',
+            'active' => 'Активний',
+            'completed' => 'Виконаний',
+            'rejected' => 'Відхилений',
+            'expired' => 'Протермінований',
+            'entered-in-error' => 'Внесено помилково',
+            'pending', 'processing' => 'В обробці',
+            default => $status !== '' ? $status : '—',
+        };
+    }
+
+    private function statusBadge(string $status): string
+    {
+        return match ($status) {
+            'active', 'completed', 'signed' => 'badge-green',
+            'new', 'draft' => 'badge-yellow',
+            'pending', 'processing' => 'badge-blue',
+            'rejected', 'expired', 'entered-in-error' => 'badge-red',
+            default => 'badge-dark',
+        };
     }
 
     public function findByUuid(string $uuid): ?MedicationRequestRequest

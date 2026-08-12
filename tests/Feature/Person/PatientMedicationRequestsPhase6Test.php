@@ -126,4 +126,70 @@ class PatientMedicationRequestsPhase6Test extends TestCase
         $this->assertCount(1, $active);
         $this->assertSame('active', strtolower((string) $active[0]['status']));
     }
+
+    public function test_registry_row_maps_payload_name_and_camel_case_fields(): void
+    {
+        $uuid = (string) Str::uuid();
+        MedicationRequestRequest::create([
+            'uuid' => $uuid,
+            'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id,
+            'status' => 'active',
+            'request_number' => '0000-TEST-1234-ABCD',
+            'medication_id' => (string) Str::uuid(),
+            'medication_qty' => 7,
+            'started_at' => '2026-08-12',
+            'ended_at' => '2026-09-11',
+            'intent' => 'order',
+            'category' => 'community',
+            'ehealth_payload' => [
+                'category' => 'community',
+                'medication_info' => [
+                    'medication_name' => 'симвастатин 20 мг, Таблетка',
+                ],
+                'medical_program' => [
+                    'name' => 'Рецептурні лікарські засоби',
+                ],
+            ],
+        ]);
+
+        $rows = app(MedicationRequestRepository::class)->searchByPersonId($this->person->id);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('0000-TEST-1234-ABCD', $rows[0]['requestNumber']);
+        $this->assertSame('симвастатин 20 мг, Таблетка', $rows[0]['medicationName']);
+        $this->assertSame('7', $rows[0]['medicationQty']);
+        $this->assertSame('12.08.2026 — 11.09.2026', $rows[0]['periodLabel']);
+        $this->assertSame('Рецептурні лікарські засоби', $rows[0]['programName']);
+        $this->assertSame('Амбулаторно', $rows[0]['categoryLabel']);
+        $this->assertSame('—', $rows[0]['basisLabel']);
+        $this->assertNull($rows[0]['encounterId']);
+        $this->assertSame('Активний', $rows[0]['statusLabel']);
+
+        $standalone = new MedicationRequestRequest([
+            'uuid' => (string) Str::uuid(),
+            'status' => 'active',
+            'category' => 'community',
+            'context_id' => 23,
+            'medication_qty' => 7,
+        ]);
+        $mapped = app(MedicationRequestRepository::class)->toPatientRegistryRow($standalone);
+        $this->assertSame('Взаємодія', $mapped['basisLabel']);
+        $this->assertSame(23, $mapped['encounterId']);
+        $this->assertNull($mapped['carePlanId']);
+
+        $fromPlan = new MedicationRequestRequest([
+            'uuid' => (string) Str::uuid(),
+            'status' => 'active',
+            'category' => 'community',
+            'based_on_id' => 42,
+            'context_id' => 9,
+            'medication_qty' => 7,
+        ]);
+        $planMapped = app(MedicationRequestRepository::class)->toPatientRegistryRow($fromPlan, [42 => 7]);
+        $this->assertSame('План лікування', $planMapped['basisLabel']);
+        $this->assertSame(42, $planMapped['activityId']);
+        $this->assertSame(7, $planMapped['carePlanId']);
+        $this->assertSame(9, $planMapped['encounterId']);
+    }
 }

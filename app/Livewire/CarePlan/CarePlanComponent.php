@@ -6,6 +6,7 @@ namespace App\Livewire\CarePlan;
 
 use App\Core\Arr;
 use App\Enums\MedicalProgram\Type;
+use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\User\Role;
 use App\Traits\InteractsWithApprovals;
 use App\Classes\eHealth\EHealth;
@@ -494,18 +495,7 @@ abstract class CarePlanComponent extends Component
 
     protected function resolveReferralStatusLabel(string $status): string
     {
-        $normalized = strtolower($status);
-        $referralKey = 'care-plan.referral_status.' . $normalized;
-        if (Lang::has($referralKey)) {
-            return __($referralKey);
-        }
-
-        $statusKey = 'care-plan.status.' . $normalized;
-        if (Lang::has($statusKey)) {
-            return __($statusKey);
-        }
-
-        return $status;
+        return ServiceRequestStatus::labelFor($status);
     }
 
     protected function referralCategoryLabel(?string $category): ?string

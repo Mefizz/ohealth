@@ -26,7 +26,8 @@
         <div class="space-y-3">
             @foreach($linkedPrescriptions as $prescription)
                 @php
-                    $status = strtolower((string) ($prescription['status'] ?? ''));
+                    $rawStatus = (string) ($prescription['status'] ?? '');
+                    $status = \App\Enums\Person\MedicationRequestStatus::resolve($rawStatus);
                     $uuid = $prescription['uuid'] ?? '';
                     $requestNumber = $prescription['request_number'] ?? $prescription['requestNumber'] ?? $uuid;
                     $medicationQty = $prescription['medication_qty'] ?? $prescription['medicationQty'] ?? '—';
@@ -40,34 +41,18 @@
                         @if(!empty($startedAt) && !empty($endedAt))
                             <span class="text-gray-400 text-xs">Діє з {{ \Carbon\Carbon::parse($startedAt)->format('d.m.Y') }} по {{ \Carbon\Carbon::parse($endedAt)->format('d.m.Y') }}</span>
                         @endif
-                        <span class="badge {{ match($status) {
-                            'active', 'completed', 'signed' => 'badge-green',
-                            'new', 'draft' => 'badge-yellow',
-                            'pending', 'processing' => 'badge-blue',
-                            'rejected', 'expired' => 'badge-red',
-                            default => 'badge-dark'
-                        } }}">
-                            {{ match($status) {
-                                'new' => 'Новий',
-                                'draft' => 'Чернетка',
-                                'signed' => 'Підписаний',
-                                'active' => 'Активний',
-                                'completed' => 'Виконаний',
-                                'rejected' => 'Відхилений',
-                                'expired' => 'Протермінований',
-                                'pending', 'processing' => 'В обробці',
-                                default => ucfirst((string) ($prescription['status'] ?? '')),
-                            } }}
+                        <span class="badge {{ \App\Enums\Person\MedicationRequestStatus::colorFor($rawStatus) }}">
+                            {{ \App\Enums\Person\MedicationRequestStatus::labelFor($rawStatus) }}
                         </span>
                     </div>
                     <div class="flex items-center gap-3">
-                        @if(in_array($status, ['new', 'draft'], true))
+                        @if($status?->isUnsigned())
                             <button type="button" class="text-green-500 hover:text-green-700 transition-colors flex items-center gap-1" title="Підписати КЕП" wire:click="openSignatureModal('sign_eprescription', null, '{{ $uuid }}')">
                                 @icon('key', 'w-4 h-4')
                                 <span class="text-xs">Підписати</span>
                             </button>
                         @endif
-                        @if($status === 'active')
+                        @if($status === \App\Enums\Person\MedicationRequestStatus::ACTIVE)
                             <button type="button" class="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1" title="Друк пам'ятки"
                                     @click="
                                         $wire.loadPrintoutForm('{{ $uuid }}').then((content) => {
@@ -92,7 +77,7 @@
                                 <span class="text-xs">Погашення</span>
                             </button>
                         @endif
-                        @if(in_array($status, ['new', 'draft', 'active'], true))
+                        @if($status?->isUnsigned() || $status === \App\Enums\Person\MedicationRequestStatus::ACTIVE)
                             <button type="button" class="text-orange-500 hover:text-orange-700 transition-colors flex items-center gap-1" title="Відхилити рецепт" wire:click="rejectPrescription('{{ $uuid }}')">
                                 @icon('x-circle', 'w-4 h-4')
                                 <span class="text-xs">Відхилити</span>

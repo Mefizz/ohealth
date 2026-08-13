@@ -7,6 +7,7 @@ namespace App\Services\MedicalEvents;
 use App\Classes\eHealth\Api\MedicationRequest;
 use App\Contracts\EHealthRequestLifecycleContract;
 use App\Enums\Person\EncounterStatus;
+use App\Enums\Person\MedicationRequestStatus;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Encounter;
@@ -86,7 +87,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             'employee_id' => $employeeContext['employee_id'] ?? null,
             'person_id' => $carePlan->person_id,
             'division_id' => $employeeContext['division_id'] ?? null,
-            'status' => 'draft',
+            'status' => MedicationRequestStatus::DRAFT->value,
             'started_at' => $formData['started_at'] ?? now()->toDateString(),
             'ended_at' => $formData['ended_at'] ?? now()->addDays(30)->toDateString(),
             'medication_id' => $formData['medication_id'] ?? null,
@@ -145,7 +146,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             'employee_id' => $employeeContext['employee_id'] ?? null,
             'person_id' => $encounter->person_id,
             'division_id' => $employeeContext['division_id'] ?? null,
-            'status' => 'draft',
+            'status' => MedicationRequestStatus::DRAFT->value,
             'started_at' => $formData['started_at'] ?? now()->toDateString(),
             'ended_at' => $formData['ended_at'] ?? now()->addDays(30)->toDateString(),
             'medication_id' => $formData['medication_id'] ?? null,
@@ -288,7 +289,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         $finalResponse = $this->jobResolver->resolve($response);
         $result = $finalResponse['data'] ?? $finalResponse;
 
-        $requestRecord->update(['status' => 'active']);
+        $requestRecord->update(['status' => MedicationRequestStatus::ACTIVE->value]);
 
         $requestNumber = (string) (
             $result['request_number']
@@ -336,14 +337,14 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         array $formData = [],
         string $statusReason = ''
     ): array {
-        if (in_array(strtolower((string) $requestRecord->status), ['draft', 'new'], true)) {
+        if (MedicationRequestStatus::resolve((string) $requestRecord->status)?->isUnsigned()) {
             try {
                 MedicationRequest::rejectUnsignedMedicationRequest((string) $requestRecord->uuid, []);
             } catch (\Exception $e) {
                 Log::warning('eHealth reject draft returned exception: ' . $e->getMessage());
             }
 
-            $requestRecord->update(['status' => 'rejected']);
+            $requestRecord->update(['status' => MedicationRequestStatus::REJECTED->value]);
 
             return [];
         }
@@ -387,8 +388,13 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         $finalResponse = $this->jobResolver->resolve($response);
         $result = $finalResponse['data'] ?? $finalResponse;
 
-        $newStatus = strtolower((string) ($result['status'] ?? 'rejected'));
-        $requestRecord->update(['status' => $newStatus === 'active' ? 'rejected' : $newStatus]);
+        // eHealth can echo the pre-reject status back, so an active answer still means rejected here.
+        $reported = MedicationRequestStatus::resolve((string) ($result['status'] ?? ''));
+        $newStatus = $reported === null || $reported === MedicationRequestStatus::ACTIVE
+            ? MedicationRequestStatus::REJECTED
+            : $reported;
+
+        $requestRecord->update(['status' => $newStatus->value]);
 
         return $result;
     }

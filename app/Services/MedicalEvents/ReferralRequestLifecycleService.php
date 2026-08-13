@@ -6,6 +6,8 @@ namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
+use App\Enums\Person\DeviceRequestStatus;
+use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\CarePlan;
@@ -68,7 +70,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             'employee_id' => $employeeContext['employee_id'] ?? null,
             'person_id' => $carePlan->person_id,
             'division_id' => $employeeContext['division_id'] ?? null,
-            'status' => 'draft',
+            'status' => $this->draftStatus($resolvedKind),
             'started_at' => convertToYmd($formData['started_at']),
             'ended_at' => convertToYmd($formData['ended_at']),
             'quantity' => $qty,
@@ -151,7 +153,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             'employee_id' => $employeeContext['employee_id'] ?? null,
             'person_id' => $encounter->person_id,
             'division_id' => $employeeContext['division_id'] ?? null,
-            'status' => 'draft',
+            'status' => $this->draftStatus($kind),
             'started_at' => convertToYmd($formData['started_at'] ?? now()->toDateString()),
             'ended_at' => convertToYmd($formData['ended_at'] ?? now()->addMonths(1)->toDateString()),
             'quantity' => $qty,
@@ -299,6 +301,27 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
     /**
      * @param  array<string, mixed>  $dbData
      */
+    /**
+     * Referrals and device prescriptions share this lifecycle but keep separate status
+     * vocabularies, so the draft status is resolved from the kind rather than hard-coded.
+     */
+    private function draftStatus(string $kind): string
+    {
+        return $kind === 'service_request'
+            ? ServiceRequestStatus::DRAFT->value
+            : DeviceRequestStatus::DRAFT->value;
+    }
+
+    private function isDraft(ServiceRequestRequest|DeviceRequestRequest $requestRecord): bool
+    {
+        return $requestRecord instanceof ServiceRequestRequest
+            ? ServiceRequestStatus::resolve((string) $requestRecord->status) === ServiceRequestStatus::DRAFT
+            : DeviceRequestStatus::resolve((string) $requestRecord->status) === DeviceRequestStatus::DRAFT;
+    }
+
+    /**
+     * @param  array<string, mixed>  $dbData
+     */
     private function persistLocalDraft(array $dbData, int $personId, string $kind): string
     {
         if ($kind === 'service_request') {
@@ -342,7 +365,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         ServiceRequestRequest|DeviceRequestRequest $requestRecord,
         string $kind
     ): bool {
-        if (strtolower((string) $requestRecord->status) !== 'draft') {
+        if (!$this->isDraft($requestRecord)) {
             return false;
         }
 
@@ -364,8 +387,8 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             return false;
         }
 
-        $remoteStatus = strtolower((string) ($remote['status'] ?? ''));
-        if ($remoteStatus === '' || $remoteStatus === 'draft') {
+        $remoteStatus = ServiceRequestStatus::resolve((string) ($remote['status'] ?? ''));
+        if ($remoteStatus === null || $remoteStatus === ServiceRequestStatus::DRAFT) {
             return false;
         }
 
@@ -676,7 +699,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         // Persist status to local DB:
         // If the referral was found from eHealth search (not in our DB), upsert it with in_progress status.
         if ($model) {
-            $model->update(['status' => 'in_progress']);
+            $model->update(['status' => ServiceRequestStatus::IN_PROGRESS->value]);
         } elseif ($patientUuid) {
             // The referral came from eHealth search and is not in our local DB yet.
             // Store a minimal record so we can track its status going forward.
@@ -688,7 +711,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                 }
                 Repository::serviceRequest()->store([
                     'uuid' => $referralUuid,
-                    'status' => 'in_progress',
+                    'status' => ServiceRequestStatus::IN_PROGRESS->value,
                     'request_number' => $responseData['requisition'] ?? null,
                     'employee_id' => $employee->id,
                     'division_id' => $employee->division_id,
@@ -752,7 +775,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         if ($model) {
-            $model->update(['status' => 'completed']);
+            $model->update(['status' => ServiceRequestStatus::COMPLETED->value]);
         }
 
         return $response;
@@ -775,7 +798,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         if ($model) {
-            $model->update(['status' => 'recalled']);
+            $model->update(['status' => ServiceRequestStatus::RECALLED->value]);
         }
 
         return is_array($response) ? $response : [];
@@ -794,7 +817,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         if ($model) {
             // Cancel usage typically returns it to 'active' state so another facility can take it.
-            $model->update(['status' => 'active']);
+            $model->update(['status' => ServiceRequestStatus::ACTIVE->value]);
         }
 
         return $response;

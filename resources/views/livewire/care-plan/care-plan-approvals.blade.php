@@ -42,15 +42,18 @@
                                 </div>
                             </td>
                             <td class="index-table-td">
-                                <span class="badge {{ ($approval['status'] ?? '') === 'active' ? 'badge-success' : 'badge-secondary' }}">
-                                    {{ $approval['status'] ?? 'unknown' }}
+                                @php
+                                    $approvalStatus = \App\Enums\Person\ApprovalStatus::resolve($approval['status'] ?? null);
+                                @endphp
+                                <span class="badge {{ \App\Enums\Person\ApprovalStatus::colorFor($approval['status'] ?? null) }}">
+                                    {{ \App\Enums\Person\ApprovalStatus::labelFor($approval['status'] ?? null) }}
                                 </span>
                             </td>
                             <td class="index-table-td">
                                 {{ isset($approval['createdAt']) || isset($approval['created_at']) ? \Carbon\Carbon::parse($approval['createdAt'] ?? $approval['created_at'])->format('d.m.Y H:i') : '-' }}
                             </td>
                             <td class="index-table-td-actions text-right">
-                                @if (($approval['status'] ?? '') === 'active')
+                                @if ($approvalStatus?->isGranted())
                                     <button
                                         type="button"
                                         wire:click="cancelApproval('{{ $approval['uuid'] }}')"
@@ -59,7 +62,7 @@
                                     >
                                         @icon('close-outline', 'w-4 h-4')
                                     </button>
-                                @elseif (in_array(($approval['status'] ?? ''), ['pending', 'NEW']))
+                                @elseif ($approvalStatus?->isAwaitingPatient())
                                     <div class="flex items-center justify-end gap-2">
                                         <button
                                             type="button"

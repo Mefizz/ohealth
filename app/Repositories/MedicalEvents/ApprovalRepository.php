@@ -6,7 +6,7 @@ namespace App\Repositories\MedicalEvents;
 
 use Throwable;
 use Carbon\Carbon;
-use App\Enums\Status;
+use App\Enums\Person\ApprovalStatus;
 use App\Classes\eHealth\EHealth;
 use App\Models\EhealthJob;
 use App\Models\EhealthLink;
@@ -131,7 +131,9 @@ class ApprovalRepository extends BaseRepository
                         'granted_to_type' => $grantedToCode,
                         'reason_id' => $this->resolveIdentifier($reasonValue)?->id,
                         'created_by_id' => $this->resolveIdentifier($createdByValue)?->id,
-                        'status' => $approvalData['status'] ?? ($approvalData['is_verified'] ? 'active' : 'pending'),
+                        'status' => $approvalData['status'] ?? ($approvalData['is_verified']
+                            ? ApprovalStatus::ACTIVE->value
+                            : ApprovalStatus::PENDING->value),
                         'access_level' => $approvalData['access_level'] ?? 'read',
                         'is_verified' => (bool) ($approvalData['is_verified'] ?? false),
                         'expires_at' => $approvalData['expires_at'] ?? null,
@@ -152,7 +154,7 @@ class ApprovalRepository extends BaseRepository
                 }
             }
 
-            $inactiveQuery->update(['status' => 'inactive']);
+            $inactiveQuery->update(['status' => ApprovalStatus::INACTIVE->value]);
         } catch (\App\Exceptions\EHealth\EHealthValidationException $e) {
             \Illuminate\Support\Facades\Log::error('MedicalEvents\ApprovalRepository syncing failed: ' . $e->getFormattedMessage());
         } catch (\Exception $e) {
@@ -280,7 +282,7 @@ class ApprovalRepository extends BaseRepository
                 'authorize_with' => $data['authorize_with'] ?? null,
                 'authentication_method_id' => $authMethod?->id,
                 'reason_id' => $reason?->id,
-                'status' => $data['status'] ?? Status::NEW->value,
+                'status' => $data['status'] ?? ApprovalStatus::NEW->value,
                 'access_level' => $data['access_level'] ?? 'read',
                 'is_verified' => $data['is_verified'] ?? false,
                 'expires_at' => $data['expires_at'] ?? null,
@@ -360,7 +362,7 @@ class ApprovalRepository extends BaseRepository
                 'authorize_with' => $modelData['authorize_with'] ?? null,
                 'authentication_method_id' => $authMethod?->id,
                 'reason_id' => $reason?->id,
-                'status' => Status::APPROVED->value,
+                'status' => ApprovalStatus::APPROVED->value,
                 'access_level' => $modelData['access_level'] ?? 'read',
                 'is_verified' => $modelData['is_verified'] ?? false,
                 'expires_at' => convertToLocalTimezone($modelData['expires_at'])

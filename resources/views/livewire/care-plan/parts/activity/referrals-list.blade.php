@@ -29,14 +29,9 @@
             @foreach ($linkedReferrals as $referral)
                 @php
                     $referralKind = $referral['kind'] ?? (isset($referral['service_id']) ? 'service_request' : 'device_request');
-                    $statusCode = strtolower((string) ($referral['status'] ?? ''));
+                    $status = \App\Enums\Person\ServiceRequestStatus::resolve($referral['status'] ?? null);
                     $statusLabel = $referral['status_label'] ?? ($referral['status'] ?? '—');
-                    $statusBadgeClass = match (true) {
-                        $statusCode === 'active' => 'badge-green',
-                        in_array($statusCode, ['draft', 'new'], true) => 'badge-yellow',
-                        in_array($statusCode, ['entered-in-error', 'revoked'], true) => 'badge-dark',
-                        default => 'badge-dark',
-                    };
+                    $statusBadgeClass = \App\Enums\Person\ServiceRequestStatus::colorFor($referral['status'] ?? null);
                 @endphp
                 <div class="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm dark:border-gray-600 dark:bg-gray-900/60">
                     <div class="flex flex-wrap items-start justify-between gap-4">
@@ -85,7 +80,7 @@
                                 <span class="text-xs">Оновити</span>
                             </button>
 
-                            @if (in_array($statusCode, ['draft', 'new'], true))
+                            @if (in_array($status, [\App\Enums\Person\ServiceRequestStatus::DRAFT, \App\Enums\Person\ServiceRequestStatus::NEW], true))
                                 @php
                                     $signAction = $referralKind === 'service_request' ? 'sign_servicerequest' : 'sign_devicerequest';
                                 @endphp
@@ -100,7 +95,7 @@
                                 </button>
                             @endif
 
-                            @if ($statusCode === 'active')
+                            @if ($status === \App\Enums\Person\ServiceRequestStatus::ACTIVE)
                                 <button
                                     type="button"
                                     class="flex items-center gap-1 text-blue-500 transition-colors hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"

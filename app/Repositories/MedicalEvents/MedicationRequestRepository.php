@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Enums\Person\MedicationRequestStatus;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use Illuminate\Support\Facades\DB;
@@ -271,29 +272,12 @@ class MedicationRequestRepository extends BaseRepository
 
     private function statusLabel(string $status): string
     {
-        return match ($status) {
-            'new' => 'Новий',
-            'draft' => 'Чернетка',
-            'signed' => 'Підписаний',
-            'active' => 'Активний',
-            'completed' => 'Виконаний',
-            'rejected' => 'Відхилений',
-            'expired' => 'Протермінований',
-            'entered-in-error' => 'Внесено помилково',
-            'pending', 'processing' => 'В обробці',
-            default => $status !== '' ? $status : '—',
-        };
+        return MedicationRequestStatus::labelFor($status);
     }
 
     private function statusBadge(string $status): string
     {
-        return match ($status) {
-            'active', 'completed', 'signed' => 'badge-green',
-            'new', 'draft' => 'badge-yellow',
-            'pending', 'processing' => 'badge-blue',
-            'rejected', 'expired', 'entered-in-error' => 'badge-red',
-            default => 'badge-dark',
-        };
+        return MedicationRequestStatus::colorFor($status);
     }
 
     public function findByUuid(string $uuid): ?MedicationRequestRequest
@@ -305,7 +289,7 @@ class MedicationRequestRepository extends BaseRepository
     {
         return (float) $this->model->newQuery()
             ->where('based_on_id', $activityId)
-            ->where('status', '!=', 'entered-in-error')
+            ->where('status', '!=', MedicationRequestStatus::ENTERED_IN_ERROR->value)
             ->sum('medication_qty');
     }
 }

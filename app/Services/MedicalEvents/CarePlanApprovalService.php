@@ -6,6 +6,7 @@ namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
+use App\Enums\Person\ApprovalStatus;
 use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Models\CarePlan;
 use App\Models\EhealthLink;
@@ -237,7 +238,7 @@ class CarePlanApprovalService
         $attributes = [
             'approvable_type' => CarePlan::class,
             'approvable_id' => $carePlan->id,
-            'status' => 'NEW',
+            'status' => ApprovalStatus::NEW->value,
         ];
 
         if ($grantedToEmployeeUuid) {

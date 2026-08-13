@@ -447,6 +447,8 @@ return [
         'recalled' => 'Відкликано',
         'stopped' => 'Зупинено',
         'in_queue' => 'В черзі',
+        'blocked' => 'Заблоковано',
+        'inactive' => 'Неактивний',
     ],
 
     'referral_status' => [
@@ -457,8 +459,34 @@ return [
         'completed' => 'Виконане',
         'entered-in-error' => 'Скасоване',
         'revoked' => 'Відкликане',
+        'recalled' => 'Відкликане',
         'pending' => 'В обробці',
         'processing' => 'В обробці',
+        'in_progress' => 'В роботі',
+        'in_queue' => 'В черзі',
+    ],
+
+    // Prescriptions are masculine ("рецепт"), so they cannot reuse the impersonal wording above.
+    'medication_request_status' => [
+        'new' => 'Новий',
+        'draft' => 'Чернетка',
+        'signed' => 'Підписаний',
+        'active' => 'Активний',
+        'blocked' => 'Заблокований',
+        'completed' => 'Виконаний',
+        'rejected' => 'Відхилений',
+        'expired' => 'Протермінований',
+        'entered-in-error' => 'Внесено помилково',
+        'pending' => 'В обробці',
+        'processing' => 'В обробці',
+    ],
+
+    'approval_status' => [
+        'new' => 'Очікує підтвердження',
+        'pending' => 'Очікує підтвердження',
+        'approved' => 'Підтверджено',
+        'active' => 'Активний',
+        'inactive' => 'Неактивний',
     ],
 
     'referral_category' => [

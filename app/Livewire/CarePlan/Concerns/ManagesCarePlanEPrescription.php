@@ -18,7 +18,7 @@ trait ManagesCarePlanEPrescription
     {
         $activity = $activityRepository->findById($activityId);
         if (!$activity) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Призначення не знайдено']);
+            session()->flash('error', 'Призначення не знайдено');
 
             return;
         }
@@ -35,22 +35,19 @@ trait ManagesCarePlanEPrescription
         $blockedActivityStatuses = ['cancelled', 'completed'];
 
         if (in_array($planStatus, $blockedPlanStatuses)) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Виписування рецепту заборонено: план лікування завершено, скасовано або відмінено.']);
+            session()->flash('error', 'Виписування рецепту заборонено: план лікування завершено, скасовано або відмінено.');
 
             return;
         }
 
         if (in_array($activityStatus, $blockedActivityStatuses)) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Виписування рецепту заборонено: це призначення вже завершено або скасовано.']);
+            session()->flash('error', 'Виписування рецепту заборонено: це призначення вже завершено або скасовано.');
 
             return;
         }
 
         if ($activity->resolvedKind() !== 'medication_request') {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.eprescription_wrong_activity_kind'),
-            ]);
+            session()->flash('error', __('care-plan.eprescription_wrong_activity_kind'));
 
             return;
         }
@@ -58,7 +55,7 @@ trait ManagesCarePlanEPrescription
         try {
             app(CarePlanActivityEHealthGuard::class)->assertRegisteredInEHealth($this->carePlan, $activity);
         } catch (\RuntimeException $exception) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+            session()->flash('error', $exception->getMessage());
 
             return;
         }
@@ -112,19 +109,13 @@ trait ManagesCarePlanEPrescription
                 'activity_id' => $activity->id,
                 'exception' => $e->getMessage(),
             ]);
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.auth_methods_unavailable'),
-            ]);
+            session()->flash('error', __('care-plan.auth_methods_unavailable'));
 
             return;
         }
 
         if (empty($this->ePrescriptionAuthMethods)) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.auth_methods_empty'),
-            ]);
+            session()->flash('error', __('care-plan.auth_methods_empty'));
 
             return;
         }
@@ -164,7 +155,7 @@ trait ManagesCarePlanEPrescription
                 'remaining' => $this->ePrescriptionRemainingQty,
                 'count' => $packageStep,
             ]);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            session()->flash('error', $message);
 
             return;
         }
@@ -246,10 +237,7 @@ trait ManagesCarePlanEPrescription
         }
 
         if ($this->ePrescriptionEligibleEncounters === []) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.eprescription_encounter_none'),
-            ]);
+            session()->flash('error', __('care-plan.eprescription_encounter_none'));
 
             return;
         }
@@ -313,26 +301,20 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionShowDailyDoseWarning = false;
 
         if (empty($this->ePrescriptionForm['encounter_id'])) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.eprescription_encounter_required'),
-            ]);
+            session()->flash('error', __('care-plan.eprescription_encounter_required'));
 
             return;
         }
 
         if (empty($this->ePrescriptionForm['inform_with'])) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Необхідно обрати метод автентифікації пацієнта']);
+            session()->flash('error', 'Необхідно обрати метод автентифікації пацієнта');
 
             return;
         }
 
         $signatureText = trim((string) ($this->ePrescriptionForm['signature_text'] ?? ''));
         if ($signatureText === '') {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.eprescription_signature_required'),
-            ]);
+            session()->flash('error', __('care-plan.eprescription_signature_required'));
 
             return;
         }
@@ -340,10 +322,7 @@ trait ManagesCarePlanEPrescription
         $maxDoseAdmin = (float) ($this->ePrescriptionForm['max_dose_per_administration'] ?? 0);
         $maxDosePeriod = (float) ($this->ePrescriptionForm['max_dose_per_period'] ?? 0);
         if ($maxDoseAdmin <= 0 || $maxDosePeriod <= 0) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.eprescription_dose_required'),
-            ]);
+            session()->flash('error', __('care-plan.eprescription_dose_required'));
 
             return;
         }
@@ -355,7 +334,7 @@ trait ManagesCarePlanEPrescription
         if ($packageStep > 0 && !$this->isMedicationQtyDivisible($qty, $this->ePrescriptionSelectedProduct ?? [])) {
             $message = __('care-plan.medication_qty_packaging', ['count' => $packageStep]);
             $this->ePrescriptionWarningMessage = $message;
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            session()->flash('error', $message);
 
             return;
         }
@@ -363,14 +342,14 @@ trait ManagesCarePlanEPrescription
         if ($maxDosage > 0 && $qty > $maxDosage) {
             $unit = $this->ePrescriptionForm['medication_unit'] ?? '';
             $this->ePrescriptionWarningMessage = "Увага! За даним рецептом перевищено максимально допустиму кількість лікарського засобу [{$this->ePrescriptionSelectedProduct['name']}], що дозволена до виписування в 1 рецепті. Максимально допустима кількість ЛЗ становить {$maxDosage} {$unit}. Будь-ласка, поверніться та скоригуйте електронний рецепт!";
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->ePrescriptionWarningMessage]);
+            session()->flash('error', $this->ePrescriptionWarningMessage);
 
             return;
         }
 
         if ($qty > $this->ePrescriptionRemainingQty && $this->ePrescriptionSelectedActivity['quantity'] !== null) {
             $this->ePrescriptionWarningMessage = "Кількість ЛЗ в рецепті ({$qty}) перевищує залишкову кількість у плані лікування ({$this->ePrescriptionRemainingQty}). Виписування неможливе.";
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->ePrescriptionWarningMessage]);
+            session()->flash('error', $this->ePrescriptionWarningMessage);
 
             return;
         }
@@ -393,7 +372,7 @@ trait ManagesCarePlanEPrescription
 
                     if ($remainingDays > $allowedDaysBeforeEnd) {
                         $this->ePrescriptionWarningMessage = "Повторний Е-Рецепт на той же МНН можна виписати за {$allowedDaysBeforeEnd} днів до закінчення терміну лікування попереднього Е-Рецепту. Попередній рецепт діє до " . $lastEnd->format('d.m.Y') . " (залишилось {$remainingDays} днів).";
-                        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->ePrescriptionWarningMessage]);
+                        session()->flash('error', $this->ePrescriptionWarningMessage);
 
                         return;
                     }
@@ -415,7 +394,7 @@ trait ManagesCarePlanEPrescription
                 'unit' => $unit,
             ]);
             $this->ePrescriptionWarningMessage = $message;
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            session()->flash('error', $message);
 
             return;
         }
@@ -429,7 +408,7 @@ trait ManagesCarePlanEPrescription
                 ? __('care-plan.eprescription_plan_daily_amount_warning', ['name' => $drugName])
                 : __('care-plan.eprescription_daily_dose_warning', ['name' => $drugName]);
             $this->ePrescriptionWarningMessage = $warning;
-            $this->dispatch('flashMessage', ['type' => 'warning', 'message' => $warning]);
+            session()->flash('warning', $warning);
 
             return;
         }
@@ -457,22 +436,19 @@ trait ManagesCarePlanEPrescription
 
         } catch (EHealthValidationException $exception) {
             $exception->report();
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => $exception->getTranslatedMessage(),
-            ]);
+            session()->flash('error', $exception->getTranslatedMessage());
         } catch (\App\Exceptions\EHealth\EHealthResponseException $e) {
             if ($e->getCode() === 403 || $e->response->status() === 403) {
                 Log::warning('CarePlanShow: 403 access denied when submitting ePrescription. Prompting for approval.');
-                $this->dispatch('flashMessage', ['type' => 'warning', 'message' => 'Відсутній доступ до медичних даних. Будь ласка, надішліть запит на доступ пацієнту.']);
+                session()->flash('warning', 'Відсутній доступ до медичних даних. Будь ласка, надішліть запит на доступ пацієнту.');
                 $this->openMethodSelectionModal();
             } else {
                 Log::error('CarePlanShow: failed to create ePrescription API error: ' . $e->getMessage());
-                $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося створити заявку на рецепт: ' . $e->getMessage()]);
+                session()->flash('error', 'Не вдалося створити заявку на рецепт: ' . $e->getMessage());
             }
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to create ePrescription: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося створити заявку на рецепт: ' . $e->getMessage()]);
+            session()->flash('error', 'Не вдалося створити заявку на рецепт: ' . $e->getMessage());
         }
     }
 
@@ -481,7 +457,7 @@ trait ManagesCarePlanEPrescription
         try {
             $personUuid = $this->carePlan->person->uuid ?? null;
             if (!$personUuid) {
-                $this->dispatch('flashMessage', ['message' => 'Не знайдено ідентифікатор пацієнта в ЕСОЗ', 'type' => 'error']);
+                session()->flash('error', 'Не знайдено ідентифікатор пацієнта в ЕСОЗ');
 
                 return;
             }
@@ -552,18 +528,18 @@ trait ManagesCarePlanEPrescription
             }
 
             $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['message' => "Синхронізовано з ЕСОЗ. Оновлено статусів: {$updatedCount}", 'type' => 'success']);
+            session()->flash('success', "Синхронізовано з ЕСОЗ. Оновлено статусів: {$updatedCount}");
 
         } catch (\Exception $e) {
             Log::error('ManagesCarePlanEPrescription sync error: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['message' => 'Помилка при синхронізації з ЕСОЗ: ' . $e->getMessage(), 'type' => 'error']);
+            session()->flash('error', 'Помилка при синхронізації з ЕСОЗ: ' . $e->getMessage());
         }
     }
 
     public function signEPrescription(): void
     {
         if (empty($this->ePrescriptionRequestIdToSign)) {
-            $this->dispatch('flashMessage', ['message' => 'Не вибрано заявку на рецепт для підписання', 'type' => 'error']);
+            session()->flash('error', 'Не вибрано заявку на рецепт для підписання');
             $this->showSignatureModal = false;
 
             return;
@@ -571,7 +547,7 @@ trait ManagesCarePlanEPrescription
 
         $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $this->ePrescriptionRequestIdToSign)->first();
         if (!$requestRecord) {
-            $this->dispatch('flashMessage', ['message' => 'Заявку на рецепт не знайдено', 'type' => 'error']);
+            session()->flash('error', 'Заявку на рецепт не знайдено');
             $this->showSignatureModal = false;
 
             return;
@@ -599,13 +575,10 @@ trait ManagesCarePlanEPrescription
             }
 
             if (!empty($result['warning_message'])) {
-                $this->dispatch('flashMessage', [
-                    'type' => 'warning',
-                    'message' => $result['warning_message']
-                ]);
+                session()->flash('warning', $result['warning_message']);
             }
 
-            $this->dispatch('flashMessage', ['message' => $result['success_message'], 'type' => 'success']);
+            session()->flash('success', $result['success_message']);
             $this->showSignatureModal = false;
             $this->refreshCarePlan();
 
@@ -613,11 +586,11 @@ trait ManagesCarePlanEPrescription
             $e->report();
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to sign E-Prescription validation: ' . $translatedMsg);
-            $this->dispatch('flashMessage', ['message' => $translatedMsg, 'type' => 'error']);
+            session()->flash('error', $translatedMsg);
             $this->showSignatureModal = false;
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to sign E-Prescription: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['message' => 'Помилка при підписанні рецепту: ' . $e->getMessage(), 'type' => 'error']);
+            session()->flash('error', 'Помилка при підписанні рецепту: ' . $e->getMessage());
             $this->showSignatureModal = false;
         }
     }
@@ -626,7 +599,7 @@ trait ManagesCarePlanEPrescription
     {
         $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $requestId)->first();
         if (!$requestRecord) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Рецепт не знайдено']);
+            session()->flash('error', 'Рецепт не знайдено');
 
             return;
         }
@@ -635,7 +608,7 @@ trait ManagesCarePlanEPrescription
             if (in_array(strtolower((string) $requestRecord->status), ['new', 'draft'], true)) {
                 app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->rejectPrescription($this->carePlan, $requestRecord);
                 $this->refreshCarePlan();
-                $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Електронний рецепт успішно відхилено.']);
+                session()->flash('success', 'Електронний рецепт успішно відхилено.');
             } else {
                 $this->ePrescriptionRequestIdToSign = $requestId;
                 $this->openSignatureModal('reject_prescription');
@@ -644,18 +617,17 @@ trait ManagesCarePlanEPrescription
             $e->report();
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to reject prescription validation: ' . $translatedMsg);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $translatedMsg]);
+            session()->flash('error', $translatedMsg);
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to reject prescription: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося відхилити рецепт: ' . $e->getMessage()]);
+            session()->flash('error', 'Не вдалося відхилити рецепт: ' . $e->getMessage());
         }
     }
 
     public function signRejectPrescription(): void
     {
         if (empty($this->ePrescriptionRequestIdToSign)) {
-            $this->dispatch('flashMessage', ['message' => 'Не вибрано рецепт для відхилення', 'type' => 'error']);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вибрано рецепт для відхилення']);
+            session()->flash('error', 'Не вибрано рецепт для відхилення');
             $this->showSignatureModal = false;
 
             return;
@@ -663,8 +635,7 @@ trait ManagesCarePlanEPrescription
 
         $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $this->ePrescriptionRequestIdToSign)->first();
         if (!$requestRecord) {
-            $this->dispatch('flashMessage', ['message' => 'Рецепт не знайдено', 'type' => 'error']);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Рецепт не знайдено']);
+            session()->flash('error', 'Рецепт не знайдено');
             $this->showSignatureModal = false;
 
             return;
@@ -680,21 +651,18 @@ trait ManagesCarePlanEPrescription
 
             $this->showSignatureModal = false;
             $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['message' => 'Електронний рецепт успішно відхилено.', 'type' => 'success']);
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Електронний рецепт успішно відхилено.']);
+            session()->flash('success', 'Електронний рецепт успішно відхилено.');
 
         } catch (EHealthValidationException $e) {
             $e->report();
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to reject prescription validation: ' . $translatedMsg);
-            $this->dispatch('flashMessage', ['message' => $translatedMsg, 'type' => 'error']);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $translatedMsg]);
+            session()->flash('error', $translatedMsg);
             $this->showSignatureModal = false;
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to reject prescription: ' . $e->getMessage());
             $errorMsg = 'Не вдалося відхилити рецепт: ' . $e->getMessage();
-            $this->dispatch('flashMessage', ['message' => $errorMsg, 'type' => 'error']);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $errorMsg]);
+            session()->flash('error', $errorMsg);
             $this->showSignatureModal = false;
         }
     }
@@ -704,13 +672,13 @@ trait ManagesCarePlanEPrescription
         try {
             $response = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $prescriptionId);
             if ($response->successful()) {
-                $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'СМС з кодом погашення успішно надіслано повторно пацієнту.']);
+                session()->flash('success', 'СМС з кодом погашення успішно надіслано повторно пацієнту.');
             } else {
-                $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося повторно надіслати СМС: ' . json_encode($response->getData())]);
+                session()->flash('error', 'Не вдалося повторно надіслати СМС: ' . json_encode($response->getData()));
             }
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to resend SMS: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка надсилання СМС: ' . $e->getMessage()]);
+            session()->flash('error', 'Помилка надсилання СМС: ' . $e->getMessage());
         }
     }
 
@@ -747,7 +715,7 @@ trait ManagesCarePlanEPrescription
             return $this->printableContent;
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to load printout form: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити форму пам’ятки.']);
+            session()->flash('error', 'Не вдалося завантажити форму пам’ятки.');
 
             return '<h3>Помилка при формуванні даних для друку: ' . htmlspecialchars($e->getMessage()) . '</h3>';
         }
@@ -811,7 +779,7 @@ trait ManagesCarePlanEPrescription
     {
         $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $prescriptionId)->first();
         if (!$requestRecord) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Рецепт не знайдено']);
+            session()->flash('error', 'Рецепт не знайдено');
 
             return;
         }
@@ -822,10 +790,10 @@ trait ManagesCarePlanEPrescription
             ]);
             $requestRecord->update(['status' => 'blocked']);
             $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Рецепт успішно заблоковано в ЕСОЗ.']);
+            session()->flash('success', 'Рецепт успішно заблоковано в ЕСОЗ.');
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to block prescription: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка блокування рецепту: ' . $e->getMessage()]);
+            session()->flash('error', 'Помилка блокування рецепту: ' . $e->getMessage());
         }
     }
 
@@ -833,7 +801,7 @@ trait ManagesCarePlanEPrescription
     {
         $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $prescriptionId)->first();
         if (!$requestRecord) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Рецепт не знайдено']);
+            session()->flash('error', 'Рецепт не знайдено');
 
             return;
         }
@@ -842,10 +810,10 @@ trait ManagesCarePlanEPrescription
             app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->unblock($this->carePlan->person->uuid, $prescriptionId, []);
             $requestRecord->update(['status' => 'active']);
             $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Рецепт успішно розблоковано в ЕСОЗ.']);
+            session()->flash('success', 'Рецепт успішно розблоковано в ЕСОЗ.');
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to unblock prescription: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка розблокування рецепту: ' . $e->getMessage()]);
+            session()->flash('error', 'Помилка розблокування рецепту: ' . $e->getMessage());
         }
     }
 
@@ -856,26 +824,23 @@ trait ManagesCarePlanEPrescription
             $items = $dispenses['data'] ?? ($dispenses[0] ?? []);
 
             if (empty($items) || !is_array($items)) {
-                $this->dispatch('flashMessage', ['type' => 'info', 'message' => 'Погашень рецепту в аптеці наразі не виявлено (рецепт ще не відпущено).']);
+                session()->flash('info', 'Погашень рецепту в аптеці наразі не виявлено (рецепт ще не відпущено).');
 
                 return;
             }
 
             $count = count($items);
             $latestStatus = $items[0]['status'] ?? 'невідомо';
-            $this->dispatch('flashMessage', [
-                'type' => 'success',
-                'message' => "Знайдено {$count} записів відпуску ліків в аптеці. Останній статус: {$latestStatus}.",
-            ]);
+            session()->flash('success', "Знайдено {$count} записів відпуску ліків в аптеці. Останній статус: {$latestStatus}.");
         } catch (\Exception $e) {
             Log::warning('CarePlanShow: check dispense history returned 404 or error: ' . $e->getMessage());
             if (str_contains($e->getMessage(), '404') || str_contains(strtolower($e->getMessage()), 'not found')) {
-                $this->dispatch('flashMessage', ['type' => 'info', 'message' => 'Погашень (відпуску ліків) за цим рецептом в ЕСОЗ наразі не виявлено (аптеки ще не відпускали ліки за цим номером).']);
+                session()->flash('info', 'Погашень (відпуску ліків) за цим рецептом в ЕСОЗ наразі не виявлено (аптеки ще не відпускали ліки за цим номером).');
 
                 return;
             }
             Log::error('CarePlanShow: failed to check dispense history: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося отримати історію погашень: ' . $e->getMessage()]);
+            session()->flash('error', 'Не вдалося отримати історію погашень: ' . $e->getMessage());
         }
     }
 }

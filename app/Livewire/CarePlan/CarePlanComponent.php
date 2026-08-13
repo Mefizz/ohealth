@@ -469,7 +469,7 @@ abstract class CarePlanComponent extends Component
                     ->activityStatusChangeBlockReason($activity, $actionType);
 
                 if ($blockReason !== null) {
-                    $this->dispatch('flashMessage', ['message' => $blockReason, 'type' => 'error']);
+                    session()->flash('error', $blockReason);
 
                     return;
                 }
@@ -481,7 +481,7 @@ abstract class CarePlanComponent extends Component
                 ->planCancelBlockReason($this->carePlan);
 
             if ($blockReason !== null) {
-                $this->dispatch('flashMessage', ['message' => $blockReason, 'type' => 'error']);
+                session()->flash('error', $blockReason);
 
                 return;
             }

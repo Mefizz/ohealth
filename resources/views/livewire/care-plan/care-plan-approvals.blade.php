@@ -1,4 +1,6 @@
 <div>
+    <livewire:components.x-message :key="time()" />
+
     @if ($isPolling)
         <div wire:poll.2s="checkApprovalJobStatus" class="hidden"></div>
     @endif
@@ -129,15 +131,6 @@
                         {{ $errorMessage }}
                     </div>
                 @endif
-                @if (session()->has('error'))
-                    <div
-                        class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900/30 dark:bg-gray-700/50 dark:text-red-400"
-                        role="alert"
-                    >
-                        {{ session('error') }}
-                    </div>
-                @endif
-
                 <form wire:submit.prevent="createApproval" class="form">
                     <div class="form-row-2">
                         <div class="form-group group">

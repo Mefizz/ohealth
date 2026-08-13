@@ -1,5 +1,5 @@
 <div x-data="message" @flash-message.window="handleFlash($event)" x-init="setupListeners()">
-    @if(session('error') || session('success') || session('status') || session('info'))
+    @if(session('error') || session('success') || session('status') || session('info') || session('warning'))
         <div class="alert-message flex fixed top-[1.5rem] w-auto z-[99999] right-2"
             x-show="showAlertMessage"
         >
@@ -28,6 +28,14 @@
                     class="p-4 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
                 >
                     <span class="font-medium whitespace-pre-line">{{ session('info') }}</span>
+                </div>
+            @endsession
+
+            @session('warning')
+                <div role="alert"
+                    class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900"
+                >
+                    <span class="font-medium whitespace-pre-line">{{ session('warning') }}</span>
                 </div>
             @endsession
 
@@ -83,7 +91,7 @@
 <script>
     document.addEventListener('alpine:init', () => {
         Alpine.data('message', () => ({
-            showAlertMessage: {{ (session('error') || session('success') || session('status') || session('info')) ? 'true' : 'false' }},
+            showAlertMessage: {{ (session('error') || session('success') || session('status') || session('info') || session('warning')) ? 'true' : 'false' }},
             showDynamicMessage: false,
             dynamicText: '',
             dynamicType: 'success',

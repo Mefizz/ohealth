@@ -1,6 +1,7 @@
 @use('App\Livewire\CarePlan\CarePlanIndex')
 
 <section class="section-form">
+    <livewire:components.x-message :key="time()" />
     <x-header-navigation class="items-start" x-data="{ showFilter: false }">
         <x-slot name="title">
             {{ __('care-plan.care_plans') }}

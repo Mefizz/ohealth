@@ -174,7 +174,7 @@ class DeviceRequestForm extends Component
 
         $this->showSignatureModal = false;
         $this->statusMessage = __('care-plan.device_request_signed');
-        $this->dispatch('flashMessage', ['type' => 'success', 'message' => $this->statusMessage]);
+        session()->flash('success', $this->statusMessage);
         $this->dispatch('device-request-created');
     }
 
@@ -193,6 +193,6 @@ class DeviceRequestForm extends Component
     private function failWith(string $message): void
     {
         $this->statusMessage = $message;
-        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+        session()->flash('error', $message);
     }
 }

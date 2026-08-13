@@ -22,7 +22,7 @@ trait ManagesCarePlanReferrals
     {
         $activity = $activityRepository->findById($activityId);
         if (!$activity) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Призначення не знайдено']);
+            session()->flash('error', 'Призначення не знайдено');
 
             return;
         }
@@ -39,23 +39,20 @@ trait ManagesCarePlanReferrals
         $blockedActivityStatuses = ['cancelled', 'completed'];
 
         if (in_array($planStatus, $blockedPlanStatuses)) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Виписування направлення заборонено: план лікування завершено, скасовано або відмінено.']);
+            session()->flash('error', 'Виписування направлення заборонено: план лікування завершено, скасовано або відмінено.');
 
             return;
         }
 
         if (in_array($activityStatus, $blockedActivityStatuses)) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Виписування направлення заборонено: це призначення вже завершено або скасовано.']);
+            session()->flash('error', 'Виписування направлення заборонено: це призначення вже завершено або скасовано.');
 
             return;
         }
 
         $resolvedKind = $activity->resolvedKind();
         if (!in_array($resolvedKind, ['service_request', 'device_request'], true)) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => __('care-plan.referral_wrong_activity_kind'),
-            ]);
+            session()->flash('error', __('care-plan.referral_wrong_activity_kind'));
 
             return;
         }
@@ -63,7 +60,7 @@ trait ManagesCarePlanReferrals
         try {
             app(CarePlanActivityEHealthGuard::class)->assertRegisteredInEHealth($this->carePlan, $activity);
         } catch (\RuntimeException $exception) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+            session()->flash('error', $exception->getMessage());
 
             return;
         }
@@ -78,10 +75,7 @@ trait ManagesCarePlanReferrals
                 $documentLabel = $resolvedKind === 'device_request'
                     ? __('care-plan.document_type_device_eprescription')
                     : __('care-plan.document_type_service_referral');
-                $this->dispatch('flashMessage', [
-                    'type' => 'success',
-                    'message' => __('care-plan.referral_already_in_ehealth_synced', ['document' => $documentLabel]),
-                ]);
+                session()->flash('success', __('care-plan.referral_already_in_ehealth_synced', ['document' => $documentLabel]));
 
                 return;
             }
@@ -93,10 +87,7 @@ trait ManagesCarePlanReferrals
             $documentLabel = $resolvedKind === 'device_request'
                 ? __('care-plan.document_type_device_eprescription')
                 : __('care-plan.document_type_service_referral');
-            $this->dispatch('flashMessage', [
-                'type' => 'info',
-                'message' => __('care-plan.referral_unsigned_draft_found', ['document' => $documentLabel]),
-            ]);
+            session()->flash('info', __('care-plan.referral_unsigned_draft_found', ['document' => $documentLabel]));
             $this->openSignatureModal($signAction);
 
             return;
@@ -116,22 +107,13 @@ trait ManagesCarePlanReferrals
         if ($resolvedKind === 'device_request') {
             $this->referralDevicePackageQty = $this->resolveDevicePackageQuantity($activity);
             if ($this->referralDevicePackageQty <= 0) {
-                $this->dispatch('flashMessage', [
-                    'type' => 'error',
-                    'message' => __('care-plan.device_package_qty_unknown'),
-                ]);
+                session()->flash('error', __('care-plan.device_package_qty_unknown'));
 
                 return;
             }
 
             if ($this->referralRemainingQty < $this->referralDevicePackageQty) {
-                $this->dispatch('flashMessage', [
-                    'type' => 'error',
-                    'message' => __('care-plan.device_remaining_below_packaging', [
-                        'remaining' => $this->referralRemainingQty,
-                        'count' => $this->referralDevicePackageQty,
-                    ]),
-                ]);
+                session()->flash('error', __('care-plan.device_remaining_below_packaging', [ 'remaining' => $this->referralRemainingQty, 'count' => $this->referralDevicePackageQty, ]));
 
                 return;
             }
@@ -326,40 +308,31 @@ trait ManagesCarePlanReferrals
             $response = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
 
             if ($response->successful()) {
-                $this->dispatch('flashMessage', [
-                    'type' => 'success',
-                    'message' => 'СМС з кодом підтвердження успішно надіслано повторно пацієнту.',
-                ]);
+                session()->flash('success', 'СМС з кодом підтвердження успішно надіслано повторно пацієнту.');
 
                 return;
             }
 
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => 'Не вдалося повторно надіслати СМС: ' . json_encode($response->getData()),
-            ]);
+            session()->flash('error', 'Не вдалося повторно надіслати СМС: ' . json_encode($response->getData()));
         } catch (EHealthValidationException $exception) {
             Log::error('CarePlanShow: failed to resend referral SMS validation: ' . $exception->getTranslatedMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getTranslatedMessage()]);
+            session()->flash('error', $exception->getTranslatedMessage());
         } catch (EHealthResponseException $exception) {
             if ($exception->response->status() === 403) {
                 Log::warning('CarePlanShow: referral SMS resend forbidden by eHealth ACL', [
                     'request_id' => $requestId,
                     'person_uuid' => $this->carePlan->person->uuid,
                 ]);
-                $this->dispatch('flashMessage', [
-                    'type' => 'warning',
-                    'message' => __('care-plan.referral_sms_forbidden'),
-                ]);
+                session()->flash('warning', __('care-plan.referral_sms_forbidden'));
 
                 return;
             }
 
             Log::error('CarePlanShow: failed to resend referral SMS response: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка надсилання СМС: ' . $exception->getMessage()]);
+            session()->flash('error', 'Помилка надсилання СМС: ' . $exception->getMessage());
         } catch (\Exception $exception) {
             Log::error('CarePlanShow: failed to resend referral SMS: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка надсилання СМС: ' . $exception->getMessage()]);
+            session()->flash('error', 'Помилка надсилання СМС: ' . $exception->getMessage());
         }
     }
 
@@ -566,10 +539,7 @@ trait ManagesCarePlanReferrals
                 $this->showSignatureModal = false;
                 $this->referralExplanatoryLetter = '';
                 $this->refreshCarePlan();
-                $this->dispatch('flashMessage', [
-                    'type' => 'success',
-                    'message' => __('care-plan.referral_recall_success'),
-                ]);
+                session()->flash('success', __('care-plan.referral_recall_success'));
             } else {
                 throw new \Exception(json_encode($response->getData()));
             }
@@ -641,7 +611,7 @@ trait ManagesCarePlanReferrals
                 $record->update(['status' => 'entered-in-error']);
                 $this->showSignatureModal = false;
                 $this->refreshCarePlan();
-                $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Направлення скасовано в eHealth.']);
+                session()->flash('success', 'Направлення скасовано в eHealth.');
             } else {
                 throw new \Exception(json_encode($response->getData()));
             }
@@ -665,12 +635,12 @@ trait ManagesCarePlanReferrals
 
             return $html;
         } catch (\RuntimeException $exception) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+            session()->flash('error', $exception->getMessage());
 
             return '';
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to load referral printout: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити друковану форму.']);
+            session()->flash('error', 'Не вдалося завантажити друковану форму.');
 
             return '';
         }
@@ -683,7 +653,7 @@ trait ManagesCarePlanReferrals
             : \App\Repositories\MedicalEvents\Repository::deviceRequest()->findByUuid($requestUuid);
 
         if (!$requestRecord) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Направлення не знайдено.']);
+            session()->flash('error', 'Направлення не знайдено.');
 
             return;
         }
@@ -749,18 +719,10 @@ trait ManagesCarePlanReferrals
                 }
             }
 
-            $this->dispatch('flashMessage', [
-                'type' => 'success',
-                'message' => $changes === []
-                    ? __('care-plan.referral_sync_no_changes')
-                    : __('care-plan.referral_sync_updated', ['changes' => implode('; ', $changes)]),
-            ]);
+            session()->flash('success', $changes === [] ? __('care-plan.referral_sync_no_changes') : __('care-plan.referral_sync_updated', ['changes' => implode('; ', $changes)]));
         } catch (\Exception $exception) {
             Log::error('CarePlanShow: failed to sync referral from eHealth: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => 'Не вдалося оновити направлення з ЕСОЗ: ' . $exception->getMessage(),
-            ]);
+            session()->flash('error', 'Не вдалося оновити направлення з ЕСОЗ: ' . $exception->getMessage());
         }
     }
 
@@ -882,13 +844,13 @@ trait ManagesCarePlanReferrals
     protected function flashUserError(string $message): void
     {
         Session::flash('error', $message);
-        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+        session()->flash('error', $message);
     }
 
     protected function flashUserSuccess(string $message): void
     {
         Session::flash('success', $message);
-        $this->dispatch('flashMessage', ['type' => 'success', 'message' => $message]);
+        session()->flash('success', $message);
     }
 
     /**
@@ -994,10 +956,7 @@ trait ManagesCarePlanReferrals
         $finalStatusCode = strtolower((string) ($dbData['status'] ?? ''));
         if (in_array($finalStatusCode, ['pending', 'processing'], true)) {
             Session::flash('info', $documentLabel.' прийнято в обробку ЕСОЗ. Фінальний статус з’явиться після завершення асинхронної задачі.');
-            $this->dispatch('flashMessage', [
-                'type' => 'warning',
-                'message' => $documentLabel.' прийнято в обробку ЕСОЗ. Фінальний статус з’явиться після завершення асинхронної задачі.',
-            ]);
+            session()->flash('warning', $documentLabel.' прийнято в обробку ЕСОЗ. Фінальний статус з’явиться після завершення асинхронної задачі.');
         } elseif ($alreadyPersisted) {
             $this->flashUserSuccess($documentLabel.' вже існував у ЕСОЗ. Локальні дані синхронізовано.');
         } else {

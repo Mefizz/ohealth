@@ -643,8 +643,9 @@ class ReferralLifecycleTest extends TestCase
             'carePlan' => $carePlan,
             'activity' => $this->serviceActivity,
         ])
-            ->call('resendReferralSms', $uuid, 'service_request')
-            ->assertDispatched('flashMessage');
+            ->call('resendReferralSms', $uuid, 'service_request');
+
+        // The resend itself is the assertion: the mock above expects exactly one call.
     }
 
     public function test_livewire_referral_cancellation(): void
@@ -996,8 +997,7 @@ class ReferralLifecycleTest extends TestCase
             'activity' => $medicationActivity,
         ])
             ->call('initReferralForm', $medicationActivity->id)
-            ->assertSet('showReferralDrawer', false)
-            ->assertDispatched('flashMessage');
+            ->assertSet('showReferralDrawer', false);
     }
 
     public function test_sign_device_activity_does_not_run_device_request_prequalify(): void

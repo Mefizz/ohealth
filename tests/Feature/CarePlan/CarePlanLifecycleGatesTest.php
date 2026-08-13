@@ -12,6 +12,7 @@ use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
+use App\Services\MedicalEvents\CarePlanLifecycleGateService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
@@ -130,8 +131,14 @@ class CarePlanLifecycleGatesTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('openSignatureModal', 'cancel_activity', $activity->id)
-            ->assertSet('showSignatureModal', false)
-            ->assertDispatched('flashMessage');
+            ->assertSet('showSignatureModal', false);
+
+        // The block is flashed to the user; Livewire ages flash data at the end of its request,
+        // so the reason itself is asserted at its source.
+        $this->assertNotNull(
+            app(CarePlanLifecycleGateService::class)
+                ->activityStatusChangeBlockReason($activity->fresh(), 'cancel_activity')
+        );
     }
 
     public function test_blocks_activity_complete_when_open_service_request_exists(): void
@@ -170,8 +177,12 @@ class CarePlanLifecycleGatesTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('openSignatureModal', 'complete_activity', $activity->id)
-            ->assertSet('showSignatureModal', false)
-            ->assertDispatched('flashMessage');
+            ->assertSet('showSignatureModal', false);
+
+        $this->assertNotNull(
+            app(CarePlanLifecycleGateService::class)
+                ->activityStatusChangeBlockReason($activity->fresh(), 'complete_activity')
+        );
     }
 
     public function test_blocks_plan_cancel_when_activity_is_scheduled(): void
@@ -198,8 +209,11 @@ class CarePlanLifecycleGatesTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
             ->call('openSignatureModal', 'cancel')
-            ->assertSet('showSignatureModal', false)
-            ->assertDispatched('flashMessage');
+            ->assertSet('showSignatureModal', false);
+
+        $this->assertNotNull(
+            app(CarePlanLifecycleGateService::class)->planCancelBlockReason($carePlan->fresh('activities'))
+        );
     }
 
     public function test_allows_activity_cancel_modal_when_no_open_documents(): void

@@ -257,7 +257,7 @@ class CarePlanShow extends CarePlanComponent
         }
 
         if (!filled($this->selectedProgram)) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.select_program_first'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.select_program_first'));
 
             return;
         }
@@ -319,7 +319,7 @@ class CarePlanShow extends CarePlanComponent
     {
         $activity = $repository->findById($activityId);
         if (!$activity || $activity->carePlanId !== $this->carePlan->id) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_not_found'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.activity_not_found'));
             $this->cancelDeleteActivity();
 
             return;
@@ -331,21 +331,21 @@ class CarePlanShow extends CarePlanComponent
             : (string) $statusVal);
 
         if (!in_array($activityStatus, ['draft', 'new'], true)) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_delete_only_draft'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.activity_delete_only_draft'));
             $this->cancelDeleteActivity();
 
             return;
         }
 
         if (!$repository->deleteById($activityId)) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_delete_has_referrals'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.activity_delete_has_referrals'));
             $this->cancelDeleteActivity();
 
             return;
         }
 
         $this->cancelDeleteActivity();
-        $this->dispatch('flashMessage', ['message' => __('care-plan.activity_deleted'), 'type' => 'success']);
+        session()->flash('success', __('care-plan.activity_deleted'));
         $this->refreshCarePlan();
     }
 
@@ -416,7 +416,7 @@ class CarePlanShow extends CarePlanComponent
         if (str_contains($kindLower, 'medication') && $programPayload !== null) {
             $providingBlock = $activityValidation->providingConditionsBlockReason($this->carePlan, $programPayload);
             if ($providingBlock !== null) {
-                $this->dispatch('flashMessage', ['message' => $providingBlock, 'type' => 'error']);
+                session()->flash('error', $providingBlock);
                 $this->addError('activityForm.program', $providingBlock);
 
                 return;
@@ -452,7 +452,7 @@ class CarePlanShow extends CarePlanComponent
 
                 if (!$hasValidDiagnosis) {
                     $message = __('care-plan.medical_program_diagnosis_mismatch');
-                    $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                    session()->flash('error', $message);
                     $this->addError('activityForm.program', $message);
 
                     return;
@@ -462,7 +462,7 @@ class CarePlanShow extends CarePlanComponent
 
         $rehabBlock = $activityValidation->rehabReasonReferenceBlockReason($this->carePlan, $this->linkedGrounds);
         if ($rehabBlock !== null) {
-            $this->dispatch('flashMessage', ['message' => $rehabBlock, 'type' => 'error']);
+            session()->flash('error', $rehabBlock);
             $this->addError('linkedGrounds', $rehabBlock);
 
             return;
@@ -472,7 +472,7 @@ class CarePlanShow extends CarePlanComponent
             $validated = $this->validate($rules);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
-            $this->dispatch('flashMessage', ['message' => $exception->validator->errors()->first(), 'type' => 'error']);
+            session()->flash('error', $exception->validator->errors()->first());
 
             return;
         }
@@ -481,7 +481,7 @@ class CarePlanShow extends CarePlanComponent
         $activityEnd = convertToYmd($validated['activityForm']['scheduled_period_end']);
         $periodError = $this->validateActivityPeriodAgainstCarePlan($activityStart, $activityEnd);
         if ($periodError !== null) {
-            $this->dispatch('flashMessage', ['message' => $periodError, 'type' => 'error']);
+            session()->flash('error', $periodError);
             $this->addError('activityForm.scheduled_period_start', $periodError);
 
             return;
@@ -511,7 +511,7 @@ class CarePlanShow extends CarePlanComponent
                 $quantityCode = strtoupper((string) ($validated['activityForm']['quantity_code'] ?? ''));
                 if ($quantityCode !== strtoupper($expectedUnit)) {
                     $message = __('care-plan.medication_unit_mismatch', ['unit' => $expectedUnit]);
-                    $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                    session()->flash('error', $message);
                     $this->addError('activityForm.quantity_code', $message);
 
                     return;
@@ -526,7 +526,7 @@ class CarePlanShow extends CarePlanComponent
                     $quotient = $quantity / $packageStep;
                     if (abs($quotient - round($quotient)) > 1e-6) {
                         $message = __('care-plan.medication_qty_packaging', ['count' => $packageStep]);
-                        $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                        session()->flash('error', $message);
                         $this->addError('activityForm.quantity', $message);
 
                         return;
@@ -534,7 +534,7 @@ class CarePlanShow extends CarePlanComponent
                 }
             } elseif (!empty($this->activityForm['product_reference'])) {
                 $message = 'Не вдалося перевірити одиниці виміру препарату. Будь ласка, знайдіть і оберіть препарат зі списку ще раз.';
-                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                session()->flash('error', $message);
                 $this->addError('activityForm.quantity_code', $message);
 
                 return;
@@ -548,7 +548,7 @@ class CarePlanShow extends CarePlanComponent
                 ?? $this->resolveDeviceProgramId();
             if (!$guard->deviceAllowsCarePlanActivity($this->selectedProduct, $programForDevice)) {
                 $message = __('care-plan.device_care_plan_activity_not_allowed');
-                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                session()->flash('error', $message);
                 $this->addError('activityForm.product_reference', $message);
 
                 return;
@@ -564,7 +564,7 @@ class CarePlanShow extends CarePlanComponent
 
             if ($packagingUnit !== null && $quantityCode !== '' && strcasecmp($packagingUnit, $quantityCode) !== 0) {
                 $message = __('care-plan.device_quantity_unit_mismatch', ['unit' => $packagingUnit]);
-                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                session()->flash('error', $message);
                 $this->addError('activityForm.quantity_code', $message);
 
                 return;
@@ -572,7 +572,7 @@ class CarePlanShow extends CarePlanComponent
 
             if ($packagingCount > 0 && $quantity % $packagingCount !== 0) {
                 $message = __('care-plan.device_quantity_packaging', ['count' => $packagingCount]);
-                $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                session()->flash('error', $message);
                 $this->addError('activityForm.quantity', $message);
 
                 return;
@@ -628,14 +628,14 @@ class CarePlanShow extends CarePlanComponent
 
         if (!empty($this->activityForm['id'])) {
             $repository->updateById($this->activityForm['id'], $activityData);
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_updated'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.activity_updated'));
         } else {
             $activityData['care_plan_id'] = $this->carePlan->id;
             $activityData['author_id'] = Auth::user()?->activeDoctorEmployee()?->id;
             $activityData['status'] = CarePlanStatus::DRAFT->value;
 
             $repository->create($activityData);
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_draft_saved'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.activity_draft_saved'));
         }
 
         $this->refreshCarePlan();

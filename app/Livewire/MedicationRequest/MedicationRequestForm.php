@@ -171,7 +171,7 @@ class MedicationRequestForm extends Component
 
         $this->showSignatureModal = false;
         $this->statusMessage = __('care-plan.prescription_signed');
-        $this->dispatch('flashMessage', ['type' => 'success', 'message' => $this->statusMessage]);
+        session()->flash('success', $this->statusMessage);
         $this->dispatch('medication-request-created');
     }
 
@@ -190,6 +190,6 @@ class MedicationRequestForm extends Component
     private function failWith(string $message): void
     {
         $this->statusMessage = $message;
-        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+        session()->flash('error', $message);
     }
 }

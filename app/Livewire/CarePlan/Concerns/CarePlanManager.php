@@ -26,7 +26,7 @@ trait CarePlanManager
         try {
             $validated = $this->validate($this->rulesForSigning());
         } catch (ValidationException $exception) {
-            $this->dispatch('flashMessage', ['message' => $exception->validator->errors()->first(), 'type' => 'error']);
+            session()->flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
             $this->showSignatureModal = false;
 
@@ -47,7 +47,7 @@ trait CarePlanManager
 
         if ($this->actionType === 'sign_eprescription') {
             if (!method_exists($this, 'signEPrescription')) {
-                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                session()->flash('error', __('care-plan.unexpected_error'));
                 $this->showSignatureModal = false;
 
                 return;
@@ -60,7 +60,7 @@ trait CarePlanManager
 
         if ($this->actionType === 'sign_servicerequest' || $this->actionType === 'sign_devicerequest') {
             if (!method_exists($this, 'signReferral')) {
-                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                session()->flash('error', __('care-plan.unexpected_error'));
                 $this->showSignatureModal = false;
 
                 return;
@@ -79,7 +79,7 @@ trait CarePlanManager
 
         if ($this->actionType === 'cancel_prescription' || $this->actionType === 'reject_prescription') {
             if (!method_exists($this, 'signRejectPrescription')) {
-                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                session()->flash('error', __('care-plan.unexpected_error'));
                 $this->showSignatureModal = false;
 
                 return;
@@ -93,7 +93,7 @@ trait CarePlanManager
 
         if ($this->actionType === 'cancel_referral') {
             if (!method_exists($this, 'signCancelReferral')) {
-                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                session()->flash('error', __('care-plan.unexpected_error'));
                 $this->showSignatureModal = false;
 
                 return;
@@ -106,7 +106,7 @@ trait CarePlanManager
 
         if ($this->actionType === 'recall_referral') {
             if (!method_exists($this, 'signRecallReferral')) {
-                $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+                session()->flash('error', __('care-plan.unexpected_error'));
                 $this->showSignatureModal = false;
 
                 return;
@@ -123,7 +123,7 @@ trait CarePlanManager
 
                 return;
             }
-            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_not_synced'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.care_plan_not_synced'));
             $this->showSignatureModal = false;
 
             return;
@@ -134,7 +134,7 @@ trait CarePlanManager
                 ->planCancelBlockReason($this->carePlan);
 
             if ($planCancelBlock !== null) {
-                $this->dispatch('flashMessage', ['message' => $planCancelBlock, 'type' => 'error']);
+                session()->flash('error', $planCancelBlock);
                 $this->showSignatureModal = false;
 
                 return;
@@ -204,16 +204,16 @@ trait CarePlanManager
 
             $this->refreshCarePlan();
 
-            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_updated'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.care_plan_updated'));
             $this->showSignatureModal = false;
 
         } catch (EHealthJobTimeoutException $exception) {
             $exception->report();
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            session()->flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.connection_error'));
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -225,11 +225,11 @@ trait CarePlanManager
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getFormattedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
+            session()->flash('error', $msg);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.unexpected_error'));
             $this->showSignatureModal = false;
         }
     }
@@ -293,16 +293,16 @@ trait CarePlanManager
 
             $this->refreshCarePlan();
 
-            $this->dispatch('flashMessage', ['message' => __('care-plan.signed_and_sent'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.signed_and_sent'));
             $this->showSignatureModal = false;
 
         } catch (EHealthJobTimeoutException $exception) {
             $exception->report();
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            session()->flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.connection_error'));
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -314,11 +314,11 @@ trait CarePlanManager
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getFormattedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
+            session()->flash('error', $msg);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.unexpected_error'));
             $this->showSignatureModal = false;
         }
     }
@@ -330,7 +330,7 @@ trait CarePlanManager
         ]);
 
         if (empty($this->carePlan->uuid)) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_not_synced'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.care_plan_not_synced'));
             $this->showSignatureModal = false;
 
             return;
@@ -342,7 +342,7 @@ trait CarePlanManager
         ])->exists();
 
         if ($hasActiveActivities) {
-            $this->dispatch('flashMessage', ['message' => 'Неможливо завершити план лікування. Всі призначення повинні мати фінальний статус (завершені або скасовані).', 'type' => 'error']);
+            session()->flash('error', 'Неможливо завершити план лікування. Всі призначення повинні мати фінальний статус (завершені або скасовані).');
 
             return;
         }
@@ -381,16 +381,16 @@ trait CarePlanManager
 
             $this->refreshCarePlan();
 
-            $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_updated'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.care_plan_updated'));
             $this->showSignatureModal = false;
 
         } catch (EHealthJobTimeoutException $exception) {
             $exception->report();
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            session()->flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.connection_error'));
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
                 $exception->report();
@@ -401,17 +401,17 @@ trait CarePlanManager
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getFormattedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
+            session()->flash('error', $msg);
         } catch (\Throwable $exception) {
             Log::error('CarePlanShow: unexpected error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.unexpected_error'));
         }
     }
 
     private function signActivity(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
     {
         if (!$this->activityToSign) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.no_activity_selected'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.no_activity_selected'));
             $this->showSignatureModal = false;
 
             return;
@@ -419,7 +419,7 @@ trait CarePlanManager
 
         $activity = $activityRepository->findById($this->activityToSign);
         if (!$activity) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_not_found'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.activity_not_found'));
             $this->showSignatureModal = false;
 
             return;
@@ -431,7 +431,7 @@ trait CarePlanManager
         }
 
         if (str_contains(strtolower((string) $activity->kind), 'device') && empty($activity->program)) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.device_program_required_before_sign'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.device_program_required_before_sign'));
             $this->showSignatureModal = false;
 
             return;
@@ -440,7 +440,7 @@ trait CarePlanManager
         if (method_exists($this, 'getDeviceSignReadinessWarning')) {
             $deviceWarning = $this->getDeviceSignReadinessWarning($activity);
             if ($deviceWarning !== null) {
-                $this->dispatch('flashMessage', ['message' => $deviceWarning, 'type' => 'error']);
+                session()->flash('error', $deviceWarning);
                 $this->showSignatureModal = false;
 
                 return;
@@ -527,16 +527,16 @@ trait CarePlanManager
             }
 
             $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_signed'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.activity_signed'));
             $this->showSignatureModal = false;
 
         } catch (EHealthJobTimeoutException $exception) {
             $exception->report();
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            session()->flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanActivity: connection error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.connection_error'));
             $this->showSignatureModal = false;
         } catch (EHealthValidationException|EHealthResponseException $exception) {
             if (method_exists($exception, 'report')) {
@@ -549,13 +549,13 @@ trait CarePlanManager
             $msg = $exception instanceof EHealthValidationException
                 ? $exception->getTranslatedMessage()
                 : __('care-plan.ehealth_error_prefix') . $exception->getMessage();
-            $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'error']);
+            session()->flash('error', $msg);
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanActivity: unexpected error: ' . $exception->getMessage(), [
                 'exception' => $exception
             ]);
-            $this->dispatch('flashMessage', ['message' => __('care-plan.unexpected_error'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.unexpected_error'));
             $this->showSignatureModal = false;
         }
     }
@@ -563,7 +563,7 @@ trait CarePlanManager
     private function signStatusActivity(CarePlanActivityRepository $activityRepository): void
     {
         if (!$this->activityToSign) {
-            $this->dispatch('flashMessage', ['message' => __('care-plan.no_activity_selected'), 'type' => 'error']);
+            session()->flash('error', __('care-plan.no_activity_selected'));
             $this->showSignatureModal = false;
 
             return;
@@ -578,7 +578,7 @@ trait CarePlanManager
             ->activityStatusChangeBlockReason($activity, (string) $this->actionType);
 
         if ($openDocsBlock !== null) {
-            $this->dispatch('flashMessage', ['message' => $openDocsBlock, 'type' => 'error']);
+            session()->flash('error', $openDocsBlock);
             $this->showSignatureModal = false;
 
             return;
@@ -735,18 +735,18 @@ trait CarePlanManager
             $activityRepository->updateById($activity->id, $updateData);
 
             $this->refreshCarePlan();
-            $this->dispatch('flashMessage', ['message' => __('care-plan.activity_updated'), 'type' => 'success']);
+            session()->flash('success', __('care-plan.activity_updated'));
             $this->showSignatureModal = false;
 
         } catch (EHealthValidationException $exception) {
             Log::error('CarePlanActivityStatus: eHealth validation error: ' . $exception->getMessage(), [
                 'details' => $exception->getDetails()
             ]);
-            $this->dispatch('flashMessage', ['message' => $exception->getTranslatedMessage(), 'type' => 'error']);
+            session()->flash('error', $exception->getTranslatedMessage());
             $this->showSignatureModal = false;
         } catch (\Throwable $exception) {
             Log::error('CarePlanActivityStatus: error: ' . $exception->getMessage());
-            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            session()->flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         }
     }
@@ -754,7 +754,7 @@ trait CarePlanManager
     public function openMethodSelectionModal(): void
     {
         if (empty($this->carePlan->uuid)) {
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'План лікування ще не синхронізовано з ЕСОЗ.']);
+            session()->flash('error', 'План лікування ще не синхронізовано з ЕСОЗ.');
 
             return;
         }
@@ -764,7 +764,7 @@ trait CarePlanManager
             $this->showMethodSelectionModal = true;
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to load auth methods: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити методи аутентифікації']);
+            session()->flash('error', 'Не вдалося завантажити методи аутентифікації');
         }
     }
 
@@ -790,10 +790,7 @@ trait CarePlanManager
             $employeeUuid = Auth::user()?->getCarePlanWriterEmployee($this->carePlan->terms_of_service)?->uuid;
 
             if (!$employeeUuid) {
-                $this->dispatch('flashMessage', [
-                    'type' => 'error',
-                    'message' => 'Не вдалося визначити лікаря для створення дозволу.',
-                ]);
+                session()->flash('error', 'Не вдалося визначити лікаря для створення дозволу.');
 
                 return;
             }
@@ -826,10 +823,10 @@ trait CarePlanManager
             }
 
             $this->syncPlanStatus();
-            $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
+            session()->flash('success', 'План лікування успішно активовано.');
         } catch (\Exception $e) {
             Log::error('CarePlanShow: failed to create approval: ' . $e->getMessage());
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося створити запит на дозвіл: ' . $e->getMessage()]);
+            session()->flash('error', 'Не вдалося створити запит на дозвіл: ' . $e->getMessage());
         }
     }
 
@@ -849,10 +846,7 @@ trait CarePlanManager
         $this->pollingLinkId = null;
 
         if ($status->isFailed()) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => $status->errorMessage ?: 'Не вдалося обробити запит на дозвіл.',
-            ]);
+            session()->flash('error', $status->errorMessage ?: 'Не вдалося обробити запит на дозвіл.');
 
             return;
         }
@@ -869,7 +863,7 @@ trait CarePlanManager
         }
 
         $this->syncPlanStatus();
-        $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
+        session()->flash('success', 'План лікування успішно активовано.');
     }
 
     public function verify(): void
@@ -880,7 +874,7 @@ trait CarePlanManager
             Log::info('CarePlanManager: offline document verification confirmed for approval ID: ' . $this->approvalId);
             $this->closeAuthModal();
             $this->syncPlanStatus();
-            $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано (за документами пацієнта).', 'type' => 'success']);
+            session()->flash('success', 'План лікування успішно активовано (за документами пацієнта).');
 
             return;
         }
@@ -895,7 +889,7 @@ trait CarePlanManager
             if ($response->successful()) {
                 $this->closeAuthModal();
                 $this->syncPlanStatus();
-                $this->dispatch('flashMessage', ['message' => 'План лікування успішно активовано.', 'type' => 'success']);
+                session()->flash('success', 'План лікування успішно активовано.');
             }
         } catch (\Exception $e) {
             Log::error('CarePlanLifecycle: failed to verify approval: ' . $e->getMessage());
@@ -912,7 +906,6 @@ trait CarePlanManager
             app(CarePlanApprovalService::class)->resendSms($this->carePlan->person->uuid, $this->approvalId);
             $this->smsResent = true;
             session()->flash('success', 'SMS надіслано повторно');
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'SMS надіслано повторно']);
         } catch (\Exception $e) {
             Log::error('CarePlanLifecycle: failed to resend SMS: ' . $e->getMessage());
             $message = str_contains($e->getMessage(), 'ACL')
@@ -920,14 +913,13 @@ trait CarePlanManager
                 : __('care-plan.sms_resend_error');
             $this->addError('verificationCode', $message);
             session()->flash('error', $message);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
         }
     }
 
     public function sync(): void
     {
         $this->syncPlanStatus();
-        $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Дані успішно синхронізовано з ЕСОЗ']);
+        session()->flash('success', 'Дані успішно синхронізовано з ЕСОЗ');
     }
 
     private function buildCarePlanStatusChangePayload(array $statusReasonCodeableConcept): array

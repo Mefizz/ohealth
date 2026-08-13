@@ -46,10 +46,7 @@ trait ManagesEncounterReferrals
             : EncounterStatus::tryFrom((string) $encounter->status);
 
         if ($status !== EncounterStatus::FINISHED) {
-            $this->dispatch('flashMessage', [
-                'type' => 'error',
-                'message' => 'Електронне направлення без плану лікування можна створити лише після завершення взаємодії.',
-            ]);
+            session()->flash('error', 'Електронне направлення без плану лікування можна створити лише після завершення взаємодії.');
 
             return;
         }
@@ -246,11 +243,7 @@ trait ManagesEncounterReferrals
             $this->encounterReferralRequestIdToSign = null;
             $this->form->resetSigningFields();
 
-            $this->dispatch('flashMessage', [
-                'type' => 'success',
-                'message' => 'Електронне направлення успішно створено без плану лікування (№ '
-                    .($dbData['request_number'] ?? $dbData['uuid']).').',
-            ]);
+            session()->flash('success', 'Електронне направлення успішно створено без плану лікування (№ ' .($dbData['request_number'] ?? $dbData['uuid']).').');
         } catch (EHealthValidationException $exception) {
             $exception->report();
             Session::flash('error', $exception->getFormattedMessage());

@@ -41,7 +41,7 @@ class EncounterStandalonePhase6Test extends TestCase
         $harness->openEncounterReferralDrawer();
 
         $this->assertFalse($harness->showEncounterReferralDrawer);
-        $this->assertNotEmpty($harness->flashes);
+        $this->assertTrue(session()->has('error'));
     }
 
     public function test_eprescription_drawer_opens_for_finished_encounter(): void
@@ -110,16 +110,8 @@ class EncounterStandaloneHarness
 
     public ?string $actionType = null;
 
-    /** @var list<array{type?: string, message?: string}> */
-    public array $flashes = [];
-
     public function dispatch(string $event, mixed ...$params): static
     {
-        if ($event === 'flashMessage') {
-            $payload = $params[0] ?? [];
-            $this->flashes[] = is_array($payload) ? $payload : [];
-        }
-
         return $this;
     }
 }

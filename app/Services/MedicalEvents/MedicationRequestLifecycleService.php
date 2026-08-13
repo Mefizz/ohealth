@@ -5,55 +5,56 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\Api\MedicationRequest;
+use App\Contracts\EHealthRequestLifecycleContract;
 use App\Enums\Person\EncounterStatus;
+use App\Models\CarePlan;
+use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
 use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
-use Exception;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
-class MedicationRequestLifecycleService
+class MedicationRequestLifecycleService extends EHealthRequestLifecycleService implements EHealthRequestLifecycleContract
 {
     use ResolvesEmployeeContext;
 
-    /**
-     * PreQualify Medication Request.
-     *
-     * @param  array  $payload
-     * @return array
-     */
     public function preQualify(array $payload): array
     {
-        try {
-            $response = MedicationRequest::preQualify($payload);
+        return $this->callEHealth('Prequalify', static fn (): array => MedicationRequest::preQualify($payload));
+    }
 
-            return $response['data'] ?? $response;
-        } catch (Exception $e) {
-            Log::error('ePrescription Prequalify failed: ' . $e->getMessage());
-            throw $e;
-        }
+    public function createDraft(array $payload): array
+    {
+        return $this->callEHealth('Create Draft', static fn (): array => MedicationRequest::createMedicationRequest($payload));
+    }
+
+    public function sign(string $id, array $payload): array
+    {
+        return $this->callEHealth('Sign', static fn (): array => MedicationRequest::signMedicationRequest($id, $payload));
+    }
+
+    public function reject(string $id, array $payload): array
+    {
+        return $this->callEHealth('Reject', static fn (): array => MedicationRequest::rejectMedicationRequest($id, $payload));
+    }
+
+    protected function requestType(): string
+    {
+        return 'ePrescription';
     }
 
     /**
-     * Create Medication Request (Draft).
+     * Create and locally persist a prescription draft for a care plan activity.
+     *
+     * @param  array<string, mixed>  $formData
+     * @param  array<string, int|string|null>  $employeeContext
+     * @return string The prescription uuid assigned by eHealth
      */
-    public function createDraft(mixed $carePlanOrPayload, mixed $activity = null, array $formData = [], array $employeeContext = []): array|string
+    public function createCarePlanDraft(CarePlan $carePlan, ?CarePlanActivity $activity, array $formData = [], array $employeeContext = []): string
     {
-        if (is_array($carePlanOrPayload)) {
-            try {
-                $response = MedicationRequest::createMedicationRequest($carePlanOrPayload);
-
-                return $response['data'] ?? $response;
-            } catch (Exception $e) {
-                Log::error('ePrescription Create Draft failed: ' . $e->getMessage());
-                throw $e;
-            }
-        }
-
-        $carePlan = $carePlanOrPayload;
-
         $signatureText = trim((string) ($formData['signature_text'] ?? ''));
         if ($signatureText === '') {
             throw new \InvalidArgumentException(__('care-plan.eprescription_signature_required'));
@@ -126,37 +127,18 @@ class MedicationRequestLifecycleService
             'division_uuid' => $employeeContext['division_id'] ? \App\Models\Division::find($employeeContext['division_id'])?->uuid : null,
         ];
 
-        $mapper = new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper();
-
-        if (!empty($dbData['medication_program_id'])) {
-            $prequalifyPayload = $mapper->toPrequalifyPayload($dbData, $uuids, $carePlan->uuid);
-            $response = MedicationRequest::preQualify($prequalifyPayload);
-
-            $resolver = app(EHealthJobResolver::class);
-            $resolver->assertPrequalifyValid($resolver->resolve($response));
-        }
-
-        $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, $carePlan->uuid);
-        $createResponse = MedicationRequest::createMedicationRequest($createPayload);
-
-        // resolve() raises on a failed or unresolved job, so nothing below runs unless
-        // eHealth accepted the draft.
-        $finalCreateResponse = app(EHealthJobResolver::class)->resolve($createResponse);
-
-        $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
-        $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
-        $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
-        $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
-
-        app(MedicationRequestRepository::class)->store($dbData, (int) $carePlan->person_id);
-
-        return $dbData['uuid'];
+        return $this->submitDraft($dbData, $uuids, $carePlan->uuid, (int) $carePlan->person_id);
     }
 
     /**
-     * Create Medication Request (Draft) directly from Encounter without Care Plan.
+     * Create and locally persist a prescription draft straight from an encounter, without a
+     * care plan.
+     *
+     * @param  array<string, mixed>  $formData
+     * @param  array<string, int|string|null>  $employeeContext
+     * @return string The prescription uuid assigned by eHealth
      */
-    public function createEncounterDraft(\App\Models\MedicalEvents\Sql\Encounter $encounter, array $formData = [], array $employeeContext = []): string
+    public function createEncounterDraft(Encounter $encounter, array $formData = [], array $employeeContext = []): string
     {
         $dbData = [
             'uuid' => (string) Str::uuid(),
@@ -207,55 +189,85 @@ class MedicationRequestLifecycleService
             'division_uuid' => $employeeContext['division_id'] ? \App\Models\Division::find($employeeContext['division_id'])?->uuid : null,
         ];
 
+        return $this->submitDraft($dbData, $uuids, null, (int) $encounter->person_id);
+    }
+
+    /**
+     * Prequalify the medical program when one is set, create the draft in eHealth and persist
+     * the accepted answer locally.
+     *
+     * @param  array<string, mixed>  $dbData
+     * @param  array<string, string|null>  $uuids
+     * @return string The prescription uuid assigned by eHealth
+     */
+    private function submitDraft(array $dbData, array $uuids, ?string $carePlanUuid, int $personId): string
+    {
         $mapper = new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper();
 
         if (!empty($dbData['medication_program_id'])) {
-            $prequalifyPayload = $mapper->toPrequalifyPayload($dbData, $uuids, null);
-            $response = MedicationRequest::preQualify($prequalifyPayload);
-
-            $resolver = app(EHealthJobResolver::class);
-            $resolver->assertPrequalifyValid($resolver->resolve($response));
+            $this->runPrequalify(
+                MedicationRequest::preQualify($mapper->toPrequalifyPayload($dbData, $uuids, $carePlanUuid))
+            );
         }
 
-        $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, null);
-        $createResponse = MedicationRequest::createMedicationRequest($createPayload);
+        $createResponse = MedicationRequest::createMedicationRequest(
+            $mapper->toCreateRequestPayload($dbData, $uuids, $carePlanUuid)
+        );
 
         // resolve() raises on a failed or unresolved job, so nothing below runs unless
         // eHealth accepted the draft.
-        $finalCreateResponse = app(EHealthJobResolver::class)->resolve($createResponse);
+        $finalCreateResponse = $this->jobResolver->resolve($createResponse);
 
         $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
         $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
-        $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
-        $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
+        $dbData['ehealth_payload'] = $this->resolveStoredPayload($createResponse, $finalCreateResponse);
 
-        app(MedicationRequestRepository::class)->store($dbData, (int) $encounter->person_id);
+        app(MedicationRequestRepository::class)->store($dbData, $personId);
 
         return $dbData['uuid'];
     }
 
     /**
-     * Sign Medication Request.
+     * The accepted draft comes back either on the job result or on the create response, either
+     * wrapped in `data` or flat.
+     *
+     * @param  array<string, mixed>  $createResponse
+     * @param  array<string, mixed>  $jobResult
+     * @return array<string, mixed>
      */
-    public function sign(mixed $idOrCarePlan, mixed $payloadOrRequestRecord, array $formData = [], string $informWith = '', float $remainingQty = 0.0): array
+    private function resolveStoredPayload(array $createResponse, array $jobResult): array
     {
-        if (is_string($idOrCarePlan) && is_array($payloadOrRequestRecord)) {
-            try {
-                $response = MedicationRequest::signMedicationRequest($idOrCarePlan, $payloadOrRequestRecord);
+        foreach ([$jobResult, $createResponse] as $candidate) {
+            if (isset($candidate['data'])) {
+                return is_array($candidate['data']) ? $candidate['data'] : (array) $candidate['data'];
+            }
 
-                return $response['data'] ?? $response;
-            } catch (Exception $e) {
-                Log::error('ePrescription Sign failed: ' . $e->getMessage());
-                throw $e;
+            if (isset($candidate['person']) || isset($candidate['based_on'])) {
+                return $candidate;
             }
         }
 
-        $requestRecord = $payloadOrRequestRecord;
+        return $jobResult;
+    }
 
+    /**
+     * Sign a locally stored prescription draft and report what the patient should be told.
+     *
+     * @param  array<string, mixed>  $formData
+     * @param  float  $remainingQty  Care plan quantity left before this prescription
+     * @return array<string, mixed>
+     */
+    public function signPrescription(
+        CarePlan|Encounter $contextModel,
+        MedicationRequestRequest $requestRecord,
+        array $formData = [],
+        string $informWith = '',
+        float $remainingQty = 0.0
+    ): array {
         $signedContent = $formData['signed_medication_request_request'] ?? ($formData['signed_content'] ?? ($formData['signed_data'] ?? null));
 
-        if (empty($signedContent) && isset($formData['password'], $formData['knedp']) && ($idOrCarePlan instanceof \App\Models\CarePlan || $idOrCarePlan instanceof \App\Models\MedicalEvents\Sql\Encounter) && $requestRecord instanceof \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest) {
-            $signPayload = $this->buildSignPayload($idOrCarePlan, $requestRecord, $informWith);
+        if (empty($signedContent) && isset($formData['password'], $formData['knedp'])) {
+            $signPayload = $this->buildSignPayload($contextModel, $requestRecord, $informWith);
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -273,9 +285,7 @@ class MedicationRequestLifecycleService
 
         $response = MedicationRequest::signMedicationRequest($requestRecord->uuid, $payload);
 
-        $result = $response['data'] ?? $response;
-
-        $finalResponse = app(EHealthJobResolver::class)->resolve($response);
+        $finalResponse = $this->jobResolver->resolve($response);
         $result = $finalResponse['data'] ?? $finalResponse;
 
         $requestRecord->update(['status' => 'active']);
@@ -314,23 +324,18 @@ class MedicationRequestLifecycleService
     }
 
     /**
-     * Reject Medication Request (ACTIVE).
+     * Reject a locally stored prescription: unsigned drafts go straight out, an active
+     * prescription needs a KEP-signed reason code.
+     *
+     * @param  array<string, mixed>  $formData
+     * @return array<string, mixed>
      */
-    public function reject(mixed $idOrCarePlan, mixed $payloadOrRequestRecord = [], array $formData = [], string $statusReason = ''): array
-    {
-        if (is_string($idOrCarePlan) && is_array($payloadOrRequestRecord)) {
-            try {
-                $response = MedicationRequest::rejectMedicationRequest($idOrCarePlan, $payloadOrRequestRecord);
-
-                return $response['data'] ?? $response;
-            } catch (Exception $e) {
-                Log::error('ePrescription Reject failed: ' . $e->getMessage());
-                throw $e;
-            }
-        }
-
-        $requestRecord = $payloadOrRequestRecord;
-
+    public function rejectPrescription(
+        CarePlan|Encounter $contextModel,
+        MedicationRequestRequest $requestRecord,
+        array $formData = [],
+        string $statusReason = ''
+    ): array {
         if (in_array(strtolower((string) $requestRecord->status), ['draft', 'new'], true)) {
             try {
                 MedicationRequest::rejectUnsignedMedicationRequest((string) $requestRecord->uuid, []);
@@ -343,8 +348,8 @@ class MedicationRequestLifecycleService
             return [];
         }
 
-        $personUuid = $idOrCarePlan instanceof \App\Models\CarePlan
-            ? $idOrCarePlan->person->uuid
+        $personUuid = $contextModel instanceof CarePlan
+            ? $contextModel->person->uuid
             : ($requestRecord->person_uuid ?? ($requestRecord->person->uuid ?? ''));
 
         $signedContent = $formData['signed_content'] ?? ($formData['signed_data'] ?? null);
@@ -379,9 +384,7 @@ class MedicationRequestLifecycleService
         $activeId = $this->resolveActiveEhealthId($personUuid, (string) $requestRecord->uuid);
         $response = MedicationRequest::rejectMedicationRequest($activeId, $payload);
 
-        $result = $response['data'] ?? $response;
-
-        $finalResponse = app(EHealthJobResolver::class)->resolve($response);
+        $finalResponse = $this->jobResolver->resolve($response);
         $result = $finalResponse['data'] ?? $finalResponse;
 
         $newStatus = strtolower((string) ($result['status'] ?? 'rejected'));
@@ -391,31 +394,11 @@ class MedicationRequestLifecycleService
     }
 
     /**
-     * KEP signing needs the signer's tax id. It arrives with the rest of the signing form so
-     * that signing does not depend on an authenticated session.
-     *
-     * @param  array<string, mixed>  $formData
-     */
-    protected function resolveSignerTaxId(array $formData): string
-    {
-        $taxId = trim((string) ($formData['signer_tax_id'] ?? ''));
-
-        if ($taxId === '') {
-            throw new \InvalidArgumentException(__('care-plan.signer_tax_id_required'));
-        }
-
-        return $taxId;
-    }
-
-    /**
      * Build payload for KEP signing of Medication Request Request.
      *
-     * @param  \App\Models\CarePlan  $carePlan
-     * @param  \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest  $requestRecord
-     * @param  string  $informWith
      * @return array<string, mixed>
      */
-    protected function buildSignPayload(\App\Models\CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel, \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest $requestRecord, string $informWith): array
+    protected function buildSignPayload(CarePlan|Encounter $contextModel, MedicationRequestRequest $requestRecord, string $informWith): array
     {
         if (!empty($requestRecord->ehealth_payload) && is_array($requestRecord->ehealth_payload)) {
             $signedContent = $requestRecord->ehealth_payload;
@@ -425,7 +408,7 @@ class MedicationRequestLifecycleService
             return $signedContent;
         }
 
-        $personUuid = $contextModel instanceof \App\Models\CarePlan
+        $personUuid = $contextModel instanceof CarePlan
             ? ($contextModel->person->uuid ?? null)
             : (\App\Models\Person\Person::find($contextModel->person_id)?->uuid ?? null);
 
@@ -444,12 +427,12 @@ class MedicationRequestLifecycleService
 
         $employee = \App\Models\Employee\Employee::find($requestRecord->employeeId);
         $division = \App\Models\Division::find($requestRecord->divisionId);
-        $encounter = \App\Models\MedicalEvents\Sql\Encounter::find($requestRecord->contextId);
+        $encounter = Encounter::find($requestRecord->contextId);
         $activity = $requestRecord->basedOnId
-            ? \App\Models\CarePlanActivity::find($requestRecord->basedOnId)
+            ? CarePlanActivity::find($requestRecord->basedOnId)
             : null;
 
-        $carePlanUuid = $contextModel instanceof \App\Models\CarePlan
+        $carePlanUuid = $contextModel instanceof CarePlan
             ? $contextModel->uuid
             : ($activity?->carePlan?->uuid ?? null);
 
@@ -574,15 +557,11 @@ class MedicationRequestLifecycleService
     /**
      * Build printout HTML memo when eHealth printout form returns structured data or as fallback.
      *
-     * @param  \App\Models\CarePlan  $carePlan
-     * @param  string  $prescriptionId
-     * @param  string|null  $signatureText
-     * @param  array|null  $ehealthData
+     * @param  array<string, mixed>|null  $ehealthData
      * @param  string|null  $fallbackDoctorName  Used only when neither the local record nor eHealth names the author
-     * @return string
      */
     public function buildFallbackPrintoutHtml(
-        \App\Models\CarePlan $carePlan,
+        CarePlan $carePlan,
         string $prescriptionId,
         ?string $signatureText = null,
         ?array $ehealthData = null,

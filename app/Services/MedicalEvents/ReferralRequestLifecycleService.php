@@ -17,12 +17,13 @@ use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Str;
 use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
 
-class ReferralRequestLifecycleService
+class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 {
     use ResolvesEmployeeContext;
-    public function __construct(
-        private readonly EHealthJobResolver $jobResolver,
-    ) {
+
+    protected function requestType(): string
+    {
+        return 'Referral Request';
     }
 
     public function sumIssuedQuantity(CarePlanActivity $activity): float
@@ -44,10 +45,12 @@ class ReferralRequestLifecycleService
     }
 
     /**
+     * Create and locally persist a referral draft for a care plan activity.
+     *
      * @param  array<string, mixed>  $formData
      * @param  array<string, int|string|null>  $employeeContext
      */
-    public function createDraft(CarePlan $carePlan, array $formData, float $qty, array $employeeContext): string
+    public function createCarePlanDraft(CarePlan $carePlan, array $formData, float $qty, array $employeeContext): string
     {
         $activity = CarePlanActivity::query()
             ->with('carePlan')
@@ -298,37 +301,6 @@ class ReferralRequestLifecycleService
      */
     private function persistLocalDraft(array $dbData, int $personId, string $kind): string
     {
-        if ($kind === 'service_request') {
-            Repository::serviceRequest()->store($dbData, $personId);
-        } else {
-            Repository::deviceRequest()->store($dbData, $personId);
-        }
-
-        return $dbData['uuid'];
-    }
-
-    private function runPrequalify(EHealthResponse $response): void
-    {
-        $finalResponse = $this->jobResolver->resolve($response->getData());
-        $this->jobResolver->assertPrequalifyValid($finalResponse);
-    }
-
-    /**
-     * @param  array<string, mixed>  $dbData
-     * @param  array<string, mixed>  $responseData
-     */
-    private function persistResponse(array $dbData, array $responseData, string $kind, int $personId): string
-    {
-        $finalResponse = $this->jobResolver->resolve($responseData);
-
-        if (($finalResponse['status'] ?? null) === 'failed') {
-            throw new EHealthValidationException($finalResponse);
-        }
-
-        $dbData['request_number'] = $finalResponse['request_number'] ?? ($finalResponse['requisition'] ?? null);
-        $dbData['status'] = $finalResponse['status'] ?? 'NEW';
-        $dbData['uuid'] = $finalResponse['id'] ?? $dbData['uuid'];
-
         if ($kind === 'service_request') {
             Repository::serviceRequest()->store($dbData, $personId);
         } else {

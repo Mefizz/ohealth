@@ -155,8 +155,8 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             ->with((string) $requestRecord->uuid, [])
             ->andReturn(['status' => 'rejected']);
 
-        $service = new MedicationRequestLifecycleService();
-        $service->reject($this->carePlan->fresh(['person']), $requestRecord);
+        $service = app(MedicationRequestLifecycleService::class);
+        $service->rejectPrescription($this->carePlan->fresh(['person']), $requestRecord);
 
         $this->assertDatabaseHas('medication_request_requests', [
             'uuid' => $requestRecord->uuid,
@@ -201,7 +201,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             ->andReturn('mock-base64-signature');
 
         $service = app(MedicationRequestLifecycleService::class);
-        $result = $service->reject(
+        $result = $service->rejectPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [
@@ -243,7 +243,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.signer_tax_id_required'));
 
-        app(MedicationRequestLifecycleService::class)->reject(
+        app(MedicationRequestLifecycleService::class)->rejectPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [
@@ -341,7 +341,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now()->subDay(),
         ]);
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $eligible = $service->findEligibleEncountersForEPrescription(
             (int) $this->person->id,
             $this->employee->uuid
@@ -362,7 +362,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now(),
         ]);
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $employeeContext = [
             'employee_id' => $this->employee->id,
             'employee_uuid' => $this->employee->uuid,
@@ -373,7 +373,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.eprescription_encounter_required'));
 
-        $service->createDraft(
+        $service->createCarePlanDraft(
             $this->carePlan->fresh(['person']),
             $this->activity,
             [
@@ -398,7 +398,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now(),
         ]);
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $employeeContext = [
             'employee_id' => $this->employee->id,
             'employee_uuid' => $this->employee->uuid,
@@ -409,7 +409,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage(__('care-plan.eprescription_encounter_none'));
 
-        $service->createDraft(
+        $service->createCarePlanDraft(
             $this->carePlan->fresh(['person']),
             $this->activity,
             [
@@ -445,7 +445,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
                 'status' => 'NEW',
             ]);
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $employeeContext = [
             'employee_id' => $this->employee->id,
             'employee_uuid' => $this->employee->uuid,
@@ -453,7 +453,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'legal_entity_uuid' => null,
         ];
 
-        $uuid = $service->createDraft(
+        $uuid = $service->createCarePlanDraft(
             $this->carePlan->fresh(['person']),
             $this->activity,
             [
@@ -488,12 +488,12 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now(),
         ]);
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.eprescription_signature_required'));
 
-        $service->createDraft(
+        $service->createCarePlanDraft(
             $this->carePlan->fresh(['person']),
             $this->activity,
             [
@@ -511,7 +511,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_post_sign_success_message_sms_vs_print(): void
     {
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
 
         $sms = $service->buildPostSignSuccessMessage(
             '5555666677778888',
@@ -539,7 +539,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_remaining_qty_warning_when_leftover_less_than_qty(): void
     {
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
 
         $this->assertTrue($service->shouldWarnRemainingQty(15.0, 10.0));
         $this->assertFalse($service->shouldWarnRemainingQty(30.0, 10.0));
@@ -579,8 +579,8 @@ class MedicationRequestLifecycleServiceTest extends TestCase
                 'request_number' => '9999000011112222',
             ]);
 
-        $service = new MedicationRequestLifecycleService();
-        $result = $service->sign(
+        $service = app(MedicationRequestLifecycleService::class);
+        $result = $service->signPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [

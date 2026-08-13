@@ -5,90 +5,52 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\Api\DeviceRequest;
-use Exception;
-use Illuminate\Support\Facades\Log;
+use App\Contracts\EHealthRequestLifecycleContract;
 
-class DeviceRequestLifecycleService
+class DeviceRequestLifecycleService extends EHealthRequestLifecycleService implements EHealthRequestLifecycleContract
 {
-    /**
-     * PreQualify Device Request.
-     *
-     * @param  array  $payload
-     * @return array
-     */
     public function preQualify(array $payload): array
     {
-        try {
-            $response = DeviceRequest::preQualify($payload);
-
-            return $response['data'] ?? $response;
-        } catch (Exception $e) {
-            Log::error('Device Request Prequalify failed: ' . $e->getMessage());
-            throw $e;
-        }
+        return $this->callEHealth('Prequalify', static fn (): array => DeviceRequest::preQualify($payload));
     }
 
-    /**
-     * Create Device Request (Draft).
-     *
-     * @param  array  $payload
-     * @return array
-     */
     public function createDraft(array $payload): array
     {
-        try {
-            $response = DeviceRequest::createDeviceRequest($payload);
-
-            return $response['data'] ?? $response;
-        } catch (Exception $e) {
-            Log::error('Device Request Create Draft failed: ' . $e->getMessage());
-            throw $e;
-        }
+        return $this->callEHealth('Create Draft', static fn (): array => DeviceRequest::createDeviceRequest($payload));
     }
 
-    /**
-     * Sign Device Request.
-     *
-     * @param  string  $id
-     * @param  array  $payload  (contains signed_content)
-     * @return array
-     */
     public function sign(string $id, array $payload): array
     {
-        try {
-            if (isset($payload['signed_content']) && !isset($payload['signed_device_request_request'])) {
-                $payload['signed_device_request_request'] = $payload['signed_content'];
-                unset($payload['signed_content']);
-            }
-            if (!isset($payload['signed_content_encoding'])) {
-                $payload['signed_content_encoding'] = 'base64';
-            }
+        $payload = $this->normalizeSignedPayload($payload);
 
-            $response = DeviceRequest::signDeviceRequest($id, $payload);
+        return $this->callEHealth('Sign', static fn (): array => DeviceRequest::signDeviceRequest($id, $payload));
+    }
 
-            return $response['data'] ?? $response;
-        } catch (Exception $e) {
-            Log::error('Device Request Sign failed: ' . $e->getMessage());
-            throw $e;
-        }
+    public function reject(string $id, array $payload): array
+    {
+        return $this->callEHealth('Reject', static fn (): array => DeviceRequest::rejectDeviceRequest($id, $payload));
+    }
+
+    protected function requestType(): string
+    {
+        return 'Device Request';
     }
 
     /**
-     * Reject Device Request.
+     * Device Request expects the KEP blob under signed_device_request_request.
      *
-     * @param  string  $id
-     * @param  array  $payload
-     * @return array
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
      */
-    public function reject(string $id, array $payload): array
+    private function normalizeSignedPayload(array $payload): array
     {
-        try {
-            $response = DeviceRequest::rejectDeviceRequest($id, $payload);
-
-            return $response['data'] ?? $response;
-        } catch (Exception $e) {
-            Log::error('Device Request Reject failed: ' . $e->getMessage());
-            throw $e;
+        if (isset($payload['signed_content']) && !isset($payload['signed_device_request_request'])) {
+            $payload['signed_device_request_request'] = $payload['signed_content'];
+            unset($payload['signed_content']);
         }
+
+        $payload['signed_content_encoding'] ??= 'base64';
+
+        return $payload;
     }
 }

@@ -303,7 +303,7 @@ trait ManagesEncounterEPrescription
                 }
             }
 
-            $result = app(MedicationRequestLifecycleService::class)->sign(
+            $result = app(MedicationRequestLifecycleService::class)->signPrescription(
                 $encounter,
                 $requestRecord,
                 [

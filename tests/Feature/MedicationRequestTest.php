@@ -95,7 +95,7 @@ class MedicationRequestTest extends TestCase
             ->with(['person_id' => 'patient-123'])
             ->andReturn($mockResponse);
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $result = $service->preQualify(['person_id' => 'patient-123']);
 
         $this->assertEquals('valid', $result[0]['status']);

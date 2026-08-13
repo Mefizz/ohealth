@@ -444,7 +444,7 @@ trait ManagesCarePlanEPrescription
                 ->resolveEmployeeContext($this->carePlan, null, Auth::user()?->activeDoctorEmployee()?->id);
             $activity = \App\Models\CarePlanActivity::find($this->ePrescriptionForm['activity_id']);
 
-            $uuid = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->createDraft(
+            $uuid = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->createCarePlanDraft(
                 $this->carePlan,
                 $activity,
                 $this->ePrescriptionForm,
@@ -578,7 +578,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            $result = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->sign(
+            $result = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->signPrescription(
                 $this->carePlan,
                 $requestRecord,
                 array_merge($this->form, [
@@ -633,7 +633,7 @@ trait ManagesCarePlanEPrescription
 
         try {
             if (in_array(strtolower((string) $requestRecord->status), ['new', 'draft'], true)) {
-                app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->reject($this->carePlan, $requestRecord);
+                app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->rejectPrescription($this->carePlan, $requestRecord);
                 $this->refreshCarePlan();
                 $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Електронний рецепт успішно відхилено.']);
             } else {
@@ -671,7 +671,7 @@ trait ManagesCarePlanEPrescription
         }
 
         try {
-            app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->reject(
+            app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->rejectPrescription(
                 $this->carePlan,
                 $requestRecord,
                 array_merge($this->form, ['signer_tax_id' => Auth::user()?->party?->taxId]),

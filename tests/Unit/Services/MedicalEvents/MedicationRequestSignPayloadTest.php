@@ -153,7 +153,7 @@ class MedicationRequestSignPayloadTest extends TestCase
         $mockApi->shouldReceive('getRequestsBySearchParams')
             ->andThrow(new \RuntimeException('remote payload unavailable'));
 
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $method = new ReflectionMethod($service, 'buildSignPayload');
         $method->setAccessible(true);
 

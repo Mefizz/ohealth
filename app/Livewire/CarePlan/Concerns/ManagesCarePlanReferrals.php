@@ -296,7 +296,7 @@ trait ManagesCarePlanReferrals
                 Auth::user()?->activeDoctorEmployee()?->id
             );
 
-            $this->referralRequestIdToSign = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createDraft(
+            $this->referralRequestIdToSign = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createCarePlanDraft(
                 $this->carePlan,
                 $this->referralForm,
                 $qty,

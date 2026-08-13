@@ -31,6 +31,7 @@ class CarePlanForm extends Form
     public ?string $part_of = null;
     public string $knedp = '';
     public mixed $keyContainerUpload = null;
+    public string $keyContainerFileName = '';
     public string $password = '';
 
     /**

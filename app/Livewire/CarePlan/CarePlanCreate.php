@@ -233,6 +233,17 @@ class CarePlanCreate extends BasePatientComponent
         $this->refreshAuthorDisplay();
     }
 
+    public function updatedFormKeyContainerUpload(): void
+    {
+        $upload = $this->form->keyContainerUpload ?? null;
+
+        if ($upload && method_exists($upload, 'getClientOriginalName')) {
+            $this->form->keyContainerFileName = $upload->getClientOriginalName();
+        } elseif ($upload === null) {
+            $this->form->keyContainerFileName = '';
+        }
+    }
+
     private function refreshAuthorDisplay(): void
     {
         $employee = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null);

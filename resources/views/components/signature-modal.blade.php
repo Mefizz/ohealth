@@ -9,9 +9,7 @@
     $inputId = 'keyContainerUpload-'.Str::slug((string) $method, '-');
     $knedpId = 'knedp-'.Str::slug((string) $method, '-');
     $passwordId = 'password-'.Str::slug((string) $method, '-');
-    $uploadedKeyName = is_object($this->form ?? null)
-        ? (string) ($this->form->keyContainerFileName ?? '')
-        : (string) data_get($this->form ?? [], 'keyContainerFileName', '');
+    $noFileChosen = __('forms.no_file_chosen');
 @endphp
 
 <template x-teleport="body">
@@ -21,6 +19,8 @@
             onlyActions: {{ Js::from($onlyActions) }},
             exceptActions: {{ Js::from($exceptActions) }},
             isKeyUploading: false,
+            fileName: {{ Js::from($noFileChosen) }},
+            noFileLabel: {{ Js::from($noFileChosen) }},
             isVisible() {
                 if (! this.showSignatureModal) {
                     return false;
@@ -37,12 +37,47 @@
                 }
 
                 return true;
-            }
+            },
+            displayFileName() {
+                const stored = $wire.form?.keyContainerFileName;
+                if (stored) {
+                    return stored;
+                }
+                if (this.fileName && this.fileName !== this.noFileLabel && ! String(this.fileName).startsWith('livewire-file:')) {
+                    return this.fileName;
+                }
+                return this.noFileLabel;
+            },
+            setFileNameFromInput(event) {
+                const file = event.target.files?.[0];
+                if (file) {
+                    this.fileName = file.name;
+                    $wire.set('form.keyContainerFileName', file.name);
+                } else {
+                    this.fileName = this.noFileLabel;
+                    $wire.set('form.keyContainerFileName', '');
+                }
+            },
+            syncFileNameFromWire() {
+                const stored = $wire.form?.keyContainerFileName;
+                if (stored) {
+                    this.fileName = stored;
+                    return;
+                }
+                const upload = $wire.form?.keyContainerUpload;
+                if (! upload) {
+                    this.fileName = this.noFileLabel;
+                    return;
+                }
+                // Keep the previously shown client filename while Livewire holds a temp upload token.
+            },
          }"
         x-effect="
             if (! showSignatureModal) {
                 if ($refs.keyContainerUpload) $refs.keyContainerUpload.value = '';
                 this.isKeyUploading = false;
+            } else {
+                this.syncFileNameFromWire();
             }
         "
         x-show="isVisible()"
@@ -152,9 +187,7 @@
                                     <label for="{{ $inputId }}" class="file-input-button">
                                         {{ __('forms.choose_file') }}
                                     </label>
-                                    <span class="file-input-text">
-                                        {{ $uploadedKeyName !== '' ? $uploadedKeyName : __('forms.no_file_chosen') }}
-                                    </span>
+                                    <span class="file-input-text" x-text="displayFileName()"></span>
                                     <input
                                         type="file"
                                         wire:model="form.keyContainerUpload"
@@ -163,8 +196,14 @@
                                         name="keyContainerUpload"
                                         x-ref="keyContainerUpload"
                                         accept=".dat,.pfx,.pk8,.zs2,.jks,.p7s"
+                                        @change="setFileNameFromInput($event)"
                                         x-on:livewire-upload-start="isKeyUploading = true"
-                                        x-on:livewire-upload-finish="isKeyUploading = false"
+                                        x-on:livewire-upload-finish="
+                                            isKeyUploading = false;
+                                            if ($wire.form?.keyContainerFileName) {
+                                                fileName = $wire.form.keyContainerFileName;
+                                            }
+                                        "
                                         x-on:livewire-upload-error="isKeyUploading = false"
                                         x-on:livewire-upload-cancel="isKeyUploading = false"
                                     />

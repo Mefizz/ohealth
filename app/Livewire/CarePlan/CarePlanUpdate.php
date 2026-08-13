@@ -58,6 +58,7 @@ class CarePlanUpdate extends CarePlanCreate
         $this->form->medicalRecords = $carePlan->supporting_info['medical_records'] ?? [];
         $this->form->knedp = '';
         $this->form->keyContainerUpload = null;
+        $this->form->keyContainerFileName = '';
         $this->form->password = '';
 
         // Load patient auth methods is handled by parent::mount

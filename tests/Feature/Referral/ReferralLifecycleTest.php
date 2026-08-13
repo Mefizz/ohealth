@@ -469,12 +469,15 @@ class ReferralLifecycleTest extends TestCase
         $this->assertArrayHasKey('authored_on', $serviceSigned['service_request']);
         $this->assertArrayHasKey('programs', $serviceSigned);
 
-        $this->assertEquals($requestUuid, $deviceSigned['device_request']['id']);
-        $this->assertEquals('active', $deviceSigned['device_request']['status']);
-        $this->assertArrayHasKey('authored_on', $deviceSigned['device_request']);
-        $this->assertArrayHasKey('occurrence_period', $deviceSigned['device_request']);
-        $this->assertArrayHasKey('programs', $deviceSigned);
-        $this->assertArrayNotHasKey('programs', $deviceSigned['device_request']);
+        // Create Device Request signed payload is a flat Device Request (API-007-020-0003),
+        // not the PreQualify envelope {device_request, programs}.
+        $this->assertEquals($requestUuid, $deviceSigned['id']);
+        $this->assertEquals('active', $deviceSigned['status']);
+        $this->assertArrayHasKey('authored_on', $deviceSigned);
+        $this->assertArrayHasKey('occurrence_period', $deviceSigned);
+        $this->assertArrayHasKey('program', $deviceSigned);
+        $this->assertArrayNotHasKey('programs', $deviceSigned);
+        $this->assertArrayNotHasKey('device_request', $deviceSigned);
 
         $serviceSignContent = $serviceMapper->toCreateSignedContent(
             $serviceData,
@@ -494,11 +497,12 @@ class ReferralLifecycleTest extends TestCase
         $this->assertArrayNotHasKey('service_request', $serviceSignContent);
         $this->assertArrayHasKey('requester_employee', $serviceSignContent);
 
-        $this->assertArrayHasKey('device_request', $deviceSignContent);
-        $this->assertArrayHasKey('authored_on', $deviceSignContent['device_request']);
-        $this->assertEquals($requestUuid, $deviceSignContent['device_request']['id']);
-        $this->assertArrayHasKey('programs', $deviceSignContent);
-        $this->assertArrayNotHasKey('programs', $deviceSignContent['device_request']);
+        $this->assertSame($deviceSigned, $deviceSignContent);
+        $this->assertArrayHasKey('authored_on', $deviceSignContent);
+        $this->assertEquals($requestUuid, $deviceSignContent['id']);
+        $this->assertArrayHasKey('program', $deviceSignContent);
+        $this->assertArrayNotHasKey('programs', $deviceSignContent);
+        $this->assertArrayNotHasKey('device_request', $deviceSignContent);
     }
 
     public function test_mock_api_create_and_sign_lifecycle(): void

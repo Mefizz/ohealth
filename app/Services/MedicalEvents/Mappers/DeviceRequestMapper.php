@@ -115,34 +115,39 @@ class DeviceRequestMapper implements FhirMapperContract
     /**
      * Build payload for Create Device Request API (signed PKCS#7 content).
      *
+     * Create (API-007-020-0003) signs a flat Device Request ($.id, $.status, $.authored_on, $.program, …).
+     * Do not wrap with top-level device_request/programs — that is PreQualify-only shape.
+     *
      * @param  array<string, mixed>  $data
      * @param  array<string, string|null>  $uuids
-     * @return array{device_request: array<string, mixed>, programs?: list<array<string, mixed>>}
+     * @return array<string, mixed>
      */
     public function toCreateSignedPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
+    {
+        return $this->toCreateSignedContent($data, $uuids, $carePlanUuid, $activityUuid);
+    }
+
+    /**
+     * Flat Device Request for PKCS#7 signing (API-007-020-0003).
+     *
+     * Schema validates root Device Request fields (id, status, authored_on, encounter, …).
+     * Medical program goes as singular `program` Reference (data model), not `programs[]`.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, string|null>  $uuids
+     * @return array<string, mixed>
+     */
+    public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         $deviceRequest = $this->buildDeviceRequestBody($data, $uuids, $carePlanUuid, $activityUuid);
         $deviceRequest['id'] = $data['uuid'];
         $deviceRequest['status'] = 'active';
 
-        return $this->wrapDeviceRequestPayload($deviceRequest, $data['program_id'] ?? null);
-    }
+        if (!empty($data['program_id'])) {
+            $deviceRequest['program'] = $this->resourceIdentifier('medical_program', (string) $data['program_id']);
+        }
 
-    /**
-     * Payload for PKCS#7 signing on Create Device Request (API-007-020-0003).
-     *
-     * Must match the create/prequalify envelope: top-level `device_request` + `programs`.
-     * Do not flatten — nesting `programs` inside device_request triggers
-     * "schema does not allow additional properties", and omitting `authored_on`
-     * fails as a required property.
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, string|null>  $uuids
-     * @return array{device_request: array<string, mixed>, programs?: list<array<string, mixed>>}
-     */
-    public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
-    {
-        return $this->toCreateSignedPayload($data, $uuids, $carePlanUuid, $activityUuid);
+        return Arr::toSnakeCase(array_filter($deviceRequest, static fn ($value) => $value !== null));
     }
 
     /**

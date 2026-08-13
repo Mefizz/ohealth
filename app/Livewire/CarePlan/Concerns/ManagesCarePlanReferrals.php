@@ -75,9 +75,12 @@ trait ManagesCarePlanReferrals
                     $activity->update(['status' => 'in-progress']);
                 }
                 $this->refreshCarePlan();
+                $documentLabel = $resolvedKind === 'device_request'
+                    ? __('care-plan.document_type_device_eprescription')
+                    : __('care-plan.document_type_service_referral');
                 $this->dispatch('flashMessage', [
                     'type' => 'success',
-                    'message' => 'Направлення вже створено в ЕСОЗ. Локальні дані синхронізовано.',
+                    'message' => __('care-plan.referral_already_in_ehealth_synced', ['document' => $documentLabel]),
                 ]);
 
                 return;
@@ -87,9 +90,12 @@ trait ManagesCarePlanReferrals
             $signAction = $resolvedKind === 'service_request'
                 ? 'sign_servicerequest'
                 : 'sign_devicerequest';
+            $documentLabel = $resolvedKind === 'device_request'
+                ? __('care-plan.document_type_device_eprescription')
+                : __('care-plan.document_type_service_referral');
             $this->dispatch('flashMessage', [
                 'type' => 'info',
-                'message' => 'Знайдено непідписане направлення. Продовжіть підписання.',
+                'message' => __('care-plan.referral_unsigned_draft_found', ['document' => $documentLabel]),
             ]);
             $this->openSignatureModal($signAction);
 

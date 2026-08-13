@@ -11,10 +11,8 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * Approval::resendSms() must call the only endpoint documented by eHealth for this
- * action - the patient-scoped one. There is no undocumented patient-prefix-less
- * variant to fall back to (it 404s), so any error from the documented endpoint must
- * be surfaced as-is.
+ * Approval::resendSms() must call the documented patient-scoped endpoint with PATCH.
+ * POST yields ACL 403 ("No matching rule was found for path /api/patients").
  *
  * @see https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/583403110/Resend+SMS+on+Approval
  */
@@ -27,7 +25,7 @@ class ApprovalResendSmsTest extends TestCase
         $this->makeApi()->resendSms('patient-1', 'approval-1');
 
         Http::assertSent(static function (Request $request): bool {
-            return $request->method() === 'POST'
+            return $request->method() === 'PATCH'
                 && str_ends_with(parse_url($request->url(), PHP_URL_PATH) ?? '', '/api/patients/patient-1/approvals/approval-1/actions/resend');
         });
 

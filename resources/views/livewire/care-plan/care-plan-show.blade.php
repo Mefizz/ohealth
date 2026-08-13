@@ -218,16 +218,7 @@
 
                             <div class="form-group group flex items-center">
                                 <div class="mt-2.5">
-                                    @php
-                                        $hasActiveApproval = $carePlan->approvals()->where('status', 'active')->exists();
-                                    @endphp
-                                    @if (strtolower((string)$status) === \App\Enums\CarePlanStatus::ACTIVE->value && !$hasActiveApproval)
-                                        <span class="inline-flex items-center rounded-md bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-yellow-600/20 ring-inset dark:bg-yellow-900/30 dark:text-yellow-400 dark:ring-yellow-900/50">
-                                            {{ __('care-plan.status_active_needs_approval') }}
-                                        </span>
-                                    @else
-                                        <span class="{{ $statusEnum->color() }}"> {{ $statusEnum->label() }} </span>
-                                    @endif
+                                    <span class="{{ $statusEnum->color() }}"> {{ $statusEnum->label() }} </span>
                                 </div>
                                 <label class="label"> {{ __('care-plan.status_in_ehealth') }} </label>
                             </div>

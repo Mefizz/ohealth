@@ -796,9 +796,15 @@ class CarePlanCreate extends BasePatientComponent
             app(CarePlanApprovalService::class)->resendSms($this->patientUuid, $this->approvalId);
             $this->smsResent = true;
             session()->flash('success', 'SMS надіслано повторно');
+            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'SMS надіслано повторно']);
         } catch (\Exception $e) {
             Log::error('CarePlanCreate: failed to resend SMS: ' . $e->getMessage());
-            $this->addError('verificationCode', 'Не вдалося повторно надіслати SMS: ' . $e->getMessage());
+            $message = str_contains($e->getMessage(), 'ACL')
+                ? __('care-plan.sms_resend_acl_error')
+                : ('Не вдалося повторно надіслати SMS: ' . $e->getMessage());
+            $this->addError('verificationCode', $message);
+            session()->flash('error', $message);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
         }
     }
 

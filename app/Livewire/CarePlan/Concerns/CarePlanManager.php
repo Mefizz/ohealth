@@ -968,9 +968,16 @@ trait CarePlanManager
         try {
             app(CarePlanApprovalService::class)->resendSms($this->carePlan->person->uuid, $this->approvalId);
             $this->smsResent = true;
+            session()->flash('success', 'SMS надіслано повторно');
             $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'SMS надіслано повторно']);
         } catch (\Exception $e) {
             Log::error('CarePlanLifecycle: failed to resend SMS: ' . $e->getMessage());
+            $message = str_contains($e->getMessage(), 'ACL')
+                ? __('care-plan.sms_resend_acl_error')
+                : __('care-plan.sms_resend_error');
+            $this->addError('verificationCode', $message);
+            session()->flash('error', $message);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
         }
     }
 

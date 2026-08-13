@@ -21,6 +21,8 @@ return [
     'change_product' => 'Change',
     'care_plan_activated' => 'Care plan successfully activated.',
     'sms_resent' => 'SMS resent successfully.',
+    'sms_resend_error' => 'Failed to resend SMS. Try again or use the code from the first message.',
+    'sms_resend_acl_error' => 'eHealth rejected SMS resend (access error). Refresh and try again, or use the code from the first SMS.',
     'data_synced' => 'Data successfully synced with eHealth.',
     'approval_verify_error' => 'Error verifying approval.',
     'auth_methods_fetch_error' => 'Failed to load authentication methods.',

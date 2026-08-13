@@ -8,11 +8,13 @@ use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthJobTimeoutException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\CarePlanActivityRepository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
+use App\Services\MedicalEvents\EHealthJobResolver;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -186,24 +188,7 @@ trait CarePlanManager
                 ]
             );
 
-            $responseData = $eHealthResponse->getData();
-            $finalResponse = $responseData;
-
-            // Job Polling
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                throw new EHealthValidationException($finalResponse);
-            }
+            $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
 
             // Extract status
             $carePlanStatus = $finalResponse['status'] ?? $payloadForSign['status'];
@@ -222,6 +207,10 @@ trait CarePlanManager
             $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_updated'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
+        } catch (EHealthJobTimeoutException $exception) {
+            $exception->report();
+            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
             $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
@@ -307,6 +296,10 @@ trait CarePlanManager
             $this->dispatch('flashMessage', ['message' => __('care-plan.signed_and_sent'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
+        } catch (EHealthJobTimeoutException $exception) {
+            $exception->report();
+            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
             $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
@@ -372,24 +365,7 @@ trait CarePlanManager
                 ]
             );
 
-            $responseData = $eHealthResponse->getData();
-            $finalResponse = $responseData;
-
-            // Job Polling
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                throw new EHealthValidationException($finalResponse);
-            }
+            $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
 
             // Extract status
             $carePlanStatus = $finalResponse['status'] ?? 'completed';
@@ -408,6 +384,10 @@ trait CarePlanManager
             $this->dispatch('flashMessage', ['message' => __('care-plan.care_plan_updated'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
+        } catch (EHealthJobTimeoutException $exception) {
+            $exception->report();
+            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanShow: connection error: ' . $exception->getMessage());
             $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
@@ -493,30 +473,7 @@ trait CarePlanManager
                 ]
             );
 
-            $responseData = $eHealthResponse->getData();
-            Log::info('CarePlanActivity: EHealth response received', ['response' => $responseData]);
-            $finalResponse = $responseData;
-
-            // If it is an async job, poll it
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                Log::info('CarePlanActivity: Polling job: ' . $jobId);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                    Log::info("CarePlanActivity: Job {$jobId} attempt {$attempts} status: " . ($finalResponse['status'] ?? 'unknown'));
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            Log::info('CarePlanActivity: Final response from eHealth/Job', ['final_response' => $finalResponse]);
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                Log::error('CarePlanActivity: Job failed in eHealth', ['final_response' => $finalResponse]);
-                throw new EHealthValidationException($finalResponse);
-            }
+            $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
 
             // Extract the actual CarePlanActivity data
             $activityUuid = $finalResponse['id'] ?? null;
@@ -569,6 +526,10 @@ trait CarePlanManager
             $this->dispatch('flashMessage', ['message' => __('care-plan.activity_signed'), 'type' => 'success']);
             $this->showSignatureModal = false;
 
+        } catch (EHealthJobTimeoutException $exception) {
+            $exception->report();
+            $this->dispatch('flashMessage', ['message' => $exception->getMessage(), 'type' => 'error']);
+            $this->showSignatureModal = false;
         } catch (EHealthConnectionException $exception) {
             Log::error('CarePlanActivity: connection error: ' . $exception->getMessage());
             $this->dispatch('flashMessage', ['message' => __('care-plan.connection_error'), 'type' => 'error']);
@@ -731,29 +692,7 @@ trait CarePlanManager
                 $payloadData
             );
 
-            $responseData = $eHealthResponse->getData();
-            Log::info('CarePlanActivityStatus: EHealth response received', ['response' => $responseData]);
-            $finalResponse = $responseData;
-
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                Log::info('CarePlanActivityStatus: Polling job: ' . $jobId);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                    Log::info("CarePlanActivityStatus: Job {$jobId} attempt {$attempts} status: " . ($finalResponse['status'] ?? 'unknown'));
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
-
-            Log::info('CarePlanActivityStatus: Final response from eHealth/Job', ['final_response' => $finalResponse]);
-
-            if (($finalResponse['status'] ?? null) === 'failed') {
-                Log::error('CarePlanActivityStatus: Job failed in eHealth', ['final_response' => $finalResponse]);
-                throw new EHealthValidationException($finalResponse);
-            }
+            $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
 
             $activityStatus = $finalResponse['status'] ?? ($payloadForSign['detail']['status'] ?? $activity->status);
             if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {

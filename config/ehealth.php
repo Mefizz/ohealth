@@ -106,6 +106,23 @@ return [
         'person_authentication_method' => 20,
         'remote_job' => 1399
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Asynchronous job polling
+    |--------------------------------------------------------------------------
+    |
+    | eHealth answers write requests with a job link that has to be polled until
+    | it reaches a final state. Polling blocks the request, so max_attempts *
+    | interval_seconds is the worst-case time a user waits before the operation
+    | is reported as unresolved.
+    |
+    */
+    'jobs' => [
+        'max_attempts' => env('EHEALTH_JOB_MAX_ATTEMPTS', 15),
+        'interval_seconds' => env('EHEALTH_JOB_INTERVAL_SECONDS', 2),
+    ],
+
     'employee_type' => [
         'OWNER' => [
             'position' => [

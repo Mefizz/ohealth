@@ -132,30 +132,21 @@ class MedicationRequestLifecycleService
             $prequalifyPayload = $mapper->toPrequalifyPayload($dbData, $uuids, $carePlan->uuid);
             $response = MedicationRequest::preQualify($prequalifyPayload);
 
-            if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
-                $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response);
-                app(\App\Services\MedicalEvents\EHealthJobResolver::class)->assertPrequalifyValid($finalResponse);
-            }
+            $resolver = app(EHealthJobResolver::class);
+            $resolver->assertPrequalifyValid($resolver->resolve($response));
         }
 
         $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, $carePlan->uuid);
         $createResponse = MedicationRequest::createMedicationRequest($createPayload);
 
-        if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
-            $finalCreateResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($createResponse);
-            if (($finalCreateResponse['status'] ?? null) === 'failed') {
-                throw new \App\Exceptions\EHealth\EHealthValidationException($finalCreateResponse);
-            }
-            $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
-            $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
-            $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
-            $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
-        } else {
-            $dbData['request_number'] = $createResponse['request_number'] ?? ($createResponse['data']['request_number'] ?? null);
-            $dbData['uuid'] = $createResponse['id'] ?? ($createResponse['data']['id'] ?? $dbData['uuid']);
-            $payloadToStore = $createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $createResponse);
-            $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
-        }
+        // resolve() raises on a failed or unresolved job, so nothing below runs unless
+        // eHealth accepted the draft.
+        $finalCreateResponse = app(EHealthJobResolver::class)->resolve($createResponse);
+
+        $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
+        $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
+        $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
+        $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
 
         app(MedicationRequestRepository::class)->store($dbData, (int) $carePlan->person_id);
 
@@ -222,30 +213,21 @@ class MedicationRequestLifecycleService
             $prequalifyPayload = $mapper->toPrequalifyPayload($dbData, $uuids, null);
             $response = MedicationRequest::preQualify($prequalifyPayload);
 
-            if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
-                $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response);
-                app(\App\Services\MedicalEvents\EHealthJobResolver::class)->assertPrequalifyValid($finalResponse);
-            }
+            $resolver = app(EHealthJobResolver::class);
+            $resolver->assertPrequalifyValid($resolver->resolve($response));
         }
 
         $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, null);
         $createResponse = MedicationRequest::createMedicationRequest($createPayload);
 
-        if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
-            $finalCreateResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($createResponse);
-            if (($finalCreateResponse['status'] ?? null) === 'failed') {
-                throw new \App\Exceptions\EHealth\EHealthValidationException($finalCreateResponse);
-            }
-            $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
-            $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
-            $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
-            $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
-        } else {
-            $dbData['request_number'] = $createResponse['request_number'] ?? ($createResponse['data']['request_number'] ?? null);
-            $dbData['uuid'] = $createResponse['id'] ?? ($createResponse['data']['id'] ?? $dbData['uuid']);
-            $payloadToStore = $createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $createResponse);
-            $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
-        }
+        // resolve() raises on a failed or unresolved job, so nothing below runs unless
+        // eHealth accepted the draft.
+        $finalCreateResponse = app(EHealthJobResolver::class)->resolve($createResponse);
+
+        $dbData['request_number'] = $finalCreateResponse['request_number'] ?? ($finalCreateResponse['requisition'] ?? ($finalCreateResponse['data']['request_number'] ?? null));
+        $dbData['uuid'] = $finalCreateResponse['id'] ?? ($finalCreateResponse['data']['id'] ?? $dbData['uuid']);
+        $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
+        $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
 
         app(MedicationRequestRepository::class)->store($dbData, (int) $encounter->person_id);
 
@@ -293,10 +275,8 @@ class MedicationRequestLifecycleService
 
         $result = $response['data'] ?? $response;
 
-        if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
-            $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response);
-            $result = $finalResponse['data'] ?? $finalResponse;
-        }
+        $finalResponse = app(EHealthJobResolver::class)->resolve($response);
+        $result = $finalResponse['data'] ?? $finalResponse;
 
         $requestRecord->update(['status' => 'active']);
 
@@ -401,10 +381,8 @@ class MedicationRequestLifecycleService
 
         $result = $response['data'] ?? $response;
 
-        if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
-            $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response);
-            $result = $finalResponse['data'] ?? $finalResponse;
-        }
+        $finalResponse = app(EHealthJobResolver::class)->resolve($response);
+        $result = $finalResponse['data'] ?? $finalResponse;
 
         $newStatus = strtolower((string) ($result['status'] ?? 'rejected'));
         $requestRecord->update(['status' => $newStatus === 'active' ? 'rejected' : $newStatus]);

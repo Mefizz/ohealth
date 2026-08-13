@@ -30,8 +30,9 @@ class MedicationRequestRepository extends BaseRepository
     public function store(array $data, int $personId): int
     {
         return DB::transaction(function () use ($data, $personId) {
-            $request = $this->model->create([
-                'uuid' => $data['uuid'] ?? $data['id'],
+            $request = $this->model->updateOrCreate(
+                ['uuid' => $data['uuid'] ?? $data['id']],
+                [
                 'employee_id' => $data['employee_id'],
                 'person_id' => $personId,
                 'division_id' => $data['division_id'] ?? null,
@@ -52,7 +53,16 @@ class MedicationRequestRepository extends BaseRepository
                 'note' => $data['note'] ?? null,
                 'inform_with' => $data['inform_with'] ?? null,
                 'ehealth_payload' => $data['ehealth_payload'] ?? null,
-            ]);
+                ]
+            );
+
+            // Re-submitting the same draft replaces its dosage instructions wholesale.
+            if (!$request->wasRecentlyCreated) {
+                foreach ($request->dosageInstructions as $existing) {
+                    $existing->doseRate()->delete();
+                    $existing->delete();
+                }
+            }
 
             if (!empty($data['dosage_instructions'])) {
                 foreach ($data['dosage_instructions'] as $inst) {

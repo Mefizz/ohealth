@@ -408,16 +408,28 @@ abstract class CarePlanComponent extends Component
 
         $rules = [
             'statusReason' => $statusReasonOptional ? 'nullable|string' : 'required|string',
-            'form.knedp' => 'required|string',
-            'form.keyContainerUpload' => 'required|file|max:1024',
-            'form.password' => 'required|string',
         ];
+
+        if ($this->requiresDigitalSignature()) {
+            $rules['form.knedp'] = 'required|string';
+            $rules['form.keyContainerUpload'] = 'required|file|max:1024';
+            $rules['form.password'] = 'required|string';
+        }
 
         if ($this->actionType === 'recall_referral') {
             $rules['referralExplanatoryLetter'] = 'required|string|min:3';
         }
 
         return $rules;
+    }
+
+    /**
+     * Completing an activity is the one action here eHealth accepts unsigned
+     * (API-007-006-0006), so it must not ask the doctor for a KEP.
+     */
+    protected function requiresDigitalSignature(): bool
+    {
+        return $this->actionType !== 'complete_activity';
     }
 
     public function getStatusReasonsProperty(): array

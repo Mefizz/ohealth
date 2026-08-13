@@ -158,6 +158,9 @@
                                 </div>
                             @endif
 
+                            {{-- Not every action eHealth exposes needs a digital signature; the
+                                 caller passes requiresSignature => false for those. --}}
+                            @if ($requiresSignature ?? true)
                             {{-- KEP Provider --}}
                             <div>
                                 <label for="{{ $knedpId }}" class="default-label">{{ __('forms.knedp') }} *</label>
@@ -234,6 +237,7 @@
                                     <p class="text-error">{{ $message }}</p>
                                 @enderror
                             </div>
+                            @endif
                         </div>
                     </form>
 
@@ -249,8 +253,12 @@
                             wire:loading.class="opacity-50 cursor-not-allowed"
                             wire:target="{{ $method }}"
                         >
-                            <span wire:loading.remove wire:target="{{ $method }}">{{ __('forms.sign') }}</span>
-                            <span wire:loading wire:target="{{ $method }}">{{ __('forms.signature') }}...</span>
+                            <span wire:loading.remove wire:target="{{ $method }}">
+                                {{ ($requiresSignature ?? true) ? __('forms.sign') : __('forms.confirm') }}
+                            </span>
+                            <span wire:loading wire:target="{{ $method }}">
+                                {{ ($requiresSignature ?? true) ? __('forms.signature') : __('general.loading') }}...
+                            </span>
                         </button>
                     </div>
                 </div>

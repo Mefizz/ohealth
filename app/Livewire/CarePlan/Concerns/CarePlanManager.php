@@ -598,6 +598,8 @@ trait CarePlanManager
             ]
         ];
 
+        $payloadForSign = [];
+
         if ($this->actionType === 'cancel_activity') {
             // API-007-006-0005: signed content must match activity stored in eHealth DB.
             // Use remote activity snapshot and change only detail.status_reason.
@@ -624,45 +626,36 @@ trait CarePlanManager
             );
             Log::info('CarePlanActivityStatus cancel debug original payload: ' . json_encode($debugContext['original_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             Log::info('CarePlanActivityStatus cancel debug signed payload: ' . json_encode($debugContext['signed_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        } else {
-            $basePayload = $activityRepository->resolveActivityPayloadBase(
-                $activity,
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-            );
-            $payloadForSign = $activityRepository->buildActivityCompleteSignPayload(
-                $basePayload,
-                $this->outcomeCode ?: null,
-                $this->outcomeReferences,
-            );
+
+            Log::info('CarePlanActivityStatus: Original JSON payload for signing: ' . json_encode(
+                Arr::toSnakeCase($payloadForSign),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT
+            ));
         }
 
-        Log::info('CarePlanActivityStatus: Original JSON payload for signing: ' . json_encode(
-            Arr::toSnakeCase($payloadForSign),
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT
-        ));
-
         try {
-            $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($payloadForSign),
-                $this->form['password'],
-                $this->form['knedp'],
-                $this->form['keyContainerUpload'],
-                Auth::user()->party->taxId
-            );
-            Log::info('CarePlanActivityStatus: Signing key succeeded');
-
-            $payloadData = [
-                'signed_data' => $signedContent,
-                'signed_data_encoding' => 'base64',
-            ];
-
-            if ($this->actionType === 'complete_activity') {
-                // eHealth requires 'detail' in the PATCH body (status_reason).
-                // Cancel (API-007-006-0005) carries status_reason only inside signed_data.
-                $payloadData['detail'] = $activityRepository->buildActivityCompletePatchDetail(
-                    $statusReasonCodeableConcept,
+            if ($this->actionType === 'cancel_activity') {
+                $signedContent = signatureService()->signData(
+                    Arr::toSnakeCase($payloadForSign),
+                    $this->form['password'],
+                    $this->form['knedp'],
+                    $this->form['keyContainerUpload'],
+                    Auth::user()->party->taxId
                 );
+                Log::info('CarePlanActivityStatus: Signing key succeeded');
+
+                $payloadData = [
+                    'signed_data' => $signedContent,
+                    'signed_data_encoding' => 'base64',
+                ];
+            } else {
+                // Complete (API-007-006-0006) takes status_reason and the outcome in the PATCH
+                // body and is not signed at all.
+                $payloadData = [
+                    'detail' => $activityRepository->buildActivityCompletePatchDetail(
+                        $statusReasonCodeableConcept,
+                    ),
+                ];
 
                 if ($this->outcomeCode) {
                     // eHealth expects outcome_codeable_concept as an array (list) of CodeableConcept objects.
@@ -698,7 +691,7 @@ trait CarePlanManager
 
             $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
 
-            $activityStatus = $finalResponse['status'] ?? ($payloadForSign['detail']['status'] ?? $activity->status);
+            $activityStatus = $finalResponse['status'] ?? ($payloadForSign['detail']['status'] ?? null) ?? $activity->status;
             if (isset($finalResponse['result']) && is_array($finalResponse['result'])) {
                 $entity = $finalResponse['result'][0] ?? $finalResponse['result'];
                 $activityStatus = $entity['status'] ?? $activityStatus;

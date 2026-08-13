@@ -1,4 +1,6 @@
-@extends('components.signature-modal', ['method' => 'sign'])
+{{-- Complete Care Plan Activity (API-007-006-0006) completes without a digital signature,
+     so this reuses the modal shell without its KEP fields. --}}
+@extends('components.signature-modal', ['method' => 'sign', 'requiresSignature' => false])
 
 @section('title', __('care-plan.complete_activity') ?? 'Завершити призначення')
 

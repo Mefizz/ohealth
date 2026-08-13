@@ -143,7 +143,7 @@ class CarePlanActivityValidationService
 
     public function resolveTermsOfService(CarePlan $carePlan): ?string
     {
-        $tos = $carePlan->termsOfService ?? $carePlan->terms_of_service ?? null;
+        $tos = $carePlan->termsOfService;
 
         if (is_array($tos)) {
             $tos = $tos['coding'][0]['code'] ?? ($tos['text'] ?? null);

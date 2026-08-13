@@ -174,7 +174,7 @@ trait ManagesEncounterReferrals
 
             $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEncounterEmployeeContext(
                 $encounter,
-                $requestRecord->employee_id ?? Auth::user()?->activeDoctorEmployee()?->id
+                $requestRecord->employeeId ?? Auth::user()?->activeDoctorEmployee()?->id
             );
 
             $dbData = [
@@ -188,21 +188,21 @@ trait ManagesEncounterReferrals
                 'quantity_code' => $requestRecord->quantity_code ?: 'PIECE',
                 'intent' => $requestRecord->intent ?? 'order',
                 'category' => $requestRecord->category,
-                'program_id' => $requestRecord->program_id,
+                'program_id' => $requestRecord->programId,
                 'priority' => $requestRecord->priority ?? 'routine',
                 'note' => $requestRecord->note,
-                'patient_instruction' => $requestRecord->patient_instruction,
-                'reason_reference' => $requestRecord->reason_reference,
-                'inform_with' => $requestRecord->inform_with,
-                'supporting_info' => $requestRecord->supporting_info,
-                'started_at' => $requestRecord->started_at instanceof \DateTimeInterface
-                    ? $requestRecord->started_at->format('Y-m-d')
-                    : (string) $requestRecord->started_at,
-                'ended_at' => $requestRecord->ended_at instanceof \DateTimeInterface
-                    ? $requestRecord->ended_at->format('Y-m-d')
-                    : (string) $requestRecord->ended_at,
+                'patient_instruction' => $requestRecord->patientInstruction,
+                'reason_reference' => $requestRecord->reasonReference,
+                'inform_with' => $requestRecord->informWith,
+                'supporting_info' => $requestRecord->supportingInfo,
+                'started_at' => $requestRecord->startedAt instanceof \DateTimeInterface
+                    ? $requestRecord->startedAt->format('Y-m-d')
+                    : (string) $requestRecord->startedAt,
+                'ended_at' => $requestRecord->endedAt instanceof \DateTimeInterface
+                    ? $requestRecord->endedAt->format('Y-m-d')
+                    : (string) $requestRecord->endedAt,
                 'based_on_uuid' => null,
-                'service_id' => $requestRecord->service_id,
+                'service_id' => $requestRecord->serviceId,
             ];
 
             $uuids = [

@@ -139,42 +139,42 @@ class CarePlanShow extends CarePlanComponent
             'kind' => is_array($activity->kind) ? ($activity->kind['coding'][0]['code'] ?? ($activity->kind['text'] ?? '')) : ($activity->kindConcept?->coding?->first()?->code ?? $activity->kind),
             'program' => $activity->program ?? '',
             'quantity' => is_array($activity->quantity) ? ($activity->quantity['value'] ?? '') : $activity->quantity,
-            'quantity_system' => is_array($activity->quantity) ? ($activity->quantity['unit'] ?? '') : $activity->quantity_system,
-            'quantity_code' => $activity->quantity_code ?? '',
-            'daily_amount' => $activity->daily_amount ?? '',
-            'daily_amount_system' => $activity->daily_amount_system ?? '',
-            'daily_amount_code' => $activity->daily_amount_code ?? '',
-            'reason_code' => $activity->reason_code ?? '',
-            'reason_reference' => $activity->reason_reference ?? '',
+            'quantity_system' => is_array($activity->quantity) ? ($activity->quantity['unit'] ?? '') : $activity->quantitySystem,
+            'quantity_code' => $activity->quantityCode ?? '',
+            'daily_amount' => $activity->dailyAmount ?? '',
+            'daily_amount_system' => $activity->dailyAmountSystem ?? '',
+            'daily_amount_code' => $activity->dailyAmountCode ?? '',
+            'reason_code' => $activity->reasonCode ?? '',
+            'reason_reference' => $activity->reasonReference ?? '',
             'goal' => $activity->goal ?? '',
             'description' => $activity->description ?? '',
-            'scheduled_period_start' => $activity->scheduled_period_start?->format('d.m.Y') ?? '',
-            'scheduled_period_end' => $activity->scheduled_period_end?->format('d.m.Y') ?? '',
-            'product_reference' => $activity->product_reference ?? '',
-            'product_codeable_concept' => $activity->product_codeable_concept ?? '',
+            'scheduled_period_start' => $activity->scheduledPeriodStart?->format('d.m.Y') ?? '',
+            'scheduled_period_end' => $activity->scheduledPeriodEnd?->format('d.m.Y') ?? '',
+            'product_reference' => $activity->productReference ?? '',
+            'product_codeable_concept' => $activity->productCodeableConcept ?? '',
         ];
 
         // Load pre-selected product info
         $this->selectedProduct = null;
-        if (!empty($activity->product_reference)) {
+        if (!empty($activity->productReference)) {
             try {
                 $kindLower = strtolower($this->activityForm['kind']);
                 if (str_contains($kindLower, 'service')) {
-                    $response = EHealth::service()->getMany(['code' => $activity->product_reference]);
+                    $response = EHealth::service()->getMany(['code' => $activity->productReference]);
                     $data = $response->getData();
                     if (!empty($data)) {
                         $this->selectedProduct = $data[0];
                     }
                 } elseif (str_contains($kindLower, 'medication')) {
                     $programId = $this->activityForm['program'] ?? $activity->program;
-                    $filters = ['innm_dosage_id' => $activity->product_reference];
+                    $filters = ['innm_dosage_id' => $activity->productReference];
                     if (!empty($programId)) {
                         $filters['medical_program_id'] = $programId;
                     }
                     $response = EHealth::drug()->getMany($filters);
                     $data = $response->getData();
                     if (empty($data)) {
-                        $response = EHealth::drug()->getMany(['innm_id' => $activity->product_reference]);
+                        $response = EHealth::drug()->getMany(['innm_id' => $activity->productReference]);
                         $data = $response->getData();
                     }
                     if (!empty($data)) {
@@ -188,7 +188,7 @@ class CarePlanShow extends CarePlanComponent
                     }
                     $response = EHealth::deviceDefinition()->getMany($filters);
                     $data = $response->getData();
-                    $reference = (string) $activity->product_reference;
+                    $reference = (string) $activity->productReference;
                     $this->selectedProduct = collect($data)->first(
                         fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
                     );
@@ -207,8 +207,8 @@ class CarePlanShow extends CarePlanComponent
 
         // Initialize linked justification grounds
         $this->linkedGrounds = [];
-        if (!empty($activity->reason_reference)) {
-            foreach ($activity->reason_reference as $ref) {
+        if (!empty($activity->reasonReference)) {
+            foreach ($activity->reasonReference as $ref) {
                 $parts = explode('/', $ref);
                 if (count($parts) === 2) {
                     $this->addLinkedGround($parts[0], $parts[1]);
@@ -318,7 +318,7 @@ class CarePlanShow extends CarePlanComponent
     public function deleteActivity(int $activityId, CarePlanActivityRepository $repository): void
     {
         $activity = $repository->findById($activityId);
-        if (!$activity || $activity->care_plan_id !== $this->carePlan->id) {
+        if (!$activity || $activity->carePlanId !== $this->carePlan->id) {
             $this->dispatch('flashMessage', ['message' => __('care-plan.activity_not_found'), 'type' => 'error']);
             $this->cancelDeleteActivity();
 

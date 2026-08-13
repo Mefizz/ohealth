@@ -72,7 +72,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             : null;
 
         $activeEncounter = $this->resolveEligibleEncounterForCreate(
-            (int) $carePlan->person_id,
+            (int) $carePlan->personId,
             $employeeContext['employee_uuid'] ?? null,
             $selectedEncounterId
         );
@@ -85,7 +85,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         $dbData = [
             'uuid' => (string) Str::uuid(),
             'employee_id' => $employeeContext['employee_id'] ?? null,
-            'person_id' => $carePlan->person_id,
+            'person_id' => $carePlan->personId,
             'division_id' => $employeeContext['division_id'] ?? null,
             'status' => MedicationRequestStatus::DRAFT->value,
             'started_at' => $formData['started_at'] ?? now()->toDateString(),
@@ -128,7 +128,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             'division_uuid' => $employeeContext['division_id'] ? \App\Models\Division::find($employeeContext['division_id'])?->uuid : null,
         ];
 
-        return $this->submitDraft($dbData, $uuids, $carePlan->uuid, (int) $carePlan->person_id);
+        return $this->submitDraft($dbData, $uuids, $carePlan->uuid, (int) $carePlan->personId);
     }
 
     /**
@@ -295,13 +295,12 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             $result['request_number']
             ?? ($result['medication_request']['request_number'] ?? null)
             ?? $requestRecord->requestNumber
-            ?? $requestRecord->request_number
             ?? $requestRecord->uuid
         );
 
         $informWithRaw = $informWith !== ''
             ? $informWith
-            : (string) ($requestRecord->informWith ?? $requestRecord->inform_with ?? '');
+            : (string) ($requestRecord->informWith ?? '');
 
         $notificationDisabled = filter_var(
             $formData['request_notification_disabled'] ?? false,
@@ -314,7 +313,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             $notificationDisabled
         );
 
-        $medicationQty = (float) ($requestRecord->medicationQty ?? $requestRecord->medication_qty ?? 0);
+        $medicationQty = (float) ($requestRecord->medicationQty ?? 0);
         if ($this->shouldWarnRemainingQty($remainingQty, $medicationQty)) {
             $unit = (string) ($formData['medication_unit'] ?? 'од.');
             $result['warning_message'] = $this->buildRemainingQtyWarningMessage($remainingQty, $unit);
@@ -406,8 +405,8 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
      */
     protected function buildSignPayload(CarePlan|Encounter $contextModel, MedicationRequestRequest $requestRecord, string $informWith): array
     {
-        if (!empty($requestRecord->ehealth_payload) && is_array($requestRecord->ehealth_payload)) {
-            $signedContent = $requestRecord->ehealth_payload;
+        if (!empty($requestRecord->ehealthPayload) && is_array($requestRecord->ehealthPayload)) {
+            $signedContent = $requestRecord->ehealthPayload;
             if (isset($signedContent['data']) && is_array($signedContent['data'])) {
                 $signedContent = $signedContent['data'];
             }
@@ -612,13 +611,13 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             }
         }
 
-        $startDate = $record?->started_at ? \Carbon\Carbon::parse($record->started_at)->format('d.m.Y') : ($ehealthData['created_at'] ?? now()->format('d.m.Y'));
-        $endDate = $record?->ended_at ? \Carbon\Carbon::parse($record->ended_at)->format('d.m.Y') : ($ehealthData['ended_at'] ?? '—');
+        $startDate = $record?->started_at ? \Carbon\Carbon::parse($record->startedAt)->format('d.m.Y') : ($ehealthData['created_at'] ?? now()->format('d.m.Y'));
+        $endDate = $record?->ended_at ? \Carbon\Carbon::parse($record->endedAt)->format('d.m.Y') : ($ehealthData['ended_at'] ?? '—');
 
         $author = null;
-        if ($record && !empty($record->employee_id)) {
-            $field = is_numeric($record->employee_id) ? 'id' : 'uuid';
-            $author = \App\Models\Employee\Employee::where($field, $record->employee_id)->first();
+        if ($record && !empty($record->employeeId)) {
+            $field = is_numeric($record->employeeId) ? 'id' : 'uuid';
+            $author = \App\Models\Employee\Employee::where($field, $record->employeeId)->first();
         }
 
         $doctorName = $author?->party?->full_name ?? ($author?->full_name ?? ($ehealthData['employee']['name'] ?? ($record?->ehealth_payload['employee']['name'] ?? ($fallbackDoctorName ?: '—'))));
@@ -635,12 +634,12 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             $medicationName = 'Лікарський засіб';
         }
 
-        $medicationQty = $ehealthData['medication_qty'] ?? ($ehealthData['medication']['qty'] ?? ($record?->medication_qty ? "{$record->medication_qty} од." : '—'));
+        $medicationQty = $ehealthData['medication_qty'] ?? ($ehealthData['medication']['qty'] ?? ($record?->medication_qty ? "{$record->medicationQty} од." : '—'));
         $programName = $ehealthData['medical_program_name']
             ?? ($ehealthData['medical_program']['name']
             ?? ($record?->ehealth_payload['medical_program']['name']
             ?? ($record?->ehealth_payload['medical_program_name']
-            ?? ($record?->medication_program_id ? ($record->medication_program_id === '5e3e2307-8898-4428-a400-e3776a39d56f' ? 'Реімбурсація (Доступні ліки)' : 'Державна програма / Реімбурсація') : 'За власні кошти'))));
+            ?? ($record?->medication_program_id ? ($record->medicationProgramId === '5e3e2307-8898-4428-a400-e3776a39d56f' ? 'Реімбурсація (Доступні ліки)' : 'Державна програма / Реімбурсація') : 'За власні кошти'))));
 
         $instructionsList = [];
         if ($record && $record->dosageInstructions) {
@@ -779,12 +778,12 @@ HTML;
     {
         $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $localId)->first();
 
-        if ($requestRecord && !empty($requestRecord->ehealth_payload['active_id'])) {
-            return (string) $requestRecord->ehealth_payload['active_id'];
+        if ($requestRecord && !empty($requestRecord->ehealthPayload['active_id'])) {
+            return (string) $requestRecord->ehealthPayload['active_id'];
         }
 
         if (empty($personUuid) && $requestRecord) {
-            $personUuid = (string) ($requestRecord->person_id ? \App\Models\Person\Person::where('id', $requestRecord->person_id)->value('uuid') : '');
+            $personUuid = (string) ($requestRecord->personId ? \App\Models\Person\Person::where('id', $requestRecord->personId)->value('uuid') : '');
         }
 
         if (empty($personUuid)) {
@@ -793,8 +792,8 @@ HTML;
 
         try {
             $queries = [];
-            if ($requestRecord && !empty($requestRecord->request_number)) {
-                $queries[] = ['request_number' => $requestRecord->request_number];
+            if ($requestRecord && !empty($requestRecord->requestNumber)) {
+                $queries[] = ['request_number' => $requestRecord->requestNumber];
             }
             $queries[] = [];
 
@@ -808,11 +807,11 @@ HTML;
                             continue;
                         }
                         $isMatch = $item['id'] === $localId
-                            || ($requestRecord && !empty($requestRecord->request_number) && ($item['request_number'] ?? '') === $requestRecord->request_number);
+                            || ($requestRecord && !empty($requestRecord->requestNumber) && ($item['request_number'] ?? '') === $requestRecord->requestNumber);
 
                         if ($isMatch) {
                             if ($requestRecord && $item['id'] !== $localId) {
-                                $payload = is_array($requestRecord->ehealth_payload) ? $requestRecord->ehealth_payload : [];
+                                $payload = is_array($requestRecord->ehealthPayload) ? $requestRecord->ehealthPayload : [];
                                 $payload['active_id'] = $item['id'];
                                 $requestRecord->update(['ehealth_payload' => $payload]);
                             }

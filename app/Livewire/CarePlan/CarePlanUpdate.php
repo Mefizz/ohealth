@@ -32,30 +32,30 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         $this->carePlan = $carePlan;
-        $this->id = $carePlan->person_id;
+        $this->id = $carePlan->personId;
         $this->patientUuid = $carePlan->person?->uuid ?? '';
 
         parent::mount($legalEntity, $this->id);
 
         // Hydrate form from model
         $this->form->patient = $carePlan->person?->full_name ?? '';
-        $this->form->medical_number = (string) ($carePlan->encounter_id ?? '');
+        $this->form->medical_number = (string) ($carePlan->encounterId ?? '');
         $this->form->author = $carePlan->author?->party?->full_name ?? '';
         $this->form->coAuthors = []; // TODO: if co-authors are implemented
         $this->form->category = is_array($carePlan->category) ? ($carePlan->category['coding'][0]['code'] ?? '') : ($carePlan->category ?? '');
         $this->form->context = $carePlan->context ?? '';
         $this->form->title = $carePlan->title ?? '';
         $this->form->intent = 'order';
-        $this->form->periodStart = $carePlan->period_start?->format('d.m.Y') ?? '';
-        $this->form->periodStartTime = $carePlan->period_start?->format('H:i') ?? '';
-        $this->form->periodEnd = $carePlan->period_end?->format('d.m.Y') ?? '';
-        $this->form->periodEndTime = $carePlan->period_end?->format('H:i') ?? '';
+        $this->form->periodStart = $carePlan->periodStart?->format('d.m.Y') ?? '';
+        $this->form->periodStartTime = $carePlan->periodStart?->format('H:i') ?? '';
+        $this->form->periodEnd = $carePlan->periodEnd?->format('d.m.Y') ?? '';
+        $this->form->periodEndTime = $carePlan->periodEnd?->format('H:i') ?? '';
         $this->form->encounter = $carePlan->encounter?->uuid ?? '';
         $this->form->description = $carePlan->description ?? '';
         $this->form->note = $carePlan->note ?? '';
-        $this->form->informWith = $carePlan->inform_with ?? '';
-        $this->form->episodes = $carePlan->supporting_info['episodes'] ?? [];
-        $this->form->medicalRecords = $carePlan->supporting_info['medical_records'] ?? [];
+        $this->form->informWith = $carePlan->informWith ?? '';
+        $this->form->episodes = $carePlan->supportingInfo['episodes'] ?? [];
+        $this->form->medicalRecords = $carePlan->supportingInfo['medical_records'] ?? [];
         $this->form->knedp = '';
         $this->form->keyContainerUpload = null;
         $this->form->keyContainerFileName = '';

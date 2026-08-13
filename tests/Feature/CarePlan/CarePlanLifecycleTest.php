@@ -345,7 +345,7 @@ class CarePlanLifecycleTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('initActivityForm', 'service_request')
-            ->set('selectedProduct', ['code' => 'A01001', 'name' => 'General medical consultation'])
+            ->call('selectProduct', ['code' => 'A01001', 'name' => 'General medical consultation'], 'service_request')
             ->set('activityForm.product_reference', 'A01001')
             ->call('addLinkedGround', 'Condition', $condition->uuid)
             ->assertSet('linkedGrounds.0.uuid', $condition->uuid)
@@ -392,13 +392,13 @@ class CarePlanLifecycleTest extends TestCase
             ->call('initActivityForm', 'medication_request')
             ->set('selectedProgram', 'program-id')
             ->set('activityForm.program', 'program-id')
-            ->set('selectedProduct', [
+            ->call('selectProduct', [
                 'id' => $medicationId,
                 'name' => 'Aspirin',
                 'ingredients' => [
                     ['dosage' => ['denumerator_unit' => 'PIECE']],
                 ],
-            ])
+            ], 'medication_request')
             ->set('activityForm.product_reference', $medicationId)
             ->set('activityForm.quantity_system', 'MEDICATION_UNIT')
             ->set('activityForm.quantity_code', 'PIECE')
@@ -448,7 +448,7 @@ class CarePlanLifecycleTest extends TestCase
             ->call('initActivityForm', 'device_request')
             ->set('selectedProgram', $deviceProgram)
             ->set('activityForm.program', $deviceProgram)
-            ->set('selectedProduct', ['id' => $deviceUuid, 'code' => 'DEV-456', 'name' => 'Test strips'])
+            ->call('selectProduct', ['id' => $deviceUuid, 'code' => 'DEV-456', 'name' => 'Test strips'], 'device_request')
             ->set('activityForm.product_reference', $deviceUuid)
             ->set('activityForm.quantity', -5)
             ->set('activityForm.scheduled_period_start', now()->format('d.m.Y'))
@@ -461,7 +461,7 @@ class CarePlanLifecycleTest extends TestCase
             ->call('initActivityForm', 'device_request')
             ->set('selectedProgram', $deviceProgram)
             ->set('activityForm.program', $deviceProgram)
-            ->set('selectedProduct', ['id' => $deviceUuid, 'code' => 'DEV-456', 'name' => 'Test strips'])
+            ->call('selectProduct', ['id' => $deviceUuid, 'code' => 'DEV-456', 'name' => 'Test strips'], 'device_request')
             ->set('activityForm.product_reference', $deviceUuid)
             ->set('activityForm.quantity', 10)
             ->set('activityForm.scheduled_period_start', now()->format('d.m.Y'))

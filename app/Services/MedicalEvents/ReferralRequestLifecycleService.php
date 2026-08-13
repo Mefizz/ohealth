@@ -68,14 +68,14 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         $dbData = [
             'uuid' => (string) Str::uuid(),
             'employee_id' => $employeeContext['employee_id'] ?? null,
-            'person_id' => $carePlan->person_id,
+            'person_id' => $carePlan->personId,
             'division_id' => $employeeContext['division_id'] ?? null,
             'status' => $this->draftStatus($resolvedKind),
             'started_at' => convertToYmd($formData['started_at']),
             'ended_at' => convertToYmd($formData['ended_at']),
             'quantity' => $qty,
-            'quantity_system' => $activity->quantity_system ?: 'SERVICE_UNIT',
-            'quantity_code' => $activity->quantity_code ?: 'PIECE',
+            'quantity_system' => $activity->quantitySystem ?: 'SERVICE_UNIT',
+            'quantity_code' => $activity->quantityCode ?: 'PIECE',
             'program_id' => $formData['program_id'] ?? null,
             'intent' => $formData['intent'] ?? 'order',
             'category' => $formData['category'] ?? null,
@@ -99,7 +99,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         ];
 
         if ($formData['kind'] === 'service_request') {
-            $dbData['service_id'] = $activity->product_reference;
+            $dbData['service_id'] = $activity->productReference;
 
             if (!empty($activity->program)) {
                 $dbData['program_id'] = $activity->program;
@@ -121,14 +121,14 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                 );
             }
 
-            return $this->persistLocalDraft($dbData, $carePlan->person_id, 'service_request');
+            return $this->persistLocalDraft($dbData, $carePlan->personId, 'service_request');
         }
 
-        $dbData['device_id'] = $activity->product_reference ?: $activity->product_codeable_concept;
-        $dbData['device_code_type'] = !empty($activity->product_reference) ? 'DEVICE_DEFINITION' : 'CLASSIFICATION_TYPE';
+        $dbData['device_id'] = $activity->productReference ?: $activity->productCodeableConcept;
+        $dbData['device_code_type'] = !empty($activity->productReference) ? 'DEVICE_DEFINITION' : 'CLASSIFICATION_TYPE';
         if (str_contains(strtolower((string) $activity->kind), 'device')) {
-            $dbData['quantity_system'] = $activity->quantity_system ?: 'device_unit';
-            $dbData['quantity_code'] = strtolower($activity->quantity_code ?: 'piece');
+            $dbData['quantity_system'] = $activity->quantitySystem ?: 'device_unit';
+            $dbData['quantity_code'] = strtolower($activity->quantityCode ?: 'piece');
         }
 
         $mapper = Fhir::deviceRequest();
@@ -142,7 +142,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             EHealth::deviceRequest()->prequalify($carePlan->person->uuid, $prequalifyPayload)
         );
 
-        return $this->persistLocalDraft($dbData, $carePlan->person_id, 'device_request');
+        return $this->persistLocalDraft($dbData, $carePlan->personId, 'device_request');
     }
 
     public function createEncounterDraft(\App\Models\MedicalEvents\Sql\Encounter $encounter, array $formData, float $qty, array $employeeContext): string
@@ -238,7 +238,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         $record->loadMissing('employee');
 
-        $code = $record instanceof ServiceRequestRequest ? $record->service_id : $record->device_id;
+        $code = $record instanceof ServiceRequestRequest ? $record->serviceId : $record->deviceId;
         $name = $record instanceof ServiceRequestRequest
             ? 'Направлення на послугу (ServiceRequest)'
             : 'Електронний рецепт на медичні вироби (DeviceRequest)';
@@ -249,7 +249,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             ? 'Зверніться до будь-якого медичного закладу, що надає відповідні послуги за контрактом з НСЗУ.'
             : 'Зверніться до аптеки або закладу, що бере участь у програмі реімбурсації чи відпуску відповідних медичних виробів за контрактом з НСЗУ.';
 
-        $requisition = (string) ($record->request_number ?: $record->uuid);
+        $requisition = (string) ($record->requestNumber ?: $record->uuid);
         $barcodeHtml = $this->buildCode128BarcodeHtml($requisition);
 
         return "
@@ -264,7 +264,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Пацієнт:</td><td style='padding: 8px 0;'>" . e($patientName) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Код послуги/виробу:</td><td style='padding: 8px 0;'>" . e($code) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Кількість:</td><td style='padding: 8px 0;'>" . e((string) $record->quantity) . " од.</td></tr>
-                    <tr><td style='padding: 8px 0; font-weight: bold;'>Термін дії:</td><td style='padding: 8px 0;'>з " . e(\Carbon\Carbon::parse($record->started_at)->format('d.m.Y')) . " по " . e(\Carbon\Carbon::parse($record->ended_at)->format('d.m.Y')) . "</td></tr>
+                    <tr><td style='padding: 8px 0; font-weight: bold;'>Термін дії:</td><td style='padding: 8px 0;'>з " . e(\Carbon\Carbon::parse($record->startedAt)->format('d.m.Y')) . " по " . e(\Carbon\Carbon::parse($record->endedAt)->format('d.m.Y')) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Лікар:</td><td style='padding: 8px 0;'>" . e($employeeName) . "</td></tr>
                     <tr><td style='padding: 8px 0; font-weight: bold;'>Примітки:</td><td style='padding: 8px 0;'>" . e((string) $record->note) . "</td></tr>
                 </table>
@@ -349,10 +349,10 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         $remote ??= $this->fetchRemoteReferral((string) $personUuid, (string) $requestRecord->uuid, $kind);
         $dbData = array_merge($localDbData, $this->mapRemoteReferralFields($remote, $kind));
 
-        $dbData['employee_id'] = $localDbData['employee_id'] ?? $requestRecord->employee_id;
-        $dbData['division_id'] = $localDbData['division_id'] ?? $requestRecord->division_id;
-        $dbData['based_on_id'] = $localDbData['based_on_id'] ?? $requestRecord->based_on_id ?? $activity?->id;
-        $dbData['context_id'] = $localDbData['context_id'] ?? $requestRecord->context_id ?? ($contextModel instanceof CarePlan ? $contextModel->encounter?->id : $contextModel->id);
+        $dbData['employee_id'] = $localDbData['employee_id'] ?? $requestRecord->employeeId;
+        $dbData['division_id'] = $localDbData['division_id'] ?? $requestRecord->divisionId;
+        $dbData['based_on_id'] = $localDbData['based_on_id'] ?? $requestRecord->basedOnId ?? $activity?->id;
+        $dbData['context_id'] = $localDbData['context_id'] ?? $requestRecord->contextId ?? ($contextModel instanceof CarePlan ? $contextModel->encounter?->id : $contextModel->id);
 
         $this->persistSignedReferral($dbData, $kind, (int) $contextModel->person_id);
 
@@ -511,27 +511,27 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         ?CarePlanActivity $activity,
         CarePlan|\App\Models\MedicalEvents\Sql\Encounter $contextModel
     ): array {
-        $startedAt = $requestRecord->started_at;
-        $endedAt = $requestRecord->ended_at;
+        $startedAt = $requestRecord->startedAt;
+        $endedAt = $requestRecord->endedAt;
 
         $dbData = [
             'uuid' => $requestRecord->uuid,
-            'employee_id' => $requestRecord->employee_id,
-            'division_id' => $requestRecord->division_id,
-            'based_on_id' => $requestRecord->based_on_id ?? $activity?->id,
-            'context_id' => $requestRecord->context_id ?? ($contextModel instanceof CarePlan ? $contextModel->encounter?->id : $contextModel->id),
+            'employee_id' => $requestRecord->employeeId,
+            'division_id' => $requestRecord->divisionId,
+            'based_on_id' => $requestRecord->basedOnId ?? $activity?->id,
+            'context_id' => $requestRecord->contextId ?? ($contextModel instanceof CarePlan ? $contextModel->encounter?->id : $contextModel->id),
             'quantity' => $requestRecord->quantity,
             'quantity_system' => $activity?->quantity_system ?: 'SERVICE_UNIT',
             'quantity_code' => $activity?->quantity_code ?: 'PIECE',
             'intent' => $requestRecord->intent ?? 'order',
             'category' => $requestRecord->category,
-            'program_id' => $requestRecord->program_id,
+            'program_id' => $requestRecord->programId,
             'priority' => $requestRecord->priority ?? 'routine',
             'note' => $requestRecord->note,
-            'patient_instruction' => $requestRecord->patient_instruction ?? null,
-            'reason_reference' => $requestRecord->reason_reference ?? null,
-            'inform_with' => $requestRecord->inform_with ?? null,
-            'supporting_info' => $requestRecord->supporting_info,
+            'patient_instruction' => $requestRecord->patientInstruction ?? null,
+            'reason_reference' => $requestRecord->reasonReference ?? null,
+            'inform_with' => $requestRecord->informWith ?? null,
+            'supporting_info' => $requestRecord->supportingInfo,
             'started_at' => $startedAt instanceof \DateTimeInterface
                 ? $startedAt->format('Y-m-d')
                 : (string) $startedAt,
@@ -542,9 +542,9 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         ];
 
         if ($requestRecord instanceof ServiceRequestRequest) {
-            $dbData['service_id'] = $requestRecord->service_id ?: $activity?->product_reference;
+            $dbData['service_id'] = $requestRecord->serviceId ?: $activity?->product_reference;
         } else {
-            $dbData['device_id'] = $requestRecord->device_id ?: $activity?->product_reference;
+            $dbData['device_id'] = $requestRecord->deviceId ?: $activity?->product_reference;
         }
 
         return $dbData;
@@ -581,7 +581,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
     public function takeIntoWork(string $referralUuid, Employee $employee, ?string $patientUuid = null, array $payload = []): array
     {
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
-        $programId = $model ? $model->program_id : null;
+        $programId = $model ? $model->programId : null;
 
         if (empty($payload)) {
             $payload = [
@@ -601,9 +601,9 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             ];
 
             // Division UUID: try employee->division_uuid first, otherwise resolve via division_id
-            $divisionUuid = $employee->division_uuid;
-            if (!$divisionUuid && $employee->division_id) {
-                $division = \App\Models\Division::find($employee->division_id);
+            $divisionUuid = $employee->divisionUuid;
+            if (!$divisionUuid && $employee->divisionId) {
+                $division = \App\Models\Division::find($employee->divisionId);
                 $divisionUuid = $division?->uuid;
             }
 
@@ -624,9 +624,9 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             }
 
             // Legal entity UUID: try employee->legal_entity_uuid first, otherwise resolve via legal_entity_id
-            $legalEntityUuid = $employee->legal_entity_uuid;
-            if (!$legalEntityUuid && $employee->legal_entity_id) {
-                $legalEntity = \App\Models\LegalEntity::find($employee->legal_entity_id);
+            $legalEntityUuid = $employee->legalEntityUuid;
+            if (!$legalEntityUuid && $employee->legalEntityId) {
+                $legalEntity = \App\Models\LegalEntity::find($employee->legalEntityId);
                 $legalEntityUuid = $legalEntity?->uuid;
             }
 
@@ -714,7 +714,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                     'status' => ServiceRequestStatus::IN_PROGRESS->value,
                     'request_number' => $responseData['requisition'] ?? null,
                     'employee_id' => $employee->id,
-                    'division_id' => $employee->division_id,
+                    'division_id' => $employee->divisionId,
                     // service_id is required by the repository schema; extract from response or fallback to empty
                     'service_id' => data_get($responseData, 'code.identifier.value')
                         ?? data_get($responseData, 'code.coding.0.code')

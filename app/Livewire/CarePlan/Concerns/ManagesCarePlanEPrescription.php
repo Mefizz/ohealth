@@ -85,7 +85,7 @@ trait ManagesCarePlanEPrescription
 
         if (!$this->ePrescriptionSelectedProduct) {
             $this->ePrescriptionSelectedProduct = [
-                'name' => $activity->product_reference,
+                'name' => $activity->productReference,
                 'innm_dosage_form' => 'од.',
             ];
         }
@@ -218,14 +218,14 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionForm = [
             'activity_id' => $activity->id,
             'encounter_id' => $defaultEncounterId,
-            'medication_id' => $activity->product_reference,
+            'medication_id' => $activity->productReference,
             'started_at' => now()->toDateString(),
             'duration' => 10,
             'ended_at' => '',
             'medication_qty' => $defaultQty,
             'medication_unit' => $unit,
             'signature_text' => '',
-            'max_dose_per_period' => (float) $activity->daily_amount ?: 1.0,
+            'max_dose_per_period' => (float) $activity->dailyAmount ?: 1.0,
             'max_dose_per_administration' => 1.0,
             'inform_with' => !empty($this->ePrescriptionAuthMethods) ? ($this->ePrescriptionAuthMethods[0]['uuid'] ?? '') : '',
             'container_dosage' => '',
@@ -382,13 +382,13 @@ trait ManagesCarePlanEPrescription
                 ->orderBy('ended_at', 'desc')
                 ->first();
 
-            if ($lastActivePrescription && $lastActivePrescription->ended_at) {
-                $lastEnd = \Carbon\Carbon::parse($lastActivePrescription->ended_at);
+            if ($lastActivePrescription && $lastActivePrescription->endedAt) {
+                $lastEnd = \Carbon\Carbon::parse($lastActivePrescription->endedAt);
                 $today = now();
                 $remainingDays = $today->diffInDays($lastEnd, false);
 
                 if ($remainingDays > 0) {
-                    $prevDuration = $lastActivePrescription->started_at ? \Carbon\Carbon::parse($lastActivePrescription->started_at)->diffInDays($lastEnd) + 1 : 10;
+                    $prevDuration = $lastActivePrescription->startedAt ? \Carbon\Carbon::parse($lastActivePrescription->startedAt)->diffInDays($lastEnd) + 1 : 10;
                     $allowedDaysBeforeEnd = $prevDuration >= 21 ? 7 : 3;
 
                     if ($remainingDays > $allowedDaysBeforeEnd) {
@@ -589,7 +589,7 @@ trait ManagesCarePlanEPrescription
                     'medication_unit' => $this->ePrescriptionForm['medication_unit'] ?? 'од.',
                     'signer_tax_id' => Auth::user()?->party?->taxId,
                 ]),
-                $requestRecord->inform_with ?? '',
+                $requestRecord->informWith ?? '',
                 $this->ePrescriptionRemainingQty
             );
 
@@ -758,11 +758,11 @@ trait ManagesCarePlanEPrescription
      */
     protected function resolveDrugForActivity(\App\Models\CarePlanActivity $activity): ?array
     {
-        if (empty($activity->product_reference)) {
+        if (empty($activity->productReference)) {
             return null;
         }
 
-        $filters = ['innm_dosage_id' => $activity->product_reference];
+        $filters = ['innm_dosage_id' => $activity->productReference];
         if (!empty($activity->program)) {
             $filters['medical_program_id'] = $activity->program;
         }
@@ -772,7 +772,7 @@ trait ManagesCarePlanEPrescription
             return $data[0];
         }
 
-        $fallback = EHealth::drug()->getMany(['innm_id' => $activity->product_reference])->getData();
+        $fallback = EHealth::drug()->getMany(['innm_id' => $activity->productReference])->getData();
 
         return $fallback[0] ?? null;
     }

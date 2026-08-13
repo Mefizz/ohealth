@@ -25,7 +25,7 @@ class CarePlanActivityShow extends CarePlanComponent
 
     public function mount(CarePlan $carePlan, CarePlanActivity $activity): void
     {
-        if ($activity->care_plan_id !== $carePlan->id) {
+        if ($activity->carePlanId !== $carePlan->id) {
             abort(404);
         }
 
@@ -63,7 +63,7 @@ class CarePlanActivityShow extends CarePlanComponent
     {
         $kindLower = strtolower($activity->resolvedKind());
 
-        if (str_contains($kindLower, 'device') && !empty($activity->product_reference)) {
+        if (str_contains($kindLower, 'device') && !empty($activity->productReference)) {
             try {
                 $filters = ['page_size' => 50];
                 if (!empty($activity->program)) {
@@ -71,7 +71,7 @@ class CarePlanActivityShow extends CarePlanComponent
                 }
 
                 $response = EHealth::deviceDefinition()->getMany($filters);
-                $reference = (string) $activity->product_reference;
+                $reference = (string) $activity->productReference;
                 $device = collect($response->getData())->first(
                     fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
                 );
@@ -86,20 +86,20 @@ class CarePlanActivityShow extends CarePlanComponent
                 Log::warning('CarePlanActivityShow: failed to resolve device label: ' . $exception->getMessage());
             }
 
-            return (string) $activity->product_reference;
+            return (string) $activity->productReference;
         }
 
-        if (str_contains($kindLower, 'medication') && !empty($activity->product_reference)) {
-            return (string) $activity->product_reference;
+        if (str_contains($kindLower, 'medication') && !empty($activity->productReference)) {
+            return (string) $activity->productReference;
         }
 
-        if (str_contains($kindLower, 'service') && !empty($activity->product_reference)) {
-            return (string) $activity->product_reference;
+        if (str_contains($kindLower, 'service') && !empty($activity->productReference)) {
+            return (string) $activity->productReference;
         }
 
-        if (!empty($activity->product_codeable_concept)) {
-            return $this->dictionaries['device_definition_classification_type'][$activity->product_codeable_concept]
-                ?? (string) $activity->product_codeable_concept;
+        if (!empty($activity->productCodeableConcept)) {
+            return $this->dictionaries['device_definition_classification_type'][$activity->productCodeableConcept]
+                ?? (string) $activity->productCodeableConcept;
         }
 
         return '';

@@ -137,9 +137,7 @@ class CarePlanActivityValidationsTest extends TestCase
             ->call('initActivityForm', 'medication_request')
             ->set('selectedProgram', $programId)
             ->set('activityForm.program', $programId)
-            ->set('dictionaries.medical_programs', [$programId => 'Restricted program'])
-            ->set('dictionaries.medical_programs_medication', [$programId => 'Restricted program'])
-            ->set('selectedProduct', [
+            ->call('selectProduct', [
                 'id' => $medicationId,
                 'name' => 'Aspirin',
                 'ingredients' => [
@@ -148,7 +146,7 @@ class CarePlanActivityValidationsTest extends TestCase
                 'packages' => [
                     ['package_min_qty' => 1],
                 ],
-            ])
+            ], 'medication_request')
             ->set('activityForm.product_reference', $medicationId)
             ->set('activityForm.quantity_system', 'MEDICATION_UNIT')
             ->set('activityForm.quantity_code', 'PIECE')
@@ -190,9 +188,7 @@ class CarePlanActivityValidationsTest extends TestCase
             ->call('initActivityForm', 'medication_request')
             ->set('selectedProgram', $programId)
             ->set('activityForm.program', $programId)
-            ->set('dictionaries.medical_programs', [$programId => 'Outpatient program'])
-            ->set('dictionaries.medical_programs_medication', [$programId => 'Outpatient program'])
-            ->set('selectedProduct', [
+            ->call('selectProduct', [
                 'id' => $medicationId,
                 'name' => 'Aspirin',
                 'ingredients' => [
@@ -201,7 +197,7 @@ class CarePlanActivityValidationsTest extends TestCase
                 'packages' => [
                     ['package_min_qty' => 1],
                 ],
-            ])
+            ], 'medication_request')
             ->set('activityForm.product_reference', $medicationId)
             ->set('activityForm.quantity_system', 'MEDICATION_UNIT')
             ->set('activityForm.quantity_code', 'PIECE')
@@ -237,7 +233,7 @@ class CarePlanActivityValidationsTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('initActivityForm', 'service_request')
-            ->set('selectedProduct', ['code' => 'A01001', 'name' => 'Rehab service'])
+            ->call('selectProduct', ['code' => 'A01001', 'name' => 'Rehab service'], 'service_request')
             ->set('activityForm.product_reference', 'A01001')
             ->set('activityForm.quantity', 1)
             ->set('activityForm.scheduled_period_start', now()->format('d.m.Y'))
@@ -271,7 +267,7 @@ class CarePlanActivityValidationsTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('initActivityForm', 'service_request')
-            ->set('selectedProduct', ['code' => 'A01002', 'name' => 'Rehab service'])
+            ->call('selectProduct', ['code' => 'A01002', 'name' => 'Rehab service'], 'service_request')
             ->set('activityForm.product_reference', 'A01002')
             ->call('addLinkedGround', 'Observation', $observationUuid)
             ->set('activityForm.quantity', 2)

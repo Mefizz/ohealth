@@ -1317,7 +1317,7 @@ class CarePlanCreate extends BasePatientComponent
             ->get();
 
         $partyRoles = EmployeeRole::query()
-            ->whereHas('employee', fn ($query) => $query->where('party_id', $author->party_id))
+            ->whereHas('employee', fn ($query) => $query->where('party_id', $author->partyId))
             ->where('status', EmployeeRoleStatus::ACTIVE)
             ->where('is_active', true)
             ->with(['employee:id,uuid,employee_type,position', 'healthcareService:id,speciality_type,providing_condition'])
@@ -1329,7 +1329,7 @@ class CarePlanCreate extends BasePatientComponent
             'submitted_terms_of_service' => $termsOfService,
             'selected_author' => [
                 'employee_uuid' => $author->uuid,
-                'employee_type' => $author->employee_type,
+                'employee_type' => $author->employeeType,
                 'position' => $author->position,
                 'specialities' => $author->specialities->pluck('speciality')->all(),
                 'active_roles_count' => $roles->count(),

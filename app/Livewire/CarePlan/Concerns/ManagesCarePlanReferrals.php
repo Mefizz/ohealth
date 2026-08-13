@@ -140,17 +140,17 @@ trait ManagesCarePlanReferrals
             $defaultQuantity = (float) $this->referralDevicePackageQty;
         }
 
-        $code = $activity->product_codeable_concept ?? $activity->product_reference ?? 'од.';
+        $code = $activity->productCodeableConcept ?? $activity->productReference ?? 'од.';
 
         $category = $resolvedKind === 'service_request'
-            ? $this->resolveServiceCategory((string) $activity->product_reference)
+            ? $this->resolveServiceCategory((string) $activity->productReference)
             : null;
 
         $this->referralServiceCategory = $category ?? 'procedure';
 
         $occurrenceDates = $this->resolveReferralOccurrenceDates(
-            $activity->scheduled_period_start,
-            $activity->scheduled_period_end
+            $activity->scheduledPeriodStart,
+            $activity->scheduledPeriodEnd
         );
 
         $reasonReference = [];
@@ -389,7 +389,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
+            $activity = \App\Models\CarePlanActivity::find($requestRecord->basedOnId);
             if (!$activity) {
                 throw new \RuntimeException('Призначення для направлення не знайдено');
             }
@@ -460,7 +460,7 @@ trait ManagesCarePlanReferrals
         } catch (EHealthValidationException $e) {
             if ($e->isDuplicateReferralError()) {
                 try {
-                    $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
+                    $activity = \App\Models\CarePlanActivity::find($requestRecord->basedOnId);
                     if (!$activity) {
                         throw new \RuntimeException('Призначення для направлення не знайдено');
                     }
@@ -689,17 +689,17 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
+            $activity = \App\Models\CarePlanActivity::find($requestRecord->basedOnId);
             if (!$activity) {
                 throw new \RuntimeException('Призначення для направлення не знайдено');
             }
 
             $before = [
                 'status' => (string) $requestRecord->status,
-                'request_number' => (string) ($requestRecord->request_number ?? ''),
+                'request_number' => (string) ($requestRecord->requestNumber ?? ''),
                 'quantity' => (string) $requestRecord->quantity,
-                'started_at' => $requestRecord->started_at?->format('Y-m-d'),
-                'ended_at' => $requestRecord->ended_at?->format('Y-m-d'),
+                'started_at' => $requestRecord->startedAt?->format('Y-m-d'),
+                'ended_at' => $requestRecord->endedAt?->format('Y-m-d'),
             ];
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
@@ -715,10 +715,10 @@ trait ManagesCarePlanReferrals
 
             $after = [
                 'status' => (string) $requestRecord->status,
-                'request_number' => (string) ($requestRecord->request_number ?? ''),
+                'request_number' => (string) ($requestRecord->requestNumber ?? ''),
                 'quantity' => (string) $requestRecord->quantity,
-                'started_at' => $requestRecord->started_at?->format('Y-m-d'),
-                'ended_at' => $requestRecord->ended_at?->format('Y-m-d'),
+                'started_at' => $requestRecord->startedAt?->format('Y-m-d'),
+                'ended_at' => $requestRecord->endedAt?->format('Y-m-d'),
             ];
 
             Log::info('CarePlanShow: referral synced from eHealth', [
@@ -836,7 +836,7 @@ trait ManagesCarePlanReferrals
      */
     protected function resolveDevicePackageQuantity(\App\Models\CarePlanActivity $activity): int
     {
-        $reference = (string) ($activity->product_reference ?? '');
+        $reference = (string) ($activity->productReference ?? '');
         if ($reference === '') {
             return 0;
         }
@@ -906,12 +906,12 @@ trait ManagesCarePlanReferrals
         $context = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
             $this->carePlan,
             $activity,
-            $requestRecord->employee_id
+            $requestRecord->employeeId
         );
 
         return [
-            'employee_id' => $requestRecord->employee_id ?? $context['employee_id'],
-            'division_id' => $requestRecord->division_id ?? $context['division_id'],
+            'employee_id' => $requestRecord->employeeId ?? $context['employee_id'],
+            'division_id' => $requestRecord->divisionId ?? $context['division_id'],
             'employee_uuid' => $context['employee_uuid'],
             'legal_entity_uuid' => $context['legal_entity_uuid'],
         ];
@@ -925,24 +925,24 @@ trait ManagesCarePlanReferrals
         \App\Models\CarePlanActivity $activity
     ): array {
         $employeeContext = $this->resolveReferralEmployeeContext($requestRecord, $activity);
-        $startedAt = $requestRecord->started_at ?? $activity->scheduled_period_start;
-        $endedAt = $requestRecord->ended_at ?? $activity->scheduled_period_end;
+        $startedAt = $requestRecord->startedAt ?? $activity->scheduledPeriodStart;
+        $endedAt = $requestRecord->endedAt ?? $activity->scheduledPeriodEnd;
 
         $dbData = [
             'uuid' => $requestRecord->uuid,
             'employee_id' => $employeeContext['employee_id'],
             'division_id' => $employeeContext['division_id'],
-            'based_on_id' => $requestRecord->based_on_id ?? $activity->id,
-            'context_id' => $requestRecord->context_id ?? $this->carePlan->encounter?->id,
+            'based_on_id' => $requestRecord->basedOnId ?? $activity->id,
+            'context_id' => $requestRecord->contextId ?? $this->carePlan->encounter?->id,
             'quantity' => $requestRecord->quantity,
-            'quantity_system' => $activity->quantity_system ?: 'SERVICE_UNIT',
-            'quantity_code' => $activity->quantity_code ?: 'PIECE',
+            'quantity_system' => $activity->quantitySystem ?: 'SERVICE_UNIT',
+            'quantity_code' => $activity->quantityCode ?: 'PIECE',
             'intent' => $requestRecord->intent ?? 'order',
             'category' => $requestRecord->category,
-            'program_id' => $requestRecord->program_id,
+            'program_id' => $requestRecord->programId,
             'priority' => $requestRecord->priority ?? 'routine',
             'note' => $requestRecord->note,
-            'supporting_info' => $requestRecord->supporting_info,
+            'supporting_info' => $requestRecord->supportingInfo,
             'started_at' => $startedAt instanceof \DateTimeInterface
                 ? $startedAt->format('Y-m-d')
                 : (string) $startedAt,
@@ -953,18 +953,18 @@ trait ManagesCarePlanReferrals
         ];
 
         if ($requestRecord instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest) {
-            $dbData['service_id'] = $requestRecord->service_id ?: $activity->product_reference;
+            $dbData['service_id'] = $requestRecord->serviceId ?: $activity->productReference;
         } else {
-            if (!empty($activity->product_reference)) {
-                $dbData['device_id'] = $requestRecord->device_id ?: $activity->product_reference;
+            if (!empty($activity->productReference)) {
+                $dbData['device_id'] = $requestRecord->deviceId ?: $activity->productReference;
                 $dbData['device_code_type'] = 'DEVICE_DEFINITION';
             } else {
-                $dbData['device_id'] = $requestRecord->device_id ?: $activity->product_codeable_concept;
+                $dbData['device_id'] = $requestRecord->deviceId ?: $activity->productCodeableConcept;
                 $dbData['device_code_type'] = 'CLASSIFICATION_TYPE';
             }
 
-            $dbData['quantity_system'] = $activity->quantity_system ?: 'device_unit';
-            $dbData['quantity_code'] = strtolower($activity->quantity_code ?: 'piece');
+            $dbData['quantity_system'] = $activity->quantitySystem ?: 'device_unit';
+            $dbData['quantity_code'] = strtolower($activity->quantityCode ?: 'piece');
         }
 
         return $dbData;

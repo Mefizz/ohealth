@@ -76,4 +76,46 @@ class DeviceRequestMapperTest extends TestCase
         $this->assertSame('device_unit', $payload['device_request']['quantity']['system']);
         $this->assertSame('piece', $payload['device_request']['quantity']['code']);
     }
+
+    #[Test]
+    public function create_signed_content_keeps_envelope_with_authored_on_and_top_level_programs(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-13T07:38:24Z'));
+
+        $mapper = new DeviceRequestMapper();
+        $programId = (string) Str::uuid();
+        $requestId = (string) Str::uuid();
+
+        $payload = $mapper->toCreateSignedContent(
+            [
+                'uuid' => $requestId,
+                'device_id' => '0fa1e6cd-7066-4881-92a5-6d747a1128f7',
+                'device_code_type' => 'DEVICE_DEFINITION',
+                'quantity' => 50,
+                'quantity_code' => 'piece',
+                'intent' => 'order',
+                'program_id' => $programId,
+                'started_at' => '2026-08-13',
+                'ended_at' => '2026-11-12',
+            ],
+            [
+                'person_uuid' => (string) Str::uuid(),
+                'encounter_uuid' => (string) Str::uuid(),
+                'employee_uuid' => (string) Str::uuid(),
+                'legal_entity_uuid' => (string) Str::uuid(),
+            ],
+            (string) Str::uuid(),
+            (string) Str::uuid()
+        );
+
+        $this->assertArrayHasKey('device_request', $payload);
+        $this->assertArrayHasKey('programs', $payload);
+        $this->assertArrayHasKey('authored_on', $payload['device_request']);
+        $this->assertSame($requestId, $payload['device_request']['id']);
+        $this->assertSame('active', $payload['device_request']['status']);
+        $this->assertArrayNotHasKey('programs', $payload['device_request']);
+        $this->assertSame($programId, $payload['programs'][0]['identifier']['value']);
+
+        CarbonImmutable::setTestNow();
+    }
 }

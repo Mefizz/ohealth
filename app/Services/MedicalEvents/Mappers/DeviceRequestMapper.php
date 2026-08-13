@@ -129,22 +129,20 @@ class DeviceRequestMapper implements FhirMapperContract
     }
 
     /**
-     * Flat payload for PKCS#7 signing on Create Device Request.
+     * Payload for PKCS#7 signing on Create Device Request (API-007-020-0003).
+     *
+     * Must match the create/prequalify envelope: top-level `device_request` + `programs`.
+     * Do not flatten — nesting `programs` inside device_request triggers
+     * "schema does not allow additional properties", and omitting `authored_on`
+     * fails as a required property.
      *
      * @param  array<string, mixed>  $data
      * @param  array<string, string|null>  $uuids
-     * @return array<string, mixed>
+     * @return array{device_request: array<string, mixed>, programs?: list<array<string, mixed>>}
      */
     public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
-        $wrapped = $this->toCreateSignedPayload($data, $uuids, $carePlanUuid, $activityUuid);
-        $content = $wrapped['device_request'];
-        unset($content['authored_on']);
-        if (!empty($wrapped['programs'])) {
-            $content['programs'] = $wrapped['programs'];
-        }
-
-        return $content;
+        return $this->toCreateSignedPayload($data, $uuids, $carePlanUuid, $activityUuid);
     }
 
     /**

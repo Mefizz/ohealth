@@ -490,12 +490,15 @@ class ReferralLifecycleTest extends TestCase
         );
 
         $this->assertArrayNotHasKey('authored_on', $serviceSignContent);
-        $this->assertArrayNotHasKey('authored_on', $deviceSignContent);
         $this->assertEquals($requestUuid, $serviceSignContent['id']);
         $this->assertArrayNotHasKey('service_request', $serviceSignContent);
         $this->assertArrayHasKey('requester_employee', $serviceSignContent);
-        $this->assertEquals($requestUuid, $deviceSignContent['id']);
-        $this->assertArrayNotHasKey('device_request', $deviceSignContent);
+
+        $this->assertArrayHasKey('device_request', $deviceSignContent);
+        $this->assertArrayHasKey('authored_on', $deviceSignContent['device_request']);
+        $this->assertEquals($requestUuid, $deviceSignContent['device_request']['id']);
+        $this->assertArrayHasKey('programs', $deviceSignContent);
+        $this->assertArrayNotHasKey('programs', $deviceSignContent['device_request']);
     }
 
     public function test_mock_api_create_and_sign_lifecycle(): void

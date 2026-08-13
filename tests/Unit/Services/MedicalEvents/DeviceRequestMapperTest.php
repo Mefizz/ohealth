@@ -40,7 +40,7 @@ class DeviceRequestMapperTest extends TestCase
         );
 
         $authoredOn = $payload['device_request']['authored_on'];
-        $this->assertSame('2026-08-13T07:38:24.000Z', $authoredOn);
+        $this->assertSame('2026-08-13T07:37:54.000Z', $authoredOn);
 
         $occurrenceStart = CarbonImmutable::parse($payload['device_request']['occurrence_period']['start']);
         $this->assertTrue($occurrenceStart->lessThanOrEqualTo(CarbonImmutable::now('UTC')->addMinute()));

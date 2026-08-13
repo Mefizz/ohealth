@@ -214,13 +214,16 @@ class DeviceRequestMapper implements FhirMapperContract
 
     /**
      * eHealth accepts authored_on only within ~last 3 days and not in the future
-     * (server clock). Never derive it from occurrence_period start.
+     * (server clock). Subtract a small skew buffer — local clocks are often a few
+     * seconds ahead of eHealth and "now" then fails as future-dated.
      *
      * @param  array{start: string, end: string}  $occurrencePeriod
      */
     private function resolveAuthoredOn(array $occurrencePeriod): string
     {
-        return CarbonImmutable::now('UTC')->format('Y-m-d\TH:i:s.000\Z');
+        return CarbonImmutable::now('UTC')
+            ->subSeconds(30)
+            ->format('Y-m-d\TH:i:s.000\Z');
     }
 
     /**

@@ -109,20 +109,29 @@ trait ManagesCarePlanReferrals
         $defaultQuantity = min($this->referralRemainingQty, 1.0);
         if ($resolvedKind === 'device_request') {
             $this->referralDevicePackageQty = $this->resolveDevicePackageQuantity($activity);
-            if ($this->referralDevicePackageQty > 0) {
-                if ($this->referralRemainingQty < $this->referralDevicePackageQty) {
-                    $this->dispatch('flashMessage', [
-                        'type' => 'error',
-                        'message' => __('care-plan.device_remaining_below_packaging', [
-                            'remaining' => $this->referralRemainingQty,
-                            'count' => $this->referralDevicePackageQty,
-                        ]),
-                    ]);
+            if ($this->referralDevicePackageQty <= 0) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'error',
+                    'message' => __('care-plan.device_package_qty_unknown'),
+                ]);
 
-                    return;
-                }
-                $defaultQuantity = (float) $this->referralDevicePackageQty;
+                return;
             }
+
+            if ($this->referralRemainingQty < $this->referralDevicePackageQty) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'error',
+                    'message' => __('care-plan.device_remaining_below_packaging', [
+                        'remaining' => $this->referralRemainingQty,
+                        'count' => $this->referralDevicePackageQty,
+                    ]),
+                ]);
+
+                return;
+            }
+
+            // Default to one package; never fall back to 1 piece when package > 1.
+            $defaultQuantity = (float) $this->referralDevicePackageQty;
         }
 
         $code = $activity->product_codeable_concept ?? $activity->product_reference ?? 'од.';
@@ -228,6 +237,17 @@ trait ManagesCarePlanReferrals
             $this->referralShowRemainingQtyWarning = true;
             $this->referralWarningMessage = 'Кількість перевищує залишок за призначенням (' . $this->referralRemainingQty . ')';
             $this->flashUserError('Кількість перевищує залишок за призначенням.');
+
+            return;
+        }
+
+        if (
+            ($this->referralForm['kind'] ?? '') === 'device_request'
+            && $this->referralDevicePackageQty <= 0
+        ) {
+            $message = __('care-plan.device_package_qty_unknown');
+            $this->referralWarningMessage = $message;
+            $this->flashUserError($message);
 
             return;
         }
@@ -816,24 +836,36 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $filters = ['page_size' => 50];
+            $filters = ['page_size' => 100];
             if (!empty($activity->program)) {
                 $filters['medical_program_id'] = $activity->program;
             }
 
-            $response = EHealth::deviceDefinition()->getMany($filters);
-            $device = collect($response->getData())->first(
-                static fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
-            );
+            $page = 1;
+            $maxPages = 10;
 
-            if (!is_array($device)) {
-                return 0;
-            }
+            do {
+                $filters['page'] = $page;
+                $response = EHealth::deviceDefinition()->getMany($filters);
+                $device = collect($response->getData())->first(
+                    static fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
+                );
 
-            $packaging = $device['packaging'] ?? null;
-            $count = is_array($packaging) ? (int) ($packaging['packaging_count'] ?? 0) : 0;
+                if (is_array($device)) {
+                    $packaging = $device['packaging'] ?? null;
+                    $count = is_array($packaging)
+                        ? (int) ($packaging['packaging_count'] ?? $packaging['packagingCount'] ?? 0)
+                        : 0;
 
-            return max(0, $count);
+                    return max(0, $count);
+                }
+
+                $paging = $response->getPaging();
+                $totalPages = (int) ($paging['total_pages'] ?? 1);
+                $page++;
+            } while ($page <= $totalPages && $page <= $maxPages);
+
+            return 0;
         } catch (\Throwable $exception) {
             Log::warning('CarePlanShow: failed to resolve device package quantity: '.$exception->getMessage());
 

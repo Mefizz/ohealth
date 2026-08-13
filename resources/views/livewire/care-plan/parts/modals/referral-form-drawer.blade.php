@@ -160,12 +160,12 @@
                         </div>
 
                         <div class="form-group group">
-                            <label class="label">Пріоритет*</label>
+                            <label class="label">{{ __('care-plan.priority') }}*</label>
                             <select class="input-select peer w-full" wire:model="referralForm.priority">
-                                <option value="routine">Планове (Routine)</option>
-                                <option value="urgent">Ургентне (Urgent)</option>
-                                <option value="asap">Якнайшвидше (ASAP)</option>
-                                <option value="stat">Негайно (STAT)</option>
+                                <option value="routine">{{ __('care-plan.priority_options.routine') }}</option>
+                                <option value="urgent">{{ __('care-plan.priority_options.urgent') }}</option>
+                                <option value="asap">{{ __('care-plan.priority_options.asap') }}</option>
+                                <option value="stat">{{ __('care-plan.priority_options.stat') }}</option>
                             </select>
                         </div>
                     </div>
@@ -184,12 +184,12 @@
                 @else
                     <div class="mb-4 grid grid-cols-1 gap-6">
                         <div class="form-group group">
-                            <label class="label">Пріоритет*</label>
+                            <label class="label">{{ __('care-plan.priority') }}*</label>
                             <select class="input-select peer w-full" wire:model="referralForm.priority">
-                                <option value="routine">Планове (Routine)</option>
-                                <option value="urgent">Ургентне (Urgent)</option>
-                                <option value="asap">Якнайшвидше (ASAP)</option>
-                                <option value="stat">Негайно (STAT)</option>
+                                <option value="routine">{{ __('care-plan.priority_options.routine') }}</option>
+                                <option value="urgent">{{ __('care-plan.priority_options.urgent') }}</option>
+                                <option value="asap">{{ __('care-plan.priority_options.asap') }}</option>
+                                <option value="stat">{{ __('care-plan.priority_options.stat') }}</option>
                             </select>
                         </div>
                     </div>
@@ -266,8 +266,14 @@
                         <label class="label">{{ __('care-plan.referral_reason_reference') }}</label>
                         <div class="space-y-1 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-700/50">
                             @foreach ($referralForm['reason_reference'] as $info)
+                                @php
+                                    $reasonTypeKey = 'care-plan.reason_reference_types.' . strtolower((string) ($info['type'] ?? ''));
+                                    $reasonTypeLabel = \Illuminate\Support\Facades\Lang::has($reasonTypeKey)
+                                        ? __($reasonTypeKey)
+                                        : ($info['type'] ?? '');
+                                @endphp
                                 <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                    <span class="badge badge-minor uppercase">{{ $info['type'] }}</span>
+                                    <span class="badge badge-minor">{{ $reasonTypeLabel }}</span>
                                     <span class="font-mono text-gray-800 dark:text-gray-200">{{ $info['uuid'] }}</span>
                                 </div>
                             @endforeach
@@ -277,11 +283,17 @@
 
                 @if (!empty($referralForm['supporting_info']))
                     <div class="form-group group mb-4">
-                        <label class="label">Клінічне обґрунтування (supporting_info)</label>
+                        <label class="label">{{ __('care-plan.referral_supporting_info') }}</label>
                         <div class="space-y-1 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-700/50">
                             @foreach ($referralForm['supporting_info'] as $info)
+                                @php
+                                    $supportTypeKey = 'care-plan.reason_reference_types.' . strtolower((string) ($info['type'] ?? ''));
+                                    $supportTypeLabel = \Illuminate\Support\Facades\Lang::has($supportTypeKey)
+                                        ? __($supportTypeKey)
+                                        : ($info['type'] ?? '');
+                                @endphp
                                 <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                    <span class="badge badge-minor uppercase">{{ $info['type'] }}</span>
+                                    <span class="badge badge-minor">{{ $supportTypeLabel }}</span>
                                     <span class="font-mono text-gray-800 dark:text-gray-200">{{ $info['uuid'] }}</span>
                                 </div>
                             @endforeach
@@ -299,7 +311,11 @@
                     class="button-primary"
                     @if ($referralWarningMessage) disabled class="button-primary cursor-not-allowed opacity-50" @endif
                 >
-                    Сформувати Заявку на Направлення
+                    {{
+                        ($referralForm['kind'] ?? '') === 'device_request'
+                        ? __('care-plan.submit_device_eprescription')
+                        : __('care-plan.submit_referral')
+                    }}
                 </button>
             </div>
         </form>

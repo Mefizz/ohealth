@@ -7,6 +7,8 @@ namespace App\Livewire\CarePlan;
 use App\Classes\eHealth\EHealth;
 use App\Enums\CarePlanStatus;
 use App\Livewire\CarePlan\Concerns\CarePlanManager;
+use App\Livewire\CarePlan\Concerns\ManagesCarePlanEPrescription;
+use App\Livewire\CarePlan\Concerns\ManagesCarePlanReferrals;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Repositories\CarePlanActivityRepository;
@@ -18,6 +20,8 @@ use Illuminate\Validation\ValidationException;
 class CarePlanShow extends CarePlanComponent
 {
     use CarePlanManager;
+    use ManagesCarePlanEPrescription;
+    use ManagesCarePlanReferrals;
 
     protected $listeners = [
         'carePlanUpdated' => '$refresh',

@@ -27,7 +27,9 @@
             showMedicationFormDrawer: @entangle('showMedicationFormDrawer'),
             showMedicalDeviceDrawer: @entangle('showMedicalDeviceDrawer'),
             showMedicalDeviceSearchDrawer: @entangle('showMedicalDeviceSearchDrawer'),
-            showMedicalDeviceFormDrawer: @entangle('showMedicalDeviceFormDrawer')
+            showMedicalDeviceFormDrawer: @entangle('showMedicalDeviceFormDrawer'),
+            showReferralDrawer: @entangle('showReferralDrawer').live,
+            showEPrescriptionDrawer: @entangle('showEPrescriptionDrawer').live
          }"
         @close-drawers.window="
             showServiceDrawer = false;
@@ -38,6 +40,8 @@
             showMedicalDeviceDrawer = false;
             showMedicalDeviceSearchDrawer = false;
             showMedicalDeviceFormDrawer = false;
+            showReferralDrawer = false;
+            showEPrescriptionDrawer = false;
         "
         wire:key="care-plan-show-container"
     >
@@ -618,6 +622,46 @@
                                                             {{ __('forms.delete') }}
                                                         </button>
                                                     @elseif (in_array(strtoupper($activityStatus), ['ACTIVE', 'SCHEDULED', 'IN-PROGRESS', 'IN_PROGRESS', 'ON-HOLD', 'PROCESSED']))
+                                                        @if ($resolvedKind === 'medication_request')
+                                                            <button
+                                                                type="button"
+                                                                @click="
+                                                                    close();
+                                                                    activeTab = 'activities';
+                                                                "
+                                                                wire:click="initEPrescriptionForm({{ $activity->id }})"
+                                                                class="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
+                                                            >
+                                                                @icon('check', 'w-5 h-5 text-gray-500')
+                                                                {{ __('care-plan.issue_eprescription') }}
+                                                            </button>
+                                                        @elseif ($resolvedKind === 'device_request')
+                                                            <button
+                                                                type="button"
+                                                                @click="
+                                                                    close();
+                                                                    activeTab = 'activities';
+                                                                "
+                                                                wire:click="initReferralForm({{ $activity->id }})"
+                                                                class="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
+                                                            >
+                                                                @icon('check', 'w-5 h-5 text-gray-500')
+                                                                {{ __('care-plan.issue_device_eprescription') }}
+                                                            </button>
+                                                        @elseif ($resolvedKind === 'service_request')
+                                                            <button
+                                                                type="button"
+                                                                @click="
+                                                                    close();
+                                                                    activeTab = 'activities';
+                                                                "
+                                                                wire:click="initReferralForm({{ $activity->id }})"
+                                                                class="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
+                                                            >
+                                                                @icon('check', 'w-5 h-5 text-gray-500')
+                                                                {{ __('care-plan.create_referral') }}
+                                                            </button>
+                                                        @endif
                                                         <button
                                                             type="button"
                                                             @click="close()"
@@ -699,6 +743,8 @@
         @include('livewire.care-plan.parts.modals.medical-devices-drawer')
         @include('livewire.care-plan.parts.modals.medical-device-search-drawer')
         @include('livewire.care-plan.parts.modals.medical-device-form-drawer')
+        @include('livewire.care-plan.parts.modals.referral-form-drawer')
+        @include('livewire.care-plan.parts.modals.eprescription-form-drawer')
 
         <x-confirmation-modal wire:model.live="confirmingActivityDeletion">
             <x-slot name="title">{{ __('care-plan.confirm_delete_activity_title') }}</x-slot>

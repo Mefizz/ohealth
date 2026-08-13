@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Session;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class CarePlanApprovals extends Component
@@ -23,25 +24,30 @@ class CarePlanApprovals extends Component
     use FormTrait;
     use InteractsWithApprovals;
 
-    protected $listeners = ['refreshApprovals' => 'fetchApprovals'];
-
     #[Locked]
     public int $carePlanId;
 
+    #[Locked]
     public string $carePlanUuid = '';
 
+    #[Locked]
     public string $patientUuid = '';
 
+    #[Locked]
     public array $approvals = [];
 
+    #[Locked]
     public ?string $errorMessage = null;
 
+    #[Locked]
     public bool $isLoading = false;
 
     public ?string $selectedAuthMethodUuid = null;
+
     public array $authMethods = [];
 
     /** Active employees of the current legal entity for the dropdown. */
+    #[Locked]
     public array $employees = [];
 
     // For creating new approval
@@ -91,6 +97,7 @@ class CarePlanApprovals extends Component
     /**
      * Sync from eHealth and refresh the local approvals list.
      */
+    #[On('refreshApprovals')]
     public function fetchApprovals(): void
     {
         $this->isLoading = true;

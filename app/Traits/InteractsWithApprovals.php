@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Traits;
 
+use Livewire\Attributes\Locked;
+
 /**
  * Trait InteractsWithApprovals
  *
@@ -24,23 +26,33 @@ trait InteractsWithApprovals
     /**
      * Phone number shown in the OTP authentication modal (read-only display).
      */
+    #[Locked]
     public ?string $phoneNumber = null;
 
     /**
      * Indicates whether the SMS has already been resent.
+     *
+     * Entangled with Alpine as `sentOnce`, so it cannot be locked and the browser can reset it.
+     * Enforcing the one-resend rule needs server-side state instead.
      */
     public bool $smsResent = false;
 
     /**
-     * Optional properties for specific flows that need to track approval details.
+     * Approval being verified. Locked: the browser must not be able to point the OTP flow at
+     * another patient's approval.
      */
+    #[Locked]
     public ?string $approvalId = null;
+
+    /** Bound as an input by the standalone request forms, so it stays writable. */
     public ?string $patientId = null;
 
     /** Whether we are waiting for an async eHealth approval job to complete. */
+    #[Locked]
     public bool $isPolling = false;
 
     /** EhealthLink id being polled (null when not polling). */
+    #[Locked]
     public ?int $pollingLinkId = null;
 
     /**
@@ -48,6 +60,7 @@ trait InteractsWithApprovals
      *
      * @var array<string, mixed>|null
      */
+    #[Locked]
     public ?array $currentAuthMethod = null;
 
     /**

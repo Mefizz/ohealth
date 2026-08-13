@@ -16,6 +16,7 @@ use App\Repositories\CarePlanRepository;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 
 class CarePlanShow extends CarePlanComponent
 {
@@ -23,27 +24,28 @@ class CarePlanShow extends CarePlanComponent
     use ManagesCarePlanEPrescription;
     use ManagesCarePlanReferrals;
 
-    protected $listeners = [
-        'carePlanUpdated' => '$refresh',
-    ];
-
     private const DEFAULT_MEDICATION_PROGRAM_ID = '1318eabc-1a1a-42f6-8450-61e11c19eede';
 
     private const DEFAULT_DEVICE_PROGRAM_ID = '85953838-1834-4ed6-8bf4-3f83057380ec';
 
     public bool $confirmingActivityDeletion = false;
 
+    #[Locked]
     public ?int $activityToDelete = null;
 
+    #[Locked]
     public string $deviceSelectionWarning = '';
 
+    #[Locked]
     public int $deviceSearchTotalPages = 1;
 
+    #[Locked]
     public int $deviceSearchTotalEntries = 0;
 
     public string $deviceSearchModelNumber = '';
 
     /** @var array<int, array<string, mixed>> */
+    #[Locked]
     public array $deviceSearchCatalog = [];
 
     /**

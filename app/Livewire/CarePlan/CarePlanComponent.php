@@ -17,6 +17,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -25,15 +26,29 @@ abstract class CarePlanComponent extends Component
     use WithFileUploads;
     use InteractsWithApprovals;
 
+    // Everything the server derives is #[Locked]: it is sent to the browser on every request
+    // and would otherwise come back whatever the client made of it. Only properties bound with
+    // wire:model or entangled with Alpine stay writable.
+
+    #[Locked]
     public CarePlan $carePlan;
 
     public bool $showSignatureModal = false;
     public string $actionType = ''; // 'cancel', 'complete', 'sign_activity', 'complete_activity', 'cancel_activity'
     public string $statusReason = ''; // Used when cancelling or completing
+
+    #[Locked]
     public ?int $activityToSign = null;
+
+    #[Locked]
     public array $dictionaries = [];
+
+    /** Entangled with Alpine in the method selection modal, so it cannot be locked. */
     public array $authMethods = [];
+
     public bool $showMethodSelectionModal = false;
+
+    #[Locked]
     public ?string $carePlanUuid = null;
 
     // Drawer visibility controls (entangled with Alpine)
@@ -47,55 +62,120 @@ abstract class CarePlanComponent extends Component
     public bool $showMedicalDeviceFormDrawer = false;
 
     /** @var list<string> */
+    #[Locked]
     public array $participatingDeviceProgramIds = [];
 
+    #[Locked]
     public string $deviceParticipationWarning = '';
+
     public bool $showEPrescriptionDrawer = false;
     public array $ePrescriptionForm = [];
+
+    #[Locked]
     public ?array $ePrescriptionSelectedActivity = null;
+
+    #[Locked]
     public ?array $ePrescriptionSelectedProduct = null;
+
+    #[Locked]
     public ?array $ePrescriptionSelectedProgram = null;
+
+    #[Locked]
     public float $ePrescriptionRemainingQty = 0.0;
+
     public bool $ePrescriptionSkipTreatmentPeriod = true;
+
+    #[Locked]
     public bool $ePrescriptionShowDailyDoseWarning = false;
+
+    #[Locked]
     public bool $ePrescriptionShowRemainingQtyWarning = false;
+
+    #[Locked]
     public string $ePrescriptionRemainingQtyWarningMessage = '';
+
+    #[Locked]
     public string $ePrescriptionWarningMessage = '';
+
+    #[Locked]
     public array $ePrescriptionMultiples = [];
+
+    #[Locked]
     public array $ePrescriptionPackages = [];
+
+    #[Locked]
     public array $ePrescriptionAuthMethods = [];
+
     /** @var list<array{id:int,uuid:string,label:string}> */
+    #[Locked]
     public array $ePrescriptionEligibleEncounters = [];
+
+    #[Locked]
     public ?string $ePrescriptionRequestIdToSign = null;
+
+    #[Locked]
     public string $printableContent = '';
+
+    #[Locked]
     public array $activePrescriptions = [];
 
     // Outgoing Referral State Variables
     public bool $showReferralDrawer = false;
     public array $referralForm = [];
+
+    #[Locked]
     public ?array $referralSelectedActivity = null;
+
+    #[Locked]
     public float $referralRemainingQty = 0.0;
+
+    #[Locked]
     public bool $referralShowRemainingQtyWarning = false;
+
+    #[Locked]
     public string $referralWarningMessage = '';
+
+    #[Locked]
     public ?string $referralRequestIdToSign = null;
+
+    #[Locked]
     public array $activeReferrals = [];
+
+    #[Locked]
     public string $referralServiceCategory = '';
+
     /** Package step for device eRx (packaging_count); 0 when unknown / service referral. */
+    #[Locked]
     public int $referralDevicePackageQty = 0;
+
     /** @var list<array{uuid: string, label: string, raw: string}> */
+    #[Locked]
     public array $referralAuthMethods = [];
+
     public string $referralExplanatoryLetter = '';
 
     // Search and selection parameters
     public string $searchQuery = '';
+
+    #[Locked]
     public array $searchResults = [];
+
+    #[Locked]
     public int $searchPage = 1;
+
+    #[Locked]
     public ?array $selectedProduct = null;
+
     public string $selectedProgram = '';
 
     // Linked justification references (grounds)
+    #[Locked]
     public array $linkedGrounds = [];
+
+    #[Locked]
     public array $availableReports = [];
+
+    #[Locked]
     public array $availableObservations = [];
 
     // Activity Form state
@@ -125,10 +205,14 @@ abstract class CarePlanComponent extends Component
     ];
 
     public string $outcomeCode = ''; // For outcomeCodeableConcept
-    public array $outcomeReferences = []; // For outcomeReference (IDs of identifiers)
+
+    /** Built by addOutcomeReference()/removeOutcomeReference(), never posted by the browser. */
+    #[Locked]
+    public array $outcomeReferences = [];
 
     public ?string $selectedOutcomeReference = null;
 
+    #[Locked]
     public array $availableConditions = [];
 
     /**

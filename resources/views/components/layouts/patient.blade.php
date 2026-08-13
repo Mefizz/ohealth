@@ -104,11 +104,19 @@
                             {{ __('patients.diagnoses') }}
                         </a>
 
-                        <a href="javascript:void(0)"
-                           class="summary-tab summary-tab-inactive cursor-not-allowed opacity-60"
-                        >
-                            {{ __('patients.prescriptions') }}
-                        </a>
+                        @if($prepersonId)
+                            <a href="javascript:void(0)"
+                               class="summary-tab summary-tab-inactive cursor-not-allowed opacity-60"
+                            >
+                                {{ __('patients.prescriptions') }}
+                            </a>
+                        @else
+                            <a href="{{ route('persons.medication-requests', [legalEntity(), 'person' => $personId]) }}"
+                               class="summary-tab {{ request()->routeIs('persons.medication-requests') ? 'summary-tab-active' : 'summary-tab-inactive' }}"
+                            >
+                                {{ __('patients.prescriptions') }}
+                            </a>
+                        @endif
 
                         <a href="{{ route("$routePrefix.diagnostic-reports", [legalEntity(), $routeParamKey => $recordId]) }}"
                            class="summary-tab {{ request()->routeIs("$routePrefix.diagnostic-reports") ? 'summary-tab-active' : 'summary-tab-inactive' }}"

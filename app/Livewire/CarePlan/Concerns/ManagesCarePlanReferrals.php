@@ -1,0 +1,1015 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Livewire\CarePlan\Concerns;
+
+use App\Classes\eHealth\EHealth;
+use App\Core\Arr;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
+use App\Repositories\CarePlanActivityRepository;
+use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
+use App\Services\MedicalEvents\EHealthJobResolver;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Lang;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
+
+trait ManagesCarePlanReferrals
+{
+    public function initReferralForm(int $activityId, CarePlanActivityRepository $activityRepository): void
+    {
+        $activity = $activityRepository->findById($activityId);
+        if (!$activity) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Призначення не знайдено']);
+
+            return;
+        }
+
+        $planStatus = strtolower(is_array($this->carePlan->status)
+            ? ($this->carePlan->status['coding'][0]['code'] ?? ($this->carePlan->status['text'] ?? ''))
+            : (string) $this->carePlan->status);
+
+        $activityStatus = strtolower(is_array($activity->status)
+            ? ($activity->status['coding'][0]['code'] ?? ($activity->status['text'] ?? ''))
+            : (string) $activity->status);
+
+        $blockedPlanStatuses = ['cancelled', 'completed', 'terminated', 'entered-in-error'];
+        $blockedActivityStatuses = ['cancelled', 'completed'];
+
+        if (in_array($planStatus, $blockedPlanStatuses)) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Виписування направлення заборонено: план лікування завершено, скасовано або відмінено.']);
+
+            return;
+        }
+
+        if (in_array($activityStatus, $blockedActivityStatuses)) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Виписування направлення заборонено: це призначення вже завершено або скасовано.']);
+
+            return;
+        }
+
+        $resolvedKind = $activity->resolvedKind();
+        if (!in_array($resolvedKind, ['service_request', 'device_request'], true)) {
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.referral_wrong_activity_kind'),
+            ]);
+
+            return;
+        }
+
+        try {
+            app(CarePlanActivityEHealthGuard::class)->assertRegisteredInEHealth($this->carePlan, $activity);
+        } catch (\RuntimeException $exception) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+
+            return;
+        }
+
+        $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+        if ($existingDraft) {
+            if (app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
+                if ($activity->status === 'scheduled') {
+                    $activity->update(['status' => 'in-progress']);
+                }
+                $this->refreshCarePlan();
+                $documentLabel = $resolvedKind === 'device_request'
+                    ? __('care-plan.document_type_device_eprescription')
+                    : __('care-plan.document_type_service_referral');
+                $this->dispatch('flashMessage', [
+                    'type' => 'success',
+                    'message' => __('care-plan.referral_already_in_ehealth_synced', ['document' => $documentLabel]),
+                ]);
+
+                return;
+            }
+
+            $this->referralRequestIdToSign = $existingDraft->uuid;
+            $signAction = $resolvedKind === 'service_request'
+                ? 'sign_servicerequest'
+                : 'sign_devicerequest';
+            $documentLabel = $resolvedKind === 'device_request'
+                ? __('care-plan.document_type_device_eprescription')
+                : __('care-plan.document_type_service_referral');
+            $this->dispatch('flashMessage', [
+                'type' => 'info',
+                'message' => __('care-plan.referral_unsigned_draft_found', ['document' => $documentLabel]),
+            ]);
+            $this->openSignatureModal($signAction);
+
+            return;
+        }
+
+        $this->referralWarningMessage = '';
+        $this->referralDevicePackageQty = 0;
+
+        // Calculate remaining quantity
+        $activityQty = (float) ($activity->quantity ?? 0);
+        $issuedQty = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->sumIssuedQuantity($activity);
+        $this->referralRemainingQty = $activity->quantity === null
+            ? 1.0
+            : max(0.0, $activityQty - $issuedQty);
+
+        $defaultQuantity = min($this->referralRemainingQty, 1.0);
+        if ($resolvedKind === 'device_request') {
+            $this->referralDevicePackageQty = $this->resolveDevicePackageQuantity($activity);
+            if ($this->referralDevicePackageQty <= 0) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'error',
+                    'message' => __('care-plan.device_package_qty_unknown'),
+                ]);
+
+                return;
+            }
+
+            if ($this->referralRemainingQty < $this->referralDevicePackageQty) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'error',
+                    'message' => __('care-plan.device_remaining_below_packaging', [
+                        'remaining' => $this->referralRemainingQty,
+                        'count' => $this->referralDevicePackageQty,
+                    ]),
+                ]);
+
+                return;
+            }
+
+            // Default to one package; never fall back to 1 piece when package > 1.
+            $defaultQuantity = (float) $this->referralDevicePackageQty;
+        }
+
+        $code = $activity->product_codeable_concept ?? $activity->product_reference ?? 'од.';
+
+        $category = $resolvedKind === 'service_request'
+            ? $this->resolveServiceCategory((string) $activity->product_reference)
+            : null;
+
+        $this->referralServiceCategory = $category ?? 'procedure';
+
+        $occurrenceDates = $this->resolveReferralOccurrenceDates(
+            $activity->scheduled_period_start,
+            $activity->scheduled_period_end
+        );
+
+        $reasonReference = [];
+        $activity->reasonReferences()->get()->each(function ($identifier) use (&$reasonReference) {
+            $typeCode = $identifier->type->first()?->coding?->first()?->code ?? 'condition';
+            $reasonReference[] = [
+                'type' => $typeCode,
+                'uuid' => $identifier->value
+            ];
+        });
+
+        $informWith = '';
+        $this->referralAuthMethods = [];
+        try {
+            $authMethods = EHealth::person()->getAuthMethods($this->carePlan->person->uuid)->getData();
+            if (is_array($authMethods)) {
+                $this->referralAuthMethods = collect($authMethods)->map(static function (array $method): array {
+                    $uuid = (string) ($method['id'] ?? $method['uuid'] ?? '');
+                    $type = (string) ($method['type'] ?? '');
+                    $value = (string) ($method['phone_number'] ?? $method['value'] ?? '');
+
+                    return [
+                        'uuid' => $uuid,
+                        'label' => trim($type.($value !== '' ? ' · '.$value : '')),
+                        'raw' => $uuid !== '' ? "{$uuid}|{$type}|{$value}" : '',
+                    ];
+                })->filter(static fn (array $m): bool => $m['uuid'] !== '')->values()->all();
+
+                if ($this->referralAuthMethods !== []) {
+                    $informWith = $this->referralAuthMethods[0]['raw'];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('CarePlanShow: failed to load auth methods for referral: '.$e->getMessage());
+        }
+
+        $this->referralForm = [
+            'activity_id' => $activity->id,
+            'kind' => $resolvedKind,
+            'code' => $code,
+            'quantity' => $defaultQuantity,
+            'started_at' => $occurrenceDates['started_at'],
+            'ended_at' => $occurrenceDates['ended_at'],
+            'priority' => 'routine',
+            'intent' => 'order',
+            'category' => $this->referralServiceCategory,
+            'category_label' => $this->resolveReferralCategoryLabel($this->referralServiceCategory),
+            'note' => '',
+            'patient_instruction' => '',
+            'reason_reference' => $reasonReference,
+            'inform_with' => $informWith,
+            'program_id' => $activity->program ?? '',
+            'supporting_info' => []
+        ];
+
+        $this->referralShowRemainingQtyWarning = false;
+        $this->referralSelectedActivity = $activity->toArray();
+        $this->showReferralDrawer = true;
+    }
+
+    public function validateReferral(): void
+    {
+        $this->referralWarningMessage = '';
+        $this->referralShowRemainingQtyWarning = false;
+
+        if ($this->referralForm['kind'] === 'service_request') {
+            $this->referralForm['category'] = $this->referralServiceCategory ?: ($this->referralForm['category'] ?? 'procedure');
+        }
+
+        $rules = [
+            'referralForm.started_at' => 'required|date_format:d.m.Y',
+            'referralForm.ended_at' => 'required|date_format:d.m.Y|after_or_equal:referralForm.started_at',
+            'referralForm.quantity' => 'required|numeric|min:0.01',
+            'referralForm.priority' => 'required|in:routine,urgent,asap,stat',
+        ];
+
+        if ($this->referralForm['kind'] === 'service_request') {
+            $rules['referralForm.category'] = 'required|string';
+        }
+
+        $this->validate($rules);
+
+        if ($this->referralForm['kind'] === 'service_request') {
+            $activityProgram = $this->referralSelectedActivity['program'] ?? null;
+            $this->referralForm['program_id'] = !empty($activityProgram) ? $activityProgram : null;
+        }
+
+        $qty = (float) $this->referralForm['quantity'];
+        if ($qty > $this->referralRemainingQty) {
+            $this->referralShowRemainingQtyWarning = true;
+            $this->referralWarningMessage = 'Кількість перевищує залишок за призначенням (' . $this->referralRemainingQty . ')';
+            $this->flashUserError('Кількість перевищує залишок за призначенням.');
+
+            return;
+        }
+
+        if (
+            ($this->referralForm['kind'] ?? '') === 'device_request'
+            && $this->referralDevicePackageQty <= 0
+        ) {
+            $message = __('care-plan.device_package_qty_unknown');
+            $this->referralWarningMessage = $message;
+            $this->flashUserError($message);
+
+            return;
+        }
+
+        if (
+            ($this->referralForm['kind'] ?? '') === 'device_request'
+            && $this->referralDevicePackageQty > 0
+            && ((int) $qty % $this->referralDevicePackageQty) !== 0
+        ) {
+            $message = __('care-plan.device_quantity_packaging', ['count' => $this->referralDevicePackageQty]);
+            $this->referralWarningMessage = $message;
+            $this->flashUserError($message);
+
+            return;
+        }
+
+        // Propose to sign
+        $this->showReferralDrawer = false;
+
+        $activity = \App\Models\CarePlanActivity::find($this->referralForm['activity_id']);
+        if ($activity) {
+            $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+            if ($existingDraft) {
+                $this->referralRequestIdToSign = $existingDraft->uuid;
+                $signAction = $this->referralForm['kind'] === 'service_request'
+                    ? 'sign_servicerequest'
+                    : 'sign_devicerequest';
+                $this->openSignatureModal($signAction);
+
+                return;
+            }
+        }
+
+        try {
+            $this->carePlan->loadMissing(['encounter', 'person']);
+
+            $employeeContext = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
+                $this->carePlan,
+                $activity,
+                Auth::user()?->activeDoctorEmployee()?->id
+            );
+
+            $this->referralRequestIdToSign = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createDraft(
+                $this->carePlan,
+                $this->referralForm,
+                $qty,
+                $employeeContext
+            );
+            $signAction = $this->referralForm['kind'] === 'service_request'
+                ? 'sign_servicerequest'
+                : 'sign_devicerequest';
+            $this->openSignatureModal($signAction);
+        } catch (EHealthValidationException $exception) {
+            $exception->report();
+            $this->showReferralDrawer = true;
+            $this->flashUserError($exception->getTranslatedMessage());
+        } catch (\Exception $exception) {
+            $this->showReferralDrawer = true;
+            Log::error('CarePlanShow: failed to create referral request: ' . $exception->getMessage());
+            $kindLabel = ($this->referralForm['kind'] ?? '') === 'device_request'
+                ? 'електронний рецепт на медичні вироби'
+                : 'заявку на направлення';
+            $this->flashUserError('Не вдалося створити '.$kindLabel.': '.$exception->getMessage());
+        }
+    }
+
+    public function resendReferralSms(string $requestId, string $kind): void
+    {
+        try {
+            $response = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
+
+            if ($response->successful()) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'success',
+                    'message' => 'СМС з кодом підтвердження успішно надіслано повторно пацієнту.',
+                ]);
+
+                return;
+            }
+
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => 'Не вдалося повторно надіслати СМС: ' . json_encode($response->getData()),
+            ]);
+        } catch (EHealthValidationException $exception) {
+            Log::error('CarePlanShow: failed to resend referral SMS validation: ' . $exception->getTranslatedMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getTranslatedMessage()]);
+        } catch (EHealthResponseException $exception) {
+            if ($exception->response->status() === 403) {
+                Log::warning('CarePlanShow: referral SMS resend forbidden by eHealth ACL', [
+                    'request_id' => $requestId,
+                    'person_uuid' => $this->carePlan->person->uuid,
+                ]);
+                $this->dispatch('flashMessage', [
+                    'type' => 'warning',
+                    'message' => __('care-plan.referral_sms_forbidden'),
+                ]);
+
+                return;
+            }
+
+            Log::error('CarePlanShow: failed to resend referral SMS response: ' . $exception->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка надсилання СМС: ' . $exception->getMessage()]);
+        } catch (\Exception $exception) {
+            Log::error('CarePlanShow: failed to resend referral SMS: ' . $exception->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Помилка надсилання СМС: ' . $exception->getMessage()]);
+        }
+    }
+
+    public function signReferral(): void
+    {
+        if (empty($this->referralRequestIdToSign)) {
+            $this->flashUserError('Не вибрано документ для підписання');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        $this->carePlan->loadMissing(['encounter', 'person']);
+
+        $requestRecord = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first()
+            ?? \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+
+        $kind = $requestRecord instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest
+            ? 'service_request'
+            : 'device_request';
+
+        if (!$requestRecord) {
+            $this->flashUserError('Документ не знайдено');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        try {
+            $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
+            if (!$activity) {
+                throw new \RuntimeException('Призначення для направлення не знайдено');
+            }
+
+            $employeeContext = $this->resolveReferralEmployeeContext($requestRecord, $activity);
+
+            $uuids = [
+                'person_uuid' => $this->carePlan->person->uuid,
+                'encounter_uuid' => $this->carePlan->encounter?->uuid ?? null,
+                'episode_uuid' => $this->carePlan->episode_id,
+                'employee_uuid' => $employeeContext['employee_uuid'],
+                'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
+            ];
+
+            $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
+
+            $mapper = $kind === 'service_request'
+                ? new \App\Services\MedicalEvents\Mappers\ServiceRequestMapper()
+                : new \App\Services\MedicalEvents\Mappers\DeviceRequestMapper();
+
+            $signPayload = $mapper->toCreateSignedContent(
+                $dbData,
+                $uuids,
+                (string) $this->carePlan->uuid,
+                (string) $activity->uuid
+            );
+
+            $signedContent = signatureService()->signData(
+                $signPayload,
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                Auth::user()->party->taxId
+            );
+
+            if ($kind === 'service_request') {
+                $eHealthResponse = EHealth::serviceRequest()->createSigned(
+                    $this->carePlan->person->uuid,
+                    [
+                        'signed_data' => $signedContent,
+                        'signed_data_encoding' => 'base64',
+                    ]
+                );
+            } else {
+                $eHealthResponse = EHealth::deviceRequest()->createSigned(
+                    $this->carePlan->person->uuid,
+                    [
+                        'signed_data' => $signedContent,
+                        'signed_data_encoding' => 'base64',
+                    ]
+                );
+            }
+
+            $responseData = $eHealthResponse->getData();
+            $finalResponse = app(EHealthJobResolver::class)->resolve($responseData);
+            app(EHealthJobResolver::class)->assertSuccessful($finalResponse);
+
+            $entity = isset($finalResponse['result'][0])
+                ? $finalResponse['result'][0]
+                : ($finalResponse['result'] ?? $finalResponse);
+
+            $dbData['status'] = $entity['status'] ?? ($finalResponse['status'] ?? 'active');
+            $dbData['request_number'] = $entity['request_number'] ?? $entity['requisition'] ?? $dbData['request_number'] ?? null;
+            $dbData['uuid'] = $entity['id'] ?? $dbData['uuid'];
+
+            $this->finalizeSignedReferral($dbData, $kind, $activity);
+
+        } catch (EHealthValidationException $e) {
+            if ($e->isDuplicateReferralError()) {
+                try {
+                    $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
+                    if (!$activity) {
+                        throw new \RuntimeException('Призначення для направлення не знайдено');
+                    }
+
+                    $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
+                    $dbData = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+                        $this->carePlan,
+                        $activity,
+                        $requestRecord,
+                        $kind,
+                        $dbData
+                    );
+                    $this->finalizeSignedReferral($dbData, $kind, $activity, true);
+                } catch (\Exception $syncException) {
+                    Log::error('CarePlanShow: failed to sync referral after duplicate eHealth id: ' . $syncException->getMessage());
+                    $this->flashUserError('Документ вже існує в ЕСОЗ, але не вдалося синхронізувати локальні дані: ' . $syncException->getMessage());
+                    $this->showSignatureModal = false;
+                }
+
+                return;
+            }
+
+            $translatedMsg = $e->getTranslatedMessage();
+            Log::error('CarePlanShow: failed to sign referral validation: ' . $translatedMsg);
+            $this->flashUserError($translatedMsg);
+            $this->showSignatureModal = false;
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to sign referral: ' . $e->getMessage());
+            $this->flashUserError('Не вдалося підписати документ: ' . $e->getMessage());
+            $this->showSignatureModal = false;
+        }
+    }
+
+    public function cancelReferral(string $requestId, string $kind): void
+    {
+        $this->openSignatureModal('cancel_referral', null, $requestId);
+    }
+
+    public function recallReferral(string $requestId, string $kind): void
+    {
+        $this->referralExplanatoryLetter = '';
+        $this->openSignatureModal('recall_referral', null, $requestId);
+    }
+
+    public function signRecallReferral(): void
+    {
+        if (empty($this->referralRequestIdToSign)) {
+            Session::flash('error', 'Не вибрано направлення для відкликання');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        $letter = trim((string) $this->referralExplanatoryLetter);
+        if ($letter === '') {
+            $this->addError('referralExplanatoryLetter', __('care-plan.referral_recall_letter_required'));
+
+            return;
+        }
+
+        $service = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        $device = null;
+        if (!$service) {
+            $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        }
+
+        $record = $service ?: $device;
+        if (!$record) {
+            Session::flash('error', 'Направлення не знайдено');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        if (!$service) {
+            Session::flash('error', __('care-plan.referral_recall_service_only'));
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        try {
+            $payload = [
+                'explanatory_letter' => $letter,
+            ];
+
+            $signedContent = signatureService()->signData(
+                Arr::toSnakeCase($payload),
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                Auth::user()->party->taxId
+            );
+
+            $response = EHealth::serviceRequest()->recall($this->carePlan->person->uuid, $record->uuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
+                'explanatory_letter' => $letter,
+            ]);
+
+            if ($response->successful()) {
+                $record->update(['status' => 'recalled']);
+                $this->showSignatureModal = false;
+                $this->referralExplanatoryLetter = '';
+                $this->refreshCarePlan();
+                $this->dispatch('flashMessage', [
+                    'type' => 'success',
+                    'message' => __('care-plan.referral_recall_success'),
+                ]);
+            } else {
+                throw new \Exception(json_encode($response->getData()));
+            }
+        } catch (EHealthValidationException $e) {
+            $translatedMsg = $e->getTranslatedMessage();
+            Log::error('CarePlanShow: failed to recall referral validation: '.$translatedMsg);
+            Session::flash('error', $translatedMsg);
+            $this->showSignatureModal = false;
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to recall referral: '.$e->getMessage());
+            Session::flash('error', 'Не вдалося відкликати направлення: '.$e->getMessage());
+            $this->showSignatureModal = false;
+        }
+    }
+
+    public function signCancelReferral(): void
+    {
+        if (empty($this->referralRequestIdToSign)) {
+            Session::flash('error', 'Не вибрано направлення для скасування');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        $service = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        $device = null;
+        if (!$service) {
+            $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        }
+
+        $record = $service ?: $device;
+        if (!$record) {
+            Session::flash('error', 'Направлення не знайдено');
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        $kind = $service ? 'service_request' : 'device_request';
+
+        try {
+            $payload = [
+                'status_reason' => $this->statusReason ?: 'entered-in-error'
+            ];
+
+            $signedContent = signatureService()->signData(
+                Arr::toSnakeCase($payload),
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                Auth::user()->party->taxId
+            );
+
+            if ($kind === 'service_request') {
+                $response = EHealth::serviceRequest()->cancel($this->carePlan->person->uuid, $record->uuid, [
+                    'signed_data' => $signedContent,
+                    'signed_data_encoding' => 'base64',
+                    'status_reason' => $payload['status_reason'],
+                ]);
+            } else {
+                $response = EHealth::deviceRequest()->cancel($this->carePlan->person->uuid, $record->uuid, [
+                    'signed_data' => $signedContent,
+                    'signed_data_encoding' => 'base64',
+                    'status_reason' => $payload['status_reason'],
+                ]);
+            }
+
+            if ($response->successful()) {
+                $record->update(['status' => 'entered-in-error']);
+                $this->showSignatureModal = false;
+                $this->refreshCarePlan();
+                $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Направлення скасовано в eHealth.']);
+            } else {
+                throw new \Exception(json_encode($response->getData()));
+            }
+        } catch (EHealthValidationException $e) {
+            $translatedMsg = $e->getTranslatedMessage();
+            Log::error('CarePlanShow: failed to cancel referral validation: ' . $translatedMsg);
+            Session::flash('error', $translatedMsg);
+            $this->showSignatureModal = false;
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to cancel referral: ' . $e->getMessage());
+            Session::flash('error', 'Не вдалося скасувати направлення: ' . $e->getMessage());
+            $this->showSignatureModal = false;
+        }
+    }
+
+    public function loadReferralPrintoutForm(string $requestId): string
+    {
+        try {
+            $html = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->buildPrintoutHtml($this->carePlan, $requestId);
+            $this->printableContent = $html;
+
+            return $html;
+        } catch (\RuntimeException $exception) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+
+            return '';
+        } catch (\Exception $e) {
+            Log::error('CarePlanShow: failed to load referral printout: ' . $e->getMessage());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося завантажити друковану форму.']);
+
+            return '';
+        }
+    }
+
+    public function syncReferralFromEHealth(string $requestUuid, string $kind): void
+    {
+        $requestRecord = $kind === 'service_request'
+            ? \App\Repositories\MedicalEvents\Repository::serviceRequest()->findByUuid($requestUuid)
+            : \App\Repositories\MedicalEvents\Repository::deviceRequest()->findByUuid($requestUuid);
+
+        if (!$requestRecord) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Направлення не знайдено.']);
+
+            return;
+        }
+
+        try {
+            $activity = \App\Models\CarePlanActivity::find($requestRecord->based_on_id);
+            if (!$activity) {
+                throw new \RuntimeException('Призначення для направлення не знайдено');
+            }
+
+            $before = [
+                'status' => (string) $requestRecord->status,
+                'request_number' => (string) ($requestRecord->request_number ?? ''),
+                'quantity' => (string) $requestRecord->quantity,
+                'started_at' => $requestRecord->started_at?->format('Y-m-d'),
+                'ended_at' => $requestRecord->ended_at?->format('Y-m-d'),
+            ];
+
+            $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
+            app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+                $this->carePlan,
+                $activity,
+                $requestRecord,
+                $kind,
+                $dbData
+            );
+
+            $requestRecord->refresh();
+
+            $after = [
+                'status' => (string) $requestRecord->status,
+                'request_number' => (string) ($requestRecord->request_number ?? ''),
+                'quantity' => (string) $requestRecord->quantity,
+                'started_at' => $requestRecord->started_at?->format('Y-m-d'),
+                'ended_at' => $requestRecord->ended_at?->format('Y-m-d'),
+            ];
+
+            Log::info('CarePlanShow: referral synced from eHealth', [
+                'request_uuid' => $requestUuid,
+                'person_uuid' => $this->carePlan->person->uuid,
+                'kind' => $kind,
+                'before' => $before,
+                'after' => $after,
+            ]);
+
+            if ($activity->status === 'scheduled') {
+                $activity->update(['status' => 'in-progress']);
+            }
+
+            $this->refreshCarePlan();
+
+            $changes = [];
+            foreach ($before as $field => $value) {
+                if (($after[$field] ?? null) !== $value) {
+                    $changes[] = match ($field) {
+                        'status' => 'статус: ' . $this->resolveReferralStatusLabel($value) . ' → ' . $this->resolveReferralStatusLabel((string) $after[$field]),
+                        'request_number' => 'номер: ' . ($value ?: '—') . ' → ' . ($after[$field] ?: '—'),
+                        'quantity' => 'кількість: ' . $value . ' → ' . $after[$field],
+                        'started_at' => 'початок: ' . ($value ?: '—') . ' → ' . ($after[$field] ?: '—'),
+                        'ended_at' => 'кінець: ' . ($value ?: '—') . ' → ' . ($after[$field] ?: '—'),
+                        default => $field,
+                    };
+                }
+            }
+
+            $this->dispatch('flashMessage', [
+                'type' => 'success',
+                'message' => $changes === []
+                    ? __('care-plan.referral_sync_no_changes')
+                    : __('care-plan.referral_sync_updated', ['changes' => implode('; ', $changes)]),
+            ]);
+        } catch (\Exception $exception) {
+            Log::error('CarePlanShow: failed to sync referral from eHealth: ' . $exception->getMessage());
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => 'Не вдалося оновити направлення з ЕСОЗ: ' . $exception->getMessage(),
+            ]);
+        }
+    }
+
+    protected function resolveServiceCategory(string $serviceId): ?string
+    {
+        try {
+            $response = EHealth::service()->getMany(['id' => $serviceId]);
+            $catalog = $response->getData();
+
+            if (!is_array($catalog)) {
+                return null;
+            }
+
+            $category = $this->findServiceCategoryInCatalog($catalog, $serviceId);
+
+            return $category !== null ? (string) $category : null;
+        } catch (\Exception $exception) {
+            Log::warning('CarePlanShow: failed to resolve service category: ' . $exception->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<mixed>  $nodes
+     */
+    protected function findServiceCategoryInCatalog(array $nodes, string $serviceId): ?string
+    {
+        foreach ($nodes as $node) {
+            if (!is_array($node)) {
+                continue;
+            }
+
+            if (($node['id'] ?? null) === $serviceId && !empty($node['category'])) {
+                return (string) $node['category'];
+            }
+
+            foreach (['services', 'groups'] as $childKey) {
+                if (!empty($node[$childKey]) && is_array($node[$childKey])) {
+                    $category = $this->findServiceCategoryInCatalog($node[$childKey], $serviceId);
+                    if ($category !== null) {
+                        return $category;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{started_at: string, ended_at: string}
+     */
+    protected function resolveReferralOccurrenceDates(?\Carbon\Carbon $scheduledStart, ?\Carbon\Carbon $scheduledEnd): array
+    {
+        $minStart = now();
+        $start = $scheduledStart && $scheduledStart->greaterThan($minStart)
+            ? $scheduledStart->copy()
+            : $minStart->copy();
+
+        $end = $scheduledEnd && $scheduledEnd->greaterThan($start)
+            ? $scheduledEnd->copy()
+            : $start->copy()->addMonths(3);
+
+        return [
+            'started_at' => $start->format('d.m.Y'),
+            'ended_at' => $end->format('d.m.Y'),
+        ];
+    }
+
+    /**
+     * Resolve device packaging_count from eHealth device definition (package step for eRx).
+     */
+    protected function resolveDevicePackageQuantity(\App\Models\CarePlanActivity $activity): int
+    {
+        $reference = (string) ($activity->product_reference ?? '');
+        if ($reference === '') {
+            return 0;
+        }
+
+        try {
+            $filters = ['page_size' => 100];
+            if (!empty($activity->program)) {
+                $filters['medical_program_id'] = $activity->program;
+            }
+
+            $page = 1;
+            $maxPages = 10;
+
+            do {
+                $filters['page'] = $page;
+                $response = EHealth::deviceDefinition()->getMany($filters);
+                $device = collect($response->getData())->first(
+                    static fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
+                );
+
+                if (is_array($device)) {
+                    $packaging = $device['packaging'] ?? null;
+                    $count = is_array($packaging)
+                        ? (int) ($packaging['packaging_count'] ?? $packaging['packagingCount'] ?? 0)
+                        : 0;
+
+                    return max(0, $count);
+                }
+
+                $paging = $response->getPaging();
+                $totalPages = (int) ($paging['total_pages'] ?? 1);
+                $page++;
+            } while ($page <= $totalPages && $page <= $maxPages);
+
+            return 0;
+        } catch (\Throwable $exception) {
+            Log::warning('CarePlanShow: failed to resolve device package quantity: '.$exception->getMessage());
+
+            return 0;
+        }
+    }
+
+    protected function flashUserError(string $message): void
+    {
+        Session::flash('error', $message);
+        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+    }
+
+    protected function flashUserSuccess(string $message): void
+    {
+        Session::flash('success', $message);
+        $this->dispatch('flashMessage', ['type' => 'success', 'message' => $message]);
+    }
+
+    /**
+     * @return array{
+     *     employee_id: int|null,
+     *     division_id: int|null,
+     *     employee_uuid: string|null,
+     *     legal_entity_uuid: string|null
+     * }
+     */
+    protected function resolveReferralEmployeeContext(
+        \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $requestRecord,
+        \App\Models\CarePlanActivity $activity
+    ): array {
+        $context = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
+            $this->carePlan,
+            $activity,
+            $requestRecord->employee_id
+        );
+
+        return [
+            'employee_id' => $requestRecord->employee_id ?? $context['employee_id'],
+            'division_id' => $requestRecord->division_id ?? $context['division_id'],
+            'employee_uuid' => $context['employee_uuid'],
+            'legal_entity_uuid' => $context['legal_entity_uuid'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function buildReferralSignDbData(
+        \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $requestRecord,
+        \App\Models\CarePlanActivity $activity
+    ): array {
+        $employeeContext = $this->resolveReferralEmployeeContext($requestRecord, $activity);
+        $startedAt = $requestRecord->started_at ?? $activity->scheduled_period_start;
+        $endedAt = $requestRecord->ended_at ?? $activity->scheduled_period_end;
+
+        $dbData = [
+            'uuid' => $requestRecord->uuid,
+            'employee_id' => $employeeContext['employee_id'],
+            'division_id' => $employeeContext['division_id'],
+            'based_on_id' => $requestRecord->based_on_id ?? $activity->id,
+            'context_id' => $requestRecord->context_id ?? $this->carePlan->encounter?->id,
+            'quantity' => $requestRecord->quantity,
+            'quantity_system' => $activity->quantity_system ?: 'SERVICE_UNIT',
+            'quantity_code' => $activity->quantity_code ?: 'PIECE',
+            'intent' => $requestRecord->intent ?? 'order',
+            'category' => $requestRecord->category,
+            'program_id' => $requestRecord->program_id,
+            'priority' => $requestRecord->priority ?? 'routine',
+            'note' => $requestRecord->note,
+            'supporting_info' => $requestRecord->supporting_info,
+            'started_at' => $startedAt instanceof \DateTimeInterface
+                ? $startedAt->format('Y-m-d')
+                : (string) $startedAt,
+            'ended_at' => $endedAt instanceof \DateTimeInterface
+                ? $endedAt->format('Y-m-d')
+                : (string) $endedAt,
+            'based_on_uuid' => $activity->uuid,
+        ];
+
+        if ($requestRecord instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest) {
+            $dbData['service_id'] = $requestRecord->service_id ?: $activity->product_reference;
+        } else {
+            if (!empty($activity->product_reference)) {
+                $dbData['device_id'] = $requestRecord->device_id ?: $activity->product_reference;
+                $dbData['device_code_type'] = 'DEVICE_DEFINITION';
+            } else {
+                $dbData['device_id'] = $requestRecord->device_id ?: $activity->product_codeable_concept;
+                $dbData['device_code_type'] = 'CLASSIFICATION_TYPE';
+            }
+
+            $dbData['quantity_system'] = $activity->quantity_system ?: 'device_unit';
+            $dbData['quantity_code'] = strtolower($activity->quantity_code ?: 'piece');
+        }
+
+        return $dbData;
+    }
+
+    /**
+     * @param  array<string, mixed>  $dbData
+     */
+    protected function finalizeSignedReferral(array $dbData, string $kind, \App\Models\CarePlanActivity $activity, bool $alreadyPersisted = false): void
+    {
+        if (!$alreadyPersisted) {
+            if ($kind === 'service_request') {
+                \App\Repositories\MedicalEvents\Repository::serviceRequest()->store($dbData, $this->carePlan->person_id);
+            } else {
+                \App\Repositories\MedicalEvents\Repository::deviceRequest()->store($dbData, $this->carePlan->person_id);
+            }
+        }
+
+        if ($activity->status === 'scheduled') {
+            $activity->update(['status' => 'in-progress']);
+        }
+
+        $this->showSignatureModal = false;
+        $documentLabel = $kind === 'device_request'
+            ? 'Електронний рецепт на медичні вироби'
+            : 'Електронне направлення';
+        $finalStatusCode = strtolower((string) ($dbData['status'] ?? ''));
+        if (in_array($finalStatusCode, ['pending', 'processing'], true)) {
+            Session::flash('info', $documentLabel.' прийнято в обробку ЕСОЗ. Фінальний статус з’явиться після завершення асинхронної задачі.');
+            $this->dispatch('flashMessage', [
+                'type' => 'warning',
+                'message' => $documentLabel.' прийнято в обробку ЕСОЗ. Фінальний статус з’явиться після завершення асинхронної задачі.',
+            ]);
+        } elseif ($alreadyPersisted) {
+            $this->flashUserSuccess($documentLabel.' вже існував у ЕСОЗ. Локальні дані синхронізовано.');
+        } else {
+            $this->flashUserSuccess($documentLabel.' успішно створено та підписано в ЕСОЗ.');
+        }
+        $this->refreshCarePlan();
+    }
+
+    protected function resolveReferralCategoryLabel(string $category): string
+    {
+        $key = 'care-plan.referral_category.' . $category;
+
+        return Lang::has($key) ? __($key) : $category;
+    }
+}

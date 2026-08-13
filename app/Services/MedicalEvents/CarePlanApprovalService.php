@@ -13,7 +13,6 @@ use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\User;
 use App\Repositories\MedicalEvents\Repository;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
@@ -75,6 +74,10 @@ class CarePlanApprovalService
     /**
      * Create a care_plan approval in eHealth and persist local Approval / async job state.
      *
+     * eHealth may answer 202, in which case processing continues on the queue: $user and
+     * $bearerToken are what let that queued job keep acting as the caller, so they must be
+     * supplied by the caller rather than read from the session here.
+     *
      * @throws \Throwable Propagates eHealth client exceptions to the caller for UX handling.
      */
     public function create(
@@ -85,9 +88,9 @@ class CarePlanApprovalService
         ?string $authorizeWith = null,
         ?LegalEntity $legalEntity = null,
         ?User $user = null,
+        ?string $bearerToken = null,
     ): CarePlanApprovalCreateResult {
         $legalEntity ??= legalEntity();
-        $user ??= Auth::user();
 
         $payload = $this->buildCreatePayload($carePlan, $employeeUuid, $accessLevel, $authorizeWith);
         $response = EHealth::approval()->createApproval($patientUuid, $payload);
@@ -95,7 +98,7 @@ class CarePlanApprovalService
         $statusCode = $response->getStatusCode();
 
         if ($statusCode === 202) {
-            return $this->handleAsyncCreate($carePlan, $responseData, $legalEntity, $user, $employeeUuid);
+            return $this->handleAsyncCreate($carePlan, $responseData, $legalEntity, $user, $bearerToken, $employeeUuid);
         }
 
         if (!in_array($statusCode, [200, 201], true)) {
@@ -208,6 +211,7 @@ class CarePlanApprovalService
         array $responseData,
         ?LegalEntity $legalEntity,
         ?User $user,
+        ?string $bearerToken,
         ?string $grantedToEmployeeUuid = null,
     ): CarePlanApprovalCreateResult {
         $href = $responseData['links'][0]['href'] ?? null;
@@ -218,6 +222,14 @@ class CarePlanApprovalService
 
         if (!$legalEntity) {
             throw new \RuntimeException('Legal entity is required for async approval processing');
+        }
+
+        if (!$user) {
+            throw new \RuntimeException('User is required for async approval processing');
+        }
+
+        if ($bearerToken === null || $bearerToken === '') {
+            throw new \RuntimeException('Bearer token is required for async approval processing');
         }
 
         $approvalUuid = $responseData['id'] ?? (string) Str::uuid();
@@ -241,8 +253,6 @@ class CarePlanApprovalService
 
         $link = Repository::approval()->attachEhealthLink($localApproval, ['href' => $href]);
 
-        $token = session()->get(config('ehealth.api.oauth.bearer_token'));
-
         Bus::batch([
             new RemoteEHealthLinksProcessing(
                 eHealthLink: $link,
@@ -251,7 +261,7 @@ class CarePlanApprovalService
             ),
         ])
             ->withOption('legal_entity_id', $legalEntity->id)
-            ->withOption('token', Crypt::encryptString((string) $token))
+            ->withOption('token', Crypt::encryptString($bearerToken))
             ->withOption('user', $user)
             ->name(RemoteEHealthLinksProcessing::BATCH_NAME)
             ->onQueue('sync')

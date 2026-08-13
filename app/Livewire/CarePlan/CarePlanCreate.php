@@ -496,6 +496,8 @@ class CarePlanCreate extends BasePatientComponent
                 employeeUuid: $employeeUuid,
                 accessLevel: 'write',
                 authorizeWith: $methodUuid ?: null,
+                user: Auth::user(),
+                bearerToken: Session::get(config('ehealth.api.oauth.bearer_token')),
             );
 
             if ($result->isAsync()) {

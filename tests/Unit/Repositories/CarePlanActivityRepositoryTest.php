@@ -161,6 +161,51 @@ class CarePlanActivityRepositoryTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_payload_author_comes_from_the_activity_not_the_current_session(): void
+    {
+        $authorUuid = '6f2f8d1a-3a4e-4c39-9d1d-4a0f1b6ad0aa';
+
+        $author = new \App\Models\Employee\Employee();
+        $author->setRawAttributes(['id' => 42, 'uuid' => $authorUuid]);
+
+        $activity = new CarePlanActivity([
+            'kind' => 'service_request',
+            'status' => CarePlanStatus::DRAFT->value,
+            'uuid' => (string) Str::uuid(),
+            'quantity' => 1,
+            'quantity_system' => 'SERVICE_UNIT',
+            'quantity_code' => 'PIECE',
+            'product_reference' => '4fbe6a29-5ffb-4bde-be83-7c968ee12e25',
+        ]);
+        $activity->setRelation('carePlan', new CarePlan());
+        $activity->setRelation('author', $author);
+
+        $payload = app(CarePlanActivityRepository::class)->formatCarePlanActivityRequest($activity);
+
+        $this->assertSame($authorUuid, $payload['author'][0]['identifier']['value']);
+    }
+
+    public function test_payload_omits_the_author_when_the_activity_has_none(): void
+    {
+        $activity = new CarePlanActivity([
+            'kind' => 'service_request',
+            'status' => CarePlanStatus::DRAFT->value,
+            'uuid' => (string) Str::uuid(),
+            'quantity' => 1,
+            'quantity_system' => 'SERVICE_UNIT',
+            'quantity_code' => 'PIECE',
+            'product_reference' => '4fbe6a29-5ffb-4bde-be83-7c968ee12e25',
+        ]);
+        $activity->setRelation('carePlan', new CarePlan());
+        $activity->setRelation('author', null);
+
+        $payload = app(CarePlanActivityRepository::class)->formatCarePlanActivityRequest($activity);
+
+        // eHealth rejects an activity without an author uuid, which beats silently
+        // attributing it to whoever is signed in.
+        $this->assertArrayNotHasKey('value', $payload['author'][0]['identifier']);
+    }
+
     public function test_normalize_ehealth_activity_for_signing_strips_read_only_fields(): void
     {
         $raw = [

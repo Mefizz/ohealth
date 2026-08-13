@@ -18,6 +18,8 @@ use App\Services\MedicalEvents\CarePlanApprovalJobOutcome;
 use App\Services\MedicalEvents\CarePlanApprovalService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
@@ -157,6 +159,7 @@ class CarePlanApprovalServiceTest extends TestCase
             authorizeWith: 'otp-uuid',
             legalEntity: $legalEntity,
             user: $user,
+            bearerToken: 'caller-bearer-token',
         );
 
         $this->assertTrue($result->isAsync());
@@ -169,7 +172,66 @@ class CarePlanApprovalServiceTest extends TestCase
             'approvable_id' => $carePlan->id,
         ]);
 
-        Bus::assertBatched(fn ($batch) => $batch->jobs->count() === 1);
+        Bus::assertBatched(function ($batch) use ($legalEntity, $user): bool {
+            return $batch->jobs->count() === 1
+                && $batch->options['legal_entity_id'] === $legalEntity->id
+                && $batch->options['user']->is($user)
+                && Crypt::decryptString($batch->options['token']) === 'caller-bearer-token';
+        });
+    }
+
+    public function test_create_refuses_async_processing_without_a_bearer_token(): void
+    {
+        Bus::fake();
+
+        [$carePlan, $legalEntity, $user] = $this->makeCarePlanContext();
+
+        // A session token would silently work today; the queued job must be handed one explicitly.
+        Session::put(config('ehealth.api.oauth.bearer_token'), 'session-bearer-token');
+
+        $this->instance(ApprovalApi::class, $this->mockAsyncCreateApi());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Bearer token is required for async approval processing');
+
+        try {
+            app(CarePlanApprovalService::class)->create(
+                carePlan: $carePlan,
+                patientUuid: 'patient-uuid',
+                employeeUuid: '77777777-7777-7777-7777-777777777777',
+                legalEntity: $legalEntity,
+                user: $user,
+            );
+        } finally {
+            Bus::assertNothingBatched();
+        }
+    }
+
+    public function test_create_refuses_async_processing_without_a_user(): void
+    {
+        Bus::fake();
+
+        [$carePlan, $legalEntity, $user] = $this->makeCarePlanContext();
+
+        // Being logged in is not the same as telling the service who to act as.
+        $this->actingAs($user);
+
+        $this->instance(ApprovalApi::class, $this->mockAsyncCreateApi());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('User is required for async approval processing');
+
+        try {
+            app(CarePlanApprovalService::class)->create(
+                carePlan: $carePlan,
+                patientUuid: 'patient-uuid',
+                employeeUuid: '77777777-7777-7777-7777-777777777777',
+                legalEntity: $legalEntity,
+                bearerToken: 'caller-bearer-token',
+            );
+        } finally {
+            Bus::assertNothingBatched();
+        }
     }
 
     public function test_resolve_async_job_swaps_uuid_and_requests_otp_when_unverified(): void
@@ -210,6 +272,21 @@ class CarePlanApprovalServiceTest extends TestCase
             'id' => $approval->id,
             'uuid' => '44444444-4444-4444-4444-444444444444',
         ]);
+    }
+
+    private function mockAsyncCreateApi(): ApprovalApi
+    {
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getStatusCode')->andReturn(202);
+        $response->shouldReceive('getData')->andReturn([
+            'id' => '55555555-5555-5555-5555-555555555555',
+            'links' => [['href' => '/jobs/job-2', 'entity' => 'approval']],
+        ]);
+
+        $api = Mockery::mock(ApprovalApi::class);
+        $api->shouldReceive('createApproval')->once()->andReturn($response);
+
+        return $api;
     }
 
     /**

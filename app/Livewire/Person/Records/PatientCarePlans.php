@@ -8,6 +8,7 @@ use App\Classes\eHealth\EHealth;
 
 use App\Repositories\CarePlanRepository;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
@@ -95,7 +96,11 @@ class PatientCarePlans extends BasePatientComponent
 
         try {
             $validatedData = $response->validate();
-            app(CarePlanRepository::class)->syncCarePlans($validatedData, $this->personId);
+            app(CarePlanRepository::class)->syncCarePlans(
+                $validatedData,
+                $this->personId,
+                Auth::user()?->getCarePlanWriterEmployee()?->id
+            );
         } catch (EHealthResponseException $exception) {
             if ($exception->getCode() === 403) {
                 Session::flash('error', 'Доступ до планів лікування в ЕСОЗ обмежено. Будь ласка, отримайте дозвіл (Consent) для перегляду.');

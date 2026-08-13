@@ -9,7 +9,6 @@ use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class CarePlanRepository
@@ -232,7 +231,13 @@ class CarePlanRepository
         return (string) $value;
     }
 
-    public function syncCarePlans(array $validatedData, ?int $personId = null): void
+    /**
+     * @param  array<string, mixed>  $validatedData
+     * @param  int|null  $fallbackAuthorId  Employee used when the remote author is unknown locally.
+     *                                      Care plans require an author, so plans stay unsynced
+     *                                      without one rather than being attributed to a guess.
+     */
+    public function syncCarePlans(array $validatedData, ?int $personId = null, ?int $fallbackAuthorId = null): void
     {
         $activityRepo = app(CarePlanActivityRepository::class);
         $plans = isset($validatedData['data']) ? $validatedData['data'] : $validatedData;
@@ -267,7 +272,7 @@ class CarePlanRepository
             );
             */
 
-            DB::transaction(function () use ($person, $rawFhir, $activityRepo) {
+            DB::transaction(function () use ($person, $rawFhir, $activityRepo, $fallbackAuthorId) {
                 $categoryData = isset($rawFhir['category']) && is_array($rawFhir['category'])
                     ? ($rawFhir['category'][0] ?? null)
                     : ($rawFhir['category'] ?? null);
@@ -298,9 +303,16 @@ class CarePlanRepository
                     $author = \App\Models\Employee\Employee::where('uuid', $authorUuid)->first();
                 }
 
-                // Fallback to current user if author not found (to satisfy NOT NULL constraint)
-                $termsOfServiceForFallback = $rawFhir['terms_of_service']['coding'][0]['code'] ?? null;
-                $authorId = $author?->id ?? Auth::user()?->getCarePlanWriterEmployee($termsOfServiceForFallback)?->id;
+                $authorId = $author?->id ?? $fallbackAuthorId;
+
+                if (!$authorId) {
+                    \Illuminate\Support\Facades\Log::warning('CarePlanRepository: author not found for CarePlan sync', [
+                        'care_plan_uuid' => $rawFhir['id'] ?? null,
+                        'author_uuid' => $authorUuid,
+                    ]);
+
+                    return;
+                }
 
                 $addresses = [];
                 if (isset($rawFhir['addresses']) && is_array($rawFhir['addresses'])) {

@@ -8,6 +8,7 @@ use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Repositories\CarePlanActivityRepository;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 
@@ -187,7 +188,7 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionSelectedActivity = $activity->toArray();
 
         $employeeContext = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)
-            ->resolveEmployeeContext($this->carePlan);
+            ->resolveEmployeeContext($this->carePlan, null, Auth::user()?->activeDoctorEmployee()?->id);
         $eligibleEncounters = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)
             ->findEligibleEncountersForEPrescription(
                 (int) $this->carePlan->person_id,
@@ -439,7 +440,8 @@ trait ManagesCarePlanEPrescription
     public function submitEPrescriptionRequest(): void
     {
         try {
-            $employeeContext = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->resolveEmployeeContext($this->carePlan);
+            $employeeContext = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)
+                ->resolveEmployeeContext($this->carePlan, null, Auth::user()?->activeDoctorEmployee()?->id);
             $activity = \App\Models\CarePlanActivity::find($this->ePrescriptionForm['activity_id']);
 
             $uuid = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->createDraft(
@@ -585,6 +587,7 @@ trait ManagesCarePlanEPrescription
                         FILTER_VALIDATE_BOOLEAN
                     ),
                     'medication_unit' => $this->ePrescriptionForm['medication_unit'] ?? 'од.',
+                    'signer_tax_id' => Auth::user()?->party?->taxId,
                 ]),
                 $requestRecord->inform_with ?? '',
                 $this->ePrescriptionRemainingQty
@@ -671,7 +674,7 @@ trait ManagesCarePlanEPrescription
             app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->reject(
                 $this->carePlan,
                 $requestRecord,
-                $this->form,
+                array_merge($this->form, ['signer_tax_id' => Auth::user()?->party?->taxId]),
                 $this->statusReason
             );
 
@@ -736,7 +739,8 @@ trait ManagesCarePlanEPrescription
                 $this->carePlan,
                 $prescriptionId,
                 $this->ePrescriptionForm['signature_text'] ?? null,
-                $ehealthData
+                $ehealthData,
+                Auth::user()?->party?->full_name
             );
             $this->dispatch('printoutLoaded');
 

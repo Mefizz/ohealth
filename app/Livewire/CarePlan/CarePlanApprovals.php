@@ -10,6 +10,7 @@ use App\Models\LegalEntity;
 use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Traits\FormTrait;
 use App\Traits\InteractsWithApprovals;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -137,6 +138,8 @@ class CarePlanApprovals extends Component
                 employeeUuid: $this->newApproval['employee_uuid'],
                 accessLevel: $service->resolveAccessLevel($carePlan),
                 authorizeWith: $this->selectedAuthMethodUuid ?: null,
+                user: Auth::user(),
+                bearerToken: Session::get(config('ehealth.api.oauth.bearer_token')),
             );
 
             if ($result->isAsync()) {

@@ -262,7 +262,7 @@ class MedicationRequestLifecycleService
                 $formData['password'],
                 $formData['knedp'],
                 $formData['keyContainerUpload'] ?? null,
-                \Illuminate\Support\Facades\Auth::user()?->party?->taxId
+                $this->resolveSignerTaxId($formData)
             );
         }
 
@@ -365,7 +365,7 @@ class MedicationRequestLifecycleService
                 $formData['password'],
                 $formData['knedp'],
                 $formData['keyContainerUpload'] ?? null,
-                \Illuminate\Support\Facades\Auth::user()?->party?->taxId
+                $this->resolveSignerTaxId($formData)
             );
         }
 
@@ -391,18 +391,20 @@ class MedicationRequestLifecycleService
     }
 
     /**
-     * Reject un-signed Medication Request (NEW).
+     * KEP signing needs the signer's tax id. It arrives with the rest of the signing form so
+     * that signing does not depend on an authenticated session.
+     *
+     * @param  array<string, mixed>  $formData
      */
-    public function rejectDraft(string $id, array $payload): array
+    protected function resolveSignerTaxId(array $formData): string
     {
-        try {
-            $response = MedicationRequest::rejectUnsignedMedicationRequest($id, $payload);
+        $taxId = trim((string) ($formData['signer_tax_id'] ?? ''));
 
-            return $response['data'] ?? $response;
-        } catch (Exception $e) {
-            Log::error('ePrescription Reject Draft failed: ' . $e->getMessage());
-            throw $e;
+        if ($taxId === '') {
+            throw new \InvalidArgumentException(__('care-plan.signer_tax_id_required'));
         }
+
+        return $taxId;
     }
 
     /**
@@ -576,10 +578,16 @@ class MedicationRequestLifecycleService
      * @param  string  $prescriptionId
      * @param  string|null  $signatureText
      * @param  array|null  $ehealthData
+     * @param  string|null  $fallbackDoctorName  Used only when neither the local record nor eHealth names the author
      * @return string
      */
-    public function buildFallbackPrintoutHtml(\App\Models\CarePlan $carePlan, string $prescriptionId, ?string $signatureText = null, ?array $ehealthData = null): string
-    {
+    public function buildFallbackPrintoutHtml(
+        \App\Models\CarePlan $carePlan,
+        string $prescriptionId,
+        ?string $signatureText = null,
+        ?array $ehealthData = null,
+        ?string $fallbackDoctorName = null
+    ): string {
         $record = app(\App\Repositories\MedicalEvents\MedicationRequestRepository::class)->findByUuid($prescriptionId);
         if ($record && empty($record->dosageInstructions)) {
             $record->loadMissing('dosageInstructions');
@@ -628,7 +636,7 @@ class MedicationRequestLifecycleService
             $author = \App\Models\Employee\Employee::where($field, $record->employee_id)->first();
         }
 
-        $doctorName = $author?->party?->full_name ?? ($author?->full_name ?? ($ehealthData['employee']['name'] ?? ($record?->ehealth_payload['employee']['name'] ?? (\Illuminate\Support\Facades\Auth::user()?->party?->full_name ?? '—'))));
+        $doctorName = $author?->party?->full_name ?? ($author?->full_name ?? ($ehealthData['employee']['name'] ?? ($record?->ehealth_payload['employee']['name'] ?? ($fallbackDoctorName ?: '—'))));
         $facilityName = $ehealthData['division']['name'] ?? ($record?->ehealth_payload['division']['name'] ?? (legalEntity()?->name ?? 'Медичний заклад'));
 
         $medicationName = $ehealthData['medication_name']

@@ -516,7 +516,11 @@ trait CarePlanManager
             // Sync parent Care Plan to catch status transition (e.g., Draft -> Active) triggered by activity creation
             try {
                 $planResponse = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-                $repository->syncCarePlans(['data' => [$planResponse->getData()]], $this->carePlan->person_id);
+                $repository->syncCarePlans(
+                    ['data' => [$planResponse->getData()]],
+                    $this->carePlan->person_id,
+                    Auth::user()?->getCarePlanWriterEmployee($this->carePlan->terms_of_service)?->id
+                );
                 $activityRepository->syncActivities($this->carePlan->person, $this->carePlan);
             } catch (\Exception $e) {
                 Log::warning('CarePlanShow: failed to sync plan status or activities after activity creation: ' . $e->getMessage());
@@ -800,6 +804,8 @@ trait CarePlanManager
                 employeeUuid: $employeeUuid,
                 accessLevel: 'write',
                 authorizeWith: $methodUuid ?: null,
+                user: Auth::user(),
+                bearerToken: session()->get(config('ehealth.api.oauth.bearer_token')),
             );
 
             if ($result->isAsync()) {
@@ -953,7 +959,11 @@ trait CarePlanManager
     {
         try {
             $planResponse = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-            app(CarePlanRepository::class)->syncCarePlans(['data' => [$planResponse->getData()]], $this->carePlan->person_id);
+            app(CarePlanRepository::class)->syncCarePlans(
+                ['data' => [$planResponse->getData()]],
+                $this->carePlan->person_id,
+                Auth::user()?->getCarePlanWriterEmployee($this->carePlan->terms_of_service)?->id
+            );
 
             // Sync approvals as well!
             app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan);

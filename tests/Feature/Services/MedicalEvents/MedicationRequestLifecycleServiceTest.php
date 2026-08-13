@@ -200,15 +200,14 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             })
             ->andReturn('mock-base64-signature');
 
-        $this->actingAs($this->user);
-
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $result = $service->reject(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [
                 'password' => '12345678',
                 'knedp' => 'acsk_test',
+                'signer_tax_id' => '9876543210',
             ],
             'entered-in-error'
         );
@@ -220,9 +219,44 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         ]);
     }
 
+    public function test_reject_active_refuses_to_sign_without_signer_tax_id(): void
+    {
+        $requestRecord = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id,
+            'status' => 'active',
+            'medication_id' => 'INN-101',
+            'medication_qty' => 10.0,
+            'intent' => 'order',
+            'based_on_id' => $this->activity->id,
+            'context_id' => $this->encounter->id,
+        ]);
+
+        $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);
+        $this->instance(\App\Services\SignatureService::class, $mockSignatureService);
+        $mockSignatureService->shouldNotReceive('signData');
+
+        // An authenticated session must not be able to stand in for the missing form value.
+        $this->actingAs($this->user);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(__('care-plan.signer_tax_id_required'));
+
+        app(MedicationRequestLifecycleService::class)->reject(
+            $this->carePlan->fresh(['person']),
+            $requestRecord,
+            [
+                'password' => '12345678',
+                'knedp' => 'acsk_test',
+            ],
+            'entered-in-error'
+        );
+    }
+
     public function test_build_fallback_printout_html(): void
     {
-        $service = new MedicationRequestLifecycleService();
+        $service = app(MedicationRequestLifecycleService::class);
         $carePlan = new CarePlan();
 
         $uuid = '00000000-0000-4000-8000-000000001234';
@@ -231,6 +265,36 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->assertStringContainsString($uuid, $html);
         $this->assertStringContainsString('Тестова інструкція', $html);
         $this->assertStringContainsString('(ПАМ\'ЯТКА)', $html);
+    }
+
+    public function test_build_fallback_printout_html_uses_doctor_name_passed_by_caller(): void
+    {
+        $service = app(MedicationRequestLifecycleService::class);
+
+        $html = $service->buildFallbackPrintoutHtml(
+            new CarePlan(),
+            '00000000-0000-4000-8000-000000005678',
+            null,
+            null,
+            'Д-р Іван Петренко'
+        );
+
+        $this->assertStringContainsString('Д-р Іван Петренко', $html);
+    }
+
+    public function test_build_fallback_printout_html_falls_back_to_dash_without_doctor_name(): void
+    {
+        // The authenticated user is not a source for the printout: without a caller-supplied
+        // name the memo must show a placeholder instead of whoever happens to be logged in.
+        $this->actingAs($this->user);
+
+        $html = app(MedicationRequestLifecycleService::class)->buildFallbackPrintoutHtml(
+            new CarePlan(),
+            '00000000-0000-4000-8000-000000009012'
+        );
+
+        $this->assertStringNotContainsString('Іван Петренко', $html);
+        $this->assertStringContainsString('—', $html);
     }
 
     public function test_find_eligible_encounters_requires_today_period_and_current_performer(): void

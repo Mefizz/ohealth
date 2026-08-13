@@ -6,6 +6,7 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Repositories\CarePlanRepository;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use App\Models\Declaration;
@@ -60,7 +61,11 @@ class CarePlanIndex extends Component
             $data = $response->validate();
 
             // Sync with local DB if found
-            app(CarePlanRepository::class)->syncCarePlans($data);
+            app(CarePlanRepository::class)->syncCarePlans(
+                $data,
+                null,
+                Auth::user()?->getCarePlanWriterEmployee()?->id
+            );
         } catch (\Throwable $e) {
             Log::error('CarePlan search error: ' . $e->getMessage());
             session()->flash('error', __('care-plan.search_error') . ': ' . $e->getMessage());
@@ -135,7 +140,11 @@ class CarePlanIndex extends Component
             }
 
             if (!empty($allValidatedData)) {
-                app(CarePlanRepository::class)->syncCarePlans($allValidatedData);
+                app(CarePlanRepository::class)->syncCarePlans(
+                    $allValidatedData,
+                    null,
+                    Auth::user()?->getCarePlanWriterEmployee()?->id
+                );
             }
 
             session()->flash('success', __('care-plan.sync_success'));

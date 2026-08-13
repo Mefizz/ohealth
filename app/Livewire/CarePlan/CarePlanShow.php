@@ -1138,7 +1138,11 @@ class CarePlanShow extends CarePlanComponent
 
         try {
             $planResponse = EHealth::carePlan()->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-            $repository->syncCarePlans(['data' => [$planResponse->getData()]], $this->carePlan->person_id);
+            $repository->syncCarePlans(
+                ['data' => [$planResponse->getData()]],
+                $this->carePlan->person_id,
+                Auth::user()?->getCarePlanWriterEmployee($this->carePlan->terms_of_service)?->id
+            );
             $this->carePlan->refresh()->load('effectivePeriod');
         } catch (\Exception $e) {
             Log::warning('CarePlanShow: failed to sync effective period before activity sign: ' . $e->getMessage());

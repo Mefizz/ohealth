@@ -311,6 +311,7 @@ trait ManagesEncounterEPrescription
                     'knedp' => $validated['knedp'],
                     'keyContainerUpload' => $validated['keyContainerUpload'],
                     'medication_unit' => $this->encounterEPrescriptionForm['medication_unit'] ?? 'од.',
+                    'signer_tax_id' => Auth::user()?->party?->taxId,
                 ],
                 $informWith,
                 0.0

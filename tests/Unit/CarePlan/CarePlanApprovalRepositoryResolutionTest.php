@@ -35,27 +35,25 @@ class CarePlanApprovalRepositoryResolutionTest extends TestCase
 
     public function test_care_plan_sync_call_sites_use_medical_events_repository(): void
     {
-        $showSource = file_get_contents(app_path('Livewire/CarePlan/CarePlanShow.php'));
-        $lifecycleSource = file_get_contents(app_path('Livewire/CarePlan/Concerns/CarePlanManager.php'));
+        $sources = [
+            'CarePlanShow' => file_get_contents(app_path('Livewire/CarePlan/CarePlanShow.php')),
+            'CarePlanManager' => file_get_contents(app_path('Livewire/CarePlan/Concerns/CarePlanManager.php')),
+        ];
 
-        $this->assertIsString($showSource);
-        $this->assertIsString($lifecycleSource);
+        foreach ($sources as $name => $source) {
+            $this->assertIsString($source);
+            $this->assertStringNotContainsString(
+                'App\\Repositories\\ApprovalRepository::class',
+                $source,
+                $name.' resolves the non-existent App\\Repositories\\ApprovalRepository'
+            );
+        }
 
-        $this->assertStringNotContainsString(
-            'App\\Repositories\\ApprovalRepository::class',
-            $showSource
-        );
-        $this->assertStringNotContainsString(
-            'App\\Repositories\\ApprovalRepository::class',
-            $lifecycleSource
-        );
+        // The call lives in whichever of the two holds the sync action; CarePlanShow uses the
+        // CarePlanManager trait, so requiring it in both files only pins where the code sits.
         $this->assertStringContainsString(
             'app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan)',
-            $showSource
-        );
-        $this->assertStringContainsString(
-            'app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan)',
-            $lifecycleSource
+            implode("\n", $sources)
         );
     }
 }

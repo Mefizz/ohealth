@@ -873,8 +873,14 @@ class CarePlanActivityRepository
     /**
      * Raw payload for cancel PKCS#7 signing.
      *
-     * For API-007-006-0005 we intentionally keep eHealth GET response structure as-is
-     * (except wrapper extraction) and only add detail.status_reason later.
+     * Cancel (API-007-006-0005) re-renders the activity from its own database and compares it
+     * with the signed content, ignoring only $.detail.status_reason; the spec points at
+     * Get Care Plan Activity by ID (API-007-006-0003) as the shape to match. So the GET
+     * response is signed exactly as it arrives — read-only fields included. Normalising it
+     * here, as the create and complete payloads do, earns a 422 "Signed content doesn't match
+     * with previously created activity".
+     *
+     * The local formatted payload is only a fallback for an activity eHealth does not know.
      *
      * @return array<string, mixed>
      */
@@ -1026,8 +1032,11 @@ class CarePlanActivityRepository
     }
 
     /**
-     * Prepare eHealth activity details for cancel/complete PKCS#7 signing.
-     * Strips read-only/computed fields that are not part of the rendered activity snapshot.
+     * Reduce an eHealth activity to the shape the create/complete payloads use: read-only and
+     * display fields dropped, author as a list.
+     *
+     * Not for cancel — see {@see resolveActivityPayloadForCancelSigning()}, which must sign the
+     * eHealth snapshot untouched.
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>

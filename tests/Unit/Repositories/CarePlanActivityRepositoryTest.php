@@ -271,13 +271,14 @@ class CarePlanActivityRepositoryTest extends TestCase
 
         $normalized = app(CarePlanActivityRepository::class)->normalizeEHealthActivityForSigning($raw);
 
-        $this->assertArrayNotHasKey('display_value', $normalized['author']);
+        // Author is wrapped as a list here, so the object lives at [0].
+        $this->assertArrayNotHasKey('display_value', $normalized['author'][0]);
         $this->assertArrayNotHasKey('remaining_quantity', $normalized);
         $this->assertArrayNotHasKey('inserted_at', $normalized);
         $this->assertArrayNotHasKey('goal', $normalized['detail']);
         $this->assertArrayNotHasKey('reason_code', $normalized['detail']);
         $this->assertArrayNotHasKey('description', $normalized['detail']);
-        $this->assertArrayNotHasKey('text', $normalized['author']['identifier']['type']);
+        $this->assertArrayNotHasKey('text', $normalized['author'][0]['identifier']['type']);
     }
 
     public function test_build_activity_cancel_sign_payload_adds_status_reason_to_full_snapshot(): void
@@ -324,13 +325,17 @@ class CarePlanActivityRepositoryTest extends TestCase
 
         $signed = app(CarePlanActivityRepository::class)->buildActivityCancelSignPayload($base, $statusReason);
 
-        $this->assertSame('f5ad4f67-7066-4d0d-bcff-c17a11a723e4', $signed['id']);
-        $this->assertSame('medication_request', $signed['detail']['kind']);
-        $this->assertSame('scheduled', $signed['detail']['status']);
-        $this->assertFalse($signed['detail']['do_not_perform']);
-        $this->assertSame(1.0, $signed['detail']['quantity']['value']);
         $this->assertSame($statusReason, $signed['detail']['status_reason']);
-        $this->assertArrayNotHasKey('unit', $signed['detail']['quantity']);
+
+        // API-007-006-0005 compares the signed content with the activity as eHealth renders it,
+        // so everything except detail.status_reason has to survive byte for byte. Dropping a
+        // field here — quantity.unit for instance — earns a 422 "Signed content doesn't match
+        // with previously created activity".
+        $withoutStatusReason = $signed;
+        unset($withoutStatusReason['detail']['status_reason']);
+
+        $this->assertSame($base, $withoutStatusReason);
+        $this->assertSame('шт', $signed['detail']['quantity']['unit']);
     }
 
     public function test_normalize_ehealth_activity_wraps_author_object_as_list(): void
@@ -360,7 +365,7 @@ class CarePlanActivityRepositoryTest extends TestCase
         $this->assertArrayHasKey('identifier', $normalized['author'][0]);
     }
 
-    public function test_build_activity_cancel_sign_payload_wraps_author_object_as_list(): void
+    public function test_build_activity_cancel_sign_payload_leaves_the_ehealth_author_shape_alone(): void
     {
         $statusReason = [
             'coding' => [
@@ -392,8 +397,11 @@ class CarePlanActivityRepositoryTest extends TestCase
 
         $signed = app(CarePlanActivityRepository::class)->buildActivityCancelSignPayload($base, $statusReason);
 
-        $this->assertTrue(array_is_list($signed['author']));
-        $this->assertSame('1766ae9e-828d-4daa-bba8-48da3a13393a', $signed['author'][0]['identifier']['value']);
+        // Get Care Plan Activity by ID returns author as an object, and cancel has to sign back
+        // exactly what it was given. Wrapping it as a list is a create/complete concern and
+        // would make the comparison fail here.
+        $this->assertFalse(array_is_list($signed['author']));
+        $this->assertSame('1766ae9e-828d-4daa-bba8-48da3a13393a', $signed['author']['identifier']['value']);
         $this->assertSame($statusReason, $signed['detail']['status_reason']);
     }
 }

@@ -260,16 +260,6 @@ class CarePlanUpdate extends CarePlanCreate
                 }
             }
 
-            Log::debug('CarePlanUpdate: updating local model with data:', [
-                'id' => $this->carePlan->id,
-                'uuid' => $carePlanUuid,
-                'status' => $carePlanStatus,
-                'requisition' => $carePlanRequisition,
-                'category' => $this->form->category,
-                'encounter_id' => $encounterData['id'],
-                'addresses' => $encounterData['addresses'],
-            ]);
-
             // Update local model with eHealth response
             $repository->updateById($this->carePlan->id, [
                 'uuid' => $carePlanUuid,

@@ -100,14 +100,32 @@ trait ManagesCarePlanEPrescription
             }
         }
 
+        // The patient's authentication method is legally significant: it must come from the
+        // eHealth registry, never from a local fallback.
         $this->ePrescriptionAuthMethods = [];
         try {
             $this->ePrescriptionAuthMethods = EHealth::person()->getAuthMethods($this->carePlan->person->uuid)->getData();
         } catch (\Exception $e) {
-            Log::warning('CarePlanShow: failed to fetch auth methods: ' . $e->getMessage());
-            $this->ePrescriptionAuthMethods = [
-                ['uuid' => 'offline-method-uuid', 'type' => 'OFFLINE', 'alias' => 'Документи']
-            ];
+            Log::channel('e_health_errors')->error('CarePlanShow: failed to fetch patient auth methods', [
+                'care_plan_id' => $this->carePlan->id,
+                'activity_id' => $activity->id,
+                'exception' => $e->getMessage(),
+            ]);
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.auth_methods_unavailable'),
+            ]);
+
+            return;
+        }
+
+        if (empty($this->ePrescriptionAuthMethods)) {
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.auth_methods_empty'),
+            ]);
+
+            return;
         }
 
         $issuedQty = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('based_on_id', $activity->id)

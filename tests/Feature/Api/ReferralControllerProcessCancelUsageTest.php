@@ -105,7 +105,7 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
 
         $this->app->instance(ReferralRequestLifecycleService::class, $mock);
 
-        $response = $this->actingAs($this->user)->postJson("/api/v1/referrals/{$referralUuid}/process", [
+        $response = $this->actingAsDoctor()->postJson($this->url($referralUuid, 'process'), [
             'patient_uuid' => $patientUuid,
             'payload' => ['note' => 'take'],
         ]);
@@ -132,7 +132,7 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
 
         $this->app->instance(ReferralRequestLifecycleService::class, $mock);
 
-        $response = $this->actingAs($this->user)->postJson("/api/v1/referrals/{$referralUuid}/cancel-usage", [
+        $response = $this->actingAsDoctor()->postJson($this->url($referralUuid, 'cancel-usage'), [
             'patient_id' => $patientId,
             'explanatory_letter' => 'Пацієнт не зʼявився',
         ]);
@@ -150,10 +150,20 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
         $mock->shouldNotReceive('cancelUsage');
         $this->app->instance(ReferralRequestLifecycleService::class, $mock);
 
-        $response = $this->actingAs($this->user)->postJson("/api/v1/referrals/{$referralUuid}/cancel-usage", [
+        $response = $this->actingAsDoctor()->postJson($this->url($referralUuid, 'cancel-usage'), [
             'payload' => ['explanatory_letter' => 'x'],
         ]);
 
         $response->assertStatus(422);
+    }
+
+    private function actingAsDoctor(): static
+    {
+        return $this->actingAs($this->user, 'ehealth')->withoutMiddleware();
+    }
+
+    private function url(string $referralUuid, string $action): string
+    {
+        return "/dashboard/{$this->legalEntity->id}/referrals/api/{$referralUuid}/{$action}";
     }
 }

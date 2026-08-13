@@ -469,11 +469,9 @@ trait CarePlanManager
 
         // Build Payload
         $activityPayload = $activityRepository->formatCarePlanActivityRequest($activity);
-        $snakePayload = Arr::toSnakeCase($activityPayload);
-        file_put_contents(storage_path('logs/clean_payload.json'), json_encode($snakePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
-        Log::info('CarePlanActivity: Signing activity ID=' . $activity->id . ', UUID=' . $activity->uuid, [
-            'payload' => $activityPayload,
-            'snake_case_payload' => $snakePayload
+        Log::info('CarePlanActivity: signing activity', [
+            'activity_id' => $activity->id,
+            'activity_uuid' => $activity->uuid,
         ]);
 
         try {

@@ -8,11 +8,15 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\LegalEntity;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use Exception;
-use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 class DeviceRequestForm extends Component
 {
+    use WithFileUploads;
+
     public LegalEntity $legalEntity;
 
     public string $patientId = '';
@@ -25,6 +29,23 @@ class DeviceRequestForm extends Component
     public ?string $statusMessage = null;
     public bool $showSignatureModal = false;
 
+    /**
+     * Draft content returned by eHealth. This is what gets signed with the KEP,
+     * so it must never be reconstructed locally.
+     *
+     * @var array<string, mixed>
+     */
+    public array $draftContent = [];
+
+    /** @var array<string, mixed> */
+    public array $form = [
+        'knedp' => '',
+        'keyContainerUpload' => null,
+        'keyContainerFileName' => '',
+        'password' => '',
+    ];
+
+    /** @var array<string, string> */
     protected array $rules = [
         'patientId' => 'required|string',
         'medicalProgram' => 'required|string',
@@ -32,116 +53,146 @@ class DeviceRequestForm extends Component
         'quantity' => 'required|numeric|min:1',
     ];
 
-    public function preQualify(DeviceRequestLifecycleService $service)
+    public function preQualify(DeviceRequestLifecycleService $service): void
     {
         $this->validate();
 
         try {
-            $payload = [
+            $service->preQualify([
                 'person_id' => $this->patientId,
                 'programs' => [
-                    ['id' => $this->medicalProgram]
-                ]
-            ];
+                    ['id' => $this->medicalProgram],
+                ],
+            ]);
 
-            $response = $service->preQualify($payload);
-
-            $this->statusMessage = "PreQualify успішно пройдено. Можна створювати чернетку.";
+            $this->statusMessage = __('care-plan.prequalify_passed');
         } catch (EHealthValidationException $e) {
-            $e->report();
-            $message = $e->getFormattedMessage();
-            $this->statusMessage = "Помилка PreQualify: " . $message;
-            Session::flash('error', $message);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            $this->failWith($e->getFormattedMessage());
         } catch (Exception $e) {
-            $this->statusMessage = "Помилка PreQualify: " . $e->getMessage();
-            Session::flash('error', $this->statusMessage);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
+            $this->failWith($e->getMessage());
         }
     }
 
-    public function createDraft(DeviceRequestLifecycleService $service)
+    public function createDraft(DeviceRequestLifecycleService $service): void
     {
         $this->validate();
 
         try {
-            $payload = [
+            $response = $service->createDraft([
                 'person_id' => $this->patientId,
                 'program' => $this->medicalProgram,
                 'code' => [
                     'coding' => [
                         [
                             'system' => 'eHealth/SNOMED',
-                            'code' => $this->deviceType
-                        ]
-                    ]
+                            'code' => $this->deviceType,
+                        ],
+                    ],
                 ],
-                'quantity' => (int)$this->quantity
-            ];
-
-            $response = $service->createDraft($payload);
-
-            $this->isDraftCreated = true;
-            $this->draftId = $response['id'] ?? 'dummy-uuid-device-1234';
-
-            $this->statusMessage = "Чернетка медичного виробу створена (ID: {$this->draftId}). Очікується підпис КЕП.";
+                'quantity' => (int) $this->quantity,
+            ]);
         } catch (EHealthValidationException $e) {
-            $e->report();
-            $message = $e->getFormattedMessage();
-            $this->statusMessage = "Помилка створення чернетки: " . $message;
-            Session::flash('error', $message);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            $this->failWith($e->getFormattedMessage());
+
+            return;
         } catch (Exception $e) {
-            $this->statusMessage = "Помилка створення чернетки: " . $e->getMessage();
-            Session::flash('error', $this->statusMessage);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
+            $this->failWith($e->getMessage());
+
+            return;
         }
+
+        $draftId = $response['id'] ?? ($response['device_request_request']['id'] ?? null);
+
+        if (!is_string($draftId) || $draftId === '') {
+            Log::channel('e_health_errors')->error('Device request draft created without an identifier', [
+                'person_id' => $this->patientId,
+            ]);
+            $this->failWith(__('care-plan.draft_missing_identifier'));
+
+            return;
+        }
+
+        $this->isDraftCreated = true;
+        $this->draftId = $draftId;
+        $this->draftContent = $response['device_request_request'] ?? $response;
+
+        $this->statusMessage = __('care-plan.draft_created_awaiting_signature', ['id' => $draftId]);
     }
 
-    public function sign(DeviceRequestLifecycleService $service)
+    public function openSignatureModal(): void
     {
-        if (!$this->isDraftCreated || !$this->draftId) {
-            $this->statusMessage = "Спершу створіть чернетку!";
-            Session::flash('error', $this->statusMessage);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
+        if (!$this->isDraftCreated || $this->draftId === null) {
+            $this->failWith(__('care-plan.draft_required_before_signing'));
+
+            return;
+        }
+
+        $this->showSignatureModal = true;
+    }
+
+    public function sign(DeviceRequestLifecycleService $service): void
+    {
+        if (!$this->isDraftCreated || $this->draftId === null) {
+            $this->failWith(__('care-plan.draft_required_before_signing'));
             $this->showSignatureModal = false;
 
             return;
         }
 
+        $this->validate([
+            'form.knedp' => 'required|string',
+            'form.keyContainerUpload' => 'required|file|max:1024',
+            'form.password' => 'required|string',
+        ]);
+
         try {
-            // Mock KEП signing payload
-            $payload = [
-                'signed_device_request_request' => base64_encode(json_encode(['id' => $this->draftId, 'status' => 'ACTIVE'])),
+            $signedContent = signatureService()->signData(
+                $this->draftContent,
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                (string) Auth::user()?->party?->taxId
+            );
+
+            $service->sign($this->draftId, [
+                'signed_device_request_request' => $signedContent,
                 'signed_content_encoding' => 'base64',
-            ];
-
-            $service->sign($this->draftId, $payload);
-
-            $this->statusMessage = "Призначення успішно підписано КЕП та переведено у статус «Активний»!";
-            Session::flash('success', $this->statusMessage);
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => $this->statusMessage]);
-            $this->showSignatureModal = false;
-
-            // Dispatch event to parent to refresh list
-            $this->dispatch('device-request-created');
+            ]);
         } catch (EHealthValidationException $e) {
-            $e->report();
-            $message = $e->getFormattedMessage();
-            $this->statusMessage = "Помилка підписання: " . $message;
-            Session::flash('error', $message);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+            $this->failWith($e->getFormattedMessage());
             $this->showSignatureModal = false;
+
+            return;
         } catch (Exception $e) {
-            $this->statusMessage = "Помилка підписання: " . $e->getMessage();
-            Session::flash('error', $this->statusMessage);
-            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $this->statusMessage]);
+            $this->failWith($e->getMessage());
             $this->showSignatureModal = false;
+
+            return;
+        } finally {
+            $this->resetSigningFields();
         }
+
+        $this->showSignatureModal = false;
+        $this->statusMessage = __('care-plan.device_request_signed');
+        $this->dispatch('flashMessage', ['type' => 'success', 'message' => $this->statusMessage]);
+        $this->dispatch('device-request-created');
     }
 
     public function render()
     {
         return view('livewire.device-request.device-request-form');
+    }
+
+    private function resetSigningFields(): void
+    {
+        $this->form['password'] = '';
+        $this->form['keyContainerUpload'] = null;
+        $this->form['keyContainerFileName'] = '';
+    }
+
+    private function failWith(string $message): void
+    {
+        $this->statusMessage = $message;
+        $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
     }
 }

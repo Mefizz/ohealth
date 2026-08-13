@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Auth\EHealthLoginController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\EmailController;
@@ -222,6 +223,21 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
             // --- Referrals ---
             Route::prefix('referrals')->name('referrals.')->group(function () {
                 Route::get('/', \App\Livewire\Referral\ReferralIndex::class)->name('index');
+
+                Route::prefix('api')->name('api.')->group(function () {
+                    Route::get('/search', [ReferralController::class, 'search'])
+                        ->middleware('permission:service_request:read')
+                        ->name('search');
+                    Route::post('/{uuid}/process', [ReferralController::class, 'process'])
+                        ->middleware('permission:service_request:makeinprogress')
+                        ->name('process');
+                    Route::post('/{uuid}/complete', [ReferralController::class, 'complete'])
+                        ->middleware('permission:service_request:complete')
+                        ->name('complete');
+                    Route::post('/{uuid}/cancel-usage', [ReferralController::class, 'cancelUsage'])
+                        ->middleware('permission:service_request:use')
+                        ->name('cancel-usage');
+                });
             });
 
             // --- Medication Requests (ePrescriptions) ---

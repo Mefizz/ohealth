@@ -135,19 +135,7 @@ class CarePlanCreate extends BasePatientComponent
                     'date' => $e->period?->start ? \Carbon\Carbon::parse($e->period->start)->format('d.m.Y') : '',
                 ])->toArray();
 
-            // Load actual authentication methods from eHealth
-            try {
-                $this->authMethods = EHealth::person()->getAuthMethods($this->uuid)->getData();
-            } catch (\Exception $e) {
-                Log::warning('CarePlanCreate: failed to load auth methods: ' . $e->getMessage());
-                // Fallback to static cases if eHealth fails
-                $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn ($m) => [
-                    'id' => (string) \Illuminate\Support\Str::uuid(),
-                    'uuid' => (string) \Illuminate\Support\Str::uuid(),
-                    'type' => $m->value,
-                    'label' => $m->label(),
-                ])->toArray();
-            }
+            $this->loadPatientAuthMethods($this->uuid);
         } else {
             $this->form->medical_number = (string) ((CarePlan::max('id') ?? 0) + 1);
         }
@@ -358,15 +346,31 @@ class CarePlanCreate extends BasePatientComponent
         $this->patientSearchResults = [];
         $this->loadAvailableEncounters();
 
+        $this->loadPatientAuthMethods((string) $person->uuid);
+    }
+
+    /**
+     * Load the patient's authentication methods from eHealth.
+     *
+     * These identify how the patient confirms consent, so they may only come from the
+     * registry — a local fallback would fabricate legally significant data.
+     */
+    private function loadPatientAuthMethods(string $personUuid): void
+    {
         try {
-            $this->authMethods = EHealth::person()->getAuthMethods($person->uuid)->getData();
+            $this->authMethods = EHealth::person()->getAuthMethods($personUuid)->getData();
         } catch (\Exception $e) {
-            $this->authMethods = collect(\App\Enums\Person\AuthenticationMethod::cases())->map(fn ($m) => [
-                'id' => (string) \Illuminate\Support\Str::uuid(),
-                'uuid' => (string) \Illuminate\Support\Str::uuid(),
-                'type' => $m->value,
-                'label' => $m->label(),
-            ])->toArray();
+            $this->authMethods = [];
+
+            Log::channel('e_health_errors')->error('CarePlanCreate: failed to load patient auth methods', [
+                'person_uuid' => $personUuid,
+                'exception' => $e->getMessage(),
+            ]);
+
+            $this->dispatch('flashMessage', [
+                'type' => 'error',
+                'message' => __('care-plan.auth_methods_unavailable'),
+            ]);
         }
     }
 

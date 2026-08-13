@@ -139,12 +139,10 @@ class MedicationRequestLifecycleService
         }
 
         $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, $carePlan->uuid);
-        Log::debug('ePrescription Create Request Payload:', $createPayload);
         $createResponse = MedicationRequest::createMedicationRequest($createPayload);
 
         if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
             $finalCreateResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($createResponse);
-            Log::debug('ePrescription Create Response from eHealth:', ['response' => $createResponse, 'resolved' => $finalCreateResponse]);
             if (($finalCreateResponse['status'] ?? null) === 'failed') {
                 throw new \App\Exceptions\EHealth\EHealthValidationException($finalCreateResponse);
             }
@@ -153,7 +151,6 @@ class MedicationRequestLifecycleService
             $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
             $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
         } else {
-            Log::debug('ePrescription Create Response from eHealth:', ['response' => $createResponse]);
             $dbData['request_number'] = $createResponse['request_number'] ?? ($createResponse['data']['request_number'] ?? null);
             $dbData['uuid'] = $createResponse['id'] ?? ($createResponse['data']['id'] ?? $dbData['uuid']);
             $payloadToStore = $createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $createResponse);
@@ -232,12 +229,10 @@ class MedicationRequestLifecycleService
         }
 
         $createPayload = $mapper->toCreateRequestPayload($dbData, $uuids, null);
-        Log::debug('ePrescription (Encounter) Create Request Payload:', $createPayload);
         $createResponse = MedicationRequest::createMedicationRequest($createPayload);
 
         if (app()->bound(\App\Services\MedicalEvents\EHealthJobResolver::class)) {
             $finalCreateResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($createResponse);
-            Log::debug('ePrescription (Encounter) Create Response from eHealth:', ['response' => $createResponse, 'resolved' => $finalCreateResponse]);
             if (($finalCreateResponse['status'] ?? null) === 'failed') {
                 throw new \App\Exceptions\EHealth\EHealthValidationException($finalCreateResponse);
             }
@@ -246,7 +241,6 @@ class MedicationRequestLifecycleService
             $payloadToStore = $finalCreateResponse['data'] ?? (isset($finalCreateResponse['person']) || isset($finalCreateResponse['based_on']) ? $finalCreateResponse : ($createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $finalCreateResponse)));
             $dbData['ehealth_payload'] = is_array($payloadToStore) ? $payloadToStore : (array) $payloadToStore;
         } else {
-            Log::debug('ePrescription (Encounter) Create Response from eHealth:', ['response' => $createResponse]);
             $dbData['request_number'] = $createResponse['request_number'] ?? ($createResponse['data']['request_number'] ?? null);
             $dbData['uuid'] = $createResponse['id'] ?? ($createResponse['data']['id'] ?? $dbData['uuid']);
             $payloadToStore = $createResponse['data'] ?? (isset($createResponse['person']) || isset($createResponse['based_on']) ? $createResponse : $createResponse);
@@ -448,8 +442,6 @@ class MedicationRequestLifecycleService
             if (isset($signedContent['data']) && is_array($signedContent['data'])) {
                 $signedContent = $signedContent['data'];
             }
-            Log::debug('ePrescription Sign Request Payload (from stored eHealth payload):', $signedContent);
-
             return $signedContent;
         }
 
@@ -463,8 +455,6 @@ class MedicationRequestLifecycleService
                 $fetchedData = $response['data'][0] ?? ($response[0] ?? null);
                 if (!empty($fetchedData) && is_array($fetchedData) && ($fetchedData['id'] ?? null) === $requestRecord->uuid) {
                     $requestRecord->update(['ehealth_payload' => $fetchedData]);
-                    Log::debug('ePrescription Sign Request Payload (fetched from eHealth):', $fetchedData);
-
                     return $fetchedData;
                 }
             }
@@ -548,8 +538,6 @@ class MedicationRequestLifecycleService
 
         $mapper = new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper();
         $signedContent = $mapper->toCreateSignedContent($data, $uuids, $carePlanUuid);
-
-        Log::debug('ePrescription Sign Request Payload:', $signedContent);
 
         return $signedContent;
     }

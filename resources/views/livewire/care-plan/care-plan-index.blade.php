@@ -194,9 +194,9 @@
                     $status = strtolower($plan->status ?? '');
 
                     $statusClass = 'badge-dark';
-                    if (in_array($status, ['active', 'new'])) {
+                    if (in_array($status, ['active', 'new', 'completed'])) {
                         $statusClass = 'badge-green';
-                    } elseif (in_array($status, ['draft', 'revoked', 'completed'])) {
+                    } elseif (in_array($status, ['draft', 'revoked'])) {
                         $statusClass = 'badge-red';
                     }
 

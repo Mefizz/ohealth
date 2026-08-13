@@ -40,12 +40,12 @@ enum CarePlanStatus: string
     public function color(): string
     {
         return match ($this) {
-            self::ACTIVE => 'badge-green',
+            self::ACTIVE,
+            self::COMPLETED => 'badge-green',
 
             self::PENDING,
             self::ON_HOLD => 'badge-yellow',
 
-            self::COMPLETED,
             self::REVOKED,
             self::TERMINATED,
             self::CANCELLED,

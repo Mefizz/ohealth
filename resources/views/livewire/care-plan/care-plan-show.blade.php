@@ -91,10 +91,10 @@
                             type="button"
                             @click="openDropdown = ! openDropdown"
                             @click.away="openDropdown = false"
-                            class="button-primary flex items-center gap-2"
+                            class="button-primary flex items-center justify-center gap-2"
                         >
-                            <span>+ {{ __('care-plan.new_prescription') }}</span>
-                            @icon('chevron-down', 'w-4 h-4')
+                            @icon('plus', 'w-4 h-4')
+                            <span>{{ __('care-plan.new_prescription') }}</span>
                         </button>
 
                         <div
@@ -687,7 +687,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="5" class="index-table-td !py-8 text-center text-gray-400 italic">
+                                        <td colspan="5" class="index-table-td !py-8 text-center text-gray-400">
                                             {{ __('care-plan.no_activities') }}
                                         </td>
                                     </tr>

@@ -1,6 +1,6 @@
 @use('App\Livewire\CarePlan\CarePlanIndex')
 
-<section class="section-form">
+<div>
     <livewire:components.x-message :key="time()" />
     <x-header-navigation class="items-start" x-data="{ showFilter: false }">
         <x-slot name="title">
@@ -27,7 +27,8 @@
         </div>
     </x-header-navigation>
 
-    <div class="form shift-content">
+    <section class="section-form mt-4">
+        <div class="shift-content py-6 px-4 lg:py-10 w-full max-w-screen-xl">
         {{-- Search and Filters Section --}}
         <div class="w-full mb-6" x-data="{ showAdditionalParams: $wire.entangle('showAdditionalParams') }">
             <div class="mb-4 flex items-center gap-1 font-semibold text-gray-900 dark:text-gray-100">
@@ -347,4 +348,5 @@
     </div>
 
     <x-forms.loading/>
-</section>
+    </section>
+</div>

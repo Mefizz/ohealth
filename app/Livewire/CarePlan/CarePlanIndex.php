@@ -161,7 +161,7 @@ class CarePlanIndex extends Component
 
         if ($legalEntity) {
             $query = \App\Models\CarePlan::where('legal_entity_id', $legalEntity->id)
-                ->with(['person', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier']);
+                ->with(['person', 'person.names', 'author.party', 'encounter.diagnoses.condition', 'encounterIdentifier']);
 
             if (!empty($this->filterStatus)) {
                 $query->whereRaw('LOWER(care_plans.status) = LOWER(?)', [$this->filterStatus]);

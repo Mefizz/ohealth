@@ -213,23 +213,14 @@ class DeviceRequestMapper implements FhirMapperContract
     }
 
     /**
+     * eHealth accepts authored_on only within ~last 3 days and not in the future
+     * (server clock). Never derive it from occurrence_period start.
+     *
      * @param  array{start: string, end: string}  $occurrencePeriod
      */
     private function resolveAuthoredOn(array $occurrencePeriod): string
     {
-        $periodStart = CarbonImmutable::parse($occurrencePeriod['start'])->utc();
-        $now = CarbonImmutable::now('UTC');
-        $minStart = $now->addHour();
-
-        if ($periodStart->greaterThanOrEqualTo($minStart)) {
-            return $periodStart->format('Y-m-d\TH:i:s.000\Z');
-        }
-
-        if ($now->greaterThanOrEqualTo($minStart)) {
-            return $now->format('Y-m-d\TH:i:s.000\Z');
-        }
-
-        return $minStart->format('Y-m-d\TH:i:s.000\Z');
+        return CarbonImmutable::now('UTC')->format('Y-m-d\TH:i:s.000\Z');
     }
 
     /**
@@ -287,17 +278,17 @@ class DeviceRequestMapper implements FhirMapperContract
      */
     private function mapOccurrence(array $data): array
     {
-        $minStart = CarbonImmutable::now()->addHour();
+        $now = CarbonImmutable::now('UTC');
         $start = !empty($data['started_at'])
-            ? CarbonImmutable::parse($data['started_at'])
-            : $minStart;
+            ? CarbonImmutable::parse($data['started_at'])->utc()
+            : $now;
 
-        if ($start->lessThan($minStart)) {
-            $start = $minStart;
+        if ($start->lessThan($now)) {
+            $start = $now;
         }
 
         $end = !empty($data['ended_at'])
-            ? CarbonImmutable::parse($data['ended_at'])
+            ? CarbonImmutable::parse($data['ended_at'])->utc()
             : $start->addMonths(3);
 
         if ($end->lessThanOrEqualTo($start)) {
@@ -306,7 +297,7 @@ class DeviceRequestMapper implements FhirMapperContract
 
         return [
             'occurrencePeriod' => [
-                'start' => $start->utc()->format('Y-m-d\TH:i:s.000\Z'),
+                'start' => $start->format('Y-m-d\TH:i:s.000\Z'),
                 'end' => $end->endOfDay()->utc()->format('Y-m-d\TH:i:s.000\Z'),
             ],
         ];

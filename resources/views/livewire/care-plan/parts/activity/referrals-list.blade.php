@@ -5,7 +5,11 @@
 <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
     <div class="mb-4 flex items-center justify-between">
         <h3 class="text-sm font-bold tracking-wider text-gray-500 uppercase dark:text-gray-400">
-            Виписані направлення
+            {{
+                ($activity->resolvedKind() ?? '') === 'device_request'
+                ? 'Виписані електронні рецепти на МВ'
+                : 'Виписані направлення'
+            }}
         </h3>
         @if ($linkedReferrals->isNotEmpty())
             <span class="text-xs text-gray-400 dark:text-gray-500">{{ $linkedReferrals->count() }} шт.</span>
@@ -14,8 +18,11 @@
 
     @if ($linkedReferrals->isEmpty())
         <p class="text-sm text-gray-500 dark:text-gray-400">
-            Ще немає виписаних направлень для цього призначення. Після успішного створення в ЕСОЗ тут з’явиться номер,
-            статус і доступні дії.
+            {{
+                ($activity->resolvedKind() ?? '') === 'device_request'
+                ? 'Ще немає виписаних електронних рецептів на медичні вироби для цього призначення. Після успішного створення в ЕСОЗ тут з’явиться номер, статус і доступні дії.'
+                : 'Ще немає виписаних направлень для цього призначення. Після успішного створення в ЕСОЗ тут з’явиться номер, статус і доступні дії.'
+            }}
         </p>
     @else
         <div class="space-y-3">

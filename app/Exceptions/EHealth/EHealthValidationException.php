@@ -144,8 +144,11 @@ class EHealthValidationException extends EHealthException
             'code.coding[0]' => __('care-plan.ehealth_fields.service_or_device_code'),
             'based_on[1].identifier.value' => __('care-plan.ehealth_fields.based_on_activity'),
             'quantity.code' => __('care-plan.ehealth_fields.quantity_code'),
+            'quantity.value' => __('care-plan.ehealth_fields.quantity_value'),
+            '$.quantity.value' => __('care-plan.ehealth_fields.quantity_value'),
             'requester.identifier.value' => __('care-plan.ehealth_fields.requester'),
             'authored_on' => __('care-plan.ehealth_fields.authored_on'),
+            '$.authored_on' => __('care-plan.ehealth_fields.authored_on'),
             'medical_programs.[0]' => 'Медична програма',
             'medical_programs' => 'Медична програма',
             'detail.product_reference.identifier.value' => 'Код медичного виробу',
@@ -215,6 +218,8 @@ class EHealthValidationException extends EHealthException
                 $translatedMessage = $message;
             } elseif (str_contains($message, 'Authored on date must be in range')) {
                 $translatedMessage = __('errors.ehealth.messages.authored_on_out_of_range');
+            } elseif (str_contains($message, 'must be divisible to device package quantity')) {
+                $translatedMessage = __('errors.ehealth.messages.device_quantity_not_divisible');
             } elseif (str_contains($message, 'Medical program is not allowed for this action')) {
                 $translatedMessage = __('errors.ehealth.messages.medical_program_not_allowed');
             } elseif (str_contains($message, 'Value is not allowed by prescribable_device_codes dictionary configuration')) {

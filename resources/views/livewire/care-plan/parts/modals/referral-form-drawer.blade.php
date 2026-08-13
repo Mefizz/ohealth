@@ -28,7 +28,13 @@
     style="z-index: 47; width: calc(80% - 60px)"
     tabindex="-1"
 >
-    <h3 class="modal-header">Виписати Електронне Направлення (на основі Плану Лікування)</h3>
+    <h3 class="modal-header">
+        {{
+            ($referralForm['kind'] ?? '') === 'device_request'
+            ? __('care-plan.issue_device_eprescription_drawer_title')
+            : __('care-plan.issue_referral_drawer_title')
+        }}
+    </h3>
 
     @if (!empty($referralForm))
         <form wire:submit.prevent="validateReferral">
@@ -58,7 +64,9 @@
 
                 <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div class="form-group group">
-                        <label class="label">Послуга / Виріб (Код)</label>
+                        <label class="label">
+                            {{ ($referralForm['kind'] ?? '') === 'device_request' ? 'Медичний виріб (код)' : 'Послуга / Виріб (код)' }}
+                        </label>
                         <input
                             type="text"
                             class="input cursor-not-allowed bg-gray-50 font-medium text-gray-900 dark:bg-gray-700 dark:text-white"
@@ -67,11 +75,15 @@
                         />
                     </div>
                     <div class="form-group group">
-                        <label class="label">Тип направлення</label>
+                        <label class="label">Тип документа</label>
                         <input
                             type="text"
                             class="input cursor-not-allowed bg-gray-50 dark:bg-gray-700"
-                            value="{{ $referralForm['kind'] === 'service_request' ? 'Направлення на Послугу' : 'Направлення на виріб (Device)' }}"
+                            value="{{
+                                ($referralForm['kind'] ?? '') === 'service_request'
+                                ? __('care-plan.document_type_service_referral')
+                                : __('care-plan.document_type_device_eprescription')
+                            }}"
                             disabled
                         />
                     </div>
@@ -127,6 +139,11 @@
                                 од.
                             </span>
                         </div>
+                        @if (($referralForm['kind'] ?? '') === 'device_request' && ($referralDevicePackageQty ?? 0) > 0)
+                            <p class="mt-1 text-xs text-gray-500">
+                                {{ __('care-plan.device_quantity_packaging', ['count' => $referralDevicePackageQty]) }}
+                            </p>
+                        @endif
                     </div>
                 </div>
 

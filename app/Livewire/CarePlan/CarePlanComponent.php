@@ -79,6 +79,8 @@ abstract class CarePlanComponent extends Component
     public ?string $referralRequestIdToSign = null;
     public array $activeReferrals = [];
     public string $referralServiceCategory = '';
+    /** Package step for device eRx (packaging_count); 0 when unknown / service referral. */
+    public int $referralDevicePackageQty = 0;
     /** @var list<array{uuid: string, label: string, raw: string}> */
     public array $referralAuthMethods = [];
     public string $referralExplanatoryLetter = '';

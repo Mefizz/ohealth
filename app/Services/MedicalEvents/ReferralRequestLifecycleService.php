@@ -236,7 +236,7 @@ class ReferralRequestLifecycleService
         $code = $record instanceof ServiceRequestRequest ? $record->service_id : $record->device_id;
         $name = $record instanceof ServiceRequestRequest
             ? 'Направлення на послугу (ServiceRequest)'
-            : 'Направлення на виріб (DeviceRequest)';
+            : 'Електронний рецепт на медичні вироби (DeviceRequest)';
         $employeeName = $record->employee?->full_name ?? '—';
         $patient = $contextModel instanceof CarePlan ? $contextModel->person : \App\Models\Person\Person::find($contextModel->person_id);
         $patientName = $patient?->full_name ?? ($patient?->primaryName ? ($patient->primaryName->last_name . ' ' . $patient->primaryName->first_name) : 'Пацієнт');

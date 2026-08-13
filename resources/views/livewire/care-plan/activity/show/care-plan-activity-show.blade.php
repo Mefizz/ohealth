@@ -52,7 +52,11 @@
                         {{ __('care-plan.issue_eprescription') }}
                     </button>
                 @endif
-                @if (in_array($resolvedKind, ['service_request', 'device_request'], true))
+                @if ($resolvedKind === 'device_request')
+                    <button type="button" class="button-primary" wire:click="initReferralForm({{ $activity->id }})">
+                        {{ __('care-plan.issue_device_eprescription') }}
+                    </button>
+                @elseif ($resolvedKind === 'service_request')
                     <button type="button" class="button-primary" wire:click="initReferralForm({{ $activity->id }})">
                         {{ __('care-plan.create_referral') }}
                     </button>
@@ -75,9 +79,9 @@
         </div>
 
         @include('livewire.care-plan.parts.activity.detail-card', [
-                    'dictionaries' => $dictionaries,
-                    'activityProductLabel' => $activityProductLabel,
-                ])
+                            'dictionaries' => $dictionaries,
+                            'activityProductLabel' => $activityProductLabel,
+                        ])
 
         @if ($resolvedKind === 'medication_request')
             @include('livewire.care-plan.parts.activity.prescriptions-list')

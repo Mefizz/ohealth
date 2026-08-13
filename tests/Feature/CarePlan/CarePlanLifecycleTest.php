@@ -753,6 +753,8 @@ class CarePlanLifecycleTest extends TestCase
             'status' => 'draft',
         ]);
 
+        $this->fakeMedicalPrograms();
+
         $component = Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan]);
 
         $devicePrograms = $component->get('dictionaries')['medical_programs_device'] ?? [];
@@ -955,5 +957,30 @@ class CarePlanLifecycleTest extends TestCase
             ->set('searchQuery', $targetId)
             ->assertSet('deviceSearchTotalEntries', 1)
             ->assertSee('Accu-Chek Active тест-смужки');
+    }
+
+    /**
+     * The medical programs dictionary is fetched from eHealth, so tests that assert on
+     * its contents have to supply it rather than depend on whatever the environment holds.
+     */
+    private function fakeMedicalPrograms(): void
+    {
+        $manager = \Mockery::mock(\App\Services\Dictionary\DictionaryManager::class)->makePartial();
+        $manager->shouldReceive('medicalPrograms')->andReturn(collect([
+            [
+                'id' => '1318eabc-1a1a-42f6-8450-61e11c19eede',
+                'name' => 'Доступні ліки',
+                'type' => 'MEDICATION',
+                'is_active' => true,
+            ],
+            [
+                'id' => '85953838-1834-4ed6-8bf4-3f83057380ec',
+                'name' => 'Медичні вироби',
+                'type' => 'DEVICE',
+                'is_active' => true,
+            ],
+        ]));
+
+        $this->instance(\App\Services\Dictionary\DictionaryManager::class, $manager);
     }
 }

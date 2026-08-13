@@ -210,6 +210,9 @@ abstract class CarePlanComponent extends Component
                 'date' => $obs->issued ? \Carbon\Carbon::parse($obs->issued)->format('d.m.Y') : '-',
             ])->toArray();
 
+        // Basic dictionaries and medical programs come from different eHealth endpoints.
+        // They are loaded separately so a missing optional dictionary cannot leave the
+        // programme dropdowns silently empty.
         try {
             $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
             $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')
@@ -244,24 +247,6 @@ abstract class CarePlanComponent extends Component
                     ?->toArray()
                 ?? [];
 
-            // Load medical programs (split by type; device/medication lists are role-filtered)
-            $programs = app(DictionaryManager::class)->medicalPrograms();
-            $this->dictionaries['medical_programs'] = $programs
-                ->pluck('name', 'id')
-                ->toArray() ?? [];
-
-            $this->dictionaries['medical_programs_medication'] = $this->filterMedicationPrograms(
-                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::MEDICATION->value)
-            )->pluck('name', 'id')->toArray() ?? [];
-
-            $this->dictionaries['medical_programs_device'] = $this->filterDevicePrograms(
-                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::DEVICE->value)
-            )->pluck('name', 'id')->toArray() ?? [];
-
-            $this->dictionaries['medical_programs_service'] = $this->filterServicePrograms(
-                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::SERVICE->value)
-            )->pluck('name', 'id')->toArray() ?? [];
-
             $this->dictionaries['device_definition_classification_type'] = $basics->byName('device_definition_classification_type')
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
@@ -278,7 +263,29 @@ abstract class CarePlanComponent extends Component
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
         } catch (\Exception $exception) {
-            Log::warning('CarePlanShow: failed to load dictionaries: ' . $exception->getMessage());
+            Log::warning('CarePlanShow: failed to load basic dictionaries: ' . $exception->getMessage());
+        }
+
+        try {
+            // Medical programs, split by type; device/medication lists are role-filtered.
+            $programs = app(DictionaryManager::class)->medicalPrograms();
+            $this->dictionaries['medical_programs'] = $programs
+                ->pluck('name', 'id')
+                ->toArray() ?? [];
+
+            $this->dictionaries['medical_programs_medication'] = $this->filterMedicationPrograms(
+                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::MEDICATION->value)
+            )->pluck('name', 'id')->toArray() ?? [];
+
+            $this->dictionaries['medical_programs_device'] = $this->filterDevicePrograms(
+                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::DEVICE->value)
+            )->pluck('name', 'id')->toArray() ?? [];
+
+            $this->dictionaries['medical_programs_service'] = $this->filterServicePrograms(
+                $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::SERVICE->value)
+            )->pluck('name', 'id')->toArray() ?? [];
+        } catch (\Exception $exception) {
+            Log::warning('CarePlanShow: failed to load medical programs: ' . $exception->getMessage());
         }
 
         $this->carePlanUuid = $this->carePlan->uuid;

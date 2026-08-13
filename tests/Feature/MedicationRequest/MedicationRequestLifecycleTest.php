@@ -121,6 +121,15 @@ class MedicationRequestLifecycleTest extends TestCase
 
         $this->user->employees()->attach($this->employee->id);
 
+        // A prescription may only be issued off a today's finished encounter performed by
+        // this doctor (TV 3.9.1.1.2), so the fixture has to satisfy that gate.
+        $performer = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $this->employee->uuid]);
+        $this->encounter->update(['performer_id' => $performer->id]);
+        $this->encounter->period()->create([
+            'start' => now()->startOfDay(),
+            'end' => now(),
+        ]);
+
         if (config('permission.teams')) {
             setPermissionsTeamId($legalEntity->id);
         }

@@ -107,7 +107,7 @@ class MedicationRequestTest extends TestCase
 
         Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestIndex::class, ['legalEntity' => $this->legalEntity])
             ->assertStatus(200)
-            ->assertSee('Електронні Рецепти');
+            ->assertSee('Е-Рецепти');
     }
 
     public function test_medication_request_form_component_prequalify()

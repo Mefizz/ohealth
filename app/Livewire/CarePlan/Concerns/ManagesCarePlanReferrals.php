@@ -75,9 +75,12 @@ trait ManagesCarePlanReferrals
                     $activity->update(['status' => 'in-progress']);
                 }
                 $this->refreshCarePlan();
+                $documentLabel = $resolvedKind === 'device_request'
+                    ? __('care-plan.document_type_device_eprescription')
+                    : __('care-plan.document_type_service_referral');
                 $this->dispatch('flashMessage', [
                     'type' => 'success',
-                    'message' => 'Направлення вже створено в ЕСОЗ. Локальні дані синхронізовано.',
+                    'message' => __('care-plan.referral_already_in_ehealth_synced', ['document' => $documentLabel]),
                 ]);
 
                 return;
@@ -87,9 +90,12 @@ trait ManagesCarePlanReferrals
             $signAction = $resolvedKind === 'service_request'
                 ? 'sign_servicerequest'
                 : 'sign_devicerequest';
+            $documentLabel = $resolvedKind === 'device_request'
+                ? __('care-plan.document_type_device_eprescription')
+                : __('care-plan.document_type_service_referral');
             $this->dispatch('flashMessage', [
                 'type' => 'info',
-                'message' => 'Знайдено непідписане направлення. Продовжіть підписання.',
+                'message' => __('care-plan.referral_unsigned_draft_found', ['document' => $documentLabel]),
             ]);
             $this->openSignatureModal($signAction);
 
@@ -97,6 +103,7 @@ trait ManagesCarePlanReferrals
         }
 
         $this->referralWarningMessage = '';
+        $this->referralDevicePackageQty = 0;
 
         // Calculate remaining quantity
         $activityQty = (float) ($activity->quantity ?? 0);
@@ -104,6 +111,33 @@ trait ManagesCarePlanReferrals
         $this->referralRemainingQty = $activity->quantity === null
             ? 1.0
             : max(0.0, $activityQty - $issuedQty);
+
+        $defaultQuantity = min($this->referralRemainingQty, 1.0);
+        if ($resolvedKind === 'device_request') {
+            $this->referralDevicePackageQty = $this->resolveDevicePackageQuantity($activity);
+            if ($this->referralDevicePackageQty <= 0) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'error',
+                    'message' => __('care-plan.device_package_qty_unknown'),
+                ]);
+
+                return;
+            }
+
+            if ($this->referralRemainingQty < $this->referralDevicePackageQty) {
+                $this->dispatch('flashMessage', [
+                    'type' => 'error',
+                    'message' => __('care-plan.device_remaining_below_packaging', [
+                        'remaining' => $this->referralRemainingQty,
+                        'count' => $this->referralDevicePackageQty,
+                    ]),
+                ]);
+
+                return;
+            }
+
+            $defaultQuantity = (float) $this->referralDevicePackageQty;
+        }
 
         $code = $activity->product_codeable_concept ?? $activity->product_reference ?? 'од.';
 
@@ -131,7 +165,7 @@ trait ManagesCarePlanReferrals
             'activity_id' => $activity->id,
             'kind' => $resolvedKind,
             'code' => $code,
-            'quantity' => min($this->referralRemainingQty, 1.0),
+            'quantity' => $defaultQuantity,
             'started_at' => $occurrenceDates['started_at'],
             'ended_at' => $occurrenceDates['ended_at'],
             'priority' => 'routine',
@@ -184,6 +218,29 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        if (
+            ($this->referralForm['kind'] ?? '') === 'device_request'
+            && $this->referralDevicePackageQty <= 0
+        ) {
+            $message = __('care-plan.device_package_qty_unknown');
+            $this->referralWarningMessage = $message;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+
+            return;
+        }
+
+        if (
+            ($this->referralForm['kind'] ?? '') === 'device_request'
+            && $this->referralDevicePackageQty > 0
+            && ((int) $qty % $this->referralDevicePackageQty) !== 0
+        ) {
+            $message = __('care-plan.device_quantity_packaging', ['count' => $this->referralDevicePackageQty]);
+            $this->referralWarningMessage = $message;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
+
+            return;
+        }
+
         // Propose to sign
         $this->showReferralDrawer = false;
 
@@ -227,7 +284,10 @@ trait ManagesCarePlanReferrals
         } catch (\Exception $exception) {
             $this->showReferralDrawer = true;
             Log::error('CarePlanShow: failed to create referral request: ' . $exception->getMessage());
-            Session::flash('error', 'Не вдалося створити заявку на направлення: ' . $exception->getMessage());
+            $kindLabel = ($this->referralForm['kind'] ?? '') === 'device_request'
+                ? __('care-plan.document_type_device_eprescription')
+                : __('care-plan.document_type_service_referral');
+            Session::flash('error', 'Не вдалося створити '.$kindLabel.': '.$exception->getMessage());
         }
     }
 
@@ -754,20 +814,74 @@ trait ManagesCarePlanReferrals
 
         $this->showSignatureModal = false;
         $finalStatusCode = strtolower((string) ($dbData['status'] ?? ''));
+        $documentLabel = $kind === 'device_request'
+            ? __('care-plan.document_type_device_eprescription')
+            : __('care-plan.document_type_service_referral');
         if (in_array($finalStatusCode, ['pending', 'processing'], true)) {
             $this->dispatch('flashMessage', [
                 'type' => 'warning',
-                'message' => 'Запит на направлення прийнято в обробку ЕСОЗ. Фінальний статус з’явиться після завершення асинхронної задачі.',
+                'message' => __('care-plan.referral_accepted_pending', ['document' => $documentLabel]),
             ]);
         } elseif ($alreadyPersisted) {
             $this->dispatch('flashMessage', [
                 'type' => 'success',
-                'message' => 'Направлення вже існувало в ЕСОЗ. Локальні дані синхронізовано.',
+                'message' => __('care-plan.referral_already_in_ehealth_synced', ['document' => $documentLabel]),
             ]);
         } else {
-            $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Направлення успішно створено та підписано в eHealth.']);
+            $this->dispatch('flashMessage', [
+                'type' => 'success',
+                'message' => __('care-plan.referral_signed_success', ['document' => $documentLabel]),
+            ]);
         }
         $this->refreshCarePlan();
+    }
+
+    /**
+     * Resolve device packaging_count from eHealth device definition (package step for eRx).
+     */
+    protected function resolveDevicePackageQuantity(\App\Models\CarePlanActivity $activity): int
+    {
+        $reference = (string) ($activity->product_reference ?? '');
+        if ($reference === '') {
+            return 0;
+        }
+
+        try {
+            $filters = ['page_size' => 100];
+            if (!empty($activity->program)) {
+                $filters['medical_program_id'] = $activity->program;
+            }
+
+            $page = 1;
+            $maxPages = 10;
+
+            do {
+                $filters['page'] = $page;
+                $response = EHealth::deviceDefinition()->getMany($filters);
+                $device = collect($response->getData())->first(
+                    static fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
+                );
+
+                if (is_array($device)) {
+                    $packaging = $device['packaging'] ?? null;
+                    $count = is_array($packaging)
+                        ? (int) ($packaging['packaging_count'] ?? $packaging['packagingCount'] ?? 0)
+                        : 0;
+
+                    return max(0, $count);
+                }
+
+                $paging = $response->getPaging();
+                $totalPages = (int) ($paging['total_pages'] ?? 1);
+                $page++;
+            } while ($page <= $totalPages && $page <= $maxPages);
+
+            return 0;
+        } catch (\Throwable $exception) {
+            Log::warning('CarePlanShow: failed to resolve device package quantity: '.$exception->getMessage());
+
+            return 0;
+        }
     }
 
     protected function resolveReferralCategoryLabel(string $category): string

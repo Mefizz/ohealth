@@ -115,21 +115,23 @@ class DeviceRequestMapper implements FhirMapperContract
     /**
      * Build payload for Create Device Request API (signed PKCS#7 content).
      *
+     * Create (API-007-020-0003) signs a flat Device Request ($.id, $.status, $.authored_on, $.program, …).
+     * Do not wrap with top-level device_request/programs — that is PreQualify-only shape.
+     *
      * @param  array<string, mixed>  $data
      * @param  array<string, string|null>  $uuids
-     * @return array{device_request: array<string, mixed>, programs?: list<array<string, mixed>>}
+     * @return array<string, mixed>
      */
     public function toCreateSignedPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
-        $deviceRequest = $this->buildDeviceRequestBody($data, $uuids, $carePlanUuid, $activityUuid);
-        $deviceRequest['id'] = $data['uuid'];
-        $deviceRequest['status'] = 'active';
-
-        return $this->wrapDeviceRequestPayload($deviceRequest, $data['program_id'] ?? null);
+        return $this->toCreateSignedContent($data, $uuids, $carePlanUuid, $activityUuid);
     }
 
     /**
-     * Flat payload for PKCS#7 signing on Create Device Request.
+     * Flat Device Request for PKCS#7 signing (API-007-020-0003).
+     *
+     * Schema validates root Device Request fields (id, status, authored_on, encounter, …).
+     * Medical program goes as singular `program` Reference (data model), not `programs[]`.
      *
      * @param  array<string, mixed>  $data
      * @param  array<string, string|null>  $uuids
@@ -137,14 +139,15 @@ class DeviceRequestMapper implements FhirMapperContract
      */
     public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
-        $wrapped = $this->toCreateSignedPayload($data, $uuids, $carePlanUuid, $activityUuid);
-        $content = $wrapped['device_request'];
-        unset($content['authored_on']);
-        if (!empty($wrapped['programs'])) {
-            $content['programs'] = $wrapped['programs'];
+        $deviceRequest = $this->buildDeviceRequestBody($data, $uuids, $carePlanUuid, $activityUuid);
+        $deviceRequest['id'] = $data['uuid'];
+        $deviceRequest['status'] = 'active';
+
+        if (!empty($data['program_id'])) {
+            $deviceRequest['program'] = $this->resourceIdentifier('medical_program', (string) $data['program_id']);
         }
 
-        return $content;
+        return Arr::toSnakeCase(array_filter($deviceRequest, static fn ($value) => $value !== null));
     }
 
     /**
@@ -213,23 +216,17 @@ class DeviceRequestMapper implements FhirMapperContract
     }
 
     /**
+     * eHealth accepts authored_on only within ~last 3 days and not in the future
+     * (server clock). Subtract a small skew buffer — local clocks are often a few
+     * seconds ahead of eHealth and "now" then fails as future-dated.
+     *
      * @param  array{start: string, end: string}  $occurrencePeriod
      */
     private function resolveAuthoredOn(array $occurrencePeriod): string
     {
-        $periodStart = CarbonImmutable::parse($occurrencePeriod['start'])->utc();
-        $now = CarbonImmutable::now('UTC');
-        $minStart = $now->addHour();
-
-        if ($periodStart->greaterThanOrEqualTo($minStart)) {
-            return $periodStart->format('Y-m-d\TH:i:s.000\Z');
-        }
-
-        if ($now->greaterThanOrEqualTo($minStart)) {
-            return $now->format('Y-m-d\TH:i:s.000\Z');
-        }
-
-        return $minStart->format('Y-m-d\TH:i:s.000\Z');
+        return CarbonImmutable::now('UTC')
+            ->subSeconds(30)
+            ->format('Y-m-d\TH:i:s.000\Z');
     }
 
     /**
@@ -287,17 +284,17 @@ class DeviceRequestMapper implements FhirMapperContract
      */
     private function mapOccurrence(array $data): array
     {
-        $minStart = CarbonImmutable::now()->addHour();
+        $now = CarbonImmutable::now('UTC');
         $start = !empty($data['started_at'])
-            ? CarbonImmutable::parse($data['started_at'])
-            : $minStart;
+            ? CarbonImmutable::parse($data['started_at'])->utc()
+            : $now;
 
-        if ($start->lessThan($minStart)) {
-            $start = $minStart;
+        if ($start->lessThan($now)) {
+            $start = $now;
         }
 
         $end = !empty($data['ended_at'])
-            ? CarbonImmutable::parse($data['ended_at'])
+            ? CarbonImmutable::parse($data['ended_at'])->utc()
             : $start->addMonths(3);
 
         if ($end->lessThanOrEqualTo($start)) {
@@ -306,7 +303,7 @@ class DeviceRequestMapper implements FhirMapperContract
 
         return [
             'occurrencePeriod' => [
-                'start' => $start->utc()->format('Y-m-d\TH:i:s.000\Z'),
+                'start' => $start->format('Y-m-d\TH:i:s.000\Z'),
                 'end' => $end->endOfDay()->utc()->format('Y-m-d\TH:i:s.000\Z'),
             ],
         ];

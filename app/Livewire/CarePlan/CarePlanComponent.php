@@ -76,6 +76,8 @@ abstract class CarePlanComponent extends Component
     public ?string $referralRequestIdToSign = null;
     public array $activeReferrals = [];
     public string $referralServiceCategory = '';
+    /** Package step for device eRx (packaging_count); 0 when unknown / service referral. */
+    public int $referralDevicePackageQty = 0;
 
     // Search and selection parameters
     public string $searchQuery = '';
@@ -384,8 +386,8 @@ abstract class CarePlanComponent extends Component
     protected function loadActiveReferrals(): void
     {
         $activityIds = $this->carePlan->activities->pluck('id');
-        $serviceReferrals = collect();
-        $deviceReferrals = collect();
+        $serviceReferrals = [];
+        $deviceReferrals = [];
 
         $serviceRequestClass = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::class;
         if (class_exists($serviceRequestClass)) {
@@ -393,7 +395,8 @@ abstract class CarePlanComponent extends Component
                 ->with('employee')
                 ->whereIn('based_on_id', $activityIds)
                 ->get()
-                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'service_request'));
+                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'service_request'))
+                ->all();
         }
 
         $deviceRequestClass = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
@@ -402,10 +405,11 @@ abstract class CarePlanComponent extends Component
                 ->with('employee')
                 ->whereIn('based_on_id', $activityIds)
                 ->get()
-                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'device_request'));
+                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'device_request'))
+                ->all();
         }
 
-        $this->activeReferrals = $serviceReferrals->merge($deviceReferrals)->values()->all();
+        $this->activeReferrals = array_values(array_merge($serviceReferrals, $deviceReferrals));
     }
 
     /**

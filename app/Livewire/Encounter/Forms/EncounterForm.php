@@ -12,6 +12,7 @@ use App\Enums\Equipment\Status as EquipmentStatus;
 use App\Enums\Person\ConditionVerificationStatus;
 use App\Enums\Person\ProcedureStatus;
 use App\Rules\AfterOrEqualDateTime;
+use App\Rules\AtLeastOneEncounterAction;
 use App\Rules\InDictionary;
 use App\Rules\OnlyOnePrimaryDiagnosis;
 use App\Rules\PastDateTime;
@@ -120,7 +121,8 @@ class EncounterForm extends BaseForm
             'encounter.referralNumber' => [
                 Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'electronic'),
                 'nullable',
-                'uuid'
+                'string',
+                'max:255'
             ],
             'encounter.paperReferral' => [
                 Rule::requiredIf(($this->encounter['referralType'] ?? '') === 'paper'),
@@ -1044,7 +1046,8 @@ class EncounterForm extends BaseForm
                     Rule::requiredIf($isElectronicReferral),
                     Rule::prohibitedIf($isPaperReferral),
                     'nullable',
-                    'uuid',
+                    'string',
+                    'max:255',
                 ];
             }),
 
@@ -1246,8 +1249,26 @@ class EncounterForm extends BaseForm
         $this->addPsychiatryEvidenceValidation($rules);
         $this->addEmployeeTypeConditionsValidation($rules);
         $this->addSpecialityConditionsValidation($rules);
+        $this->addAtLeastOneActionValidation($rules);
 
         return $rules;
+    }
+
+    /**
+     * eHealth rejects the encounter package (asynchronously, after signing) unless it contains
+     * at least one of: action references, diagnostic reports or procedures. Catch this client-side
+     * so the user gets an immediate, understandable error instead of a silently failed async job.
+     *
+     * @param  array  $rules
+     * @return void
+     */
+    private function addAtLeastOneActionValidation(array &$rules): void
+    {
+        $rules['encounter.actionReferences'][] = new AtLeastOneEncounterAction(
+            $this->encounter['classCode'] ?? null,
+            $this->diagnosticReports ?? [],
+            $this->procedures ?? []
+        );
     }
 
     /**
@@ -1544,8 +1565,8 @@ class EncounterForm extends BaseForm
             ->contains(static fn (array $condition): bool => ($condition['primarySource'] ?? false) === true);
 
         $encounterWriterEmployeeUuid = $hasPrimarySourceCondition ? Auth::user()
-                ->getEncounterWriterEmployee($this->encounter['classCode'] ?? null)
-                ?->uuid : null;
+            ->getEncounterWriterEmployee($this->encounter['classCode'] ?? null)
+            ?->uuid : null;
 
         $requiredParticipantUuids = collect($this->procedures ?? [])
             ->concat($this->diagnosticReports ?? [])

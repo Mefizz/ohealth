@@ -79,6 +79,8 @@ class ReferralTest extends TestCase
             'party_id' => $party->id,
         ]);
         $this->user->employees()->attach($this->employee->id);
+
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
     }
 
     public function test_it_can_find_referral_by_requisition()
@@ -115,10 +117,40 @@ class ReferralTest extends TestCase
 
         $payload = ['status' => 'completed'];
 
+        $person = \App\Models\Person\Person::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'first_name' => 'Complete',
+            'last_name' => 'Patient',
+            'birth_date' => '1990-01-01',
+            'gender' => 'MALE',
+            'patient_signed' => true,
+            'process_disclosure_data_consent' => true,
+        ]);
+
+        $codingId = \App\Models\MedicalEvents\Sql\Coding::create([
+            'code' => 'AMB',
+            'system' => 'eHealth/encounter_classes',
+        ])->id;
+        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+        $episodeId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) \Illuminate\Support\Str::uuid()])->id;
+
+        \App\Models\MedicalEvents\Sql\Encounter::create([
+            'uuid' => $encounterUuid,
+            'person_id' => $person->id,
+            'status' => 'finished',
+            'episode_id' => $episodeId,
+            'class_id' => $codingId,
+            'type_id' => $ccId,
+            'ehealth_inserted_at' => now(),
+        ]);
+
         $mockApi = Mockery::mock('alias:' . ServiceRequestApi::class);
         $mockApi->shouldReceive('complete')
             ->once()
-            ->with($uuid, $payload)
+            ->with($uuid, Mockery::on(static function (array $sent) use ($encounterUuid): bool {
+                return ($sent['status'] ?? null) === 'completed'
+                    && data_get($sent, 'based_on.0.identifier.value') === $encounterUuid;
+            }))
             ->andReturn($mockResponse);
 
         $service = app(ReferralRequestLifecycleService::class);

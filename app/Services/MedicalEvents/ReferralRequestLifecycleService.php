@@ -673,85 +673,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         $model = Repository::serviceRequest()->findByUuid($referralUuid);
         $programId = $model ? $model->programId : null;
 
-        if (empty($payload)) {
-            $payload = [
-                'used_by_employee' => [
-                    'identifier' => [
-                        'type' => [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/resources',
-                                    'code' => 'employee',
-                                ],
-                            ],
-                        ],
-                        'value' => $employee->uuid,
-                    ],
-                ],
-            ];
-
-            // Division UUID: try employee->division_uuid first, otherwise resolve via division_id
-            $divisionUuid = $employee->divisionUuid;
-            if (!$divisionUuid && $employee->divisionId) {
-                $division = \App\Models\Division::find($employee->divisionId);
-                $divisionUuid = $division?->uuid;
-            }
-
-            if ($divisionUuid) {
-                $payload['used_by_division'] = [
-                    'identifier' => [
-                        'type' => [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/resources',
-                                    'code' => 'division',
-                                ],
-                            ],
-                        ],
-                        'value' => $divisionUuid,
-                    ],
-                ];
-            }
-
-            // Legal entity UUID: try employee->legal_entity_uuid first, otherwise resolve via legal_entity_id
-            $legalEntityUuid = $employee->legalEntityUuid;
-            if (!$legalEntityUuid && $employee->legalEntityId) {
-                $legalEntity = \App\Models\LegalEntity::find($employee->legalEntityId);
-                $legalEntityUuid = $legalEntity?->uuid;
-            }
-
-            if ($legalEntityUuid) {
-                $payload['used_by_legal_entity'] = [
-                    'identifier' => [
-                        'type' => [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/resources',
-                                    'code' => 'legal_entity',
-                                ],
-                            ],
-                        ],
-                        'value' => $legalEntityUuid,
-                    ],
-                ];
-            }
-
-            if ($programId) {
-                $payload['program'] = [
-                    'identifier' => [
-                        'type' => [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/resources',
-                                    'code' => 'medical_program',
-                                ],
-                            ],
-                        ],
-                        'value' => $programId,
-                    ],
-                ];
-            }
-        }
+        $payload = $this->buildTakeIntoWorkPayload($employee, $programId);
 
         // Qualify must block process when program is present (TV 3.17.3.2 / 3.17.3.3.2).
         if ($programId) {
@@ -759,9 +681,10 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                 $qualifyResponse = \App\Classes\eHealth\Api\ServiceRequest::qualify($referralUuid, [
                     'programs' => [['id' => $programId]],
                 ]);
-                $this->jobResolver->assertPrequalifyValid(
+                $resolvedQualify = $this->jobResolver->resolve(
                     is_array($qualifyResponse) ? $qualifyResponse : []
                 );
+                $this->jobResolver->assertPrequalifyValid($resolvedQualify);
             } catch (EHealthValidationException $e) {
                 throw new \RuntimeException(
                     __('care-plan.referral_qualify_blocked', [
@@ -841,25 +764,23 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_required'));
         }
 
-        if (empty($payload)) {
-            $payload = [
-                'based_on' => [
-                    [
-                        'identifier' => [
-                            'type' => [
-                                'coding' => [
-                                    [
-                                        'system' => 'eHealth/resources',
-                                        'code' => $resourceType,
-                                    ],
-                                ],
+        $this->assertCompletionResourceOwned($referralUuid, $resourceUuid, $resourceType);
+
+        $payload['based_on'] = [
+            [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            [
+                                'system' => 'eHealth/resources',
+                                'code' => $resourceType,
                             ],
-                            'value' => $resourceUuid,
                         ],
                     ],
+                    'value' => $resourceUuid,
                 ],
-            ];
-        }
+            ],
+        ];
 
         $response = \App\Classes\eHealth\Api\ServiceRequest::complete($referralUuid, $payload);
 
@@ -911,5 +832,111 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         }
 
         return $response;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildTakeIntoWorkPayload(Employee $employee, mixed $programId): array
+    {
+        $payload = [
+            'used_by_employee' => [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            [
+                                'system' => 'eHealth/resources',
+                                'code' => 'employee',
+                            ],
+                        ],
+                    ],
+                    'value' => $employee->uuid,
+                ],
+            ],
+        ];
+
+        $divisionUuid = $employee->divisionUuid;
+        if (!$divisionUuid && $employee->divisionId) {
+            $division = \App\Models\Division::find($employee->divisionId);
+            $divisionUuid = $division?->uuid;
+        }
+
+        if ($divisionUuid) {
+            $payload['used_by_division'] = [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            [
+                                'system' => 'eHealth/resources',
+                                'code' => 'division',
+                            ],
+                        ],
+                    ],
+                    'value' => $divisionUuid,
+                ],
+            ];
+        }
+
+        $legalEntityUuid = $employee->legalEntityUuid;
+        if (!$legalEntityUuid && $employee->legalEntityId) {
+            $legalEntity = \App\Models\LegalEntity::find($employee->legalEntityId);
+            $legalEntityUuid = $legalEntity?->uuid;
+        }
+
+        if ($legalEntityUuid) {
+            $payload['used_by_legal_entity'] = [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            [
+                                'system' => 'eHealth/resources',
+                                'code' => 'legal_entity',
+                            ],
+                        ],
+                    ],
+                    'value' => $legalEntityUuid,
+                ],
+            ];
+        }
+
+        if ($programId) {
+            $payload['program'] = [
+                'identifier' => [
+                    'type' => [
+                        'coding' => [
+                            [
+                                'system' => 'eHealth/resources',
+                                'code' => 'medical_program',
+                            ],
+                        ],
+                    ],
+                    'value' => $programId,
+                ],
+            ];
+        }
+
+        return $payload;
+    }
+
+    private function assertCompletionResourceOwned(string $referralUuid, string $resourceUuid, string $resourceType): void
+    {
+        $referral = Repository::serviceRequest()->findByUuid($referralUuid);
+        $personId = $referral?->personId;
+
+        $resource = match ($resourceType) {
+            'encounter' => \App\Models\MedicalEvents\Sql\Encounter::query()->where('uuid', $resourceUuid)->first(),
+            'procedure' => \App\Models\MedicalEvents\Sql\Procedure::query()->where('uuid', $resourceUuid)->first(),
+            'diagnostic_report' => \App\Models\MedicalEvents\Sql\DiagnosticReport::query()->where('uuid', $resourceUuid)->first(),
+            default => null,
+        };
+
+        if ($resource === null) {
+            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_required'));
+        }
+
+        $resourcePersonId = $resource->personId ?? $resource->person_id ?? null;
+        if ($personId !== null && $resourcePersonId !== null && (int) $resourcePersonId !== (int) $personId) {
+            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_mismatch'));
+        }
     }
 }

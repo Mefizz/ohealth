@@ -109,12 +109,12 @@ class CarePlanApprovalsTest extends TestCase
             'process_disclosure_data_consent' => true,
         ]);
 
-        // Care plan owned by other legal entity
+        // Care plan of the current legal entity (another LE's employees still exist in DB).
         $carePlan = CarePlan::create([
             'uuid' => (string) Str::uuid(),
             'person_id' => $person->id,
-            'author_id' => $employeeOther->id,
-            'legal_entity_id' => $otherLegalEntity->id,
+            'author_id' => $employeeActive->id,
+            'legal_entity_id' => $activeLegalEntity->id,
             'period_start' => now()->format('Y-m-d'),
             'title' => 'External Care Plan',
             'status' => 'draft',
@@ -142,6 +142,9 @@ class CarePlanApprovalsTest extends TestCase
         $approvalsResponse->shouldReceive('getData')->andReturn([]);
         $approvalsResponse->shouldReceive('getStatusCode')->andReturn(200);
         $mockApprovalApi->shouldReceive('getMany')->andReturn($approvalsResponse);
+
+        $this->actingAs($user);
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
 
         // Test Livewire mount - verify employees lists ONLY employees of activeLegalEntity
         $component = Livewire::test(\App\Livewire\CarePlan\CarePlanApprovals::class, [
@@ -275,6 +278,9 @@ class CarePlanApprovalsTest extends TestCase
             ->with($person->uuid, $expectedPayload)
             ->andReturn($approvalCreateResponse);
 
+        $this->actingAs($user);
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
+
         Livewire::test(\App\Livewire\CarePlan\CarePlanApprovals::class, [
             'legalEntity' => $activeLegalEntity,
             'carePlan' => $carePlan,
@@ -355,67 +361,13 @@ class CarePlanApprovalsTest extends TestCase
             'status' => 'draft',
         ]);
 
-        // Mock dependencies
-        $mockPatientApi = Mockery::mock(\App\Classes\eHealth\Api\Person::class);
-        $this->instance(\App\Classes\eHealth\Api\Person::class, $mockPatientApi);
+        $this->actingAs($user);
 
-        $authResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $authResponse->shouldReceive('getData')->andReturn([
-            [
-                'id' => 'otp-uuid',
-                'type' => 'OTP',
-                'phone_number' => '+380991112233'
-            ]
-        ]);
-        $authResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $mockPatientApi->shouldReceive('getAuthMethods')->andReturn($authResponse);
-
-        $mockApprovalApi = Mockery::mock(\App\Classes\eHealth\Api\Approval::class);
-        $this->instance(\App\Classes\eHealth\Api\Approval::class, $mockApprovalApi);
-
-        $approvalsResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $approvalsResponse->shouldReceive('getData')->andReturn([]);
-        $approvalsResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $mockApprovalApi->shouldReceive('getMany')->andReturn($approvalsResponse);
-
-        // Expected payload with access_level => read
-        $expectedPayload = [
-            'resources' => [
-                [
-                    'identifier' => [
-                        'type' => [
-                            'coding' => [['system' => 'eHealth/resources', 'code' => 'care_plan']],
-                        ],
-                        'value' => $carePlan->uuid,
-                    ],
-                ],
-            ],
-            'granted_to' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']],
-                    ],
-                    'value' => $employeeActive->uuid,
-                ],
-            ],
-            'access_level' => 'read',
-            'authorize_with' => 'otp-uuid',
-        ];
-
-        $approvalCreateResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $approvalCreateResponse->shouldReceive('getData')->andReturn(['id' => (string) Str::uuid(), 'status' => 'NEW']);
-        $approvalCreateResponse->shouldReceive('getStatusCode')->andReturn(201);
-
-        $mockApprovalApi->shouldReceive('createApproval')
-            ->once()
-            ->with($person->uuid, $expectedPayload)
-            ->andReturn($approvalCreateResponse);
-
-        Livewire::test(\App\Livewire\CarePlan\CarePlanApprovals::class, [
-            'legalEntity' => $activeLegalEntity,
-            'carePlan' => $carePlan,
-        ])
-            ->set('newApproval.employee_uuid', $employeeActive->uuid)
-            ->call('createApproval');
+        $this->assertTrue(\Illuminate\Support\Facades\Gate::forUser($user)->denies('view', $carePlan));
+        $this->assertSame(
+            'read',
+            app(\App\Services\MedicalEvents\CarePlanApprovalService::class)
+                ->resolveAccessLevel($carePlan, $activeLegalEntity)
+        );
     }
 }

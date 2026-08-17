@@ -48,6 +48,41 @@ class EHealthJobResolverTest extends TestCase
         $this->assertSame('created-uuid', $result['id']);
     }
 
+    public function test_it_raises_when_the_job_status_is_unknown(): void
+    {
+        $this->fakeJobApi([
+            ['status' => 'wat'],
+        ]);
+
+        $this->expectException(\App\Exceptions\EHealth\EHealthValidationException::class);
+
+        (new EHealthJobResolver())->resolve($this->jobResponse());
+    }
+
+    public function test_it_keeps_polling_accepted_jobs_until_they_time_out(): void
+    {
+        $this->fakeJobApi([
+            ['status' => 'accepted'],
+            ['status' => 'accepted'],
+            ['status' => 'accepted'],
+        ]);
+
+        $this->expectException(EHealthJobTimeoutException::class);
+
+        (new EHealthJobResolver())->resolve($this->jobResponse());
+    }
+
+    public function test_it_polls_a_bare_job_id(): void
+    {
+        $this->fakeJobApi([
+            ['status' => 'processed', 'id' => 'from-job-id'],
+        ]);
+
+        $result = (new EHealthJobResolver())->resolve(['job_id' => 'job-123']);
+
+        $this->assertSame('from-job-id', $result['id']);
+    }
+
     public function test_it_raises_when_the_job_is_still_pending_after_the_last_attempt(): void
     {
         $this->fakeJobApi([

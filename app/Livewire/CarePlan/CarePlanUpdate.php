@@ -221,19 +221,7 @@ class CarePlanUpdate extends CarePlanCreate
             ]);
 
             $responseData = $eHealthResponse->getData();
-            $finalResponse = $responseData;
-
-            // If it is an async job, poll it
-            if (isset($responseData['links'][0]['href']) && str_contains($responseData['links'][0]['href'], '/jobs/')) {
-                $jobId = str_replace('/jobs/', '', $responseData['links'][0]['href']);
-                $jobApi = EHealth::job();
-                $attempts = 0;
-                do {
-                    sleep(2);
-                    $finalResponse = $jobApi->getDetails($jobId)->getData();
-                    $attempts++;
-                } while ($finalResponse['status'] === 'pending' && $attempts < 15);
-            }
+            $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($responseData);
 
             if (($finalResponse['status'] ?? null) === 'failed') {
                 throw new \App\Exceptions\EHealth\EHealthValidationException($finalResponse);
@@ -261,7 +249,7 @@ class CarePlanUpdate extends CarePlanCreate
             }
 
             // Update local model with eHealth response
-            $repository->updateById($this->carePlan->id, [
+            $repository->updateById($this->carePlan->id, array_filter([
                 'uuid' => $carePlanUuid,
                 'status' => $carePlanStatus,
                 'requisition' => $carePlanRequisition,
@@ -280,11 +268,10 @@ class CarePlanUpdate extends CarePlanCreate
                     'medical_records' => $this->form->medicalRecords,
                 ],
                 'context' => $this->form->context ?: null,
-                'terms_of_service' => $this->form->termsOfService ?: null,
                 'description' => $this->form->description ?: null,
                 'note' => $this->form->note ?: null,
                 'inform_with' => $this->form->informWith ?: null,
-            ]);
+            ], static fn (mixed $value): bool => $value !== null));
 
             session()->flash('success', __('care-plan.signed_and_sent'));
 

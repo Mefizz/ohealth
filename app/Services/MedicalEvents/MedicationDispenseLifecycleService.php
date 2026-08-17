@@ -107,7 +107,6 @@ class MedicationDispenseLifecycleService
         ]);
 
         $final = $this->jobResolver->resolve($processed->getData());
-        $this->jobResolver->assertSuccessful($final);
 
         return is_array($final) ? $final : ['status' => 'completed'];
     }

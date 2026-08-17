@@ -350,6 +350,7 @@ return [
     'referral_complete_emz_required' => 'Оберіть тип і запис ЕМЗ для погашення направлення.',
     'referral_complete_invalid_emz_type' => 'Невірний тип медичного запису. Оберіть взаємодію, процедуру або діагностичний звіт.',
     'referral_complete_emz_not_linked' => 'Обраний медичний запис не посилається на це направлення.',
+    'referral_complete_emz_mismatch' => 'Обраний медичний запис не належить пацієнту цього направлення.',
     'referral_complete_title' => 'Погашення направлення',
     'referral_complete_emz_type' => 'Тип медичного запису',
     'referral_complete_emz_select' => 'Оберіть медичний запис, повʼязаний із цим направленням',

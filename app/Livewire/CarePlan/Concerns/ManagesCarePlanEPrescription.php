@@ -15,12 +15,9 @@ trait ManagesCarePlanEPrescription
 {
     public function initEPrescriptionForm(int $activityId, CarePlanActivityRepository $activityRepository): void
     {
-        $activity = $activityRepository->findById($activityId);
-        if (!$activity) {
-            $this->flashOutcome('error', 'Призначення не знайдено');
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $activity = $this->ownedActivity($activityId);
 
         $activityStatus = strtolower(is_array($activity->status)
             ? ($activity->status['coding'][0]['code'] ?? ($activity->status['text'] ?? ''))
@@ -428,7 +425,7 @@ trait ManagesCarePlanEPrescription
         try {
             $employeeContext = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)
                 ->resolveEmployeeContext($this->carePlan, null, Auth::user()?->activeDoctorEmployee()?->id);
-            $activity = \App\Models\CarePlanActivity::find($this->ePrescriptionForm['activity_id']);
+            $activity = $this->ownedActivity((int) $this->ePrescriptionForm['activity_id']);
 
             $uuid = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->createCarePlanDraft(
                 $this->carePlan,
@@ -553,13 +550,10 @@ trait ManagesCarePlanEPrescription
             return;
         }
 
-        $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $this->ePrescriptionRequestIdToSign)->first();
-        if (!$requestRecord) {
-            $this->flashOutcome('error', 'Заявку на рецепт не знайдено');
-            $this->showSignatureModal = false;
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson((string) $this->ePrescriptionRequestIdToSign, (int) $this->carePlan->personId);
 
         try {
             $result = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->signPrescription(
@@ -605,12 +599,10 @@ trait ManagesCarePlanEPrescription
 
     public function rejectPrescription(string $requestId): void
     {
-        $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $requestId)->first();
-        if (!$requestRecord) {
-            $this->flashOutcome('error', 'Рецепт не знайдено');
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson($requestId, (int) $this->carePlan->personId);
 
         try {
             if (in_array(strtolower((string) $requestRecord->status), ['new', 'draft'], true)) {
@@ -641,13 +633,10 @@ trait ManagesCarePlanEPrescription
             return;
         }
 
-        $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $this->ePrescriptionRequestIdToSign)->first();
-        if (!$requestRecord) {
-            $this->flashOutcome('error', 'Рецепт не знайдено');
-            $this->showSignatureModal = false;
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson((string) $this->ePrescriptionRequestIdToSign, (int) $this->carePlan->personId);
 
         try {
             app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->rejectPrescription(
@@ -677,6 +666,10 @@ trait ManagesCarePlanEPrescription
 
     public function resendPrescriptionSms(string $prescriptionId): void
     {
+        $this->authorizeCarePlanWrite();
+        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson($prescriptionId, (int) $this->carePlan->personId);
+
         try {
             $response = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $prescriptionId);
             if ($response->successful()) {
@@ -692,6 +685,9 @@ trait ManagesCarePlanEPrescription
 
     public function loadPrintoutForm(string $prescriptionId): string
     {
+        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson($prescriptionId, (int) $this->carePlan->personId);
+
         try {
             $printout = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->fetchPrintoutFromEhealth(
                 $this->carePlan->person->uuid,
@@ -797,12 +793,10 @@ trait ManagesCarePlanEPrescription
 
     public function blockPrescription(string $prescriptionId): void
     {
-        $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $prescriptionId)->first();
-        if (!$requestRecord) {
-            $this->flashOutcome('error', 'Рецепт не знайдено');
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson($prescriptionId, (int) $this->carePlan->personId);
 
         try {
             app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->block($this->carePlan->person->uuid, $prescriptionId, [
@@ -819,12 +813,10 @@ trait ManagesCarePlanEPrescription
 
     public function unblockPrescription(string $prescriptionId): void
     {
-        $requestRecord = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('uuid', $prescriptionId)->first();
-        if (!$requestRecord) {
-            $this->flashOutcome('error', 'Рецепт не знайдено');
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson($prescriptionId, (int) $this->carePlan->personId);
 
         try {
             app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->unblock($this->carePlan->person->uuid, $prescriptionId, []);
@@ -839,6 +831,9 @@ trait ManagesCarePlanEPrescription
 
     public function checkDispenseHistory(string $prescriptionId): void
     {
+        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForPerson($prescriptionId, (int) $this->carePlan->personId);
+
         try {
             $dispenses = app(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class)->getDispenseHistory($this->carePlan->person->uuid, $prescriptionId);
             $items = $dispenses['data'] ?? ($dispenses[0] ?? []);

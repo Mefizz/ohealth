@@ -29,6 +29,8 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 
     protected const int TIME_TO_RETRY = 5; // Time in seconds to wait before retrying the job
 
+    protected bool $stillPending = false;
+
     public function __construct(
         public EhealthLink $eHealthLink,
         public ?LegalEntity $legalEntity,
@@ -114,12 +116,16 @@ class RemoteEHealthLinksProcessing extends EHealthJob
         }
 
         $responseData = $response->getData();
-        // Status code can be in the response body or in the HTTP response itself, so we check both
         $statusCode = $responseData['status_code'] ?? $response->getStatusCode() ?? null;
-        $status = $responseData['status'] ?? null;
+        $status = strtolower((string) ($responseData['status'] ?? ''));
 
-        // Priority is given to the status code in the response body, if available, otherwise we use the HTTP status code
-        // This is because the API might return a 200 OK HTTP status code even if the operation failed
+        if (in_array($status, ['pending', 'processing', 'accepted'], true)) {
+            $this->stillPending = true;
+            $this->release(self::TIME_TO_RETRY);
+
+            return;
+        }
+
         if ($statusCode === 200) {
             if ($this->eHealthLink->linkable_type === Approval::class) {
                 $approval = $this->eHealthLink->linkable;
@@ -134,11 +140,6 @@ class RemoteEHealthLinksProcessing extends EHealthJob
             }
 
             return;
-        } elseif ($status === 'pending' && (!$statusCode || $statusCode === 202)) {
-            // Handle pending status (it means the request is still being processed)
-            $this->release(self::TIME_TO_RETRY); // Release the job back to the queue to be retried after specified time
-
-            return; // Exit the method to avoid further processing
         } elseif (strtolower($status) === strtolower(JobStatus::FAILED->value)) {
             if ($this->eHealthLink->linkable_type === Approval::class) {
                 $this->eHealthLink->linkable->update(['status' => JobStatus::FAILED->value]);
@@ -184,8 +185,10 @@ class RemoteEHealthLinksProcessing extends EHealthJob
      */
     protected function getNextEntityJob(): ?EHealthJob
     {
-        return $this->standalone || !$this->nextEntity
-            ? new CompleteSync($this->legalEntity, isFirstLogin: $this->isFirstLogin)
-            : $this->nextEntity;
+        if ($this->stillPending || $this->standalone) {
+            return null;
+        }
+
+        return $this->nextEntity ?? new CompleteSync($this->legalEntity, isFirstLogin: $this->isFirstLogin);
     }
 }

@@ -49,6 +49,7 @@ class MedicationRequestIndex extends Component
 
     public function search(MedicationDispenseLifecycleService $service): void
     {
+        abort_unless($this->userCanDispense(), 403);
         $this->validate([
             'requestNumber' => 'required|string',
         ], [], [
@@ -86,6 +87,7 @@ class MedicationRequestIndex extends Component
 
     public function openDispenseSignature(): void
     {
+        abort_unless($this->userCanDispense(), 403);
         try {
             $this->validate([
                 'selectedRequestId' => 'required|string',
@@ -109,6 +111,7 @@ class MedicationRequestIndex extends Component
 
     public function sign(MedicationDispenseLifecycleService $service): void
     {
+        abort_unless($this->userCanDispense(), 403);
         try {
             $this->validate([
                 'form.knedp' => 'required|string',
@@ -125,6 +128,7 @@ class MedicationRequestIndex extends Component
             return;
         }
 
+        $this->searchResults = $service->searchByRequestNumber($this->requestNumber);
         $request = $this->selectedRequest();
         if ($request === null) {
             $this->flashOutcome('error', 'Електронний рецепт не знайдено. Повторіть пошук.');
@@ -207,5 +211,18 @@ class MedicationRequestIndex extends Component
     public function render()
     {
         return view('livewire.medication-request.medication-request-index');
+    }
+
+    private function userCanDispense(): bool
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        return $user->can('medication_dispense:write')
+            || $user->can('medication_dispense:process')
+            || $user->can('medication_request:details_pharm');
     }
 }

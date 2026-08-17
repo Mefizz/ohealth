@@ -20,12 +20,9 @@ trait ManagesCarePlanReferrals
 {
     public function initReferralForm(int $activityId, CarePlanActivityRepository $activityRepository): void
     {
-        $activity = $activityRepository->findById($activityId);
-        if (!$activity) {
-            session()->flash('error', 'Призначення не знайдено');
+        $this->authorizeCarePlanWrite();
 
-            return;
-        }
+        $activity = $this->ownedActivity($activityId);
 
         $activityStatus = strtolower(is_array($activity->status)
             ? ($activity->status['coding'][0]['code'] ?? ($activity->status['text'] ?? ''))
@@ -252,7 +249,7 @@ trait ManagesCarePlanReferrals
         // Propose to sign
         $this->showReferralDrawer = false;
 
-        $activity = \App\Models\CarePlanActivity::find($this->referralForm['activity_id']);
+        $activity = $this->ownedActivity((int) $this->referralForm['activity_id']);
         if ($activity) {
             $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
             if ($existingDraft) {
@@ -301,6 +298,10 @@ trait ManagesCarePlanReferrals
 
     public function resendReferralSms(string $requestId, string $kind): void
     {
+        $this->authorizeCarePlanWrite();
+        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->referralForPerson($requestId, (int) $this->carePlan->personId);
+
         try {
             $response = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
 
@@ -344,22 +345,15 @@ trait ManagesCarePlanReferrals
 
         $this->carePlan->loadMissing(['encounter', 'person']);
 
-        $requestRecord = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first()
-            ?? \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
 
         $kind = $requestRecord instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest
             ? 'service_request'
             : 'device_request';
 
-        if (!$requestRecord) {
-            $this->flashUserError('Документ не знайдено');
-            $this->showSignatureModal = false;
-
-            return;
-        }
-
         try {
-            $activity = \App\Models\CarePlanActivity::find($requestRecord->basedOnId);
+            $activity = $this->ownedActivity((int) $requestRecord->basedOnId);
             if (!$activity) {
                 throw new \RuntimeException('Призначення для направлення не знайдено');
             }
@@ -415,7 +409,6 @@ trait ManagesCarePlanReferrals
 
             $responseData = $eHealthResponse->getData();
             $finalResponse = app(EHealthJobResolver::class)->resolve($responseData);
-            app(EHealthJobResolver::class)->assertSuccessful($finalResponse);
 
             $dbData = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->persistAfterSignedCreate(
                 $dbData,
@@ -429,7 +422,7 @@ trait ManagesCarePlanReferrals
         } catch (EHealthValidationException $e) {
             if ($e->isDuplicateReferralError()) {
                 try {
-                    $activity = \App\Models\CarePlanActivity::find($requestRecord->basedOnId);
+                    $activity = $this->ownedActivity((int) $requestRecord->basedOnId);
                     if (!$activity) {
                         throw new \RuntimeException('Призначення для направлення не знайдено');
                     }
@@ -490,19 +483,12 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $service = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
-        $device = null;
-        if (!$service) {
-            $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
-        }
+        $record = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
+        $service = $record instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest ? $record : null;
+        $device = $service ? null : $record;
 
         $record = $service ?: $device;
-        if (!$record) {
-            $this->flashOutcome('error', 'Направлення не знайдено');
-            $this->showSignatureModal = false;
-
-            return;
-        }
 
         if (!$service) {
             $this->flashOutcome('error', __('care-plan.referral_recall_service_only'));
@@ -531,7 +517,6 @@ trait ManagesCarePlanReferrals
             ]);
 
             $finalResponse = app(EHealthJobResolver::class)->resolve($response->getData());
-            app(EHealthJobResolver::class)->assertSuccessful($finalResponse);
 
             $this->persistReferralStatusFromJob(
                 $finalResponse,
@@ -563,19 +548,12 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $service = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
-        $device = null;
-        if (!$service) {
-            $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::where('uuid', $this->referralRequestIdToSign)->first();
-        }
+        $record = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
+        $service = $record instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest ? $record : null;
+        $device = $service ? null : $record;
 
         $record = $service ?: $device;
-        if (!$record) {
-            $this->flashOutcome('error', 'Направлення не знайдено');
-            $this->showSignatureModal = false;
-
-            return;
-        }
 
         $kind = $service ? 'service_request' : 'device_request';
 
@@ -607,7 +585,6 @@ trait ManagesCarePlanReferrals
             }
 
             $finalResponse = app(EHealthJobResolver::class)->resolve($response->getData());
-            app(EHealthJobResolver::class)->assertSuccessful($finalResponse);
 
             $this->persistReferralStatusFromJob(
                 $finalResponse,
@@ -650,6 +627,11 @@ trait ManagesCarePlanReferrals
 
     public function syncReferralFromEHealth(string $requestUuid, string $kind): void
     {
+        $this->authorizeCarePlanWrite();
+
+        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->referralForPerson($requestUuid, (int) $this->carePlan->personId);
+
         $requestRecord = $kind === 'service_request'
             ? \App\Repositories\MedicalEvents\Repository::serviceRequest()->findByUuid($requestUuid)
             : \App\Repositories\MedicalEvents\Repository::deviceRequest()->findByUuid($requestUuid);
@@ -661,7 +643,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $activity = \App\Models\CarePlanActivity::find($requestRecord->basedOnId);
+            $activity = $this->ownedActivity((int) $requestRecord->basedOnId);
             if (!$activity) {
                 throw new \RuntimeException('Призначення для направлення не знайдено');
             }

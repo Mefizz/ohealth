@@ -274,6 +274,39 @@ class CarePlanApprovalServiceTest extends TestCase
         ]);
     }
 
+    public function test_resolve_async_job_stays_pending_when_is_verified_is_missing(): void
+    {
+        [$carePlan] = $this->makeCarePlanContext();
+
+        $approval = Approval::create([
+            'uuid' => '66666666-6666-6666-6666-666666666666',
+            'approvable_type' => CarePlan::class,
+            'approvable_id' => $carePlan->id,
+            'status' => 'NEW',
+        ]);
+
+        $job = EhealthJob::create([
+            'processing_method' => 'ASYNC',
+            'status' => 'PROCESSED',
+            'response_data' => [
+                'id' => '77777777-7777-7777-7777-777777777777',
+                'authentication_method_current' => ['type' => 'OTP'],
+            ],
+        ]);
+
+        $link = EhealthLink::create([
+            'linkable_type' => Approval::class,
+            'linkable_id' => $approval->id,
+            'ehealth_job_id' => $job->id,
+            'entity' => 'approval',
+            'href' => '/jobs/job-missing-verified',
+        ]);
+
+        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($link->id);
+
+        $this->assertSame(CarePlanApprovalJobOutcome::Pending, $status->outcome);
+    }
+
     private function mockAsyncCreateApi(): ApprovalApi
     {
         $response = Mockery::mock(EHealthResponse::class);

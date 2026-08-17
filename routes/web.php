@@ -222,7 +222,9 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
 
             // --- Referrals ---
             Route::prefix('referrals')->name('referrals.')->group(function () {
-                Route::get('/', \App\Livewire\Referral\ReferralIndex::class)->name('index');
+                Route::get('/', \App\Livewire\Referral\ReferralIndex::class)
+                    ->middleware('permission:service_request:read')
+                    ->name('index');
 
                 Route::prefix('api')->name('api.')->group(function () {
                     Route::get('/search', [ReferralController::class, 'search'])
@@ -242,7 +244,9 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
 
             // --- Medication Requests (ePrescriptions) ---
             Route::prefix('medication-requests')->name('medication-requests.')->group(function () {
-                Route::get('/', \App\Livewire\MedicationRequest\MedicationRequestIndex::class)->name('index');
+                Route::get('/', \App\Livewire\MedicationRequest\MedicationRequestIndex::class)
+                    ->middleware('permission:medication_dispense:write|medication_dispense:process|medication_request:details_pharm')
+                    ->name('index');
             });
 
             // --- Device Requests (Медичні Вироби) ---
@@ -300,13 +304,16 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 ->can('create', \App\Models\CarePlan::class);
             Route::get('/care-plans/{carePlan}', \App\Livewire\CarePlan\CarePlanShow::class)
                 ->whereNumber('carePlan')
+                ->can('view', 'carePlan')
                 ->name('care-plans.show');
             Route::get('/care-plans/{carePlan}/activities/{activity}', \App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow::class)
                 ->whereNumber(['carePlan', 'activity'])
                 ->scopeBindings()
+                ->can('view', 'carePlan')
                 ->name('care-plans.activities.show');
             Route::get('/care-plans/{carePlan}/edit', \App\Livewire\CarePlan\CarePlanUpdate::class)
                 ->whereNumber('carePlan')
+                ->can('update', 'carePlan')
                 ->name('care-plans.edit');
 
             Route::prefix('equipment')->name('equipment.')->group(static function () {

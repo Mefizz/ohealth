@@ -123,6 +123,8 @@ class ReferralLifecycleTest extends TestCase
             setPermissionsTeamId($legalEntity->id);
         }
 
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
+
         // 5. Create Care Plan & Referral Care Plan Activities
         $carePlan = \App\Models\CarePlan::create([
             'uuid' => (string) Str::uuid(),

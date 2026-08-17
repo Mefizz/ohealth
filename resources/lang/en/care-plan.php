@@ -182,6 +182,7 @@ return [
     'referral_complete_emz_empty' => 'No local medical records of the selected type are linked to this referral.',
     'referral_complete_invalid_emz_type' => 'Invalid medical record type. Choose an encounter, procedure, or diagnostic report.',
     'referral_complete_emz_not_linked' => 'The selected medical record does not reference this referral.',
+    'referral_complete_emz_mismatch' => 'The selected medical record does not belong to this referral\'s patient.',
     'referral_category' => [
         'procedure' => 'Procedure',
         'surgical_procedure' => 'Surgical procedure',

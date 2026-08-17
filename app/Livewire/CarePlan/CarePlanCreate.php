@@ -808,6 +808,13 @@ class CarePlanCreate extends BasePatientComponent
      */
     public function sign(CarePlanRepository $repository): void
     {
+        if (Auth::user()?->cannot('create', CarePlan::class)) {
+            $msg = __('care-plan.no_permission_create') ?? 'У вас немає прав для створення плану лікування';
+            session()->flash('error', $msg);
+
+            return;
+        }
+
         $generatedUuid = null;
         try {
             $this->form->validate($this->form->rulesForSigning());
@@ -863,26 +870,7 @@ class CarePlanCreate extends BasePatientComponent
                 'signed_data_encoding' => 'base64',
             ]);
 
-            $jobId = $response->getData()['job_id'] ?? null;
-            if (!$jobId && isset($response->getData()['links'][0]['href'])) {
-                $jobId = basename($response->getData()['links'][0]['href']);
-            }
-
-            $jobApi = EHealth::job();
-            $attempts = 0;
-            do {
-                sleep(2);
-                $finalResponse = $jobApi->getDetails($jobId)->getData();
-                $attempts++;
-            } while (($finalResponse['status'] === 'pending' || $finalResponse['status'] === 'accepted') && $attempts < 15);
-
-            if ($finalResponse['status'] !== 'processed' && $finalResponse['status'] !== 'active') {
-                $errorMsg = 'Помилка валідації від ЕСОЗ';
-                if (!empty($finalResponse['error']['invalid'])) {
-                    $errorMsg .= ': ' . json_encode(array_map(fn ($e) => $e['rules'][0]['description'] ?? $e['entry'], $finalResponse['error']['invalid']), JSON_UNESCAPED_UNICODE);
-                }
-                throw new \RuntimeException($errorMsg);
-            }
+            $finalResponse = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response->getData());
 
             $carePlanUuid = $this->carePlanUuid;
             if (!$carePlanUuid && isset($finalResponse['links']) && is_array($finalResponse['links'])) {

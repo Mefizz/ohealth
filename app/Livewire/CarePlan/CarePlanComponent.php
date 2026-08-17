@@ -269,13 +269,40 @@ abstract class CarePlanComponent extends Component
         ));
     }
 
+    public function hydrate(): void
+    {
+        if (isset($this->carePlan)) {
+            $this->authorize('view', $this->carePlan);
+        }
+    }
+
+    protected function authorizeCarePlanWrite(): void
+    {
+        $this->authorize('manage', $this->carePlan);
+    }
+
+    protected function ownedActivity(int $activityId): \App\Models\CarePlanActivity
+    {
+        $activity = $this->carePlan->activities()->whereKey($activityId)->first();
+
+        if ($activity === null) {
+            abort(404);
+        }
+
+        return $activity;
+    }
+
     protected function bootCarePlan(CarePlan $carePlan): void
     {
+        $this->authorize('view', $carePlan);
+
         $this->carePlan = $carePlan;
         $this->carePlan->load(['person', 'author.party', 'categoryConcept.coding', 'activities.kindConcept.coding']);
 
+        $personId = $this->carePlan->personId;
+
         // Fetch patient conditions for outcomeReference selection
-        $this->availableConditions = \App\Models\MedicalEvents\Sql\Condition::where('person_id', $this->carePlan->person_id)
+        $this->availableConditions = \App\Models\MedicalEvents\Sql\Condition::where('person_id', $personId)
             ->with('code.coding')->get()->map(fn ($c) => [
                 'uuid' => $c->uuid,
                 'name' => ($c->code?->text ?: null) ?? ($c->code?->coding?->first()?->code ?: null) ?? 'Unknown Condition',
@@ -283,7 +310,7 @@ abstract class CarePlanComponent extends Component
             ])->toArray();
 
         // Fetch patient diagnostic reports for justifications (grounds)
-        $this->availableReports = \App\Models\MedicalEvents\Sql\DiagnosticReport::where('person_id', $this->carePlan->person_id)
+        $this->availableReports = \App\Models\MedicalEvents\Sql\DiagnosticReport::where('person_id', $personId)
             ->get()->map(fn ($dr) => [
                 'uuid' => $dr->uuid,
                 'name' => $dr->code?->text ?: 'Diagnostic Report',
@@ -291,7 +318,7 @@ abstract class CarePlanComponent extends Component
             ])->toArray();
 
         // Fetch patient observations for justifications (grounds)
-        $this->availableObservations = \App\Models\MedicalEvents\Sql\Observation::where('person_id', $this->carePlan->person_id)
+        $this->availableObservations = \App\Models\MedicalEvents\Sql\Observation::where('person_id', $personId)
             ->get()->map(fn ($obs) => [
                 'uuid' => $obs->uuid,
                 'name' => $obs->code?->text ?: 'Observation',
@@ -531,13 +558,17 @@ abstract class CarePlanComponent extends Component
 
     public function openSignatureModal(string $actionType, ?int $activityId = null, ?string $requestUuid = null): void
     {
+        $this->authorizeCarePlanWrite();
         if ($this->guardTerminalCarePlanMutation()) {
             return;
         }
 
+        if ($activityId) {
+            $this->ownedActivity($activityId);
+        }
+
         if (in_array($actionType, ['cancel_activity', 'complete_activity'], true) && $activityId) {
-            $activity = $this->carePlan->activities()->find($activityId)
-                ?? \App\Models\CarePlanActivity::find($activityId);
+            $activity = $this->ownedActivity($activityId);
 
             if ($activity) {
                 $blockReason = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)

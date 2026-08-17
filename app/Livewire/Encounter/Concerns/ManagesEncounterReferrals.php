@@ -9,7 +9,6 @@ use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\Encounter;
-use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Services\Dictionary\ServiceProgramPicker;
 use App\Services\Dictionary\ServiceSearch;
@@ -19,6 +18,7 @@ use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 
 trait ManagesEncounterReferrals
 {
@@ -32,6 +32,7 @@ trait ManagesEncounterReferrals
     /** @var list<array{uuid: string, type: string, label: string, raw: string}> */
     public array $encounterReferralAuthMethods = [];
 
+    #[Locked]
     public ?string $encounterReferralRequestIdToSign = null;
 
     public string $encounterReferralWarningMessage = '';
@@ -216,16 +217,11 @@ trait ManagesEncounterReferrals
             return;
         }
 
-        $requestRecord = ServiceRequestRequest::query()
-            ->where('uuid', $this->encounterReferralRequestIdToSign)
-            ->first();
-
-        if ($requestRecord === null) {
-            $this->flashOutcome('error', 'Направлення не знайдено');
-            $this->showSignatureModal = false;
-
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->serviceForEncounter(
+                (string) $this->encounterReferralRequestIdToSign,
+                $encounter
+            );
 
         try {
             $validated = $this->form->validate($this->form->signingRules());
@@ -266,7 +262,6 @@ trait ManagesEncounterReferrals
             ]);
 
             $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
-            app(EHealthJobResolver::class)->assertSuccessful($finalResponse);
 
             $dbData = $lifecycle->persistAfterSignedCreate(
                 $dbData,

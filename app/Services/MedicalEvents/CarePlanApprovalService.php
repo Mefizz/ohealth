@@ -69,7 +69,7 @@ class CarePlanApprovalService
     {
         $legalEntity ??= legalEntity();
 
-        return $carePlan->legal_entity_id === $legalEntity?->id ? 'write' : 'read';
+        return (int) $carePlan->legalEntityId === (int) $legalEntity?->id ? 'write' : 'read';
     }
 
     /**
@@ -134,6 +134,12 @@ class CarePlanApprovalService
 
     public function resendSms(string $patientUuid, string $approvalId): EHealthResponse
     {
+        $key = 'care-plan-otp-resend:'.$patientUuid.':'.$approvalId;
+
+        if (!\Illuminate\Support\Facades\Cache::add($key, true, now()->addMinutes(10))) {
+            throw new \RuntimeException(__('validation.sms_already_resent'));
+        }
+
         return EHealth::approval()->resendSms($patientUuid, $approvalId);
     }
 
@@ -183,25 +189,33 @@ class CarePlanApprovalService
             $link->linkable->update(['uuid' => $realApprovalId]);
         }
 
-        $isVerified = $jobResult['response']['body']['data']['is_verified']
-            ?? $jobResult['response_data']['is_verified']
-            ?? $jobResult['data']['is_verified']
-            ?? $jobResult['is_verified']
-            ?? $jobResult['urgent']['is_verified']
-            ?? true;
+        $authMethod = $this->extractAuthMethod($jobResult);
+        $isVerified = $this->extractIsVerified($jobResult);
 
-        if (!$isVerified) {
+        if ($isVerified === true) {
             return new CarePlanApprovalJobStatusResult(
-                CarePlanApprovalJobOutcome::OtpRequired,
+                CarePlanApprovalJobOutcome::Granted,
                 $realApprovalId,
-                $this->extractAuthMethod($jobResult),
             );
         }
 
-        return new CarePlanApprovalJobStatusResult(
-            CarePlanApprovalJobOutcome::Granted,
-            $realApprovalId,
-        );
+        if ($isVerified === false) {
+            return new CarePlanApprovalJobStatusResult(
+                CarePlanApprovalJobOutcome::OtpRequired,
+                $realApprovalId,
+                $authMethod,
+            );
+        }
+
+        $authType = is_array($authMethod) ? ($authMethod['type'] ?? null) : null;
+        if (in_array($authType, ['OFFLINE', 'THIRD_PERSON'], true)) {
+            return new CarePlanApprovalJobStatusResult(
+                CarePlanApprovalJobOutcome::Granted,
+                $realApprovalId,
+            );
+        }
+
+        return new CarePlanApprovalJobStatusResult(CarePlanApprovalJobOutcome::Pending);
     }
 
     /**
@@ -301,6 +315,36 @@ class CarePlanApprovalService
             ?? null;
 
         return is_array($method) ? $method : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function extractIsVerified(array $data): ?bool
+    {
+        $candidates = [
+            $data['response']['body']['data']['is_verified'] ?? null,
+            $data['response_data']['is_verified'] ?? null,
+            $data['data']['is_verified'] ?? null,
+            $data['is_verified'] ?? null,
+            $data['urgent']['is_verified'] ?? null,
+        ];
+
+        foreach ($candidates as $value) {
+            if (is_bool($value)) {
+                return $value;
+            }
+
+            if ($value === 0 || $value === 1 || $value === '0' || $value === '1') {
+                return (bool) $value;
+            }
+
+            if ($value === 'true' || $value === 'false') {
+                return $value === 'true';
+            }
+        }
+
+        return null;
     }
 
     /**

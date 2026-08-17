@@ -256,7 +256,7 @@
                         <div class="mt-4 space-y-3">
                             @if ($ePrescriptionWarningMessage)
                                 <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:bg-gray-800 dark:text-red-400">
-                                    <span class="font-bold">Увага!</span> {!! $ePrescriptionWarningMessage !!}
+                                    <span class="font-bold">Увага!</span> {{ $ePrescriptionWarningMessage }}
                                 </div>
                             @endif
                             @if ($ePrescriptionShowRemainingQtyWarning)

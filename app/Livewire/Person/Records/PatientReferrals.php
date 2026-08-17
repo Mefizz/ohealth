@@ -116,6 +116,7 @@ class PatientReferrals extends BasePatientComponent
 
     public function openSign(string $uuid, string $kind): void
     {
+        $this->ownedReferral($uuid);
         $this->requestIdToSign = $uuid;
         $this->requestKindToSign = $kind === 'device_request' ? 'device_request' : 'service_request';
         $this->actionType = $this->requestKindToSign === 'device_request'
@@ -142,17 +143,7 @@ class PatientReferrals extends BasePatientComponent
             return;
         }
 
-        $kind = $this->requestKindToSign === 'device_request' ? 'device_request' : 'service_request';
-        $requestRecord = $kind === 'service_request'
-            ? ServiceRequestRequest::query()->where('uuid', $this->requestIdToSign)->first()
-            : DeviceRequestRequest::query()->where('uuid', $this->requestIdToSign)->first();
-
-        if ($requestRecord === null) {
-            $this->flashOutcome('error', 'Направлення не знайдено');
-            $this->showSignatureModal = false;
-
-            return;
-        }
+        $requestRecord = $this->ownedReferral((string) $this->requestIdToSign);
 
         try {
             $validated = $this->form->validate($this->form->signingRules());
@@ -217,7 +208,6 @@ class PatientReferrals extends BasePatientComponent
                 ]);
 
             $finalResponse = app(EHealthJobResolver::class)->resolve($eHealthResponse->getData());
-            app(EHealthJobResolver::class)->assertSuccessful($finalResponse);
 
             $dbData = $lifecycle->persistAfterSignedCreate(
                 $dbData,
@@ -252,6 +242,8 @@ class PatientReferrals extends BasePatientComponent
 
     public function resendSms(string $uuid, string $kind): void
     {
+        $this->ownedReferral($uuid);
+
         try {
             $response = app(ReferralRequestLifecycleService::class)->resendSms($this->uuid, $uuid, $kind);
 
@@ -280,14 +272,7 @@ class PatientReferrals extends BasePatientComponent
 
     public function loadReferralPrintoutForm(string $uuid): string
     {
-        $record = ServiceRequestRequest::query()->where('uuid', $uuid)->first()
-            ?? DeviceRequestRequest::query()->where('uuid', $uuid)->first();
-
-        if ($record === null) {
-            $this->flashOutcome('error', 'Направлення не знайдено.');
-
-            return '';
-        }
+        $record = $this->ownedReferral($uuid);
 
         $activity = $record->basedOnId ? CarePlanActivity::query()->find($record->basedOnId) : null;
         $carePlan = $activity !== null ? CarePlan::query()->find($activity->carePlanId) : null;
@@ -321,5 +306,13 @@ class PatientReferrals extends BasePatientComponent
     {
         session()->flash($type, $message);
         $this->dispatch('flashMessage', ['message' => $message, 'type' => $type]);
+    }
+
+    private function ownedReferral(string $uuid): ServiceRequestRequest|DeviceRequestRequest
+    {
+        abort_unless($this->personId !== null, 404);
+
+        return app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->referralForPerson($uuid, $this->personId);
     }
 }

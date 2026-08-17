@@ -9,12 +9,12 @@ use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\Encounter;
-use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\Person\Person;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 
 trait ManagesEncounterEPrescription
 {
@@ -28,6 +28,7 @@ trait ManagesEncounterEPrescription
     /** @var list<array{uuid: string, type: string, label: string, value: string}> */
     public array $encounterEPrescriptionAuthMethods = [];
 
+    #[Locked]
     public ?string $encounterEPrescriptionRequestIdToSign = null;
 
     public string $encounterEPrescriptionWarningMessage = '';
@@ -261,16 +262,11 @@ trait ManagesEncounterEPrescription
             return;
         }
 
-        $requestRecord = MedicationRequestRequest::query()
-            ->where('uuid', $this->encounterEPrescriptionRequestIdToSign)
-            ->first();
-
-        if ($requestRecord === null) {
-            $this->flashOutcome('error', 'Рецепт не знайдено');
-            $this->showSignatureModal = false;
-
-            return;
-        }
+        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->medicationForEncounter(
+                (string) $this->encounterEPrescriptionRequestIdToSign,
+                $encounter
+            );
 
         try {
             $validated = $this->form->validate($this->form->signingRules());

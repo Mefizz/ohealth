@@ -64,6 +64,8 @@ class CarePlanApprovals extends Component
 
     public function mount(LegalEntity $legalEntity, CarePlan $carePlan): void
     {
+        $this->authorize('view', $carePlan);
+
         $this->carePlanId = $carePlan->id;
         $this->carePlanUuid = $carePlan->uuid ?? '';
         $this->patientUuid = $carePlan->person?->uuid ?? '';
@@ -139,6 +141,7 @@ class CarePlanApprovals extends Component
         ]);
 
         $carePlan = CarePlan::findOrFail($this->carePlanId);
+        $this->authorize('manage', $carePlan);
         $this->isReadOnly = CarePlanStatus::fromStored($carePlan->status)->isTerminal();
 
         if ($this->isReadOnly) {
@@ -354,7 +357,7 @@ class CarePlanApprovals extends Component
             \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to verify: ' . $e->getMessage());
 
             if ($e->getCode() === 404 || str_contains($e->getMessage(), '404')) {
-                \App\Models\MedicalEvents\Sql\Approval::where('uuid', $this->approvalId)->delete();
+                $this->approvalsOfCurrentPlan()->where('uuid', $this->approvalId)->delete();
                 \Illuminate\Support\Facades\Session::flash('error', __('care-plan.approval_expired_404') ?? 'Цей запит на дозвіл прострочено або не знайдено в ЕСОЗ. Його скасовано. Будь ласка, використайте кнопку "Запросити новий".');
                 $this->closeAuthModal();
                 $this->fetchApprovals();
@@ -386,7 +389,7 @@ class CarePlanApprovals extends Component
             \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
 
             if ($e->getCode() === 404 || str_contains($e->getMessage(), '404')) {
-                \App\Models\MedicalEvents\Sql\Approval::where('uuid', $this->approvalId)->delete();
+                $this->approvalsOfCurrentPlan()->where('uuid', $this->approvalId)->delete();
                 \Illuminate\Support\Facades\Session::flash('error', __('care-plan.approval_expired_404') ?? 'Цей запит на дозвіл прострочено або не знайдено в ЕСОЗ. Його скасовано. Будь ласка, використайте кнопку "Запросити новий".');
                 $this->closeAuthModal();
                 $this->fetchApprovals();
@@ -394,6 +397,8 @@ class CarePlanApprovals extends Component
                 return;
             }
             \Illuminate\Support\Facades\Session::flash('error', __('care-plan.sms_resend_error'));
+        } catch (\RuntimeException $e) {
+            \Illuminate\Support\Facades\Session::flash('error', $e->getMessage());
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
             \Illuminate\Support\Facades\Session::flash('error', __('care-plan.sms_resend_error'));
@@ -405,6 +410,10 @@ class CarePlanApprovals extends Component
         if ($this->guardReadOnlyApprovals()) {
             return;
         }
+
+        $this->authorize('manage', $this->currentCarePlan());
+        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            ->approvalForCarePlan($this->currentCarePlan(), $approvalUuid);
 
         try {
             EHealth::approval()->verify($this->patientUuid, $approvalUuid, [
@@ -421,6 +430,16 @@ class CarePlanApprovals extends Component
     public function render()
     {
         return view('livewire.care-plan.care-plan-approvals');
+    }
+
+    private function currentCarePlan(): CarePlan
+    {
+        return CarePlan::query()->findOrFail($this->carePlanId);
+    }
+
+    private function approvalsOfCurrentPlan()
+    {
+        return $this->currentCarePlan()->approvals();
     }
 
     private function guardReadOnlyApprovals(): bool

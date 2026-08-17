@@ -159,11 +159,9 @@ trait CarePlanManager
         try {
             $payloadForSign = $this->buildCarePlanStatusChangePayload($statusReasonCodeableConcept);
 
-            Log::info('CarePlanShow: Original JSON payload for signing: ' . json_encode(
-                Arr::toSnakeCase($payloadForSign),
-                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT
-            ), [
+            Log::info('CarePlanShow: signing care-plan status change', [
                 'actionType' => $this->actionType,
+                'care_plan_id' => $this->carePlan->id,
             ]);
 
             $signedContent = signatureService()->signData(
@@ -622,13 +620,6 @@ trait CarePlanManager
                     'diffs' => $debugContext['diffs_excluding_status_reason'],
                 ]
             );
-            Log::info('CarePlanActivityStatus cancel debug original payload: ' . json_encode($debugContext['original_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            Log::info('CarePlanActivityStatus cancel debug signed payload: ' . json_encode($debugContext['signed_snake'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-
-            Log::info('CarePlanActivityStatus: Original JSON payload for signing: ' . json_encode(
-                Arr::toSnakeCase($payloadForSign),
-                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT
-            ));
         }
 
         try {

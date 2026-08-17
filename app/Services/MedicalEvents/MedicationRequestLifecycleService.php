@@ -266,9 +266,9 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         string $informWith = '',
         float $remainingQty = 0.0
     ): array {
-        $signedContent = $formData['signed_medication_request_request'] ?? ($formData['signed_content'] ?? ($formData['signed_data'] ?? null));
+        $signedContent = null;
 
-        if (empty($signedContent) && isset($formData['password'], $formData['knedp'])) {
+        if (isset($formData['password'], $formData['knedp'])) {
             $signPayload = $this->buildSignPayload($contextModel, $requestRecord, $informWith);
 
             $signedContent = signatureService()->signData(
@@ -278,6 +278,8 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
                 $formData['keyContainerUpload'] ?? null,
                 $this->resolveSignerTaxId($formData)
             );
+        } else {
+            $signedContent = $formData['signed_medication_request_request'] ?? ($formData['signed_content'] ?? ($formData['signed_data'] ?? null));
         }
 
         $payload = [
@@ -338,11 +340,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         string $statusReason = ''
     ): array {
         if (MedicationRequestStatus::resolve((string) $requestRecord->status)?->isUnsigned()) {
-            try {
-                MedicationRequest::rejectUnsignedMedicationRequest((string) $requestRecord->uuid, []);
-            } catch (\Exception $e) {
-                Log::warning('eHealth reject draft returned exception: ' . $e->getMessage());
-            }
+            MedicationRequest::rejectUnsignedMedicationRequest((string) $requestRecord->uuid, []);
 
             $requestRecord->update(['status' => MedicationRequestStatus::REJECTED->value]);
 

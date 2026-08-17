@@ -134,6 +134,8 @@ class MedicationRequestLifecycleTest extends TestCase
             setPermissionsTeamId($legalEntity->id);
         }
 
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
+
         // 5. Create Care Plan & Medication Care Plan Activity
         $carePlan = \App\Models\CarePlan::create([
             'uuid' => (string) Str::uuid(),

@@ -20,9 +20,9 @@ use Illuminate\Support\Facades\Log;
  */
 class EHealthJobResolver
 {
-    private const array PENDING_STATUSES = ['pending', 'processing'];
+    private const array PENDING_STATUSES = ['pending', 'processing', 'accepted', 'queued'];
 
-    private const array FAILED_STATUSES = ['error', 'failed'];
+    private const array SUCCESS_STATUSES = ['processed', 'completed', 'success', 'active'];
 
     /**
      * Poll a job to completion.
@@ -38,6 +38,11 @@ class EHealthJobResolver
     public function resolve(array $responseData, ?int $maxAttempts = null, ?int $intervalSeconds = null): array
     {
         $jobHref = $responseData['links'][0]['href'] ?? null;
+
+        if ((!is_string($jobHref) || !str_contains($jobHref, '/jobs/')) && isset($responseData['job_id']) && is_string($responseData['job_id']) && $responseData['job_id'] !== '') {
+            $jobHref = '/api/jobs/'.$responseData['job_id'];
+            $responseData['links'][0]['href'] = $jobHref;
+        }
 
         if (!is_string($jobHref) || !str_contains($jobHref, '/jobs/')) {
             return $responseData;
@@ -93,7 +98,7 @@ class EHealthJobResolver
     {
         $status = strtolower((string) ($finalResponse['status'] ?? ''));
 
-        if (!in_array($status, self::FAILED_STATUSES, true)) {
+        if (in_array($status, self::SUCCESS_STATUSES, true)) {
             return;
         }
 

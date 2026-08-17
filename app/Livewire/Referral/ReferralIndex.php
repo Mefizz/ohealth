@@ -49,6 +49,7 @@ class ReferralIndex extends Component
 
     public function search()
     {
+        abort_unless(auth()->user()?->can('service_request:read'), 403);
         $this->validate([
             'requisition' => 'required|string',
         ]);
@@ -78,6 +79,7 @@ class ReferralIndex extends Component
 
     public function process(string $uuid, string $patientUuid, ReferralRequestLifecycleService $service)
     {
+        abort_unless(auth()->user()?->can('service_request:makeinprogress'), 403);
         try {
             $employee = auth()->user()->employees()->where('legal_entity_id', $this->legalEntity->id)->first();
 
@@ -108,6 +110,7 @@ class ReferralIndex extends Component
 
     public function confirmCancelUsage(ReferralRequestLifecycleService $service)
     {
+        abort_unless(auth()->user()?->can('service_request:use'), 403);
         $uuid = $this->referralToCancel;
 
         if (empty($uuid)) {
@@ -194,6 +197,7 @@ class ReferralIndex extends Component
 
     public function confirmComplete(ReferralRequestLifecycleService $service)
     {
+        abort_unless(auth()->user()?->can('service_request:complete'), 403);
         $uuid = $this->referralToComplete;
         $resourceUuid = $this->selectedEmzUuid;
         $resourceType = $this->selectedEmzType;

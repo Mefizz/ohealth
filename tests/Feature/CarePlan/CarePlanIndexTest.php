@@ -326,6 +326,8 @@ class CarePlanIndexTest extends TestCase
             setPermissionsTeamId($legalEntity->id);
         }
 
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
+
         return [
             'legalEntity' => $legalEntity,
             'user' => $user,

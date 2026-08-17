@@ -92,6 +92,8 @@ class ReferralExecutorPhase4Test extends TestCase
         ]);
         $this->user->employees()->attach($this->employee->id);
 
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
+
         $this->person = Person::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Олена',
@@ -211,6 +213,23 @@ class ReferralExecutorPhase4Test extends TestCase
         $referralUuid = (string) Str::uuid();
         $encounterUuid = (string) Str::uuid();
 
+        $codingId = \App\Models\MedicalEvents\Sql\Coding::create([
+            'code' => 'AMB',
+            'system' => 'eHealth/encounter_classes',
+        ])->id;
+        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+        $episodeId = Identifier::create(['value' => (string) Str::uuid()])->id;
+
+        Encounter::create([
+            'uuid' => $encounterUuid,
+            'person_id' => $this->person->id,
+            'status' => 'finished',
+            'episode_id' => $episodeId,
+            'class_id' => $codingId,
+            'type_id' => $ccId,
+            'ehealth_inserted_at' => now(),
+        ]);
+
         $mockApi = Mockery::mock('alias:'.ServiceRequestApi::class);
         $mockApi->shouldReceive('complete')
             ->once()
@@ -224,6 +243,53 @@ class ReferralExecutorPhase4Test extends TestCase
         $result = $service->completeReferral($referralUuid, $encounterUuid, 'encounter');
 
         $this->assertSame('completed', $result['status']);
+    }
+
+    public function test_complete_referral_rejects_another_patients_encounter(): void
+    {
+        $referralUuid = (string) Str::uuid();
+        $encounterUuid = (string) Str::uuid();
+
+        $stranger = Person::create([
+            'uuid' => (string) Str::uuid(),
+            'first_name' => 'Other',
+            'last_name' => 'Patient',
+            'birth_date' => '1992-01-01',
+            'gender' => 'FEMALE',
+            'patient_signed' => true,
+            'process_disclosure_data_consent' => true,
+        ]);
+
+        ServiceRequestRequest::create([
+            'uuid' => $referralUuid,
+            'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id,
+            'status' => 'in_progress',
+            'service_id' => '37003-00',
+            'intent' => 'order',
+        ]);
+
+        $codingId = \App\Models\MedicalEvents\Sql\Coding::create([
+            'code' => 'AMB',
+            'system' => 'eHealth/encounter_classes',
+        ])->id;
+        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+        $episodeId = Identifier::create(['value' => (string) Str::uuid()])->id;
+
+        Encounter::create([
+            'uuid' => $encounterUuid,
+            'person_id' => $stranger->id,
+            'status' => 'finished',
+            'episode_id' => $episodeId,
+            'class_id' => $codingId,
+            'type_id' => $ccId,
+            'ehealth_inserted_at' => now(),
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(__('care-plan.referral_complete_emz_mismatch'));
+
+        app(ReferralRequestLifecycleService::class)->completeReferral($referralUuid, $encounterUuid, 'encounter');
     }
 
     public function test_referral_index_complete_requires_linked_encounter(): void

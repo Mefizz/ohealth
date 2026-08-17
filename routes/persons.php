@@ -120,7 +120,9 @@ Route::prefix('persons')->group(static function () {
         Route::get('/{person}/encounter/{encounterId}', EncounterEdit::class)->name('edit');
     });
 
-    Route::get('/{personId}/care-plan/create', CarePlanCreate::class)->name('care-plan.create');
+    Route::get('/{personId}/care-plan/create', CarePlanCreate::class)
+        ->can('create', \App\Models\CarePlan::class)
+        ->name('care-plan.create');
 
     Route::whereNumber('person')->group(static function () {
         Route::get('{person}/diagnostic-report/create', DiagnosticReportCreate::class)

@@ -12,6 +12,7 @@ return [
         'mis_api_key' => env('EHEALTH_MIS_API_KEY', ''),
         'mis_token' => env('EHEALTH_MIS_TOKEN'),
         'mis_id' => env('EHEALTH_MIS_ID'),
+        'mis_edrpou' => env('EHEALTH_MIS_EDRPOU'),
         'callback_prod' => env('EHEALTH_CALLBACK_PROD', true),
         'auth_host' => env('EHEALTH_AUTH_HOST', 'https://auth-preprod.ehealth.gov.ua'),
         'redirect_uri' => env('EHEALTH_REDIRECT_URI', 'https://openhealths.com/ehealth/oauth'),
@@ -77,6 +78,14 @@ return [
 
     'capitation_contract_max_period_days' => 366,
 
+    /*
+     * Employee types that may enter position as free text instead of POSITION dictionary codes.
+     * Matches ESOZ EMPLOYEE_TYPE_CUSTOM_POSITION_ALLOWED.
+     */
+    'employee_type_custom_position_allowed' => ['ADMIN', 'HR', 'RECEPTIONIST'],
+
+    'reimbursement_contract_max_period_day' => env('EHEALTH_REIMBURSEMENT_CONTRACT_MAX_PERIOD_DAY', 1096),
+
     'rate_limit' => [
         'employee_request' => 29,
         'division_request' => 50,
@@ -93,8 +102,27 @@ return [
         'party_request' => 30,
         'declaration' => 10,
         'declaration_request' => 20,
-        'legal_entity_legators' => 2
+        'legal_entity_legators' => 2,
+        'person_authentication_method' => 20,
+        'remote_job' => 1399
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Asynchronous job polling
+    |--------------------------------------------------------------------------
+    |
+    | eHealth answers write requests with a job link that has to be polled until
+    | it reaches a final state. Polling blocks the request, so max_attempts *
+    | interval_seconds is the worst-case time a user waits before the operation
+    | is reported as unresolved.
+    |
+    */
+    'jobs' => [
+        'max_attempts' => env('EHEALTH_JOB_MAX_ATTEMPTS', 15),
+        'interval_seconds' => env('EHEALTH_JOB_INTERVAL_SECONDS', 2),
+    ],
+
     'employee_type' => [
         'OWNER' => [
             'position' => [
@@ -115,6 +143,7 @@ return [
             'education_degree' => ['EXPERT', 'MASTER', 'BACHELOR', 'JUNIOR_EXPERT'],
             'qualification_type' => ['REATTESTATION', 'SPECIALIZATION', 'STAZHUVANNYA', 'POSTGRADUATE'],
             'speciality_level' => ['FIRST', 'SECOND', 'HIGHEST', 'NOT_APPLICABLE'],
+            'speciality_qualification_type' => ['AWARDING', 'DEFENSE'],
         ],
         'ADMIN' => [
             'position' => [
@@ -387,13 +416,21 @@ return [
         'INPATIENT' => ['patient_identity', 'discharge', 'service_delivery_location', 'intervention', 'concilium'],
         'PHC' => ['service_delivery_location', 'virtual', 'home', 'field', 'intervention']
     ],
-    // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/583402009/Medical+Events+Dictionaries+and+configurations#legal_entity_%3CLEGAL_ENTITY_TYPE%3E_episode_types
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/17571709115/REST+API+Submit+Encounter+Package+API-007-026-0003#Validate-observations-for-encounter.type-%3D%3D-%22patient_identity%22
+    'preperson_required_observation_codes' => ['8302-2', '46098-0'],
+    'preperson_allowed_observation_codes' => [
+        '8302-2', '46098-0', '29463-7', 'stature', 'eye_colour', 'hair_color', 'hair_length', 'beard', 'mustache',
+        'clothes', 'peculiarity'
+    ],
+
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20213956636/DRAFT+Config+params+Legal+Entity+ENT-035
     'legal_entity_episode_types' => [
         'OUTPATIENT' => ['TREATMENT', 'PREVENTION', 'PALLIATIVE_CARE', 'DG', 'REHAB', 'CONDITIONING'],
         'PRIMARY_CARE' => ['TREATMENT', 'PREVENTION', 'PALLIATIVE_CARE', 'PHC'],
         'MSP' => ['TREATMENT', 'PHC', 'PREVENTION', 'PALLIATIVE_CARE'],
-        'MSP_PHARMACY' => ['TREATMENT', 'PREVENTION', 'PALLIATIVE_CARE']
+        'MSP_PHARMACY' => ['TREATMENT', 'PHC', 'PREVENTION', 'PALLIATIVE_CARE']
     ],
+
     // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/583402009/Medical+Events+Dictionaries+and+configurations#episode_type_%3CeHealth%2Fepisode_types%3E_encounter_classes--dynamic-configuration-for-episode-types
     'episode_type_encounter_classes' => [
         'TREATMENT' => ['AMD', 'PHC', 'INPATIENT'],
@@ -404,33 +441,65 @@ return [
         'PHC' => ['PHC'],
         'CONDITIONING' => ['INPATIENT']
     ],
-    // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/583402009/Medical+Events+Dictionaries+and+configurations#employee_%3CEMPLOYEE_TYPE%3E_episode_types
+
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20217659393/DRAFT+Config+params+Episode+of+Care+ENT-027
     'employee_episode_types' => [
         'SPECIALIST' => ['TREATMENT', 'PREVENTION', 'PALLIATIVE_CARE', 'DG', 'REHAB', 'CONDITIONING'],
         'DOCTOR' => ['TREATMENT', 'PREVENTION', 'PALLIATIVE_CARE', 'PHC'],
-        'ASSISTANT' => ['TREATMENT'],
+        'ASSISTANT' => ['PREVENTION'],
         'MED_COORDINATOR' => ['TREATMENT', 'DG']
     ],
+    'allowed_episode_care_manager_employee_types' => ['DOCTOR', 'SPECIALIST', 'ASSISTANT', 'MED_COORDINATOR'],
+    'allow_other_le_employees_to_manage_episode' => env('EHEALTH_ALLOW_OTHER_LE_EMPLOYEES_TO_MANAGE_EPISODE', false),
+
     // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/17999298851/RC_+CSI-1323+_Create+Update+person+request+v2#Validate-person-documents
     'expiration_date_exists' => [
         'NATIONAL_ID', 'COMPLEMENTARY_PROTECTION_CERTIFICATE', 'PERMANENT_RESIDENCE_PERMIT', 'REFUGEE_CERTIFICATE',
         'TEMPORARY_CERTIFICATE', 'TEMPORARY_PASSPORT'
     ],
+    // PERSON_DOCUMENTS_USE_SPECIFIC_EXPIRATION_DATE / PERSON_DOCUMENTS_SPECIFIC_EXPIRATION_DATE — when enabled,
+    // a document expiration_date must be later than the specific date instead of just being in the future
+    'person_documents_use_specific_expiration_date' => true,
+    'person_documents_specific_expiration_date' => null,
     // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/17999299028/Person+documents+configurable+parameters#Person-documents-configurable-parameters
     'self_auth_age_document_types' => [
-        'COMPLEMENTARY_PROTECTION_CERTIFICATE', 'NATIONAL_ID', 'PASSPORT', 'PERMANENT_RESIDENCE_PERMIT',
-        'REFUGEE_CERTIFICATE', 'TEMPORARY_CERTIFICATE', 'TEMPORARY_PASSPORT'
+        'COMPLEMENTARY_PROTECTION_CERTIFICATE', 'FOREIGN_DOCUMENT_OTHER', 'FOREIGN_PASSPORT', 'NATIONAL_ID',
+        'NO_CITIZENSHIP_CERTIFICATE', 'PASSPORT', 'PERMANENT_RESIDENCE_PERMIT', 'REFUGEE_CERTIFICATE',
+        'TEMPORARY_CERTIFICATE', 'TEMPORARY_PASSPORT'
+    ],
+    'no_self_auth_age_document_types' => [
+        'BIRTH_CERTIFICATE', 'BIRTH_CERTIFICATE_FOREIGN', 'FOREIGN_PASSPORT', 'FOREIGN_DOCUMENT_OTHER'
     ],
     'person_legal_capacity_document_types' => [
         'DIVORCE_CERTIFICATE', 'MARRIAGE_CERTIFICATE', 'STATE_REGISTER_EXTRACT', 'COURT_DECISION_LEGAL_CAPACITY',
         'COURT_DECISION_DIVORCE', 'GUARDIANSHIP_DECISION_LEGAL_CAPACITY', 'LEGAL_CAPACITY_DOCUMENT'
     ],
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/19725978326/RCC_FOREIGN+Foreigners+registration+Charts+Configuration+Parameters_EN#Charts-configuration-parameters
     'person_registration_document_types' => [
         'BIRTH_CERTIFICATE', 'BIRTH_CERTIFICATE_FOREIGN', 'COMPLEMENTARY_PROTECTION_CERTIFICATE', 'NATIONAL_ID',
-        'PASSPORT', 'PERMANENT_RESIDENCE_PERMIT', 'REFUGEE_CERTIFICATE', 'TEMPORARY_CERTIFICATE', 'TEMPORARY_PASSPORT'
+        'PASSPORT', 'PERMANENT_RESIDENCE_PERMIT', 'REFUGEE_CERTIFICATE', 'TEMPORARY_CERTIFICATE', 'TEMPORARY_PASSPORT',
+        'FOREIGN_PASSPORT', 'NO_CITIZENSHIP_CERTIFICATE', 'FOREIGN_DOCUMENT_OTHER'
+    ],
+    'document_types_issuing_country_ua_only' => [
+        'BIRTH_CERTIFICATE', 'COMPLEMENTARY_PROTECTION_CERTIFICATE', 'NATIONAL_ID', 'PASSPORT',
+        'PERMANENT_RESIDENCE_PERMIT', 'REFUGEE_CERTIFICATE', 'TEMPORARY_PASSPORT', 'TEMPORARY_CERTIFICATE'
+    ],
+    'document_types_issuing_country_not_ua' => [
+        'FOREIGN_PASSPORT', 'FOREIGN_DOCUMENT_OTHER', 'BIRTH_CERTIFICATE_FOREIGN'
+    ],
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20214317118/DRAFT+Config+params+Person+ENT-050#IDENTITY_DOCUMENT_TYPES_FOREIGN
+    'identity_document_types_foreign' => ['FOREIGN_PASSPORT', 'NO_CITIZENSHIP_CERTIFICATE', 'FOREIGN_DOCUMENT_OTHER'],
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20214317118/DRAFT+Config+params+Person+ENT-050#VALIDATE_PERSON_TAX_ID_UNIQUENESS
+    'validate_person_tax_id_uniqueness' => true,
+    'third_person_limit' => 150,
+    'employee_identity_document_types' => [
+        // EMPLOYEE_IDENTITY_DOCUMENT_TYPES — chart parameter, API-005-024-0001 §9 Validate request (Logic)
+        // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/17570365551/DRAFT+REST+API+Create+Employee+Request+v2+API-005-024-0001
+        'COMPLEMENTARY_PROTECTION_CERTIFICATE', 'NATIONAL_ID', 'PASSPORT', 'PERMANENT_RESIDENCE_PERMIT', 'REFUGEE_CERTIFICATE',
+        'TEMPORARY_CERTIFICATE', 'TEMPORARY_PASSPORT',
     ],
 
-    // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/17088643146/Configurations+for+Healthcare+services
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20305346763/DRAFT+Config+params+Healthcare+Service+ENT-032
     'healthcare_service_legal_entities_allowed_types' => ['PRIMARY_CARE', 'OUTPATIENT', 'EMERGENCY', 'PHARMACY'],
     'healthcare_service_primary_care_categories' => ['MSP'],
     'healthcare_service_outpatient_categories' => ['MSP', 'PHARMACY_DRUGS'],
@@ -439,10 +508,25 @@ return [
     'healthcare_service_pharmacy_license_type' => 'PHARMACY',
     'healthcare_service_pharmacy_drugs_license_type' => 'PHARMACY_DRUGS',
     'healthcare_service_speciality_type_field_required_for_categories' => ['MSP'],
+    'healthcare_service_providing_condition_field_required_for_categories' => ['MSP'],
     'healthcare_service_type_field_required_for_categories' => ['PHARMACY_DRUGS'],
+
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20213956636/DRAFT+Config+params+Legal+Entity+ENT-035
     'legal_entity_primary_care_providing_conditions' => ['OUTPATIENT'],
     'legal_entity_outpatient_providing_conditions' => ['INPATIENT', 'OUTPATIENT', 'FIELD'],
     'legal_entity_emergency_providing_conditions' => ['FIELD'],
+
+    // Additional license types allowed per legal entity type (LEGAL_ENTITY_<LEGAL_ENTITY_TYPE>_ADDITIONAL_LICENSE_TYPES)
+    // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/17092870145/Legal+Entities+configurable+parameters
+    'legal_entity_outpatient_additional_license_types' => ['PHARMACY_DRUGS'],
+    'legal_entity_pharmacy_additional_license_types' => ['PHARMACY_DRUGS'],
+
+    // TBD: values are not published yet.
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/20233683284/DRAFT+Config+params+Preperson+ENT-057#PREPERSON_HEALTHCARE_SERVICES_SPECIALITY_TYPES
+    'preperson_healthcare_services_speciality_types' => [],
+
+    // https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/17570234464/DRAFT+REST+API+Create+Declaration+Request+V3+API-005-014-0001#Validate-Legal-Entity-Type
+    'declaration_request_legal_entity_types' => ['MSP', 'PRIMARY_CARE', 'MSP_PHARMACY', 'MSP_LIMITED'],
 
     // https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/18504778043/NEW+Equipment+dictionaries+and+configurable+parameters+OMB-126
     'equipment_types_with_required_serial_number' => ['Z1203010502'],

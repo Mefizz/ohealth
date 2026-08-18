@@ -4,17 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\Procedure;
 
-use App\Classes\eHealth\EHealth;
 use App\Models\MedicalEvents\Sql\Procedure;
-use App\Core\Arr;
 use App\Repositories\MedicalEvents\Repository;
 use App\Traits\EnsuresEntityExists;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Validation\ValidationException;
-use App\Exceptions\EHealth\EHealthConnectionException;
-use App\Exceptions\EHealth\EHealthException;
 use Throwable;
 
 class ProcedureCreate extends ProcedureComponent
@@ -27,37 +22,21 @@ class ProcedureCreate extends ProcedureComponent
      * @param  array  $data
      * @return void
      */
-    public function save(array $data): void
+    public function save(array $procedureData): void
     {
         if (Auth::user()->cannot('create', Procedure::class)) {
-            Session::flash('error', 'У вас немає дозволу на створення процедури.');
+            Session::flash('error', __('patients.policy.create_procedure'));
 
             return;
         }
 
-        $this->form->procedures = $data;
-
-        try {
-            $validated = $this->form->validate();
-        } catch (ValidationException $exception) {
-            Session::flash('error', $exception->validator->errors()->first());
-            $this->setErrorBag($exception->validator->getMessageBag());
+        if (!Auth::user()->getProcedureWriterEmployee()) {
+            Session::flash('error', __('patients.messages.procedure_writer_employee_not_found'));
 
             return;
         }
 
-        $formattedData = Repository::procedure()->formatEHealthRequest($validated['procedures']);
-
-        try {
-            $this->storeValidatedData($formattedData);
-        } catch (Throwable $exception) {
-            $this->handleDatabaseErrors($exception, 'Error saving procedure');
-
-            return;
-        }
-
-        Session::flash('success', 'Чернетку на створення процедури успішно збережено.');
-        $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
+        parent::save($procedureData);
     }
 
     /**
@@ -66,54 +45,37 @@ class ProcedureCreate extends ProcedureComponent
      * @param  array  $data
      * @return void
      */
-    public function sign(array $data): void
+    public function sign(): void
     {
         if (Auth::user()->cannot('create', Procedure::class)) {
-            Session::flash('error', 'У вас немає дозволу на створення процедури.');
+            Session::flash('error', __('patients.policy.create_procedure'));
 
             return;
         }
 
-        $this->form->procedures = $data;
-
-        try {
-            $validated = $this->form->validate();
-            $validatedCipher = $this->form->validate($this->form->rulesForSigning());
-        } catch (ValidationException $exception) {
-            Session::flash('error', $exception->validator->errors()->first());
-            $this->setErrorBag($exception->validator->getMessageBag());
+        if (!Auth::user()->getProcedureWriterEmployee()) {
+            Session::flash('error', __('patients.messages.procedure_writer_employee_not_found'));
 
             return;
         }
 
-        $formattedData = Repository::procedure()->formatEHealthRequest($validated['procedures']);
+        parent::sign();
+    }
 
-        try {
-            $this->storeValidatedData($formattedData);
-        } catch (Throwable $exception) {
-            $this->handleDatabaseErrors($exception, 'Error saving procedure');
+    /**
+     * Prepared Procedure data in the local database.
+     *
+     * @param  array  $formattedData
+     * @return int
+     * @throws Throwable
+     */
+    protected function persist(array $formattedData): int
+    {
+        return DB::transaction(function () use ($formattedData) {
+            $this->processReasonReferences($formattedData);
 
-            return;
-        }
-
-        $signedContent = signatureService()->signData(
-            Arr::toSnakeCase($formattedData),
-            $validatedCipher['password'],
-            $validatedCipher['knedp'],
-            $validatedCipher['keyContainerUpload'],
-            Auth::user()->party->taxId
-        );
-
-        try {
-            EHealth::procedure()->create($this->patientUuid, ['signed_data' => $signedContent]);
-
-            Session::flash('success', 'Заявку на створення процедури успішно відправлено.');
-            $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
-        } catch (EHealthException|EHealthConnectionException $exception) {
-            $exception->handle('Error when creating a procedure');
-
-            return;
-        }
+            return Repository::procedure()->store([$formattedData], $this->patient());
+        });
     }
 
     /**
@@ -126,7 +88,7 @@ class ProcedureCreate extends ProcedureComponent
     protected function storeValidatedData(array $formattedData): void
     {
         DB::transaction(function () use ($formattedData) {
-            Repository::procedure()->store([$formattedData], $this->personId);
+            Repository::procedure()->store([$formattedData], $this->patient());
 
             $this->processReasonReferences($formattedData);
         });

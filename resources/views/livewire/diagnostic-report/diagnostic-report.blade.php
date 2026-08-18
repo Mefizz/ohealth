@@ -1,3 +1,7 @@
+@php
+    $isReadonly = $isReadonly ?? ($this->isReadonly ?? false);
+    $isDraft = data_get($this->form->diagnosticReport, 'status') === \App\Enums\Person\DiagnosticReportStatus::DRAFT->value;
+@endphp
 <section class="section-form">
     <x-header-navigation class="breadcrumb-form">
         <x-slot name="title">
@@ -5,42 +9,147 @@
         </x-slot>
     </x-header-navigation>
 
-    <form class="form"
-          x-data="{
-              modalDiagnosticReport: Object.assign(new DiagnosticReport(), @js($this->form->diagnosticReport ?: ['primarySource' => true])),
-              diagnosticReportCategoriesDictionary: $wire.dictionaries['eHealth/diagnostic_report_categories'],
-              servicesDictionary: $wire.dictionaries['custom/services'],
-              showSignatureModal: false
-          }"
+    <form
+        class="form"
+        x-data="{
+            modalDiagnosticReport: new DiagnosticReport(@js($this->form->diagnosticReport)),
+            equipmentOptions: @js($equipmentOptions),
+            diagnosticReportEmployees: @js($employees),
+            diagnosticReportCategoriesDictionary: $wire.dictionaries['eHealth/diagnostic_report_categories'],
+            servicesDictionary: $wire.dictionaries['custom/services'],
+            showSignatureModal: false,
+
+            addUsedReference() {
+                this.modalDiagnosticReport.usedReferences.push({
+                    id: ''
+                });
+            },
+
+            removeUsedReference(index) {
+                this.modalDiagnosticReport.usedReferences.splice(index, 1);
+            },
+            
+            setEffectiveType(type) {
+                const now = new Date();
+
+                const startTime = new Date(
+                    now.getTime() - 15 * 60 * 1000
+                );
+
+                const toFormattedDate = (date) => {
+                    const [yyyy, mm, dd] = date
+                        .toISOString()
+                        .split('T')[0]
+                        .split('-');
+
+                    return `${dd}.${mm}.${yyyy}`;
+                };
+
+                const timeOptions = {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                };
+
+                this.modalDiagnosticReport.effectiveType = type;
+
+                if (type === 'date_time') {
+                    this.modalDiagnosticReport.effectiveDate =
+                        this.modalDiagnosticReport.issuedDate
+                        || toFormattedDate(now);
+
+                    this.modalDiagnosticReport.effectiveTime =
+                        this.modalDiagnosticReport.issuedTime
+                        || now.toLocaleTimeString(
+                            'uk-UA',
+                            timeOptions
+                        );
+
+                    this.modalDiagnosticReport.effectivePeriodStartDate = '';
+                    this.modalDiagnosticReport.effectivePeriodStartTime = '';
+                    this.modalDiagnosticReport.effectivePeriodEndDate = '';
+                    this.modalDiagnosticReport.effectivePeriodEndTime = '';
+
+                    return;
+                }
+
+                if (type === 'period') {
+                    this.modalDiagnosticReport.effectiveDate = '';
+                    this.modalDiagnosticReport.effectiveTime = '';
+
+                    this.modalDiagnosticReport.effectivePeriodStartDate =
+                        toFormattedDate(startTime);
+
+                    this.modalDiagnosticReport.effectivePeriodStartTime =
+                        startTime.toLocaleTimeString(
+                            'uk-UA',
+                            timeOptions
+                        );
+
+                    this.modalDiagnosticReport.effectivePeriodEndDate =
+                        toFormattedDate(now);
+
+                    this.modalDiagnosticReport.effectivePeriodEndTime =
+                        now.toLocaleTimeString(
+                            'uk-UA',
+                            timeOptions
+                        );
+
+                    return;
+                }
+
+                this.modalDiagnosticReport.effectiveDate = '';
+                this.modalDiagnosticReport.effectiveTime = '';
+                this.modalDiagnosticReport.effectivePeriodStartDate = '';
+                this.modalDiagnosticReport.effectivePeriodStartTime = '';
+                this.modalDiagnosticReport.effectivePeriodEndDate = '';
+                this.modalDiagnosticReport.effectivePeriodEndTime = '';
+            }
+        }"
     >
 
-        @include('livewire.encounter.diagnostic-report-parts.main-information', ['context' => 'diagnostic-report'])
-        @include('livewire.encounter.diagnostic-report-parts.additional-information', ['context' => 'diagnostic-report'])
-        @include('livewire.encounter.parts.observations')
+        <fieldset @disabled($isReadonly) @class(['pointer-events-none opacity-80' => $isReadonly])>
+            @include('livewire.encounter.diagnostic-report-parts.main-information', ['context' => 'diagnostic-report'])
+            @include('livewire.encounter.diagnostic-report-parts.additional-information', ['context' => 'diagnostic-report'])
+            @include('livewire.encounter.parts.observations', ['context' => 'diagnostic-report'])
+        </fieldset>
 
         <div class="flex gap-8">
             <a href="{{ url()->previous() }}" type="submit" class="button-minor">
                 {{ __('forms.back') }}
             </a>
 
-            <button @click.prevent="$wire.save(modalDiagnosticReport)" type="submit" class="button-primary-outline">
-                {{ __('forms.save') }}
-            </button>
+            @if($isReadonly && $isDraft)
+                <a href="{{ $prepersonId
+                    ? route('prepersons.diagnostic-report.edit', [legalEntity(), 'preperson' => $prepersonId, 'diagnosticReportId' => $diagnosticReportId])
+                    : route('diagnostic-report.edit', [legalEntity(), 'person' => $personId, 'diagnosticReportId' => $diagnosticReportId]) }}"
+                   wire:navigate
+                   class="button-primary"
+                >
+                    {{ __('forms.edit') }}
+                </a>
+            @endif
 
-            <button @click="showSignatureModal = true"
+            @unless($isReadonly)
+                <button @click.prevent="$wire.save(modalDiagnosticReport)" type="submit" class="button-primary-outline">
+                    {{ __('forms.save') }}
+                </button>
+
+                <button
+                    @click="$wire.openSignatureModal(modalDiagnosticReport)"
                     type="button"
                     class="button-primary flex items-center gap-2"
-            >
-                @icon('key', 'w-5 h-5')
-                {{ __('forms.complete_the_interaction_and_sign') }}
-                @icon('arrow-right', 'w-5 h-5')
-            </button>
-        </div>
-
-        <template x-if="showSignatureModal">
-            @include('livewire.diagnostic-report.modals.signature')
-        </template>
+                >
+                    @icon('key', 'w-5 h-5')
+                    {{ __('forms.complete_the_interaction_and_sign') }}
+                    @icon('arrow-right', 'w-5 h-5')
+                </button>
+        @endunless
     </form>
+
+    @unless($isReadonly)
+        <x-signature-modal method="sign" />
+    @endunless
 
     <livewire:components.x-message :key="time()" />
     <x-forms.loading />
@@ -50,7 +159,7 @@
     /**
      * Representation of the user's personal diagnostic report.
      */
-    class DiagnosticReport{
+    class DiagnosticReport {
         constructor(obj = null) {
             const now = new Date();
             const startTime = new Date(now.getTime() - 15 * 60 * 1000);
@@ -84,10 +193,17 @@
             this.reportOriginText = '';
 
             this.divisionId = '';
+            this.performerEmployeeId = '';
             this.resultsInterpreterEmployeeId = '';
+            this.usedReferences = [];
 
             this.issuedDate = toFormattedDate(now);
             this.issuedTime = now.toLocaleTimeString('uk-UA', timeOptions);
+
+            this.effectiveType = 'period';
+
+            this.effectiveDate = '';
+            this.effectiveTime = '';
 
             this.effectivePeriodStartDate = toFormattedDate(startTime);
             this.effectivePeriodStartTime = startTime.toLocaleTimeString('uk-UA', timeOptions);

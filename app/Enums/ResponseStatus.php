@@ -14,7 +14,7 @@ enum ResponseStatus: string
     case ASYNC = 'ASYNC';
     case SUCCESS = 'SUCCESS';
     case NOT_FOUND = 'NOT_FOUND';
-   
+
     public function label(): string
     {
         return match($this) {
@@ -32,5 +32,15 @@ enum ResponseStatus: string
             ->map(fn ($case) => $case->value)
             ->values()
             ->all();
+    }
+
+    public function code(): int
+    {
+        return match($this) {
+            self::SYNC => 201,
+            self::ASYNC => 202,
+            self::SUCCESS => 200,
+            self::NOT_FOUND => 404,
+        };
     }
 }

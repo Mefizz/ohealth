@@ -7,9 +7,11 @@ namespace App\Policies;
 use App\Models\User;
 use App\Enums\Status;
 use App\Models\Division;
+use App\Enums\User\Role;
 use App\Models\LegalEntity;
 use App\Models\Employee\Employee;
 use App\Models\HealthcareService;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -26,6 +28,26 @@ class DivisionPolicy
 
         return Response::allow();
     }
+
+    /**
+     * User allowed to synchronize the division(s)
+     */
+    public function sync(User $user): Response
+    {
+        if ($user->cannot('division:read') && $user->cannot('division:details')) {
+            return Response::denyWithStatus(404);
+        }
+
+        if (
+            $user->hasAllowedRole([Role::REORGANIZATION_OWNER, Role::OWNER, Role::ADMIN, Role::HR])
+            && Auth::guard('ehealth')->check()
+        ) {
+            return Response::allow();
+        }
+
+        return Response::allow();
+    }
+
 
     /**
      * User allow to create the Division
@@ -88,7 +110,6 @@ class DivisionPolicy
      *
      * @param  \App\Models\User  $user
      * @param  \App\Models\Division  $division
-     *
      * @return bool
      */
     public function activate(User $user, Division $division): Response
@@ -114,8 +135,7 @@ class DivisionPolicy
      *
      * @param  \App\Models\User  $user  The user attempting the action
      * @param  \App\Models\Division  $division  The division to be deactivated
-     *
-     * @return bool  True if user can deactivate the division, false otherwise
+     * @return bool True if user can deactivate the division, false otherwise
      */
     public function deactivate(User $user, Division $division): Response
     {
@@ -148,8 +168,7 @@ class DivisionPolicy
     /**
      * Get services associated with a division.
      *
-     * @param Division $division The division to get services for
-     *
+     * @param  Division  $division  The division to get services for
      * @return Builder Query builder for division services
      */
     protected function getDivisionServices(Division $division): Builder
@@ -161,8 +180,7 @@ class DivisionPolicy
      * Check if the division has any associated service.
      *
      * @param  Division  $division  The division to check for services
-     *
-     * @return bool  True if the division has at least one service, false otherwise
+     * @return bool True if the division has at least one service, false otherwise
      */
     protected function hasAnyService(Division $division): bool
     {
@@ -172,8 +190,7 @@ class DivisionPolicy
     /**
      * Checks if the division has any active service.
      *
-     * @param \App\Models\Division $division The division to check
-     *
+     * @param  \App\Models\Division  $division  The division to check
      * @return bool Returns true if the division has at least one active service, false otherwise
      */
     protected function hasAnyActiveService(Division $division): bool

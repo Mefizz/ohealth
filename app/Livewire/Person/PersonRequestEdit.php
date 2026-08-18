@@ -24,16 +24,13 @@ class PersonRequestEdit extends PersonComponent
         if ($this->isIncapacitated) {
             $person = $personRequest->confidantPersons->first()->person->toArray();
 
-            // Change id to uuid
-            $person['id'] = $person['uuid'];
-            unset($person['uuid']);
-
-            $this->selectedConfidantPersonId = $person['id'];
+            $this->selectedConfidantPersonId = $person['uuid'];
             $this->confidantPerson = [$person];
         }
 
         $this->form->person = Arr::toCamelCase(
             $personRequest->load([
+                'names',
                 'addresses',
                 'documents',
                 'phones',
@@ -42,7 +39,7 @@ class PersonRequestEdit extends PersonComponent
             ])->toArray()
         );
 
-        $this->address = $this->form->person['addresses'][0];
+        $this->addresses = $this->form->person['addresses'] ?: $this->addresses;
 
         if (empty($this->form->person['phones'])) {
             $this->form->person['phones'] = [['type' => null, 'number' => null]];

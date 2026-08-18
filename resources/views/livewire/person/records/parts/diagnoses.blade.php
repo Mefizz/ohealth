@@ -25,7 +25,7 @@
             </div>
 
             <div class="record-inner-action-col">
-                <button class="record-inner-action-btn">
+                <button class="record-inner-action-btn cursor-pointer">
                     @icon('edit-user-outline', 'w-5 h-5')
                 </button>
             </div>
@@ -61,7 +61,7 @@
                         <div class="record-inner-subvalue">{{ __('patients.moderate_severity') }}</div>
                     </div>
                     <div>
-                        <div class="record-inner-label">{{ __('patients.start_date') }}</div>
+                        <div class="record-inner-label">{{ __('forms.start_date') }}</div>
                         <div class="record-inner-subvalue">02.02.2025</div>
                     </div>
                 </div>

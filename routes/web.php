@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Auth\EHealthLoginController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\EmailController;
@@ -22,6 +23,7 @@ use App\Livewire\Contract\ReimbursementContractCreate;
 use App\Livewire\ContractRequest\ContractRequestEdit;
 use App\Livewire\ContractRequest\ContractRequestIndex;
 use App\Livewire\ContractRequest\ContractRequestShow;
+use App\Models\Contracts\ContractRequest;
 use App\Livewire\Dashboard;
 use App\Livewire\Declaration\DeclarationIndex;
 use App\Livewire\Division\DivisionCreate;
@@ -43,6 +45,7 @@ use App\Livewire\Employee\EmployeeShow;
 use App\Livewire\EmployeeRequest\EmployeeRequestIndex;
 use App\Livewire\EmployeeRole\EmployeeRoleCreate;
 use App\Livewire\EmployeeRole\EmployeeRoleIndex;
+use App\Livewire\EmployeeRole\EmployeeRoleView;
 use App\Livewire\Equipment\EquipmentCreate;
 use App\Livewire\Equipment\EquipmentEdit;
 use App\Livewire\Equipment\EquipmentIndex;
@@ -57,6 +60,7 @@ use App\Livewire\License\LicenseView;
 use App\Livewire\Party\PartyEdit;
 use App\Livewire\Party\PartyVerify;
 use App\Livewire\Party\PartyVerificationIndex;
+use App\Models\Relations\Party;
 use App\Models\Declaration;
 use App\Models\Division;
 use App\Models\EmployeeRole;
@@ -172,9 +176,11 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 Route::get('/', EmployeeIndex::class)->name('index');
 
                 Route::get('/{employee}', EmployeeShow::class)
+                    ->whereNumber('employee')
                     ->name('show')->middleware('can:view,employee');
 
                 Route::get('/{employee}/edit', EmployeeEdit::class)
+                    ->whereNumber('employee')
                     ->name('edit')->middleware('can:update,employee');
             });
 
@@ -185,24 +191,68 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 Route::get('/party/{party}/position-add', EmployeePositionAdd::class)->name('position-add');
 
                 Route::get('/{employee_request}', EmployeeRequestShow::class)
+                    ->whereNumber('employee_request')
                     ->name('show')->middleware('can:view,employee_request');
 
                 Route::get('/{employee_request}/edit', EmployeeRequestEdit::class)
+                    ->whereNumber('employee_request')
                     ->name('edit')->middleware('can:update,employee_request');
             });
 
             Route::get('/party-verifications', PartyVerificationIndex::class)
-                ->name('party.verification.index');
+                ->name('party.verification.index')
+                ->can('viewAnyVerification', Party::class);
             Route::get('/party/{party}/verification', PartyVerify::class)
-                ->name('party.verification.show');
+                ->name('party.verification.show')
+                ->can('viewVerification', 'party');
             Route::get('/party/{party}/edit', PartyEdit::class)->name('party.edit');
 
-            Route::get('/employee-role', EmployeeRoleIndex::class)
-                ->name('employee-role.index')
-                ->can('viewAny', EmployeeRole::class);
-            Route::get('/employee-role/create', EmployeeRoleCreate::class)
-                ->name('employee-role.create')
-                ->can('create', EmployeeRole::class);
+            Route::prefix('employee-role')->name('employee-role.')->group(static function () {
+                Route::get('/', EmployeeRoleIndex::class)
+                    ->name('index')
+                    ->can('viewAny', EmployeeRole::class);
+                Route::get('/create', EmployeeRoleCreate::class)
+                    ->name('create')
+                    ->can('create', EmployeeRole::class);
+                Route::get('/{employeeRole}', EmployeeRoleView::class)
+                    ->name('view')
+                    ->whereNumber('employeeRole')
+                    ->can('view', 'employeeRole');
+            });
+
+            // --- Referrals ---
+            Route::prefix('referrals')->name('referrals.')->group(function () {
+                Route::get('/', \App\Livewire\Referral\ReferralIndex::class)
+                    ->middleware('permission:service_request:read')
+                    ->name('index');
+
+                Route::prefix('api')->name('api.')->group(function () {
+                    Route::get('/search', [ReferralController::class, 'search'])
+                        ->middleware('permission:service_request:read')
+                        ->name('search');
+                    Route::post('/{uuid}/process', [ReferralController::class, 'process'])
+                        ->middleware('permission:service_request:makeinprogress')
+                        ->name('process');
+                    Route::post('/{uuid}/complete', [ReferralController::class, 'complete'])
+                        ->middleware('permission:service_request:complete')
+                        ->name('complete');
+                    Route::post('/{uuid}/cancel-usage', [ReferralController::class, 'cancelUsage'])
+                        ->middleware('permission:service_request:use')
+                        ->name('cancel-usage');
+                });
+            });
+
+            // --- Medication Requests (ePrescriptions) ---
+            Route::prefix('medication-requests')->name('medication-requests.')->group(function () {
+                Route::get('/', \App\Livewire\MedicationRequest\MedicationRequestIndex::class)
+                    ->middleware('permission:medication_dispense:write|medication_dispense:process|medication_request:details_pharm')
+                    ->name('index');
+            });
+
+            // --- Device Requests (Медичні Вироби) ---
+            Route::prefix('device-requests')->name('device-requests.')->group(function () {
+                Route::get('/', \App\Livewire\DeviceRequest\DeviceRequestIndex::class)->name('index');
+            });
 
             // --- Group of Contracts (Already signed/active) ---
             Route::prefix('contract')->name('contract.')->group(function () {
@@ -210,18 +260,22 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 Route::get('/', ContractIndex::class)->name('index');
 
                 // View (default type = 'contract')
-                Route::get('/{contract:uuid}', ContractShow::class)->name('show');
+                Route::get('/{contract}', ContractShow::class)->name('show');
             });
 
             // --- Contract Request Group (Contract Requests) ---
             Route::prefix('contract-request')->name('contract-request.')->group(function () {
                 Route::get('/', ContractRequestIndex::class)->name('index');
-                Route::get('/{contractRequest:uuid}', ContractRequestShow::class)
+                Route::get('/{contractRequest}', ContractRequestShow::class)
                     ->name('show')
                     ->middleware('can:view,contractRequest');
-                Route::get('/{contractRequest:uuid}/edit', ContractRequestEdit::class)->name('edit');
-                Route::get('/create/capitation', CapitationContractCreate::class)->name('capitation.create');
-                Route::get('/create/reimbursement', ReimbursementContractCreate::class)->name('reimbursement.create');
+                Route::get('/{contractRequest}/edit', ContractRequestEdit::class)->name('edit');
+                Route::get('/create/capitation', CapitationContractCreate::class)
+                    ->name('capitation.create')
+                    ->middleware('can:createCapitation,'.ContractRequest::class);
+                Route::get('/create/reimbursement', ReimbursementContractCreate::class)
+                    ->name('reimbursement.create')
+                    ->middleware('can:createReimbursement,'.ContractRequest::class);
             });
 
             // Routes related to legal entity licenses; primary license can't be edited
@@ -241,15 +295,25 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
             Route::get('/care-plans', \App\Livewire\CarePlan\CarePlanIndex::class)
                 ->name('care-plans.index');
             Route::get('/care-plans/create/{personId?}', \App\Livewire\CarePlan\CarePlanCreate::class)
-                ->name('care-plans.create');
+                ->name('care-plans.create')
+                ->can('create', \App\Models\CarePlan::class);
             Route::get('/encounters/{encounter}/care-plan/create', \App\Livewire\CarePlan\CarePlanCreate::class)
-                ->name('care-plans.create-by-encounter');
-            Route::get('/encounter/{encounter}/care-plan/create', \App\Livewire\CarePlan\CarePlanCreate::class);
+                ->name('care-plans.create-by-encounter')
+                ->can('create', \App\Models\CarePlan::class);
+            Route::get('/encounter/{encounter}/care-plan/create', \App\Livewire\CarePlan\CarePlanCreate::class)
+                ->can('create', \App\Models\CarePlan::class);
             Route::get('/care-plans/{carePlan}', \App\Livewire\CarePlan\CarePlanShow::class)
                 ->whereNumber('carePlan')
+                ->can('view', 'carePlan')
                 ->name('care-plans.show');
+            Route::get('/care-plans/{carePlan}/activities/{activity}', \App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow::class)
+                ->whereNumber(['carePlan', 'activity'])
+                ->scopeBindings()
+                ->can('view', 'carePlan')
+                ->name('care-plans.activities.show');
             Route::get('/care-plans/{carePlan}/edit', \App\Livewire\CarePlan\CarePlanUpdate::class)
                 ->whereNumber('carePlan')
+                ->can('update', 'carePlan')
                 ->name('care-plans.edit');
 
             Route::prefix('equipment')->name('equipment.')->group(static function () {

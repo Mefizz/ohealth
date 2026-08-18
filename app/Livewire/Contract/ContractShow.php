@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Contract;
 
 use App\Classes\eHealth\EHealth;
+use App\Enums\Contract\IdForm;
 use App\Models\Contracts\Contract;
 use App\Models\LegalEntity;
 use Illuminate\Support\Facades\Log;
@@ -39,16 +40,27 @@ class ContractShow extends Component
 
             if (!empty($ehealthData)) {
                 $this->contract->update([
-                    'contractor_base' => $ehealthData['contractor_base'] ?? $this->contract->contractor_base,
+                    'contractor_base' => $ehealthData['contractor_base'] ?? $this->contract->contractorBase,
                     'contractor_payment_details' => $ehealthData['contractor_payment_details'] ?? null,
                     'contractor_divisions' => $ehealthData['contractor_divisions'] ?? null,
                     'external_contractors' => $ehealthData['external_contractors'] ?? null,
-                    'external_contractor_flag' => $ehealthData['external_contractor_flag'] ?? $this->contract->external_contractor_flag,
-                    'nhs_signer_id' => $ehealthData['nhs_signer']['id'] ?? null,
+                    'external_contractor_flag' => $ehealthData['external_contractor_flag'] ?? $this->contract->externalContractorFlag,
+                    'nhs_signer_id' => $ehealthData['nhs_signer']['id'] ?? $ehealthData['nhs_signer']['uuid'] ?? null,
                     'nhs_signer_base' => $ehealthData['nhs_signer_base'] ?? null,
                     'nhs_contract_price' => $ehealthData['nhs_contract_price'] ?? null,
                     'nhs_payment_method' => $ehealthData['nhs_payment_method'] ?? null,
-                    'medical_programs' => $ehealthData['medical_programs'] ?? $this->contract->medical_programs,
+                    'medical_programs' => $ehealthData['medical_programs'] ?? $this->contract->medicalPrograms,
+                    'id_form' => $ehealthData['id_form'] ?? $this->contract->idForm,
+                    'contract_number' => $ehealthData['contract_number'] ?? $this->contract->contractNumber,
+                    'type' => isset($ehealthData['type'])
+                        ? strtoupper((string) $ehealthData['type'])
+                        : $this->contract->type,
+                    'start_date' => $ehealthData['start_date'] ?? $this->contract->startDate,
+                    'end_date' => $ehealthData['end_date'] ?? $this->contract->endDate,
+                    'status_reason' => $ehealthData['status_reason'] ?? $this->contract->statusReason,
+                    'inserted_at' => !empty($ehealthData['inserted_at'])
+                        ? \Illuminate\Support\Carbon::parse($ehealthData['inserted_at'])
+                        : $this->contract->insertedAt,
                     'data' => $ehealthData,
                 ]);
 
@@ -95,10 +107,14 @@ class ContractShow extends Component
 
     public function render(): \Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View|\Illuminate\View\View
     {
+        $idFormCode = $this->contract->idForm
+            ?? data_get($this->data, 'id_form');
+
         return view('livewire.contract.contract-show', [
             'contract' => $this->contract,
             'data' => $this->data,
             'medicalProgramNames' => $this->medicalProgramNames,
+            'idFormName' => IdForm::resolveLabel($idFormCode, $this->contract->type),
         ]);
     }
 }

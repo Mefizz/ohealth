@@ -16,8 +16,8 @@ use App\Classes\eHealth\Api\Division as DivisionApi;
 
 class DivisionComponent extends Component
 {
-    use FormTrait,
-        WorkTimeUtilities;
+    use FormTrait;
+    use WorkTimeUtilities;
 
     /**
      * The form model instance for handling division data.
@@ -34,8 +34,7 @@ class DivisionComponent extends Component
     public array $dictionaryNames = [
         'DIVISION_TYPE',
         'SETTLEMENT_TYPE',
-        'PHONE_TYPE',
-        'DIVISION_TYPE'
+        'PHONE_TYPE'
     ];
 
     /**
@@ -53,15 +52,15 @@ class DivisionComponent extends Component
      */
     public function hydrate()
     {
-        $this->divisionForm->division['location']['latitude'] =
-            (float) (empty($this->divisionForm->division['location']['latitude'])
-                ? 0
-                : $this->divisionForm->division['location']['latitude']);
+        $lat = $this->divisionForm->division['location']['latitude'] ?? null;
+        $this->divisionForm->division['location']['latitude'] = is_null($lat)
+            ? null
+            : (float) $lat;
 
-        $this->divisionForm->division['location']['longitude'] =
-            (float) (empty($this->divisionForm->division['location']['longitude'])
-                ? 0
-                : $this->divisionForm->division['location']['longitude']);
+        $lng = $this->divisionForm->division['location']['longitude'] ?? null;
+        $this->divisionForm->division['location']['longitude'] = is_null($lng)
+            ? null
+            : (float) $lng;
     }
 
     /**
@@ -89,9 +88,10 @@ class DivisionComponent extends Component
             session()->flash('error', $error);
 
             return false;
-        } else {
-            return true;
         }
+
+        return true;
+
     }
 
     /**
@@ -112,10 +112,10 @@ class DivisionComponent extends Component
         $this->divisionForm->division['addresses'] = array_values($this->divisionForm->division['addresses']);
 
         $divisionData = schemaService()
-                    ->setDataSchema($this->divisionForm->division, app(DivisionApi::class))
-                    ->requestSchemaNormalize('schemaRequest')
-                    ->snakeCaseKeys(true)
-                    ->getNormalizedData();
+            ->setDataSchema($this->divisionForm->division, app(DivisionApi::class))
+            ->requestSchemaNormalize('schemaRequest')
+            ->snakeCaseKeys(true)
+            ->getNormalizedData();
 
         return removeEmptyKeys($divisionData);
     }
@@ -131,7 +131,7 @@ class DivisionComponent extends Component
 
         $division = null;
 
-        $divisionData['status'] =  empty($divisionData['uuid'])
+        $divisionData['status'] = empty($divisionData['uuid'])
             ? Status::DRAFT->value
             : Status::UNSYNCED->value;
 
@@ -143,9 +143,8 @@ class DivisionComponent extends Component
     /**
      * Filters an array of dictionaries based on allowed items.
      *
-     * @param array $source The source array of dictionaries to filter
-     * @param array $allowedItems Array of allowed items to filter by
-     *
+     * @param  array  $source  The source array of dictionaries to filter
+     * @param  array  $allowedItems  Array of allowed items to filter by
      * @return array The filtered array containing only allowed items
      */
     protected function filterDictionaries(array $source, array $allowedItems): array
@@ -155,7 +154,7 @@ class DivisionComponent extends Component
         foreach ($source as $key => $dictionary) {
 
             if (\in_array($key, array_keys($allowedItems))) {
-                $arr[$key] = array_filter($dictionary, fn($item) => \in_array($item, $allowedItems[$key]), ARRAY_FILTER_USE_KEY);
+                $arr[$key] = array_filter($dictionary, fn ($item) => \in_array($item, $allowedItems[$key]), ARRAY_FILTER_USE_KEY);
 
                 continue;
             }

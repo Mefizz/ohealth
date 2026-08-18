@@ -16,6 +16,8 @@ use App\Jobs\HealthcareServiceSync;
 use App\Jobs\ImmunizationSync;
 use App\Jobs\LegalEntitySync;
 use App\Jobs\ObservationSync;
+use App\Jobs\PersonAuthMethodSync;
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Rules\TranslatedDateValidator;
 use Barryvdh\LaravelIdeHelper\IdeHelperServiceProvider;
 use Fruitcake\LaravelDebugbar\ServiceProvider as DebugbarServiceProvider;
@@ -119,6 +121,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(config('ehealth.rate_limit.declaration'))->by($job->user->id);
         });
 
+        RateLimiter::for('ehealth-declaration-request-get', function (object $job) {
+            return Limit::perMinute(config('ehealth.rate_limit.declaration_request'))->by($job->user->id);
+        });
+
         RateLimiter::for(
             'ehealth-episode-get',
             static fn (EpisodeSync $job) => Limit::perMinute(config('ehealth.rate_limit.episode'))->by($job->user->id)
@@ -157,6 +163,18 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for(
             'legal-entity-legators-get',
             static fn (LegalEntitySync $job) => Limit::perMinute(config('ehealth.rate_limit.legal_entity_legators'))->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'person-authentication-method-get',
+            static fn (PersonAuthMethodSync $job) => Limit::perMinute(config('ehealth.rate_limit.person_authentication_method'))
+                ->by($job->user->id)
+        );
+
+        RateLimiter::for(
+            'ehealth-remote-job-get',
+            static fn (RemoteEHealthLinksProcessing $job) => Limit::perMinute(config('ehealth.rate_limit.remote_job'))
+                ->by($job->user->id)
         );
     }
 }

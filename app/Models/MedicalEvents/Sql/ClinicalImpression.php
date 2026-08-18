@@ -6,6 +6,8 @@ namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthDateCast;
 use App\Enums\Person\ClinicalImpressionStatus;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Carbon\CarbonImmutable;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -24,6 +26,7 @@ class ClinicalImpression extends Model
     protected $fillable = [
         'uuid',
         'person_id',
+        'preperson_id',
         'status',
         'description',
         'code_id',
@@ -40,6 +43,7 @@ class ClinicalImpression extends Model
     protected $hidden = [
         'id',
         'person_id',
+        'preperson_id',
         'code_id',
         'encounter_id',
         'assessor_id',
@@ -98,16 +102,18 @@ class ClinicalImpression extends Model
     }
 
     /**
-     * Scope the query to clinical impressions belonging to the given person.
+     * Filter clinical impressions belonging to the given patient (person or preperson).
      *
      * @param  Builder  $query
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return Builder
      */
     #[Scope]
-    protected function forPerson(Builder $query, int $personId): Builder
+    protected function forPatient(Builder $query, Person|Preperson $patient): Builder
     {
-        return $query->wherePersonId($personId);
+        return $patient instanceof Preperson
+            ? $query->wherePrepersonId($patient->id)
+            : $query->wherePersonId($patient->id);
     }
 
     /**
@@ -121,6 +127,22 @@ class ClinicalImpression extends Model
     {
         return $query->orderByRaw('CASE WHEN ehealth_updated_at IS NULL THEN 1 ELSE 0 END')
             ->orderByDesc('ehealth_updated_at');
+    }
+
+    /**
+     * Filter impressions recorded within the given encounter, which is stored as an identifier holding its eHealth ID.
+     *
+     * @param  Builder  $query
+     * @param  string  $encounterId
+     * @return Builder
+     */
+    #[Scope]
+    protected function forEncounter(Builder $query, string $encounterId): Builder
+    {
+        return $query->whereHas(
+            'encounter',
+            static fn (Builder $identifier): Builder => $identifier->whereValue($encounterId)
+        );
     }
 
     /**
@@ -139,6 +161,11 @@ class ClinicalImpression extends Model
             'findings.itemReference.type.coding',
             'supportingInfo.type.coding'
         ]);
+    }
+
+    public function preperson(): BelongsTo
+    {
+        return $this->belongsTo(Preperson::class);
     }
 
     public function code(): BelongsTo

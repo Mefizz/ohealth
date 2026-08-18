@@ -72,7 +72,7 @@ abstract class ContractComponent extends Component
             ->first();
 
         if (empty($contractorData)) {
-            abort(403, __('Співробітника з відповідними доступами не знайдено.'));
+            abort(403, __('Працівника з відповідними доступами не знайдено.'));
         }
 
         $party = $contractorData->party;
@@ -114,7 +114,7 @@ abstract class ContractComponent extends Component
                 ),
                 'start_date' => Carbon::parse($dataToSave['startDate']),
                 'end_date' => Carbon::parse($dataToSave['endDate']),
-                'id_form' => $dataToSave['idForm'] ?? 'unknown',
+                'id_form' => $dataToSave['idForm'] ?? null,
                 'type' => $this->getContractType(),
                 'contractor_signed' => false,
             ]);
@@ -286,7 +286,7 @@ abstract class ContractComponent extends Component
         }
 
         $msg = $exception instanceof EHealthValidationException
-            ? $exception->getFormattedMessage()
+            ? $exception->getTranslatedMessage()
             : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
         Session::flash('error', $msg);
     }

@@ -158,7 +158,7 @@
                                             <option value="" selected>
                                                 {{ __('forms.select') }} {{ __('patients.supporting_medical_information') }}
                                             </option>
-                                            <option value="episodes">{{ __('patients.episodes') }}</option>
+                                            <option value="episodes">{{ __('episodes.plural') }}</option>
                                             <option value="encounter">{{ __('patients.encounters') }}</option>
                                             <option value="procedure">{{ __('patients.procedures') }}</option>
                                             <option value="diagnosticReport">{{ __('patients.diagnostic_reports') }}</option>
@@ -172,7 +172,7 @@
                                                 :disabled="!selectedSupportingInfoType"
                                         >
                                             @icon('search', 'w-4 h-4')
-                                            <span>{{ __('patients.search') }}</span>
+                                            <span>{{ __('forms.search') }}</span>
                                         </button>
                                     </div>
 

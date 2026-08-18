@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
+use App\Casts\EHealthTimestampCast;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Carbon\CarbonImmutable;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -21,10 +24,12 @@ class Procedure extends Model
     protected $fillable = [
         'uuid',
         'person_id',
+        'preperson_id',
         'status',
         'status_reason_id',
         'based_on_id',
         'code_id',
+        'performed_date_time',
         'encounter_id',
         'origin_episode_id',
         'recorded_by_id',
@@ -58,11 +63,37 @@ class Procedure extends Model
     ];
 
     protected $appends = [
+        'performed_date',
+        'performed_time',
         'performed_period_start_date',
         'performed_period_start_time',
         'performed_period_end_date',
         'performed_period_end_time'
     ];
+
+    protected $casts = [
+        'performed_date_time' => EHealthTimestampCast::class,
+    ];
+
+    protected function performedDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->performedDateTime
+                ? convertToAppDateFormat(
+                    $this->performedDateTime
+                ) : '',
+        );
+    }
+
+    protected function performedTime(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->performedDateTime
+                ? CarbonImmutable::parse(
+                    $this->performedDateTime
+                )->format('H:i') : '',
+        );
+    }
 
     protected function performedPeriodStartDate(): Attribute
     {
@@ -108,6 +139,11 @@ class Procedure extends Model
     public function statusReason(): BelongsTo
     {
         return $this->belongsTo(CodeableConcept::class, 'status_reason_id');
+    }
+
+    public function preperson(): BelongsTo
+    {
+        return $this->belongsTo(Preperson::class);
     }
 
     public function code(): BelongsTo
@@ -188,6 +224,37 @@ class Procedure extends Model
     public function usedCodes(): BelongsToMany
     {
         return $this->belongsToMany(CodeableConcept::class, 'procedure_used_codes')->withTimestamps();
+    }
+
+    /**
+     * Filter procedures belonging to the given patient (person or preperson).
+     *
+     * @param  Builder  $query
+     * @param  Person|Preperson  $patient
+     * @return Builder
+     */
+    #[Scope]
+    protected function forPatient(Builder $query, Person|Preperson $patient): Builder
+    {
+        return $patient instanceof Preperson
+            ? $query->wherePrepersonId($patient->id)
+            : $query->wherePersonId($patient->id);
+    }
+
+    /**
+     * Filter procedures recorded within the given encounter, which is stored as an identifier holding its eHealth ID.
+     *
+     * @param  Builder  $query
+     * @param  string  $encounterId
+     * @return Builder
+     */
+    #[Scope]
+    protected function forEncounter(Builder $query, string $encounterId): Builder
+    {
+        return $query->whereHas(
+            'encounter',
+            static fn (Builder $identifier): Builder => $identifier->whereValue($encounterId)
+        );
     }
 
     #[Scope]

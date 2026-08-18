@@ -6,6 +6,9 @@ namespace App\Enums\Person;
 
 use App\Traits\EnumUtils;
 
+/**
+ * see https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/18422661631/PERSON_VERIFICATION_STATUSES
+ */
 enum VerificationStatus: string
 {
     use EnumUtils;
@@ -29,15 +32,18 @@ enum VerificationStatus: string
         };
     }
 
-    /**
-     * Gets the color class for UI badges.
-     */
     public function color(): string
     {
         return match ($this) {
-            self::CHANGES_NEEDED, self::IN_REVIEW, => 'badge-yellow',
-            self::NOT_VERIFIED, self::VERIFICATION_NEEDED => 'badge-red',
-            self::VERIFICATION_NOT_NEEDED, self::VERIFIED => 'badge-green'
+            self::VERIFIED => 'badge-green',
+
+            self::CHANGES_NEEDED,
+            self::IN_REVIEW,
+            self::VERIFICATION_NEEDED => 'badge-yellow',
+
+            self::NOT_VERIFIED => 'badge-red',
+
+            self::VERIFICATION_NOT_NEEDED => 'badge-dark',
         };
     }
 }

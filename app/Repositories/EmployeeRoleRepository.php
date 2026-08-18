@@ -25,14 +25,14 @@ class EmployeeRoleRepository
     /**
      * Update employee role data after deactivation.
      *
-     * @param  string  $uuid
+     * @param  EmployeeRole  $employeeRole
      * @param  array  $data
      * @return void
      */
-    public function update(string $uuid, array $data): void
+    public function update(EmployeeRole $employeeRole, array $data): void
     {
         $forUpdate = Arr::only($data, ['status', 'end_date', 'ehealth_updated_at', 'ehealth_updated_by']);
-        EmployeeRole::whereUuid($uuid)->update($forUpdate);
+        $employeeRole->update($forUpdate);
     }
 
     /**
@@ -44,6 +44,11 @@ class EmployeeRoleRepository
      */
     public function sync(array $items): void
     {
-        EmployeeRole::upsert($items, 'uuid', new EmployeeRole()->getFillable());
+        $rows = array_map(
+            static fn (array $item): array => new EmployeeRole($item)->getAttributes(),
+            $items
+        );
+
+        EmployeeRole::upsert($rows, 'uuid', new EmployeeRole()->getFillable());
     }
 }

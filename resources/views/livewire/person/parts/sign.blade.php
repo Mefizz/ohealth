@@ -1,12 +1,21 @@
+@use('App\Enums\Person\AuthenticationMethod')
+
+@php
+    $hasDocuments = !empty($uploadedDocuments);
+    $requiresVerificationCode = data_get($authenticationMethodCurrent, 'type') === AuthenticationMethod::OTP->value
+        || $selectedConfidantPersonId
+        || !$hasDocuments;
+@endphp
+
 <fieldset class="fieldset">
-    @if(!empty($uploadedDocuments))
+    @if($hasDocuments)
         <legend class="legend">
             {{ __('forms.uploading_documents') }}
         </legend>
 
         @foreach($uploadedDocuments as $key => $document)
             <div class="pb-4 flex" wire:key="{{ $key }}">
-                <div class="flex-grow">
+                <div class="grow">
                     <label class="block mb-3 text-sm font-medium text-gray-900 dark:text-white"
                            for="fileInput-{{ $key }}"
                     >
@@ -34,7 +43,7 @@
             </div>
         @endforeach
 
-        @if(!$selectedConfidantPersonId)
+        @unless($requiresVerificationCode)
             <div class="form-row-3">
                 <div class="form-group group">
                     <button wire:click.prevent="sendFiles"
@@ -46,15 +55,15 @@
                     </button>
                 </div>
             </div>
-        @endif
+        @endunless
     @endif
 
-    @if($selectedConfidantPersonId || empty($uploadedDocuments))
+    @if($requiresVerificationCode)
         <h2 class="mb-8 text-2xl font-semibold text-gray-900 dark:text-white">
             {{ __('forms.confirmation_code_from_SMS') }}
         </h2>
 
-        <div class="flex flex-col md:flex-row gap-4 md:gap-6 {{ empty($uploadedDocuments) ? 'mt-2' : 'mt-8' }} mb-14">
+        <div class="flex flex-col md:flex-row gap-4 md:gap-6 {{ $hasDocuments ? 'mt-8' : 'mt-2' }} mb-14">
             <div class="relative z-0 md:min-w-[33%] md:max-w-[33%]">
                 <input wire:model="form.verificationCode"
                        type="text"

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Enums\Person\DiagnosticReportStatus;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\User;
 use Illuminate\Auth\Access\Response;
@@ -47,7 +48,21 @@ class DiagnosticReportPolicy
             return Response::denyWithStatus(404);
         }
 
-        if ($diagnosticReport->managingOrganization->value !== legalEntity()->uuid) {
+        if ($diagnosticReport->managingOrganization?->value !== legalEntity()?->uuid) {
+            return Response::denyWithStatus(404);
+        }
+
+        if ($diagnosticReport->status !== DiagnosticReportStatus::FINAL) {
+            return Response::denyWithStatus(404);
+        }
+
+        if ($diagnosticReport->encounter_id !== null) {
+            return Response::denyWithStatus(404);
+        }
+
+        $currentEmployeeUuid = $user->getDiagnosticReportWriterEmployee()?->uuid;
+
+        if (!$currentEmployeeUuid || $diagnosticReport->recordedBy?->value !== $currentEmployeeUuid) {
             return Response::denyWithStatus(404);
         }
 

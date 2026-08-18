@@ -56,6 +56,10 @@ class PartyRepository
 
         // Get the right data structure to perform sync
         foreach ($partyUsers as $user) {
+            if ($user->insertedAt === null) {
+                continue;
+            }
+
             $employeesFiltered = $employeesWithUser->filter(fn(Employee $employee) => $employee->isCreatedAtOrAfter($user->insertedAt));
 
             $employeesCandidatesToSync = array_merge($employeesCandidatesToSync, $employeesFiltered->map(fn(Employee $employee) => ['employee_id' => $employee->id, 'user_id' => $user->id])->all());
@@ -105,6 +109,11 @@ class PartyRepository
             }
 
             $user->unsetRelation('roles')->unsetRelation('permissions');
+
+            // This only for case when the user has changed email and has the same employee with the same role in the same party, but with different user_id.
+            if($loginedRole === Role::OWNER->value) {
+                $newRoles = array_unique(array_merge($newRoles, [Role::REORGANIZATION_OWNER->value]));
+            }
 
             foreach ($guards as $guard) {
                 Auth::shouldUse($guard);

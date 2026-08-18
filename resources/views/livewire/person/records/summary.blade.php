@@ -4,10 +4,12 @@
     use App\Livewire\Person\Records\PatientSummary;
 @endphp
 
-<x-layouts.patient :personId="$personId" :patientFullName="$patientFullName">
+<x-layouts.patient :personId="$personId" :prepersonId="$prepersonId" :patientFullName="$patientFullName">
     <x-slot name="headerActions">
         @can('create', Encounter::class)
-            <a href="{{ route('encounter.create', [legalEntity(), 'personId' => $personId]) }}"
+            <a href="{{ $prepersonId
+                ? route('prepersons.encounter.create', [legalEntity(), 'preperson' => $prepersonId])
+                : route('encounter.create', [legalEntity(), 'person' => $personId]) }}"
                class="flex items-center gap-2 button-primary px-5 py-2 text-sm shadow-sm"
             >
                 @icon('plus', 'w-4 h-4')
@@ -25,14 +27,43 @@
                 class="button-sync flex items-center gap-2 whitespace-nowrap px-5 py-2 text-sm shadow-sm"
         >
             @icon('refresh', 'w-4 h-4')
-            {{ __('patients.sync_ehealth_data') }}
+            {{ __('forms.synchronise_with_eHealth') }}
         </button>
     </x-slot>
 
-    <div class="breadcrumb-form p-4 shift-content">
+    <div class="breadcrumb-form p-4 shift-content space-y-6">
+        @if($personId)
+            <div class="form-row-3 items-center mt-5">
+                <div class="form-group group relative">
+                    <select class="input-select peer w-full">
+                        <option value="" selected>{{ __('forms.select') }}</option>
+                        @foreach($mergedPersons as $externalId)
+                            <option value="{{ $loop->index }}">
+                                {{ __('preperson.merged_patient', ['number' => $externalId]) }}
+                            </option>
+                        @endforeach
+                    </select>
+
+                    <label class="label">
+                        {{ __('preperson.electronic_medical_records') }}
+                    </label>
+                </div>
+
+                <div class="form-group group flex items-center">
+                    <button
+                        type="button"
+                        wire:click="searchMergedPersons"
+                        class="cursor-pointer text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1.5 text-sm font-medium transition-colors"
+                    >
+                        @icon('refresh', 'w-4 h-4')
+                        <span>{{ __('forms.synchronise_with_eHealth') }}</span>
+                    </button>
+                </div>
+            </div>
+        @endif
         @php
             $navItems = [
-                ['id' => 'episodes', 'action' => 'getEpisodes', 'syncAction' => 'syncEpisodes', 'label' => __('patients.episodes'), 'icon' => 'book', 'syncEntity' => PatientSummary::ENTITY_TYPE_EPISODE],
+                ['id' => 'episodes', 'action' => 'getEpisodes', 'syncAction' => 'syncEpisodes', 'label' => __('episodes.plural'), 'icon' => 'book', 'syncEntity' => PatientSummary::ENTITY_TYPE_EPISODE],
                 ['id' => 'encounters', 'action' => 'getEncounters', 'syncAction' => 'syncEncounters', 'label' => __('patients.encounters'), 'icon' => 'users', 'syncEntity' => PatientSummary::ENTITY_TYPE_ENCOUNTER],
                 ['id' => 'clinicalImpressions', 'action' => 'getClinicalImpressions', 'syncAction' => 'syncClinicalImpressions', 'label' => __('patients.clinical_impressions'), 'icon' => 'check', 'syncEntity' => PatientSummary::ENTITY_TYPE_CLINICAL_IMPRESSION],
                 ['id' => 'immunizations', 'action' => 'getImmunizations', 'syncAction' => 'syncImmunizations', 'label' => __('patients.immunizations'), 'icon' => 'shield', 'syncEntity' => PatientSummary::ENTITY_TYPE_IMMUNIZATION],
@@ -40,6 +71,7 @@
                 ['id' => 'diagnoses', 'action' => 'getDiagnoses', 'syncAction' => 'syncDiagnoses', 'label' => __('patients.diagnoses'), 'icon' => 'file', 'syncEntity' => ''],
                 ['id' => 'conditions', 'action' => 'getConditions', 'syncAction' => 'syncConditions', 'label' => __('patients.conditions'), 'icon' => 'file-minus', 'syncEntity' => PatientSummary::ENTITY_TYPE_CONDITION],
                 ['id' => 'diagnosticReports', 'action' => 'getDiagnosticReports', 'syncAction' => 'syncDiagnosticReports', 'label' => __('patients.diagnostic_reports'), 'icon' => 'activity', 'syncEntity' => PatientSummary::ENTITY_TYPE_DIAGNOSTIC_REPORT],
+                ['id' => 'procedures', 'action' => 'getProcedures', 'syncAction' => 'syncProcedures', 'label' => __('patients.procedures'), 'icon' => 'settings', 'syncEntity' => ''],
                 ['id' => 'allergies', 'action' => 'syncAllergyIntolerances', 'syncAction' => 'syncAllergyIntolerances', 'label' => __('patients.allergies'), 'icon' => 'alert', 'syncEntity' => ''],
                 ['id' => 'risk_assessments', 'action' => 'syncRiskAssessments', 'syncAction' => 'syncRiskAssessments', 'label' => __('patients.risk_assessments'), 'icon' => 'alert-octagon', 'syncEntity' => ''],
                 ['id' => 'devices', 'action' => 'syncDevices', 'syncAction' => 'syncDevices', 'label' => __('patients.devices'), 'icon' => 'equipment', 'syncEntity' => ''],
@@ -81,7 +113,7 @@
                                       @if($isEntitySync) text-gray-400 dark:text-gray-500 cursor-not-allowed @else text-blue-600 dark:text-blue-400 cursor-pointer hover:text-blue-700 dark:hover:text-blue-300 @endif"
                                 >
                                     @icon('refresh', 'w-4 h-4')
-                                    <span>{{ $item['syncEntity'] && $isRetryable ? __('forms.sync_retry') : __('patients.sync_ehealth_data') }}</span>
+                                    <span>{{ $item['syncEntity'] && $isRetryable ? __('forms.sync_retry') : __('forms.synchronise_with_eHealth') }}</span>
                                 </span>
                                 <div class="shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-300"
                                      :class="activeSection === '{{ $item['id'] }}' ? '' : '-rotate-90'"
@@ -94,29 +126,31 @@
                         <div x-show="activeSection === '{{ $item['id'] }}'" style="display: none;" class="px-5 pb-5">
 
                             @if($item['id'] === 'episodes')
-                                @include('livewire.person.records.parts.episodes', ['episodes' => $episodes, 'limit' => 5])
+                                @include('livewire.person.records.parts.episodes', ['episodes' => $episodes])
                             @elseif($item['id'] === 'encounters')
-                                @include('livewire.person.records.parts.encounters', ['limit' => 5])
+                                @include('livewire.person.records.parts.encounters')
                             @elseif($item['id'] === 'clinicalImpressions')
-                                @include('livewire.person.records.parts.clinical-impressions', ['limit' => 5])
+                                @include('livewire.person.records.parts.clinical-impressions')
                             @elseif($item['id'] === 'immunizations')
-                                @include('livewire.person.records.parts.immunizations', ['limit' => 5])
+                                @include('livewire.person.records.parts.immunizations')
                             @elseif($item['id'] === 'observations')
-                                @include('livewire.person.records.parts.observations', ['limit' => 5])
+                                @include('livewire.person.records.parts.observations')
                             @elseif($item['id'] === 'diagnoses')
-                                @include('livewire.person.records.parts.diagnoses', ['limit' => 5])
+                                @include('livewire.person.records.parts.diagnoses')
                             @elseif($item['id'] === 'conditions')
-                                @include('livewire.person.records.parts.conditions', ['limit' => 5])
+                                @include('livewire.person.records.parts.conditions')
                             @elseif($item['id'] === 'diagnosticReports')
-                                @include('livewire.person.records.parts.diagnostic-reports', ['limit' => 5])
+                                @include('livewire.person.records.parts.diagnostic-reports')
                             @elseif($item['id'] === 'allergies')
-                                @include('livewire.person.records.parts.allergies', ['limit' => 5])
+                                @include('livewire.person.records.parts.allergies')
                             @elseif($item['id'] === 'risk_assessments')
-                                @include('livewire.person.records.parts.risk-assessments', ['limit' => 5])
+                                @include('livewire.person.records.parts.risk-assessments')
                             @elseif($item['id'] === 'devices')
-                                @include('livewire.person.records.parts.devices', ['limit' => 5])
+                                @include('livewire.person.records.parts.devices')
                             @elseif($item['id'] === 'medicines')
-                                @include('livewire.person.records.parts.medicines', ['limit' => 5])
+                                @include('livewire.person.records.parts.medicines')
+                            @elseif($item['id'] === 'procedures')
+                                @include('livewire.person.records.parts.procedures')
                             @else
                                 <div
                                     class="py-12 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 mt-2">
@@ -126,10 +160,21 @@
                                             class="w-8 h-8 mb-4 opacity-50 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full">
                                             @icon($item['icon'])
                                         </div>
-                                        <p class="text-[15px] font-medium">Дані відсутні</p>
+                                        <p class="text-[15px] font-medium">{{ __('forms.no_data') }}</p>
                                         <p class="text-[13px] mt-1 text-gray-400">В цьому розділі поки немає
                                             інформації</p>
                                     </div>
+                                </div>
+                            @endif
+
+                            @if($hasMore[$item['id']] ?? false)
+                                <div class="flex justify-start mt-4">
+                                    <button type="button"
+                                            wire:click="loadMore('{{ $item['id'] }}')"
+                                            class="item-add"
+                                    >
+                                        {{ __('patients.show_more') }}
+                                    </button>
                                 </div>
                             @endif
                         </div>
@@ -159,5 +204,5 @@
         </div>
     </div>
 
-    <x-forms.loading/>
+    <x-forms.loading />
 </x-layouts.patient>

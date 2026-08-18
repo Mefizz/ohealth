@@ -184,6 +184,9 @@
 
                                     <button @click.prevent
                                             @click="
+                                                modalProcedure.usedCodes = modalProcedure.usedCodes
+                                                    .filter(usedCode => Object.keys(dictionary).includes(usedCode.code));
+
                                                 newUsedCode !== false
                                                     ? modalProcedure.usedCodes.push(modalUsedCode)
                                                     : modalProcedure.usedCodes[item] = modalUsedCode;
@@ -191,7 +194,7 @@
                                                 openModal = false;
                                             "
                                             class="button-primary"
-                                            :disabled="!modalUsedCode.code.trim()"
+                                            :disabled="!modalUsedCode.code.trim() || !Object.keys(dictionary).includes(modalUsedCode.code)"
                                     >
                                         {{ __('forms.save') }}
                                     </button>

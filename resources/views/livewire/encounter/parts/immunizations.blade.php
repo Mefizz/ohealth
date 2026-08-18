@@ -1,15 +1,127 @@
 <div class="p-4 sm:p-8"
      id="immunizations-section"
      x-data="{
-         immunizations: $wire.entangle('form.immunizations'),
-         openModal: false,
-         showDuplicateCodeWarning: false,
-         modalImmunization: new Immunization(),
-         newImmunization: false,
-         item: 0,
-         vaccineCodesDictionary: $wire.dictionaries['eHealth/vaccine_codes'],
-         reasonExplanationsDictionary: $wire.dictionaries['eHealth/reason_explanations'],
-         reasonNotGivenExplanationsDictionary: $wire.dictionaries['eHealth/reason_not_given_explanations']
+        immunizations: $wire.entangle('form.immunizations'),
+        observations: $wire.entangle('form.observations'),
+        selectedRecords: $wire.entangle('selectedRecords.immunizations'),
+        cancelledRecords: $wire.cancelledRecords.immunizations,
+        canCancelRecords: {{ ($canCancelRecords ?? false) ? 'true' : 'false' }},
+
+        openModal: false,
+        showDuplicateCodeWarning: false,
+        modalImmunization: new Immunization(),
+        newImmunization: false,
+        item: 0,
+
+        vaccineCodesDictionary: $wire.dictionaries['eHealth/vaccine_codes'],
+        vaccineOptions: @js($this->vaccineOptions),
+
+        vaccineSearch: { name: '', code: '', disease: ''},
+        vaccineSearchResults: [],
+        vaccineSearchPerformed: false,
+
+        reasonExplanationsDictionary: $wire.dictionaries['eHealth/reason_explanations'],
+        reasonNotGivenExplanationsDictionary: $wire.dictionaries['eHealth/reason_not_given_explanations'],
+
+        normalizeSearchValue(value) {
+            return String(value ?? '')
+                .trim()
+                .toLowerCase();
+        },
+
+        searchVaccines() {
+            const name = this.normalizeSearchValue(this.vaccineSearch.name);
+            const code = this.normalizeSearchValue(this.vaccineSearch.code);
+            const disease = this.normalizeSearchValue(this.vaccineSearch.disease);
+
+            this.vaccineSearchResults = this.vaccineOptions.filter(
+                vaccine => {
+                    const vaccineDiseases = Array.isArray(vaccine.targetDiseases) ? vaccine.targetDiseases : [];
+                    const matchesName = name === '' || this.normalizeSearchValue(vaccine.name).includes(name);
+                    const matchesCode = code === '' || this.normalizeSearchValue(vaccine.code).includes(code);
+                    const matchesDisease = disease === '' || vaccineDiseases.some(targetDisease => 
+                        this.normalizeSearchValue(targetDisease.code).includes(disease) || this.normalizeSearchValue(targetDisease.name).includes(disease));
+
+                    return matchesName && matchesCode && matchesDisease;
+                }
+            );
+
+            this.vaccineSearchPerformed = true;
+        },
+
+        resetVaccineSearch() {
+            this.vaccineSearch = { name: '', code: '', disease: ''};
+            this.vaccineSearchResults = [];
+            this.vaccineSearchPerformed = false;
+        },
+
+        allowedTargetDiseases() {
+            const vaccine = this.vaccineOptions.find(vaccine => vaccine.code === this.modalImmunization.vaccineCode);
+
+            return Array.isArray(vaccine?.targetDiseases) ? vaccine.targetDiseases : [];
+        },
+
+        isTargetDiseaseAllowed(targetDiseaseCode) {
+            if (!targetDiseaseCode) {
+                return false;
+            }
+
+            return this.allowedTargetDiseases().some(
+                targetDisease => targetDisease.code === targetDiseaseCode
+            );
+        },
+
+        allSelectedTargetDiseaseCodes() {
+            return this.modalImmunization
+                .vaccinationProtocols
+                .flatMap(protocol => Array.isArray(protocol.targetDiseaseCodes) ? protocol.targetDiseaseCodes.filter(Boolean) : []);
+        },
+
+        hasDuplicateTargetDiseasesInImmunization() {
+            const targetDiseaseCodes = this.allSelectedTargetDiseaseCodes();
+
+            return new Set(targetDiseaseCodes).size !== targetDiseaseCodes.length;
+        },
+
+        hasInvalidTargetDiseases() {
+            return this.modalImmunization
+                .vaccinationProtocols
+                .some(protocol => {
+                    const targetDiseaseCodes = Array.isArray(protocol.targetDiseaseCodes) ? protocol.targetDiseaseCodes : [];
+
+                    return targetDiseaseCodes.length === 0 || targetDiseaseCodes.some(targetDiseaseCode => !this.isTargetDiseaseAllowed(targetDiseaseCode));
+                });
+        },
+
+        selectVaccine(vaccineCode) {
+            if (this.modalImmunization.vaccineCode !== vaccineCode) {
+                this.modalImmunization.vaccinationProtocols = [];
+            }
+
+            this.modalImmunization.vaccineCode = vaccineCode;
+
+            this.resetVaccineSearch();
+        },
+
+        chooseAnotherVaccine() {
+            this.modalImmunization.vaccineCode = '';
+            this.modalImmunization.vaccinationProtocols = [];
+            this.resetVaccineSearch();
+        },
+
+        removeImmunization(index) {
+            const uuid = this.immunizations[index]?.uuid;
+
+            if (uuid) {
+                this.observations.forEach(observation => {
+                    if (observation.reactionOn === uuid) {
+                        observation.reactionOn = '';
+                    }
+                });
+            }
+
+            this.immunizations.splice(index, 1);
+        }
      }"
 >
 
@@ -18,8 +130,21 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
-                        <input type="checkbox" class="default-checkbox w-5 h-5" disabled>
+                        <input type="checkbox"
+                               class="default-checkbox w-5 h-5"
+                               :value="immunization.uuid"
+                               x-model="selectedRecords"
+                               :disabled="!canCancelRecords
+                                   || !immunization.uuid
+                                   || cancelledRecords.includes(immunization.uuid)"
+                        >
                     </div>
+
+                    <template x-if="cancelledRecords.includes(immunization.uuid)">
+                        <span class="record-inner-badge-error">
+                            {{ __('patients.status.entered_in_error') }}
+                        </span>
+                    </template>
 
                     <div class="record-inner-column flex-1">
                         <div class="record-inner-label">{{ __('patients.vaccine') }}</div>
@@ -68,56 +193,79 @@
                                  }
                              }"
                              @keydown.escape.prevent.stop="close($refs.button)"
-                             @focusin.window="! $refs.panel.contains($event.target) && close()"
+                             @focusin.window="$refs.panel && ! $refs.panel.contains($event.target) && close()"
                              x-id="['dropdown-button']"
                              class="relative"
                         >
-                            {{-- Dropdown Button --}}
-                            <button x-ref="button"
-                                    @click="toggle()"
-                                    :aria-expanded="openDropdown"
-                                    :aria-controls="$id('dropdown-button')"
-                                    type="button"
+                            @if($isReadonly)
+                                <a
+                                    href="#"
+                                    @click.prevent="
+                                        openModal = true;
+                                        item = index;
+                                        modalImmunization = JSON.parse(
+                                            JSON.stringify(immunizations[index])
+                                        );
+                                        newImmunization = false;
+                                        resetVaccineSearch();
+                                    "
                                     class="record-inner-action-btn cursor-pointer"
-                            >
-                                <svg class="w-6 h-6 text-gray-800 dark:text-gray-200" aria-hidden="true"
-                                     xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
-                                     viewBox="0 0 24 24"
+                                    title="{{ __('forms.view') }}"
                                 >
-                                    <path stroke="currentColor" stroke-linecap="square" stroke-linejoin="round"
-                                          stroke-width="2"
-                                          d="M7 19H5a1 1 0 0 1-1-1v-1a3 3 0 0 1 3-3h1m4-6a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm7.441 1.559a1.907 1.907 0 0 1 0 2.698l-6.069 6.069L10 19l.674-3.372 6.07-6.07a1.907 1.907 0 0 1 2.697 0Z"
-                                    />
-                                </svg>
-                            </button>
-
-                            {{-- Dropdown Panel --}}
-                            <div class="absolute right-0 z-50">
-                                <div x-ref="panel"
-                                     x-show="openDropdown"
-                                     x-transition.origin.top.left
-                                     @click.outside="close($refs.button)"
-                                     :id="$id('dropdown-button')"
-                                     x-cloak
-                                     class="dropdown-panel relative"
+                                    @icon('eye', 'w-6 h-6')
+                                    <span class="sr-only">
+                                        {{ __('forms.view') }}
+                                    </span>
+                                </a>
+                            @else
+                                {{-- Dropdown Button --}}
+                                <button x-ref="button"
+                                        @click="toggle()"
+                                        :aria-expanded="openDropdown"
+                                        :aria-controls="$id('dropdown-button')"
+                                        type="button"
+                                        class="record-inner-action-btn cursor-pointer"
                                 >
-                                    <button @click.prevent="
-                                                openModal = true;
-                                                item = index;
-                                                modalImmunization = JSON.parse(JSON.stringify(immunizations[index]));
-                                                newImmunization = false;
-                                                close($refs.button);
-                                            "
+                                    <svg class="w-6 h-6 text-gray-800 dark:text-gray-200" aria-hidden="true"
+                                        xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                                        viewBox="0 0 24 24"
                                     >
-                                        {{ __('forms.edit') }}
-                                    </button>
+                                        <path stroke="currentColor" stroke-linecap="square" stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M7 19H5a1 1 0 0 1-1-1v-1a3 3 0 0 1 3-3h1m4-6a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm7.441 1.559a1.907 1.907 0 0 1 0 2.698l-6.069 6.069L10 19l.674-3.372 6.07-6.07a1.907 1.907 0 0 1 2.697 0Z"
+                                        />
+                                    </svg>
+                                </button>
 
-                                    <button class="dropdown-delete"
-                                            @click.prevent="immunizations.splice(index, 1); close($refs.button)">
-                                        {{ __('forms.delete') }}
-                                    </button>
+                                {{-- Dropdown Panel --}}
+                                <div class="absolute right-0 z-50">
+                                    <div x-ref="panel"
+                                        x-show="openDropdown"
+                                        x-transition.origin.top.left
+                                        @click.outside="close($refs.button)"
+                                        :id="$id('dropdown-button')"
+                                        x-cloak
+                                        class="dropdown-panel relative"
+                                    >
+                                        <button @click.prevent="
+                                                    openModal = true;
+                                                    item = index;
+                                                    modalImmunization = JSON.parse(JSON.stringify(immunizations[index]));
+                                                    newImmunization = false;
+                                                    resetVaccineSearch();
+                                                    close($refs.button);
+                                                "
+                                        >
+                                            {{ __('forms.edit') }}
+                                        </button>
+
+                                        <button class="dropdown-delete"
+                                                @click.prevent="removeImmunization(index); close($refs.button)">
+                                            {{ __('forms.delete') }}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -199,7 +347,7 @@
                                                             {{ __('patients.target_diseases') }}
                                                         </div>
                                                         <div class="record-inner-subvalue"
-                                                             x-text="vaccinationTargetDiseasesDictionary[protocol.targetDiseaseCodes?.[0]] || '-'"
+                                                             x-text="$wire.dictionaries['eHealth/vaccination_target_diseases'][protocol.targetDiseaseCodes?.[0]] || '-'"
                                                         ></div>
                                                     </div>
                                                     <div>
@@ -263,15 +411,19 @@
 
     <div>
         {{-- Button to trigger the modal --}}
-        <button @click.prevent="
-                    openModal = true; {{-- Open the Modal --}}
-                    newImmunization = true; {{-- We are adding a new immumization --}}
-                    modalImmunization = new Immunization(); {{-- Replace the data of the previous immumization with a new one--}}
+        @unless($isReadonly)
+            <button
+                @click.prevent="
+                    openModal = true;
+                    newImmunization = true;
+                    modalImmunization = new Immunization();
+                    resetVaccineSearch();
                 "
                 class="item-add my-5"
-        >
-            {{ __('forms.add') }}
-        </button>
+            >
+                {{ __('forms.add') }}
+            </button>
+        @endunless
 
         {{-- Modal --}}
         <template x-teleport="body"> {{-- This moves the modal at the end of the body tag --}}
@@ -303,72 +455,111 @@
 
                         {{-- Content --}}
                         <form>
-                            @include('livewire.encounter.immunization-parts.data')
-                            @include('livewire.encounter.immunization-parts.information-about')
-                            @include('livewire.encounter.immunization-parts.vaccination-protocol')
+                            <fieldset
+                                @disabled($isReadonly)
+                                @class([
+                                    'pointer-events-none' => $isReadonly
+                                ])
+                            >
+                                @include('livewire.encounter.immunization-parts.data')
+                                @include('livewire.encounter.immunization-parts.vaccine-search')
+                                @include('livewire.encounter.immunization-parts.information-about')
+                                @include('livewire.encounter.immunization-parts.vaccination-protocol')
 
-                            <div class="mt-6 flex justify-between space-x-2">
-                                <button type="button"
-                                        @click="openModal = false"
-                                        class="button-minor"
-                                >
-                                    {{ __('forms.cancel') }}
-                                </button>
+                                <div class="mt-6 flex justify-between space-x-2">
+                                    <button type="button"
+                                            @click="openModal = false"
+                                            class="button-minor"
+                                    >
+                                        {{ $isReadonly ? __('forms.close') : __('forms.cancel') }}
+                                    </button>
 
-                                <button @click.prevent="
-                                            const newImmunizationCode = modalImmunization.vaccineCode;
+                                    @unless($isReadonly)
+                                        <button @click.prevent="
+                                                    const newImmunizationCode = modalImmunization.vaccineCode;
 
-                                            // Check for duplicates, excluding the current item when editing
-                                            let hasDuplicate = false;
+                                                    // Check for duplicates, excluding the current item when editing
+                                                    let hasDuplicate = false;
 
-                                            if (newImmunization) {
-                                                // For new immunization, check all existing ones
-                                                hasDuplicate = immunizations.some(
-                                                    immunization => immunization.vaccineCode === newImmunizationCode
-                                                );
-                                            } else {
-                                                // For editing, check all except the current item
-                                                hasDuplicate = immunizations.some(
-                                                    (immunization, index) => index !== item && immunization.vaccineCode === newImmunizationCode
-                                                );
-                                            }
+                                                    if (newImmunization) {
+                                                        // For new immunization, check all existing ones
+                                                        hasDuplicate = immunizations.some(
+                                                            immunization => immunization.vaccineCode === newImmunizationCode
+                                                        );
+                                                    } else {
+                                                        // For editing, check all except the current item
+                                                        hasDuplicate = immunizations.some(
+                                                            (immunization, index) => index !== item && immunization.vaccineCode === newImmunizationCode
+                                                        );
+                                                    }
 
-                                            if (hasDuplicate) {
-                                                showDuplicateCodeWarning = true;
-                                                return;
-                                            }
+                                                    if (hasDuplicate) {
+                                                        showDuplicateCodeWarning = true;
+                                                        return;
+                                                    }
 
-                                            if (modalImmunization.notGiven) {
-                                                modalImmunization.reasons = [];
-                                            } else {
-                                                modalImmunization.reasonNotGivenCode = '';
-                                            }
+                                                    if (modalImmunization.notGiven) {
+                                                        modalImmunization.reasons = [];
+                                                    } else {
+                                                        modalImmunization.reasonNotGivenCode = '';
+                                                    }
 
-                                            newImmunization !== false
-                                                ? immunizations.push(modalImmunization)
-                                                : immunizations[item] = modalImmunization;
+                                                    newImmunization !== false
+                                                        ? immunizations.push(modalImmunization)
+                                                        : immunizations[item] = modalImmunization;
 
-                                            showDuplicateCodeWarning = false;
-                                            openModal = false;
-                                        "
-                                        class="button-primary"
-                                        :disabled="!(
-                                            modalImmunization.date.trim() &&
-                                            modalImmunization.time.trim() &&
-                                            (modalImmunization.reasons?.[0]?.code?.trim?.() || modalImmunization.reasonNotGivenCode?.trim?.()) &&
-                                            (modalImmunization.vaccinationProtocols.length > 0 &&
-                                             (!modalImmunization.primarySource ||
-                                              modalImmunization.vaccinationProtocols.every(protocol => protocol.doseSequence && protocol.series && protocol.seriesDoses)))
-                                        )"
-                                >
-                                    {{ __('forms.save') }}
-                                </button>
-                            </div>
-                            <template x-if="showDuplicateCodeWarning">
-                                <p class="text-error text-right">
-                                    {!! __('patients.duplicate_code_warning') !!}
-                                </p>
-                            </template>
+                                                    showDuplicateCodeWarning = false;
+                                                    openModal = false;
+                                                "
+                                                class="button-primary"
+                                                :disabled="!(
+                                                    Object.keys(vaccineCodesDictionary).includes(modalImmunization.vaccineCode) &&
+                                                    modalImmunization.date.trim() &&
+                                                    modalImmunization.time.trim() &&
+                                                    (modalImmunization.reasons?.[0]?.code?.trim?.() || modalImmunization.reasonNotGivenCode?.trim?.()) &&
+                                                    (modalImmunization.primarySource ||
+                                                    modalImmunization.reportOriginCode?.trim?.()) &&
+
+                                                    (modalImmunization.notGiven || (
+                                                        modalImmunization.doseQuantityValue &&
+                                                        modalImmunization.doseQuantityUnit?.trim?.()
+                                                    )) && (
+                                                        modalImmunization.notGiven ||
+                                                        !modalImmunization.primarySource ||
+                                                        (
+                                                            modalImmunization.manufacturer?.trim?.() &&
+                                                            modalImmunization.lotNumber?.trim?.() &&
+                                                            modalImmunization.expirationDate?.trim?.() &&
+                                                            modalImmunization.siteCode?.trim?.() &&
+                                                            modalImmunization.routeCode?.trim?.() &&
+                                                            modalImmunization.doseQuantityCode?.trim?.()
+                                                        )
+                                                    ) && (
+                                                        modalImmunization.vaccinationProtocols.length > 0 &&
+                                                        !hasDuplicateTargetDiseasesInImmunization() &&
+                                                        !hasInvalidTargetDiseases() &&
+                                                        (
+                                                            !modalImmunization.primarySource ||
+                                                            modalImmunization.vaccinationProtocols.every(
+                                                                protocol =>
+                                                                    protocol.doseSequence &&
+                                                                    protocol.series &&
+                                                                    protocol.seriesDoses
+                                                            )
+                                                        )
+                                                    )
+                                                )"
+                                        >
+                                            {{ __('forms.save') }}
+                                        </button>
+                                    @endunless
+                                </div>
+                                <template x-if="showDuplicateCodeWarning">
+                                    <p class="text-error text-right">
+                                        {!! __('patients.duplicate_code_warning') !!}
+                                    </p>
+                                </template>
+                            </fieldset>
                         </form>
                     </div>
                 </div>
@@ -383,6 +574,7 @@
      */
     class Immunization {
         constructor(obj = null) {
+            this.uuid = crypto.randomUUID();
             const now = new Date();
             const [yyyy, mm, dd] = now.toISOString().split('T')[0].split('-');
 

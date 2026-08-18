@@ -23,4 +23,12 @@ enum ObservationStatus: string
             self::VALID => __('patients.status.valid')
         };
     }
+
+    public function color(): string
+    {
+        return match ($this) {
+            self::VALID => 'badge-green',
+            self::ENTERED_IN_ERROR => 'badge-red',
+        };
+    }
 }

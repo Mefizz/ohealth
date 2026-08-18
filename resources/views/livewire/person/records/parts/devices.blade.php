@@ -25,7 +25,7 @@
             </div>
 
             <div class="record-inner-action-col">
-                <button class="record-inner-action-btn">
+                <button class="record-inner-action-btn cursor-pointer">
                     @icon('edit-user-outline', 'w-5 h-5')
                 </button>
             </div>
@@ -52,7 +52,7 @@
                         <div class="record-inner-subvalue">01.02.2025</div>
                     </div>
                     <div>
-                        <div class="record-inner-label">{{ __('patients.comment') }}</div>
+                        <div class="record-inner-label">{{ __('forms.comment') }}</div>
                         <div class="record-inner-subvalue">Імплант був вилучений по причині заміни на новий</div>
                     </div>
 

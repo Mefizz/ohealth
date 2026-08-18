@@ -18,7 +18,6 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\Employee\BaseEmployee;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
-use App\Repositories\Repository;
 use App\Models\LegalEntity;
 use App\Models\Revision;
 use App\Models\User;
@@ -27,11 +26,10 @@ use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Str;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
-use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\WithFileUploads;
 use App\Mail\UserCredentialsMail;
@@ -76,6 +74,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
     public function save(): void
     {
         try {
+            $this->applyEmployeeTypeBusinessRules();
             // The validation call is now dynamic
             $this->form->validate($this->form->rulesForSave($this));
             $this->validatePartyDataConsistency();
@@ -83,7 +82,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
             $this->employeeRequest = $this->handleDraftPersistence();
             $this->employeeRequestId = $this->employeeRequest->id;
 
-            $this->dispatch('flashMessage', ['message' => __('forms.employee_request_saved_successfully'), 'type' => 'success']);
+            $this->flashSuccess(__('forms.employee_request_saved_successfully'));
         } catch (ValidationException $e) {
             $this->handleValidationException($e);
         } catch (Exception $e) {
@@ -95,22 +94,43 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
     public function prepareForSigning(): void
     {
         try {
+            $this->applyEmployeeTypeBusinessRules();
             $this->form->validate($this->form->rulesForSave($this));
             $this->validatePartyDataConsistency();
             $this->employeeRequest = $this->handleDraftPersistence();
             $this->employeeRequestId = $this->employeeRequest->id;
 
-            // Now dispatch the events
-            $this->dispatch(
-                'flashMessage',
-                ['message' => __('forms.employee_request_saved_successfully'), 'type' => 'success']
-            );
-            $this->dispatch('open-signature-modal');
+            $this->flashSuccess(__('forms.employee_request_saved_successfully'));
+            // 3.23.1.4 — review submitted fields before KEP
+            $this->dispatch('open-request-preview-modal');
         } catch (ValidationException $e) {
             $this->handleValidationException($e);
         } catch (Exception $e) {
             $this->handleGeneralException($e);
         }
+    }
+
+    /**
+     * Continue from pre-KEP preview to the signature modal.
+     */
+    public function proceedToSigning(): void
+    {
+        $this->dispatch('close-request-preview-modal');
+        $this->dispatch('open-signature-modal');
+    }
+
+    /**
+     * Human-readable request status for the pre-KEP preview step.
+     */
+    public function previewRequestStatusLabel(): string
+    {
+        $status = $this->employeeRequest?->status ?? RequestStatus::NEW;
+
+        if (!$status instanceof RequestStatus) {
+            $status = RequestStatus::tryFrom((string) $status) ?? RequestStatus::NEW;
+        }
+
+        return $status->label();
     }
 
     public function sign()
@@ -119,6 +139,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
 
         try {
             // 1. Validate the form
+            $this->applyEmployeeTypeBusinessRules();
             $this->form->validate($this->form->rulesForSave($this));
             $this->validatePartyDataConsistency();
             // 2. Persist the draft using the component's specific logic
@@ -131,10 +152,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
             $eHealthResponseAsArray = new EHealthEmployeeRequest()->create($signedContent);
 
             if (isset($eHealthResponseAsArray['error'])) {
-
-                throw new EHealthValidationException(
-                    $eHealthResponseAsArray['error']['message'] ?? 'E-Health Validation Failed'
-                );
+                throw new EHealthValidationException($eHealthResponseAsArray);
             }
 
             $validatedData = $eHealthResponseAsArray;
@@ -143,11 +161,12 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
 
             $this->createLocalUserForEmployeeRequest($requestToSign);
 
-            session()?->flash('success', __('employees.sign_success'));
             $this->resetSignatureFields();
+            $this->showSignatureModal = false;
+            $this->flashSuccess(__('employees.sign_success'));
             Log::info('Successfully signed and will redirect.');
 
-            return redirect()->route('employee.index', ['legalEntity' => legalEntity()->id]);
+            $this->redirectRoute('employee.index', [legalEntity()], navigate: true);
 
         } catch (Exception $e) {
             $this->handleGeneralException($e);
@@ -159,7 +178,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
                 'line' => $e->getLine(),
             ]);
 
-            $this->dispatch('flashMessage', ['message' => __('errors.unexpected_error'), 'type' => 'error', 'persistent' => true]);
+            $this->flashError(__('errors.unexpected_error'));
             $this->dispatch('close-signature-modal');
         }
     }
@@ -241,7 +260,8 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
                 'uuid' => $uuid,
                 'legal_entity_uuid' => $legalEntity->uuid,
                 'inserted_at' => Carbon::parse($insertedAt)->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s'),
-                'status' => RequestStatus::SIGNED,
+                // Keep NEW to match eHealth Create Employee Request (list API has no SIGNED).
+                'status' => RequestStatus::NEW,
                 'sync_status' => JobStatus::PARTIAL,
                 'division_id' => $request->division_id,
                 'division_uuid' => Arr::get($eHealthResponse, 'ehealth_response.data.division_id', null),
@@ -263,6 +283,20 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
     {
         $employeeChunk = Arr::only($flatData, ['position', 'employee_type', 'start_date', 'end_date', 'division_id']);
         $partyChunk = Arr::only($flatData, ['last_name', 'first_name', 'second_name', 'gender', 'birth_date', 'tax_id', 'no_tax_id', 'email', 'working_experience', 'about_myself']);
+
+        // Backend enforcement: if party data is partially locked, always restore the original tax_id
+        // to prevent accidental or malicious RNOKPP changes via form manipulation.
+        if ($this->isPartyDataPartiallyLocked) {
+            $originalTaxId = $this->employeeRequest?->party?->tax_id
+                ?? $this->employee?->party?->tax_id
+                ?? null;
+
+            if ($originalTaxId !== null) {
+                $partyChunk['tax_id'] = $originalTaxId;
+                $partyChunk['no_tax_id'] = false;
+            }
+        }
+
         $documentsChunk = $flatData['documents'] ?? [];
         $phonesChunk = $flatData['phones'] ?? [];
 
@@ -327,6 +361,13 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
         $errorCode = $e->getCode();
         $errorMessage = $e->getMessage();
 
+        if ($e->isPartyNotVerified()) {
+            $this->flashError(__('errors.ehealth.messages.party_not_verified'));
+            Log::error('EHealth Error Handled: ' . $errorMessage);
+
+            return;
+        }
+
         $translatedMessage = match (true) {
             str_contains($errorMessage, 'Forbidden to create OWNER')
             => __('errors.ehealth.messages.forbidden_create_owner'),
@@ -340,11 +381,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
             default => $errorMessage
         };
 
-        $this->dispatch('flashMessage', [
-            'message' => $translatedMessage,
-            'type' => 'error',
-            'persistent' => true
-        ]);
+        $this->flashError($translatedMessage);
 
         Log::error('EHealth Error Handled: ' . $errorMessage);
     }
@@ -521,60 +558,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
      */
     public function resetSignatureFields(): void
     {
-        $this->form->reset('keyContainerUpload', 'password', 'knedp');
-    }
-
-    /**
-     * A computed property that determines if the "no tax ID" mode can be enabled.
-     */
-    #[Computed]
-    public function canEnableNoTaxId(): bool
-    {
-        return array_any(
-            $this->form->documents,
-            fn ($document) => !empty($document['number']) && in_array(
-                $document['type'],
-                ['PASSPORT', 'NATIONAL_ID', 'REFUGEE_CERTIFICATE']
-            )
-        );
-
-    }
-
-    /**
-     * Handles the click event on the "no tax ID" checkbox.
-     */
-    public function toggleNoTaxId(): void
-    {
-        if ($this->canEnableNoTaxId) {
-            $this->form->party['noTaxId'] = !$this->form->party['noTaxId'];
-            $this->syncTaxIdFromDocument();
-        } else {
-            $this->dispatch('flashMessage', [
-                'message' => __('forms.no_tax_id_document_required'),
-                'type' => 'error',
-                'persistent' => true
-            ]);
-            $this->dispatch('scroll-to-element', selector: '#section-documents');
-            $this->dispatch('highlight-section', selector: '#section-documents');
-        }
-    }
-
-    /**
-     * Syncs the Tax ID field with the number from a suitable document.
-     */
-    public function syncTaxIdFromDocument(): void
-    {
-        if ($this->form->party['noTaxId'] === false) {
-            return;
-        }
-
-        foreach ($this->form->documents as $document) {
-            if (!empty($document['number']) && in_array($document['type'], ['PASSPORT', 'NATIONAL_ID', 'REFUGEE_CERTIFICATE'])) {
-                $this->form->party['taxId'] = $document['number'];
-
-                return;
-            }
-        }
+        $this->form->reset('keyContainerUpload', 'keyContainerFileName', 'password', 'knedp');
     }
 
     /**
@@ -587,120 +571,112 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
         $allMessages = $validator->errors()->all();
 
         if (in_array($specificEmailError, $allMessages, true)) {
-            $this->dispatch('flashMessage', ['message' => $specificEmailError, 'type' => 'error', 'persistent' => true]);
-
+            $this->flashError($specificEmailError);
+            $this->setErrorBag($validator->getMessageBag());
             $this->dispatch('validation-failed-scroll', firstErrorKey: 'form.party.email');
 
             return;
         }
 
-        $allErrorKeys = collect($validator->errors()->keys())->unique();
+        $flashMessage = $this->buildValidationFlashMessage($validator);
 
-        // A map of translatable field sections.
-        $sections = [
-            'form.party.phones' => __('forms.phone_number'),
-            'form.documents' => __('forms.document'),
-            'form.doctor.educations' => __('forms.education'),
-            'form.doctor.specialities' => __('forms.specialities'),
-            'form.doctor.qualifications' => __('forms.qualifications'),
-            'form.doctor.scienceDegree' => __('forms.science_degree'),
-        ];
-
-        // A map of translatable specific fields (with wildcards for nested arrays).
-        $fieldTranslations = [
-            'form.knedp' => __('forms.provider'),
-            'form.password' => __('forms.password'),
-            'form.keyContainerUpload' => __('forms.key_file'),
-            'form.party.firstName' => __('forms.first_name'),
-            'form.party.lastName' => __('forms.last_name'),
-            'form.party.secondName' => __('forms.second_name'),
-            'form.party.gender' => __('forms.gender'),
-            'form.party.birthDate' => __('forms.birth_date'),
-            'form.party.taxId' => __('forms.tax_id'),
-            'form.party.noTaxId' => __('forms.no_tax_id'),
-            'form.party.email' => __('forms.email'),
-            'form.party.workingExperience' => __('forms.working_experience'),
-            'form.party.aboutMyself' => __('forms.about_myself'),
-            'form.position' => __('forms.position'),
-            'form.employeeType' => __('forms.role'),
-            'form.startDate' => __('forms.start_date_work'),
-            'form.endDate' => __('forms.end_date_work'),
-            'form.party.phones.*.number' => __('forms.phone_number'),
-            'form.party.phones.*.type' => __('forms.phone_type'),
-            'form.documents.*.type' => __('forms.document_type'),
-            'form.documents.*.number' => __('forms.document_number'),
-            'form.documents.*.issuedBy' => __('forms.issued_by'),
-            'form.documents.*.issuedAt' => __('forms.issued_at'),
-            'form.doctor.educations.*.city' => __('forms.city'),
-            'form.doctor.educations.*.institutionName' => __('forms.institution_name'),
-            'form.doctor.educations.*.speciality' => __('forms.speciality'),
-            'form.doctor.educations.*.degree' => __('forms.degree'),
-            'form.doctor.educations.*.issuedDate' => __('forms.issued_date'),
-            'form.doctor.educations.*.diplomaNumber' => __('forms.diploma_number'),
-            'form.doctor.specialities.*.attestationName' => __('forms.attestationName'),
-            'form.doctor.specialities.*.level' => __('forms.select_level'),
-            'form.doctor.qualifications.*.institutionName' => __('forms.institutionName'),
-            'form.doctor.qualifications.*.speciality' => __('forms.speciality'),
-
-            'form.doctor.scienceDegree.city' => __('forms.city'),
-            'form.doctor.scienceDegree.institutionName' => __('forms.institutionName'),
-            'form.doctor.scienceDegree.speciality' => __('forms.speciality'),
-            'form.doctor.scienceDegree.issuedDate' => __('forms.issuedDate'),
-        ];
-
-        $fieldsToDisplay = $allErrorKeys
-            ->map(function ($key) use ($fieldTranslations, $sections, $allErrorKeys) {
-                // Check if this is a top-level section key (e.g., 'form.documents')
-                if (array_key_exists($key, $sections)) {
-                    // Check if there are any more specific errors within this section.
-                    $hasSpecificErrors = $allErrorKeys->contains(
-                        fn ($errorKey) =>
-                        str_starts_with($errorKey, $key . '.')
-                    );
-
-                    // If the section is a top-level error and has no specific sub-errors, it means the whole section is empty/missing.
-                    if (!$hasSpecificErrors) {
-                        return __('forms.section_not_filled', ['section' => $sections[$key]]);
-                    }
-                }
-
-                // Check for an exact field translation match.
-                if (isset($fieldTranslations[$key])) {
-                    return $fieldTranslations[$key];
-                }
-
-                // Match nested keys with wildcards using regex (most reliable method).
-                foreach ($fieldTranslations as $pattern => $translation) {
-                    $patternRegex = '/^' . str_replace('\*', '\d+', preg_quote($pattern, '/')) . '$/';
-                    if (preg_match($patternRegex, $key)) {
-                        return $translation;
-                    }
-                }
-
-                // Fallback to the key itself if no translation is found.
-                return $key;
-            })
-            ->filter()
-            ->unique()
-            ->implode(', ');
-
-        // Check if the flash message is empty and add a default message.
-        if (empty($fieldsToDisplay)) {
-            $flashMessage = __('forms.validation_error_unknown');
-        } else {
-            $flashMessage = __('forms.validation_fix_fields', ['fields' => $fieldsToDisplay]);
-        }
-
-        $this->dispatch('flashMessage', ['message' => $flashMessage, 'type' => 'error', 'persistent' => true]);
+        $this->flashError($flashMessage);
+        $this->setErrorBag($validator->getMessageBag());
 
         if (!empty($validator->errors()->keys())) {
             $this->dispatch('validation-failed-scroll', firstErrorKey: $validator->errors()->keys()[0]);
         }
     }
 
+    /**
+     * Builds a user-facing flash message from validation errors with document context.
+     */
+    private function buildValidationFlashMessage(\Illuminate\Contracts\Validation\Validator $validator): string
+    {
+        $messages = collect($validator->errors()->messages())
+            ->flatMap(function (array $errors, string $key) {
+                return collect($errors)->map(function (string $error) use ($key) {
+                    if ($this->isDetailedValidationMessage($error)) {
+                        return $error;
+                    }
+
+                    $context = $this->resolveValidationErrorContext($key);
+
+                    return $context !== null ? "{$context}: {$error}" : $error;
+                });
+            })
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($messages->isEmpty()) {
+            return __('forms.validation_error_unknown');
+        }
+
+        return $messages->implode(' ');
+    }
+
+    private function isDetailedValidationMessage(string $error): bool
+    {
+        return str_contains($error, '«')
+            || str_starts_with($error, 'У розділі')
+            || str_starts_with($error, 'Не можна одночасно')
+            || str_contains($error, 'eSOZ');
+    }
+
+    private function resolveValidationErrorContext(string $key): ?string
+    {
+        if (preg_match('/^form\.documents\.(\d+)\.(\w+)$/', $key, $matches)) {
+            $fieldLabel = match ($matches[2]) {
+                'number' => __('forms.document_number'),
+                'type' => __('forms.document_type'),
+                'issuedAt', 'issued_at' => __('forms.issued_at'),
+                'issuedBy', 'issued_by' => __('forms.issued_by'),
+                default => null,
+            };
+
+            if ($fieldLabel === null) {
+                return null;
+            }
+
+            $documentIndex = (int) $matches[1];
+            $documents = $this->form?->documents ?? [];
+            $documentType = $documents[$documentIndex]['type'] ?? null;
+
+            if ($documentType === null) {
+                return $fieldLabel;
+            }
+
+            $documentLabel = __('patients.documents.' . $documentType);
+            if ($documentLabel === 'patients.documents.' . $documentType) {
+                $documentLabel = $documentType;
+            }
+
+            return "{$fieldLabel} ({$documentLabel})";
+        }
+
+        if ($key === 'form.documents') {
+            return __('forms.documents');
+        }
+
+        return null;
+    }
+
+    protected function flashSuccess(string $message): void
+    {
+        session()->flash('success', $message);
+        $this->dispatch('flashMessage', ['message' => $message, 'type' => 'success']);
+    }
+
+    protected function flashError(string $message): void
+    {
+        session()->flash('error', $message);
+        $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+    }
+
     private function handleConnectionException(EHealthConnectionException $e): void
     {
-        $this->dispatch('flashMessage', ['message' => __('errors.ehealth_connection_error'), 'type' => 'error', 'persistent' => true]);
+        $this->flashError(__('errors.ehealth_connection_error'));
         Log::error('EHealth connection error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
     }
 
@@ -710,7 +686,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
     protected function handleException(Exception $e): void
     {
         Log::error('Process failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-        $this->dispatch('flashMessage', ['message' => $e->getMessage(), 'type' => 'error', 'persistent' => true]);
+        $this->flashError($e->getMessage());
     }
 
     /**
@@ -719,7 +695,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
     protected function handleEHealthValidationError(EHealthValidationException $e): void
     {
         $fullMessage = $e->getTranslatedMessage();
-        $this->dispatch('flashMessage', ['message' => $fullMessage, 'type' => 'error', 'persistent' => true]);
+        $this->flashError($fullMessage);
 
         Log::error(
             'EHealth Validation Error: ' . $fullMessage,

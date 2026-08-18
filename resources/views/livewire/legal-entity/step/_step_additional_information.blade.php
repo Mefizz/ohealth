@@ -1,13 +1,8 @@
-@php
-    $hasAdditionalInformationReceiverFundsCodeError = $errors->has('legalEntityForm.receiverFundsCode');
-    $hasAdditionalInformationBeneficiaryError = $errors->has('legalEntityForm.beneficiary');
-@endphp
-
 <fieldset
     class="p-4 sm:p-8 sm:pb-10 mb-16 mt-6 border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 max-w-[1280px]"
     xmlns="http://www.w3.org/1999/html"
     x-data="{
-        title: '{{ __('forms.information') }}',
+        title: '{{ __('forms.additional_information') }}',
         index: 7,
     }"
     x-init="typeof addHeader !== 'undefined' && addHeader(title, index)"
@@ -23,19 +18,19 @@
 
         <div class="form-group group">
             <input
-            type="text"
-            placeholder=" "
-            id="additionalInformationReceiverFundsCode"
-            wire:model="legalEntityForm.receiverFundsCode"
-            aria-describedby="{{ $hasAdditionalInformationReceiverFundsCodeError ? 'additionalInformationReceiverFundsCodeErrorHelp' : '' }}"
-            class="input peer"
-        />
+                type="text"
+                placeholder=" "
+                id="additionalInformationReceiverFundsCode"
+                wire:model="legalEntityForm.receiverFundsCode"
+                aria-describedby="@error('legalEntityForm.receiverFundsCode') additionalInformationReceiverFundsCodeErrorHelp @enderror"
+                class="input @error('legalEntityForm.receiverFundsCode') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
+            />
 
-            @if($hasAdditionalInformationReceiverFundsCodeError)
+            @error('legalEntityForm.receiverFundsCode')
                 <p id="additionalInformationReceiverFundsCodeErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.receiverFundsCode') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <p id="additionalInformationReceiverFundsCoderHelp" class="text-note">
                 {{ __('forms.receiver_funds_code') }}
@@ -52,15 +47,15 @@
                 placeholder=" "
                 id="additionalInformationBeneficiary"
                 wire:model="legalEntityForm.beneficiary"
-                aria-describedby="{{ $hasAdditionalInformationBeneficiaryError ? 'additionalInformationBeneficiaryErrorHelp' : '' }}"
-                class="input peer"
+                aria-describedby="@error('legalEntityForm.beneficiary') additionalInformationBeneficiaryErrorHelp @enderror"
+                class="input @error('legalEntityForm.beneficiary') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
             />
 
-            @if($hasAdditionalInformationBeneficiaryError)
+            @error('legalEntityForm.beneficiary')
                 <p id="additionalInformationBeneficiaryErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.beneficiary') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <p id="additionalInformationBeneficiaryHelp" class="text-note">
                 {{ __('forms.beneficiary_info') }}
@@ -150,8 +145,12 @@
                             </label>
                         </div>
 
+                        {{-- Remove an archive data --}}
                         <template x-if="archives.length > 1 && index > 0">
-                            <button x-on:click.prevent="archives.splice(index, 1)" {{-- Remove an archive data --}}
+                            <button
+                                x-cloak
+                                x-show="!@json($isDetails ?? false)"
+                                x-on:click.prevent="archives.splice(index, 1)"
                                 class="item-remove justify-self-start text-xs"
                             >
                                 {{__('forms.delete')}}
@@ -160,11 +159,13 @@
                     </div>
                 </template>
 
+                {{-- Add new archive data --}}
                 <button
+                    x-cloak
                     x-show="!@json($isDetails ?? false)"
-                    x-on:click.prevent="archives.push({ date: '', place: '' })" {{-- Add new archive data --}}
+                    x-on:click.prevent="archives.push({ date: '', place: '' })"
                     class="item-add"
-                    :class="{ 'lg:justify-self-start': index > 0 }" {{-- Apply this style only if it's not a first arhive data group --}}
+                    :class="{ 'lg:justify-self-start': index > 0 }" {{-- Apply this style only if it's not a first archive data group --}}
                 >
                     {{ __('forms.archive_add') }}
                 </button>

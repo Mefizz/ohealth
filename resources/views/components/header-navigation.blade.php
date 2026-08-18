@@ -1,16 +1,74 @@
 @props(['title' => null, 'description' => null, 'breadcrumbs' => []])
 
 @php
-if (empty($breadcrumbs)) {
-    // Fallback for legacy calls: show simple 'Головна → Title' format
-    $crumbs = [
-        ['label' => __('Головна')],
-        $title ? ['label' => $title] : null
-    ];
-    $crumbs = array_filter($crumbs);
-} else {
     $crumbs = $breadcrumbs;
-}
+
+    if (empty($crumbs) || count($crumbs) <= 2) {
+        $person = null;
+        $route = request()->route();
+
+        if ($route) {
+            $personParam = $route->parameter('personId') ?? $route->parameter('person');
+            if ($personParam) {
+                $person = is_numeric($personParam)
+                    ? \App\Models\Person\Person::find($personParam)
+                    : ($personParam instanceof \App\Models\Person\Person ? $personParam : null);
+            }
+
+            if (!$person) {
+                $declParam = $route->parameter('declaration') ?? $route->parameter('declarationRequest');
+                if ($declParam) {
+                    $decl = is_numeric($declParam)
+                        ? (\App\Models\Declaration::find($declParam) ?? \App\Models\DeclarationRequest::find($declParam))
+                        : $declParam;
+                    $person = $decl?->person;
+                }
+            }
+
+            if (!$person) {
+                $cpParam = $route->parameter('carePlan');
+                if ($cpParam) {
+                    $cp = is_numeric($cpParam) ? \App\Models\CarePlan::find($cpParam) : $cpParam;
+                    $person = $cp?->person;
+                }
+            }
+        }
+
+        $dashboardUrl = legalEntity() ? route('dashboard', [legalEntity()]) : url('/dashboard');
+
+        if ($person) {
+            $crumbs = [
+                ['label' => __('forms.home'), 'url' => $dashboardUrl],
+                ['label' => __('patients.patients'), 'url' => route('persons.index', [legalEntity()])]
+            ];
+
+            $patientName = $person->fullName;
+            $cleanTitle = trim(str_replace([' - ' . $patientName, $patientName . ' - '], '', $title ?? ''));
+
+            if ($cleanTitle && $cleanTitle !== $patientName) {
+                $crumbs[] = ['label' => $patientName, 'url' => route('persons.patient-data', [legalEntity(), 'person' => $person->id])];
+                $crumbs[] = ['label' => $cleanTitle];
+            } else {
+                $crumbs[] = ['label' => $patientName];
+            }
+        } else {
+            $routeName = $route ? $route->getName() : '';
+            if (str_starts_with($routeName, 'persons.') && $routeName !== 'persons.index') {
+                $crumbs = [
+                    ['label' => __('forms.home'), 'url' => $dashboardUrl],
+                    ['label' => __('patients.patients'), 'url' => route('persons.index', [legalEntity()])],
+                    $title ? ['label' => $title] : null
+                ];
+                $crumbs = array_filter($crumbs);
+            } else {
+                $crumbs = [
+                    ['label' => __('forms.home'), 'url' => $dashboardUrl],
+                    $title ? ['label' => $title] : null
+                ];
+                $crumbs = array_filter($crumbs);
+            }
+        }
+    }
 @endphp
 
 <div {{ $attributes->merge(['class' => 'section-card shift-content relative z-20']) }}>

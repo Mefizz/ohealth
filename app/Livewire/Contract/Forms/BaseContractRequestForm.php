@@ -6,6 +6,7 @@ namespace App\Livewire\Contract\Forms;
 
 use App\Core\Arr;
 use App\Core\BaseForm;
+use App\Rules\ContractRules\SameYearAs;
 use Carbon\CarbonImmutable;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
@@ -17,7 +18,11 @@ abstract class BaseContractRequestForm extends BaseForm
 
     public string $contractorBase;
 
-    public string $idForm;
+    /**
+     * Dictionary code from CONTRACT_TYPE / REIMBURSEMENT_CONTRACT_TYPE (e.g. PMD_1).
+     * Not the contract type (capitation/reimbursement) and not a UUID.
+     */
+    public string $idForm = '';
 
     public string $startDate;
 
@@ -58,15 +63,11 @@ abstract class BaseContractRequestForm extends BaseForm
                     $date = CarbonImmutable::parse($value);
 
                     if (!($date->isCurrentYear() || $date->isNextYear())) {
-                        $fail('дата початку дії договору повинна бути рівною поточному або наступному року');
+                        $fail('Дата початку дії договору повинна бути рівною поточному або наступному року');
                     }
                 }
             ],
-            'endDate' => [
-                'required',
-                'date_format:' . config('app.date_format'),
-                'after_or_equal:startDate',
-            ],
+            'endDate' => $this->getEndDateRules(),
             'contractorPaymentDetails' => ['required', 'array'],
             'contractorPaymentDetails.payerAccount' => ['required', 'string', 'max:255'],
             'contractorPaymentDetails.MFO' => ['required', 'digits:6'],
@@ -74,6 +75,21 @@ abstract class BaseContractRequestForm extends BaseForm
             'contractNumber' => ['nullable', 'string', 'max:255'],
             'statuteMd5' => ['nullable', 'file'],
             'additionalDocumentMd5' => ['nullable', 'file'],
+        ];
+    }
+
+    /**
+     * Get validation rules for the end date.
+     *
+     * @return array
+     */
+    protected function getEndDateRules(): array
+    {
+        return [
+            'required',
+            'date_format:' . config('app.date_format'),
+            'after_or_equal:startDate',
+            new SameYearAs($this->startDate, config('app.date_format')),
         ];
     }
 

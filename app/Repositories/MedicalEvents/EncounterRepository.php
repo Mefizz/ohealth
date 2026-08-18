@@ -4,10 +4,24 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Enums\Person\ClinicalImpressionStatus;
+use App\Enums\Person\ConditionVerificationStatus;
+use App\Enums\Person\DiagnosticReportStatus;
+use App\Enums\Person\EncounterStatus;
+use App\Enums\Person\ImmunizationStatus;
+use App\Enums\Person\ObservationStatus;
+use App\Enums\Person\ProcedureStatus;
+use App\Models\MedicalEvents\Sql\ClinicalImpression;
 use App\Models\MedicalEvents\Sql\Condition;
+use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Encounter as EncounterSql;
 use App\Models\MedicalEvents\Sql\EncounterDiagnose;
+use App\Models\MedicalEvents\Sql\Immunization;
+use App\Models\MedicalEvents\Sql\Observation;
+use App\Models\MedicalEvents\Sql\Procedure;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -17,16 +31,18 @@ use Throwable;
 class EncounterRepository extends BaseRepository
 {
     /**
-     * Create encounter in DB for person with related data.
+     * Create encounter in DB for the patient (person or preperson) with related data.
      *
      * @param  array  $data
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return false|int
      * @throws Throwable
      */
-    public function store(array $data, int $personId): false|int
+    public function store(array $data, Person|Preperson $patient): false|int
     {
-        return DB::transaction(function () use ($data, $personId) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        return DB::transaction(function () use ($data, $ownerColumn, $ownerId) {
             $visit = Repository::identifier()->store($data['visit']['identifier']['value']);
             Repository::codeableConcept()->attach($visit, $data['visit']);
 
@@ -51,13 +67,14 @@ class EncounterRepository extends BaseRepository
 
             if (isset($data['incomingReferral'])) {
                 $incomingReferral = Repository::identifier()->store(
-                    $data['incomingReferral']['identifier']['value']
+                    $data['incomingReferral']['identifier']['value'],
+                    $data['incomingReferral']['display_value'] ?? $data['incomingReferral']['displayValue'] ?? null
                 );
                 Repository::codeableConcept()->attach($incomingReferral, $data['incomingReferral']);
             }
 
             $encounter = $this->model->create([
-                'person_id' => $personId,
+                $ownerColumn => $ownerId,
                 'uuid' => $data['uuid'] ?? $data['id'],
                 'status' => $data['status'],
                 'visit_id' => $visit->id,
@@ -147,6 +164,126 @@ class EncounterRepository extends BaseRepository
     }
 
     /**
+     * The field each kind of record of the encounter package carries its status in, and the cancelled status.
+     *
+     * @var array
+     */
+    private const array CANCELLED_STATUSES = [
+        Condition::class => ['verification_status', ConditionVerificationStatus::ENTERED_IN_ERROR],
+        Observation::class => ['status', ObservationStatus::ENTERED_IN_ERROR],
+        Immunization::class => ['status', ImmunizationStatus::ENTERED_IN_ERROR],
+        DiagnosticReport::class => ['status', DiagnosticReportStatus::ENTERED_IN_ERROR],
+        Procedure::class => ['status', ProcedureStatus::ENTERED_IN_ERROR],
+        ClinicalImpression::class => ['status', ClinicalImpressionStatus::ENTERED_IN_ERROR]
+    ];
+
+    /**
+     * The same for the records that may be marked as entered in error on their own, keyed by the package section
+     * they arrive in. Conditions are left out on purpose: a diagnosis only goes with the whole encounter.
+     *
+     * @var array
+     */
+    private const array SEPARATELY_CANCELLED_STATUSES = [
+        'observations' => [Observation::class, 'status', ObservationStatus::ENTERED_IN_ERROR],
+        'immunizations' => [Immunization::class, 'status', ImmunizationStatus::ENTERED_IN_ERROR],
+        'diagnosticReports' => [DiagnosticReport::class, 'status', DiagnosticReportStatus::ENTERED_IN_ERROR],
+        'procedures' => [Procedure::class, 'status', ProcedureStatus::ENTERED_IN_ERROR],
+        'clinicalImpressions' => [ClinicalImpression::class, 'status', ClinicalImpressionStatus::ENTERED_IN_ERROR]
+    ];
+
+    /**
+     * Mark the given records of the encounter package as entered in error, leaving the encounter and every
+     * record left out as they are.
+     *
+     * @param  string  $encounterId  eHealth ID of the encounter the records belong to
+     * @param  array  $recordIds  eHealth IDs of the records, keyed by package section
+     * @param  string  $explanatoryLetter
+     * @return void
+     * @throws Throwable
+     */
+    public function markRecordsAsEnteredInError(
+        string $encounterId,
+        array $recordIds,
+        string $explanatoryLetter
+    ): void {
+        DB::transaction(static function () use ($encounterId, $recordIds, $explanatoryLetter): void {
+            foreach (self::SEPARATELY_CANCELLED_STATUSES as $packageKey => [$model, $statusField, $status]) {
+                $uuids = $recordIds[$packageKey] ?? [];
+
+                if ($uuids === []) {
+                    continue;
+                }
+
+                $model::forEncounter($encounterId)
+                    ->whereIn('uuid', $uuids)
+                    ->where($statusField, '!=', $status->value)
+                    ->update([
+                        $statusField => $status->value,
+                        'explanatory_letter' => $explanatoryLetter
+                    ]);
+            }
+        });
+    }
+
+    /**
+     * eHealth IDs of the package records already marked as entered in error, keyed by package section.
+     *
+     * @param  string  $encounterId  eHealth ID of the encounter
+     * @return array
+     */
+    public function cancelledRecordIds(string $encounterId): array
+    {
+        $cancelled = [];
+
+        foreach (self::SEPARATELY_CANCELLED_STATUSES as $packageKey => [$model, $statusField, $status]) {
+            $cancelled[$packageKey] = $model::forEncounter($encounterId)
+                ->where($statusField, $status->value)
+                ->pluck('uuid')
+                ->toArray();
+        }
+
+        return $cancelled;
+    }
+
+    /**
+     * Mark the encounter and every record created alongside it as entered in error.
+     *
+     * @param  Encounter  $encounter
+     * @param  array  $cancellationReason
+     * @param  string  $explanatoryLetter
+     * @return void
+     * @throws Throwable
+     */
+    public function markAsEnteredInError(
+        Encounter $encounter,
+        array $cancellationReason,
+        string $explanatoryLetter
+    ): void {
+        DB::transaction(static function () use ($encounter, $cancellationReason, $explanatoryLetter): void {
+            $encounter->loadMissing(['cancellationReason.coding']);
+
+            $cancellationReasonModel = $encounter->cancellationReason
+                ? Repository::codeableConcept()->update($encounter->cancellationReason, $cancellationReason)
+                : Repository::codeableConcept()->store($cancellationReason);
+
+            $encounter->update([
+                'status' => EncounterStatus::ENTERED_IN_ERROR->value,
+                'cancellation_reason_id' => $cancellationReasonModel->id,
+                'explanatory_letter' => $explanatoryLetter
+            ]);
+
+            foreach (self::CANCELLED_STATUSES as $model => [$statusField, $cancelledStatus]) {
+                $model::forEncounter($encounter->uuid)
+                    ->where($statusField, '!=', $cancelledStatus->value)
+                    ->update([
+                        $statusField => $cancelledStatus->value,
+                        'explanatory_letter' => $explanatoryLetter
+                    ]);
+            }
+        });
+    }
+
+    /**
      * Get the encounter for the clinical impression based on the provided UUID to display the selected supporting info.
      *
      * @param  array  $uuids
@@ -178,7 +315,7 @@ class EncounterRepository extends BaseRepository
                 return [
                     $encounter->uuid => [
                         'ehealthInsertedAt' => convertToAppDateFormat($encounter->period?->start),
-                        'codeCode' => data_get($condition?->toArray(), 'code.coding.0.code'),
+                        'codeCode' => $condition?->code?->coding?->first()?->code,
                         'type' => 'encounter'
                     ]
                 ];
@@ -187,31 +324,48 @@ class EncounterRepository extends BaseRepository
     }
 
     /**
-     * Get encounter data that is related to the person.
+     * Get encounter data that is related to the patient (person or preperson).
+     * Every record carries a readable `name` built from the action and class codes, so it can label a filter option.
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return array
      */
-    public function getByPersonId(int $personId): array
+    public function getByPersonId(Person|Preperson $patient): array
     {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
         return $this->model
             ->withRelationships()
-            ->where('person_id', $personId)
+            ->where($ownerColumn, $ownerId)
             ->get()
+            ->map(static function (Encounter $encounter): array {
+                $data = $encounter->toArray();
+
+                $label = collect([
+                    data_get($data, 'actions.0.coding.0.code'),
+                    data_get($data, 'class.code')
+                ])->filter()->implode(' | ');
+
+                $data['name'] = $label ?: $encounter->uuid;
+
+                return $data;
+            })
             ->toArray();
     }
 
     /**
      * Sync encounter data and related data by comparing existing data with API data.
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @param  array  $validatedData
      * @return void
      * @throws Throwable
      */
-    public function sync(int $personId, array $validatedData): void
+    public function sync(Person|Preperson $patient, array $validatedData): void
     {
-        DB::transaction(function () use ($personId, $validatedData) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        DB::transaction(function () use ($ownerColumn, $ownerId, $validatedData) {
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             $existingEncounters = $this->model->whereIn('uuid', $apiUuids)
@@ -225,6 +379,11 @@ class EncounterRepository extends BaseRepository
                 $class = $this->syncCoding($existing, $data['class'], 'class');
                 $type = $this->syncCodeableConcept($existing, $data['type'], 'type');
                 $priority = $this->syncCodeableConcept($existing, $data['priority'] ?? null, 'priority');
+                $cancellationReason = $this->syncCodeableConcept(
+                    $existing,
+                    $data['cancellation_reason'] ?? null,
+                    'cancellationReason'
+                );
                 $performerSpeciality = $this->syncCodeableConcept(
                     $existing,
                     $data['performer_speciality'] ?? null,
@@ -247,9 +406,9 @@ class EncounterRepository extends BaseRepository
                 $division = $this->syncIdentifier($existing, $data['division'] ?? null, 'division');
 
                 $encounterData = [
-                    'person_id' => $personId,
+                    $ownerColumn => $ownerId,
                     'status' => $data['status'],
-                    'cancellation_reason' => $data['cancellation_reason'] ?? null,
+                    'cancellation_reason_id' => $cancellationReason?->id,
                     'explanatory_letter' => $data['explanatory_letter'] ?? null,
                     'prescriptions' => $data['prescriptions'] ?? null,
                     'class_id' => $class->id,

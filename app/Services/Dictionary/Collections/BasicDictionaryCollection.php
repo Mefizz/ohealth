@@ -81,26 +81,32 @@ class BasicDictionaryCollection extends Collection
      *
      * @return Collection
      */
-    public function flattenedChildValues(): Collection
+    public function flattenedChildValues(bool $onlyActive = false, bool $onlyLeaf = false): Collection
     {
-        return $this->flatMap(function ($item) {
+        return $this->flatMap(function ($item) use ($onlyActive, $onlyLeaf) {
             if (!is_array($item)) {
                 return collect();
             }
 
-            $collectDescriptions = static function (array $data) use (&$collectDescriptions): Collection {
-                return collect($data)->flatMap(function ($value, $key) use ($collectDescriptions) {
+            $collectDescriptions = static function (array $data) use (&$collectDescriptions, $onlyActive, $onlyLeaf): Collection {
+                return collect($data)->flatMap(function ($value, $key) use ($collectDescriptions, $onlyActive, $onlyLeaf) {
                     $result = collect();
 
                     $code = is_string($key) ? $key : ($value['code'] ?? null);
+                    $isActive = (bool) ($value['is_active'] ?? true);
+                    $hasChildren = !empty($value['child_values']);
 
-                    if ($code && isset($value['description'])) {
+                    if (
+                        $code
+                        && isset($value['description'])
+                        && (!$onlyActive || $isActive)
+                        && (!$onlyLeaf || !$hasChildren)
+                    ) {
                         $result->put($code, $value['description']);
                     }
 
-                    if (!empty($value['child_values'])) {
-                        $childValues = $collectDescriptions($value['child_values']);
-                        $result = $result->merge($childValues);
+                    if ($hasChildren) {
+                        $result = $result->merge($collectDescriptions($value['child_values']));
                     }
 
                     return $result;

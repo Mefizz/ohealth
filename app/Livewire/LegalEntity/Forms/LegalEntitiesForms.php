@@ -18,6 +18,7 @@ use App\Rules\InDictionary;
 use App\Rules\UniqueEdrpou;
 use App\Models\LegalEntity;
 use App\Rules\DocumentNumber;
+use App\Rules\OnlyOneDocument;
 use App\Rules\PhoneDuplicates;
 use Illuminate\Support\Facades\Log;
 use App\Exceptions\CustomValidationException;
@@ -74,17 +75,43 @@ class LegalEntitiesForms extends Form
     public function rules(): array
     {
         $rules = [
-            'edrpou' => ['required', 'regex:/^(\d{8,10}|[А-ЯЁЇІЄҐ]{2}\d{6})$/', new UniqueEdrpou($this->type)],
+            'edrpou' => ['required', "regex:/^([0-9]{8,10}|[А-ЯЁЇІЄҐ]{2}\d{6})$/u", new UniqueEdrpou($this->type)],
             'owner.lastName' => ['required', 'min:3', new Name()],
             'owner.firstName' => ['required', 'min:3', new Name()],
             'owner.secondName' => ['nullable', new Name()],
             'owner.gender' => 'required|string',
             'owner.birthDate' => ['required', new DateFormat(), 'before_or_equal:today', new BirthDate($this->owner['email'] ?? ''), new AgeCheck()],
-            'owner.noTaxId' => 'boolean|nullable',
-            'owner.taxId' => ['required_unless:owner.noTaxId,true', 'string', new TaxId()],
-            'owner.documents.type' => ['required','string', new InDictionary('DOCUMENT_TYPE')],
-            'owner.documents.number' => ['required', 'string', new DocumentNumber($this->owner['documents']['type'] ?? '')],
-            'owner.documents.issuedAt' => [
+            'owner.noTaxId' => ['nullable', 'boolean', new TaxId()],
+            'owner.taxId' => ['exclude_if:owner.noTaxId,true', 'required', 'string', new TaxId()],
+            'owner.documents' => 'required|array',
+            'owner.documents.*.type' => [
+                'required','string',
+                new InDictionary('DOCUMENT_TYPE'),
+                new OnlyOneDocument($this->owner['documents'])
+            ],
+            'owner.documents.*.number' => [
+                'required',
+                'string',
+                function ($attribute, $value, $fail) {
+                    $index = (int)explode('.', $attribute)[2];
+
+                    $documentType = $this->owner['documents'][$index]['type'] ?? null;
+
+                    if ($documentType) {
+                        $validator = validator(
+                            ['number' => $value],
+                            ['number' => [new DocumentNumber($documentType)]]
+                        );
+
+                        if ($validator->fails()) {
+                            foreach ($validator->errors()->all() as $error) {
+                                $fail($error);
+                            }
+                        }
+                    }
+                }
+            ],
+            'owner.documents.*.issuedAt' => [
                 'nullable',
                 new DateFormat(),
                 'before_or_equal:today',
@@ -99,6 +126,7 @@ class LegalEntitiesForms extends Form
                     }
                 }
             ],
+            'owner.documents.*.issuedBy' => ['nullable', 'string'],
             'owner.phones' => 'required|array',
             'owner.phones.*.number' => ['required', 'string', new PhoneNumber()],
             'owner.phones.*.type' => [
@@ -132,6 +160,7 @@ class LegalEntitiesForms extends Form
             'license.activeFromDate' => ['required', new DateFormat()],
             'license.expiryDate' => ['nullable', new DateFormat(), new ExpiryDate($this->license['activeFromDate'] ?? '')],
             'license.orderNo' => 'required|string',
+            'license.whatLicensed' => 'required|string',
             'license.licenseNumber' => ['nullable', 'string', 'regex:/^(?!.*[ЫЪЭЁыъэё@$^#])[a-zA-ZА-ЯҐЇІЄа-яґїіє0-9№\"!\^\*)\]\[(&._-].*$/'],
             'receiverFundsCode' => [
                 'nullable',
@@ -141,12 +170,11 @@ class LegalEntitiesForms extends Form
             'beneficiary' => [
                 'nullable',
                 'string',
-                new Cyrillic(),
-                "regex:/^(?!.*[ЫЪЭЁыъэё@%&$^#])[А-ЯҐЇІЄа-яґїіє’\'\- ]+$/u",
+                new Name()
             ],
             'archive' => 'nullable|array',
             'archive.*.date'  => ['required_if:archivationShow,true', new DateFormat(), 'before_or_equal:today'],
-            'archive.*.place' => 'required_if:archivationShow,true|string',
+            'archive.*.place' => 'required_if:archivationShow,true|string'
         ];
 
         if (($this->accreditation['category'] ?? null) !== 'NO_ACCREDITATION' && $this->accreditationShow) {
@@ -170,8 +198,10 @@ class LegalEntitiesForms extends Form
             'owner.gender' => __('validation.attributes.errors.requiredField'),
             'owner.phones' => __('validation.attributes.errors.requiredContactPhone'),
             'owner.taxId.required_unless' => __('validation.attributes.errors.requiredTaxId'),
-            'owner.documents.type.required' => __('validation.attributes.errors.requiredDocumentType'),
-            'owner.documents.issuedAt.before_or_equal' => __('validation.attributes.errors.expiryDateGreat'),
+            'owner.documents' => __('validation.attributes.errors.requiredDocument'),
+            'owner.documents.*.type.required' => __('validation.attributes.errors.requiredDocumentType'),
+            'owner.documents.*.number.required' => __('validation.attributes.errors.requiredDocumentNumber'),
+            'owner.documents.*.issuedAt.before_or_equal' => __('validation.attributes.errors.expiryDateGreat'),
             'owner.position.required' => __('validation.attributes.errors.requiredPostion'),
             'owner.email.unique' => __('validation.attributes.errors.requiredEmail'),
             'owner.phones.required' => __('validation.attributes.errors.requiredPhone'),
@@ -202,6 +232,7 @@ class LegalEntitiesForms extends Form
             'license.issuedBy.min' => __('validation.attributes.errors.wrongFieldFormat') . '('. __('validation.attributes.errors.minLen3') . ')',
             'license.issuedBy' => __('validation.attributes.errors.requiredIssuedBy'),
             'license.orderNo' => __('validation.attributes.errors.requiredOrderNumber'),
+            'license.whatLicensed' => __('validation.attributes.errors.requiredWhatLicensed'),
             'license.licenseNumber.regex' => __('validation.attributes.errors.onlyNumericLatin'),
             'receiverFundsCode' => __('validation.attributes.errors.wrongFieldFormat') . '('. __('validation.attributes.errors.onlyNumeric') . ')',
             'receiverFundsCode.required' => __('validation.attributes.errors.nonEmpty'),
@@ -209,10 +240,9 @@ class LegalEntitiesForms extends Form
             'beneficiary.min' => __('validation.attributes.errors.wrongFieldFormat') . '('. __('validation.attributes.errors.minLen3') . ')',
             'beneficiary.required' => __('validation.attributes.errors.nonEmpty'),
             'beneficiary.regex' => __('validation.attributes.errors.wrongSymbols'),
-            'beneficiary' => __('validation.attributes.errors.wrongFieldFormat') . '('. __('validation.attributes.errors.onlyCyrillic') . ')',
             'archive.*.date.required_if' => __('validation.attributes.errors.requiredField'),
             'archive.*.date.before_or_equal' => __('validation.attributes.errors.expiryDateGreat'),
-            'archive.*.place.required_if' => __('validation.attributes.errors.requiredField'),
+            'archive.*.place.required_if' => __('validation.attributes.errors.requiredField')
         ];
     }
 
@@ -349,16 +379,26 @@ class LegalEntitiesForms extends Form
     /**
      * Rules for business-logic validation
      *
-     * @return string
+     * @return bool
      */
     public function customRulesValidation(): bool
     {
         foreach ($this->customRules() as $rule) {
-            try {
-                $rule->validate('', '', fn() => null);
-            } catch (CustomValidationException $e) {
-               $this->component->dispatch('flashMessage', ['message' => $e->getMessage(), 'type' => 'error']);
+            $failed = false;
 
+            try {
+                $rule->validate('', '', function (string $message) use (&$failed) {
+                    $failed = true;
+
+                    $this->component->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
+                });
+            } catch (CustomValidationException $e) {
+                $this->component->dispatch('flashMessage', ['message' => $e->getMessage(), 'type' => 'error']);
+
+                return false;
+            }
+
+            if ($failed) {
                 return false;
             }
         }

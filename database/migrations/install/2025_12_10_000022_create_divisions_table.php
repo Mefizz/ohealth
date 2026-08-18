@@ -34,6 +34,14 @@ return new class extends Migration
             $table->boolean('is_active')->default(false);
             $table->foreignId('legal_entity_id')->constrained('legal_entities')->cascadeOnDelete()->cascadeOnUpdate();
             $table->enum('status', Status::only(self::VALID_STATUSES))->nullable();
+            $table->string('dls_id')->nullable();
+            $table->boolean('dls_verified')->nullable();
+
+            $table->date('ehealth_inserted_at')->nullable();
+            $table->uuid('inserted_by')->nullable();
+            $table->date('ehealth_updated_at')->nullable();
+            $table->uuid('updated_by')->nullable();
+
             $table->timestamps();
         });
     }

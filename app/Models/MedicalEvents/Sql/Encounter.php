@@ -6,6 +6,8 @@ namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthTimestampCast;
 use App\Enums\Person\EncounterStatus;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -20,8 +22,9 @@ class Encounter extends Model
     protected $fillable = [
         'uuid',
         'person_id',
+        'preperson_id',
         'status',
-        'cancellation_reason',
+        'cancellation_reason_id',
         'explanatory_letter',
         'prescriptions',
         'visit_id',
@@ -41,6 +44,8 @@ class Encounter extends Model
     protected $hidden = [
         'id',
         'person_id',
+        'preperson_id',
+        'cancellation_reason_id',
         'visit_id',
         'episode_id',
         'class_id',
@@ -106,6 +111,11 @@ class Encounter extends Model
         return $this->belongsTo(CodeableConcept::class, 'priority_id');
     }
 
+    public function cancellationReason(): BelongsTo
+    {
+        return $this->belongsTo(CodeableConcept::class, 'cancellation_reason_id');
+    }
+
     public function performer(): BelongsTo
     {
         return $this->belongsTo(Identifier::class, 'performer_id');
@@ -156,17 +166,67 @@ class Encounter extends Model
         return $this->hasOne(EncounterHospitalization::class);
     }
 
+    public function preperson(): BelongsTo
+    {
+        return $this->belongsTo(Preperson::class);
+    }
+
     /**
-     * Filter encounters belonging to the given person.
+     * Determine whether the episode of the encounter is managed by the legal entity the user works for.
+     * Only an episode that is stored with a managing organization can be told apart, so an episode that
+     * came from the short sync without one, and an episode that has not been synced at all, both pass.
+     *
+     * @return bool
+     */
+    public function belongsToCurrentLegalEntity(): bool
+    {
+        $episodeId = $this->episode?->value;
+
+        if ($episodeId === null) {
+            return true;
+        }
+
+        $episode = Episode::whereUuid($episodeId)->first();
+
+        // Episodes are synced separately from encounters, so the episode may simply not be here yet
+        if ($episode === null) {
+            return true;
+        }
+
+        $managingOrganization = $episode->managingOrganization?->value;
+
+        return $managingOrganization === null || $managingOrganization === legalEntity()->uuid;
+    }
+
+    /**
+     * Filter encounters belonging to the given patient (person or preperson).
      *
      * @param  Builder  $query
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return Builder
      */
     #[Scope]
-    protected function forPerson(Builder $query, int $personId): Builder
+    protected function forPatient(Builder $query, Person|Preperson $patient): Builder
     {
-        return $query->wherePersonId($personId);
+        return $patient instanceof Preperson
+            ? $query->wherePrepersonId($patient->id)
+            : $query->wherePersonId($patient->id);
+    }
+
+    /**
+     * Filter encounters belonging to the given episode, which is stored as an identifier holding its eHealth ID.
+     *
+     * @param  Builder  $query
+     * @param  string  $episodeId
+     * @return Builder
+     */
+    #[Scope]
+    protected function forEpisode(Builder $query, string $episodeId): Builder
+    {
+        return $query->whereHas(
+            'episode',
+            static fn (Builder $identifier): Builder => $identifier->whereValue($episodeId)
+        );
     }
 
     /**
@@ -192,6 +252,7 @@ class Encounter extends Model
             'class',
             'type.coding',
             'priority.coding',
+            'cancellationReason.coding',
             'performerSpeciality.coding',
             'visit.type.coding',
             'episode.type.coding',

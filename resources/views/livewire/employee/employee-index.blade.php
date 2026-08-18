@@ -1,24 +1,46 @@
+@use('App\Enums\Status')
+@use('App\Enums\User\Role')
+@use('App\Enums\JobStatus')
+@use('App\Models\Employee\Employee')
+@use('App\Models\Employee\EmployeeRequest')
+
 <div>
     <livewire:components.x-message :key="now()->timestamp"/>
     @php
-        use App\Enums\Status;
-        use App\Enums\User\Role;
-        use App\Enums\JobStatus;
-        use App\Models\Employee\Employee;
-        use App\Models\Employee\EmployeeRequest;
-
         $currentUser = auth()->user();
         // We cache the hospital ID so as not to call the legalEntity() function 100 times in a loop
         $currentLegalEntityId = legalEntity()->id;
 
-        // Cache access rights with an array
+        $isElevated = $currentUser->hasAllowedRole([Role::ADMIN, Role::HR, Role::OWNER, Role::PHARMACY_OWNER])
+            || $currentUser->hasRole([
+                Role::ADMIN->value,
+                Role::HR->value,
+                Role::OWNER->value,
+                Role::PHARMACY_OWNER->value,
+            ]);
+        $canDeactivateElevated = $isElevated;
+
+       // Cache access rights with an array.
+       // ADMIN/HR/OWNER/PHARMACY_OWNER are elevated even when eHealth scopes omit employee:write/details/deactivate.
        $permissions = [
-        'employee_view' => $currentUser->can('employee:details'),
-        'employee_write' => $currentUser->can('employee:write'),
-        'employee_deactivate' => $currentUser->can('employee:deactivate'),
-        'request_view' => $currentUser->can('employee_request:read'),
-        'request_write' => $currentUser->can('employee_request:write'),
-        'request_delete' => $currentUser->can('employee_request:write'),
+        'employee_view' => $currentUser->can('employee:details') || $isElevated,
+        'employee_write' => $currentUser->can('employee:write') || $isElevated,
+        'employee_deactivate' => $currentUser->can('employee:deactivate') || $canDeactivateElevated,
+        'employee_admin_hr' => $isElevated,
+        'request_view' => $currentUser->can('employee_request:read') || $isElevated,
+        'request_write' => $currentUser->can('employee_request:write') || $isElevated,
+        'request_delete' => $currentUser->can('employee_request:write') || $isElevated,
+    ];
+
+    $statusOptions = [
+        Status::APPROVED->value => __('forms.status.active'),
+        Status::NEW->value => __('forms.status.new'),
+        // Legacy local SIGNED rows (pre keep-NEW); same UI meaning as submitted NEW
+        Status::SIGNED->value => __('forms.status.new'),
+        Status::STOPPED->value => __('forms.status.stopped'),
+        Status::ENTERED_IN_ERROR->value => __('forms.status.entered_in_error'),
+        Status::DISMISSED->value => __('forms.status.stopped'),
+        Status::REORGANIZED->value => __('forms.reorganized'),
     ];
     @endphp
 
@@ -31,7 +53,9 @@
         <div class="mt-3 ml-0 flex flex-col sm:flex-row sm:flex-wrap gap-2 self-start">
             @can('create', EmployeeRequest::class)
             <a href="{{ route('employee-request.create', ['legalEntity' => $currentLegalEntityId]) }}"
-                class="button-primary">{{ __('forms.new_employee') }}</a>
+                class="button-primary flex items-center gap-2">
+                @icon('plus', 'w-4 h-4')
+                {{ __('forms.new_employee') }}</a>
             @endcan
 
             @can('sync', Employee::class)
@@ -145,87 +169,38 @@
                                     </select>
                                     <label for="filter_division" class="label">Медичний заклад</label>
                                 </div>
-                                <div class="form-group group"
-                                     x-data="{ open: false, selectedStatuses: $wire.entangle('status') }">
-                                    <label for="statusFilter" class="label">{{ __('forms.status.label') }}</label>
-                                    <div class="relative">
-
-                                        <input type="text"
-                                               id="statusFilter"
-                                               class="input peer w-full cursor-pointer text-gray-500 dark:text-gray-400"
-                                               placeholder="Оберіть статуси"
-                                               x-on:click="open = !open"
-                                               :value="selectedStatuses.length ? selectedStatuses.map(s => {
-                                                   if (s === 'APPROVED') return '{{ __('forms.status.active') }}';
-                                                   if (s === 'NEW') return '{{ __('forms.draft') }}';
-                                                   if (s === 'SIGNED') return '{{ __('forms.status.sent') }}';
-                                                   if (s === 'DISMISSED') return '{{ __('forms.dismissed') }}';
-                                                   if (s === 'REORGANIZED') return '{{ __('forms.reorganized') }}';
-{{--                                                   if (s === 'VERIFIED') return '{{ __('forms.verified') ';--}}
-{{--                                                   if (s === 'NOT_VERIFIED') return '{{ __('forms.not_verified') ';--}}
-
-                                                   return s;
-                                               }).join(', ') : ''"
-                                               readonly
-                                        />
-                                        <svg
-                                            class="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none"
-                                            fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                            <path d="M19 9l-7 7-7-7"></path>
-                                        </svg>
-                                        <div x-show="open"
-                                             x-on:click.away="open = false"
-                                             x-transition:enter="transition ease-out duration-100"
-                                             x-transition:enter-start="transform opacity-0 scale-95"
-                                             x-transition:enter-end="transform opacity-100 scale-100"
-                                             x-transition:leave="transition ease-in duration-75"
-                                             x-transition:leave-start="transform opacity-100 scale-100"
-                                             x-transition:leave-end="transform opacity-0 scale-95"
-                                             class="absolute z-10 mt-2 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg">
-                                            <ul class="py-2 px-3 space-y-2 text-sm text-gray-700 dark:text-gray-200">
-                                                <li>
-                                                    <label class="flex items-center space-x-2 cursor-pointer">
-                                                        <input type="checkbox" value="{{ Status::APPROVED->value }}" wire:model="status"
-                                                               class="rounded-sm text-blue-600 focus:ring-blue-500 border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:checked:bg-blue-600 dark:checked:border-transparent" />
-                                                        <span>{{ __('forms.status.active') }}</span>
-                                                    </label>
-                                                </li>
-                                                <li>
-                                                    <label class="flex items-center space-x-2 cursor-pointer">
-                                                        <input type="checkbox" value="{{ Status::NEW->value }}" wire:model="status"
-                                                               class="rounded-sm text-blue-600 focus:ring-blue-500 border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:checked:bg-blue-600 dark:checked:border-transparent" />
-                                                        <span>{{ __('forms.draft') }}</span>
-                                                    </label>
-                                                </li>
-
-                                                <li>
-                                                    <label class="flex items-center space-x-2 cursor-pointer">
-                                                        <input type="checkbox" value="{{ Status::SIGNED->value }}" wire:model="status"
-                                                               class="rounded-sm text-blue-600 focus:ring-blue-500 border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:checked:bg-blue-600 dark:checked:border-transparent" />
-                                                        <span>{{ __('forms.status.sent') }}</span>
-                                                    </label>
-                                                </li>
-
-                                                <li>
-                                                    <label class="flex items-center space-x-2 cursor-pointer">
-                                                        <input type="checkbox" value="{{ Status::DISMISSED->value }}" wire:model="status"
-                                                               class="rounded-sm text-blue-600 focus:ring-blue-500 border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:checked:bg-blue-600 dark:checked:border-transparent" />
-                                                        <span>{{ __('forms.dismissed') }}</span>
-                                                    </label>
-                                                </li>
-
-                                                <li>
-                                                    <label class="flex items-center space-x-2 cursor-pointer">
-                                                        <input type="checkbox" value="{{ Status::REORGANIZED->value }}" wire:model="status"
-                                                               class="rounded-sm text-blue-600 focus:ring-blue-500 border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:checked:bg-blue-600 dark:checked:border-transparent" />
-                                                        <span>{{ __('forms.reorganized') }}</span>
-                                                    </label>
-                                                </li>
-                                            </ul>
-                                        </div>
-                                    </div>
+                                <div class="form-group group">
+                                    <x-forms.multiselect
+                                        bind="status"
+                                        :options="$statusOptions"
+                                        label="{{ __('forms.status.label') }}"
+                                        placeholder="Оберіть статуси"
+                                    />
                                 </div>
                             </div>
+                            {{-- 3.23.3.1 — tax_id / verification_status only for OWNER/HR/ADMIN/PHARMACY_OWNER --}}
+                            @if($permissions['employee_admin_hr'])
+                                <div class="form-row-4">
+                                    <div class="form-group group">
+                                        <input wire:model.defer="filter.tax_id" wire:keydown.enter="applyFilters"
+                                               name="filter_tax_id" id="filter_tax_id" class="input peer" placeholder=" "
+                                               autocomplete="off" />
+                                        <label for="filter_tax_id" class="label">{{ __('forms.tax_id') }}</label>
+                                    </div>
+                                    <div class="form-group group">
+                                        <select wire:model.defer="filter.verification_status" wire:keydown.enter="applyFilters"
+                                                id="filter_verification_status"
+                                                class="input peer text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                                        >
+                                            <option value="">{{ __('forms.all_verification_statuses') }}</option>
+                                            @foreach(\App\Enums\Party\VerificationStatus::cases() as $verificationStatus)
+                                                <option value="{{ $verificationStatus->value }}">{{ $verificationStatus->label() }}</option>
+                                            @endforeach
+                                        </select>
+                                        <label for="filter_verification_status" class="label">{{ __('party_verification.status') }}</label>
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                         <div class="mb-9 mt-6 flex flex-col sm:flex-row gap-2 w-full">
                             <button type="submit" class="flex items-center gap-2 button-primary">
@@ -284,11 +259,28 @@
                         wire:key="party-{{ $party->id }}">
                         <legend class="legend">{{ $party->fullName }}</legend>
 
+                        @if($permissions['employee_admin_hr'])
+                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400 mt-1 mb-2">
+                                @if($party->tax_id)
+                                    <span>{{ __('forms.tax_id') }}: <span class="font-medium text-gray-700 dark:text-gray-200">{{ $party->tax_id }}</span></span>
+                                @endif
+                                @if($party->verification_status)
+                                    @php
+                                        $partyVerification = \App\Enums\Party\VerificationStatus::tryFrom($party->verification_status);
+                                    @endphp
+                                    <span>{{ __('party_verification.status') }}:
+                                        <span class="font-medium text-gray-700 dark:text-gray-200">
+                                            {{ $partyVerification?->label() ?? $party->verification_status }}
+                                        </span>
+                                    </span>
+                                @endif
+                            </div>
+                        @endif
+
                         <div
                             class="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 pb-4">
 
-                            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500 mt-2"
-                                 x-data="{ showEmails_{{ $party->id }}: false }">
+                            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500 mt-2">
 
                                 {{-- Phone --}}
                                 @if ($mobilePhone = $party->phones->firstWhere('type', 'MOBILE'))
@@ -303,50 +295,52 @@
                                     </span>
                                 @endif
 
-                                {{-- Email --}}
+                                {{-- Email: 1 = plain text; 2+ = toggle to reveal all --}}
                                 @php
                                     $emailsCollection = $employees
-                                        ->map(fn($emp) => $emp->loadMissing('users')->users?->map(fn($user) => $user->email))
+                                        ->map(fn ($emp) => $emp->loadMissing('users')->users?->map(fn ($user) => $user->email))
                                         ->flatten()
                                         ->filter()
-                                        ->unique();
+                                        ->unique()
+                                        ->values();
 
+                                    $emailCount = $emailsCollection->count();
                                     $visibleEmail = $emailsCollection->first();
-                                    $hiddenEmails = $emailsCollection->slice(1);
-                                    $hiddenCount = $hiddenEmails->count();
                                 @endphp
 
                                 @if ($visibleEmail)
-                                    <span class="flex items-center gap-1.5 min-w-0 relative">
+                                    <span class="flex items-center gap-1.5 min-w-0 relative"
+                                          x-data="{ open: false }">
                                         <svg class="w-6 h-6 text-gray-800 dark:text-white shrink-0" aria-hidden="true"
                                              xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
                                              viewBox="0 0 24 24">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-width="2"
                                                   d="m3.5 5.5 7.893 6.036a1 1 0 0 0 1.214 0L20.5 5.5M4 19h16a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1Z" />
                                         </svg>
-                                        <a href="mailto:{{ $visibleEmail }}" class="hover:underline truncate"
-                                           title="{{ $visibleEmail }}">{{ $visibleEmail }}</a>
 
-                                        @if ($hiddenCount > 0)
+                                        @if ($emailCount === 1)
+                                            <span class="truncate cursor-default select-text"
+                                                  title="{{ $visibleEmail }}">{{ $visibleEmail }}</span>
+                                        @else
                                             <button type="button"
-                                                    @click.stop="showEmails_{{ $party->id }} = !showEmails_{{ $party->id }}"
-                                                    class="text-sm font-semibold text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer p-0.5 rounded-full"
-                                                    title="Показати {{ $hiddenCount }} додаткових email"
+                                                    @click.stop="open = !open"
+                                                    class="flex items-center gap-1 min-w-0 truncate text-left text-sm text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+                                                    title="{{ __('forms.show_all_emails') }}"
+                                                    aria-expanded="false"
+                                                    x-bind:aria-expanded="open.toString()"
                                             >
-                                                +{{ $hiddenCount }}
+                                                <span class="truncate">{{ $visibleEmail }}</span>
+                                                <span class="shrink-0 font-semibold">+{{ $emailCount - 1 }}</span>
                                             </button>
-                                        @endif
 
-                                        @if ($hiddenCount > 0)
-                                            <div x-show="showEmails_{{ $party->id }}"
-                                                 x-on:click.away="showEmails_{{ $party->id }} = false"
+                                            <div x-show="open"
+                                                 x-on:click.away="open = false"
                                                  x-collapse.duration.300ms
                                                  class="flex flex-col gap-y-0.5 absolute bg-white dark:bg-gray-800 z-10 p-2 rounded-md shadow-lg top-full left-0 mt-1 min-w-max border border-gray-200 dark:border-gray-700"
                                                  x-cloak
                                             >
-                                                @foreach ($hiddenEmails as $email)
-                                                    <a href="mailto:{{ $email }}"
-                                                       class="hover:underline text-gray-500 dark:text-gray-400 text-sm">{{ $email }}</a>
+                                                @foreach ($emailsCollection as $email)
+                                                    <span class="text-gray-500 dark:text-gray-400 text-sm">{{ $email }}</span>
                                                 @endforeach
                                             </div>
                                         @endif
@@ -439,29 +433,37 @@
                                                 @endif
                                             </td>
 
-                                            <td class="td-input break-words whitespace-nowrap align-middle">
+                                            <td class="td-input overflow-hidden align-middle">
                                                 @php
                                                     $isEmployee = $position instanceof Employee;
-                                                    $employeeStatus = $isEmployee ? $position->status?->value : '';
+                                                    $employeeStatus = $position->status?->value ?? '';
+                                                    $statusEnum = $isEmployee
+                                                        ? Status::tryFrom($employeeStatus)
+                                                        : null;
+                                                    $badgeClass = '!me-0 inline-block w-min whitespace-normal text-left leading-tight';
                                                 @endphp
 
-                                                @if($isEmployee)
-                                                    @if($employeeStatus === Status::APPROVED->value)
-                                                        <span class="badge-green">{{__('forms.status.active')}}</span>
-                                                    @elseif($employeeStatus === Status::DISMISSED->value || $employeeStatus === Status::STOPPED->value)
-                                                        <span class="badge-red">{{__('forms.status.dismissed')}}</span>
-                                                    @elseif($employeeStatus === Status::REORGANIZED->value)
-                                                        <span class="badge-yellow">{{__('forms.status.reorganized')}}</span>
+                                                @if($isEmployee && $statusEnum)
+                                                    @if($statusEnum === Status::APPROVED)
+                                                        <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{__('forms.status.active')}}</span>
+                                                    @elseif($statusEnum === Status::STOPPED || $statusEnum === Status::DISMISSED)
+                                                        <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{__('forms.status.stopped')}}</span>
+                                                    @elseif($statusEnum === Status::NEW || $statusEnum === Status::SIGNED)
+                                                        <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{__('forms.status.new')}}</span>
+                                                    @else
+                                                        <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ $statusEnum->label() }}</span>
                                                     @endif
-                                                @else
-                                                    @if($employeeStatus === Status::NEW->value)
-                                                        <span class="badge-red">{{__('forms.status.draft')}}</span>
-                                                    @elseif($employeeStatus === Status::SIGNED->value)
-                                                        <span class="badge-yellow">{{__('forms.status.sent')}}</span>
+                                                @elseif(!$isEmployee)
+                                                    @if($position->isLocalDraft())
+                                                        <span class="badge-red {{ $badgeClass }}">{{__('forms.status.draft')}}</span>
+                                                    @elseif($position->isPendingEhealth())
+                                                        <span class="badge-yellow {{ $badgeClass }}">{{__('forms.status.new')}}</span>
+                                                    @elseif($position->status)
+                                                        <span class="{{ $position->status->color() }} {{ $badgeClass }}">{{ $position->status->label() }}</span>
                                                     @endif
                                                 @endif
                                             </td>
-                                            <td class="td-input text-center">
+                                            <td class="td-input shrink-0 whitespace-nowrap text-center align-middle">
                                                 @if($position)
                                                     @include('livewire.employee.parts.actions-dropdown', ['position' => $position])
                                                 @endif
@@ -479,7 +481,7 @@
             </div>
         </div>
 
-        <div class="mt-8 pl-3.5 pb-8 lg:pl-8 2xl:pl-5 max-w-[1280px]" wire:key="pagination-{{ $filterKey }}">
+        <div class="pagination max-w-[1280px]" wire:key="pagination-{{ $filterKey }}">
             {{ $parties->links() }}
         </div>
     </x-section>

@@ -54,6 +54,8 @@ class License extends Request
         $this->setValidator($this->validateResponse(...));
         $this->setMapper($this->mapResponse(...));
 
+        $data = $this->format($data, ['issuedDate', 'expiryDate', 'activeFromDate']);
+
         return $this->post(self::URL, $data);
     }
 
@@ -71,6 +73,8 @@ class License extends Request
     {
         $this->setValidator($this->validateResponse(...));
         $this->setMapper($this->mapResponse(...));
+
+        $data = $this->format($data, ['issuedDate', 'expiryDate', 'activeFromDate']);
 
         return $this->patch(self::URL . '/' . $uuid, $data);
     }
@@ -136,7 +140,7 @@ class License extends Request
             'issued_date' => 'required|date_format:Y-m-d',
             'issuer_status' => 'sometimes|string|nullable',
             'legal_entity_id' => ['required', 'uuid', Rule::in([legalEntity()->uuid])],
-            'license_number' => 'required|string',
+            'license_number' => 'nullable|string',
             'order_no' => 'required|string',
             'type' => ['required', 'string', new InDictionary('LICENSE_TYPE')],
             'what_licensed' => 'required|string',

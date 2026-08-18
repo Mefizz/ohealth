@@ -46,7 +46,7 @@
                            wire:model="smsCode"
                            id="smsCode"
                     />
-                    <label class="label" for="smsCode">{{ __('patients.confirmation_code') }}}</label>
+                    <label class="label" for="smsCode">{{ __('patients.confirmation_code') }}</label>
                 </div>
 
                 <div x-data="{

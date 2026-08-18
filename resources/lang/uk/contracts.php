@@ -58,8 +58,21 @@ return [
     'id' => 'ID',
     'parent_contract' => 'Батьківський договір',
     'created_at_label' => 'Дата створення',
+    'updated_at_label' => 'Дата оновлення',
     'period_label' => 'Період дії',
-    'status_reason_label' => 'Причина статусу',
+    'id_form_label' => 'Форма договору',
+    'id_form' => [
+        'GENERAL' => 'Загальний реімбурсаційний договір',
+        'INSULIN_1' => 'Інсулін безоплатний або з доплатою',
+        'ND_1' => 'Нецукровий діабет',
+        'PMD_1' => 'Доступні ліки',
+        'PMD_1_CAPITATION' => 'Договір про медичне обслуговування населення за програмою медичних гарантій',
+        'PSYCHIATRY' => 'Розлади поведінки і психіки та епілепсія',
+    ],
+    'previous_request' => 'Попередня заявка',
+    'issue_city' => 'Місто укладання',
+    'printout_content' => 'Текст договору (printout)',
+    'status_reason_label' => 'Причина зміни статусу',
     'divisions_places' => 'Місця надання послуг (Підрозділи)',
     'name' => 'Назва',
     'name_label' => 'Назва',
@@ -85,6 +98,7 @@ return [
     'payment_method_label' => 'Спосіб оплати',
     'contract_amount_label' => 'Сума контракту',
     'number_label' => 'Номер',
+    'search_contract' => 'Пошук за номером договору',
     'type_label' => 'Тип',
     'status_label' => 'Статус',
     'period' => 'Період дії',
@@ -94,7 +108,7 @@ return [
     'edit' => 'Редагувати',
     'actions' => 'Дії',
     'date_added' => 'Дата додавання',
-    'status_reason' => 'Причина статусу',
+    'status_reason' => 'Причина зміни статусу',
 
     // Types of contracts
     'capitation' => 'Капітація',
@@ -131,6 +145,13 @@ return [
     'action_error' => 'Помилка від ЕСОЗ: :message',
     'approve_signature_hint' => 'Підтвердіть погодження заявки на договір кваліфікованим електронним підписом.',
     'sign_signature_hint' => 'Накладіть кваліфікований електронний підпис на заявку, яку вже підписав НСЗУ.',
+
+    'payment_methods' => [
+        'forward' => 'Попередня оплата',
+        'backward' => 'Післяплата',
+        'prepayment' => 'Передоплата',
+        'postpayment' => 'Післяплата',
+    ],
 
     'policy' => [
         'view_denied' => 'Немає доступу до перегляду заявки на договір.',

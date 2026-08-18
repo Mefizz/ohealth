@@ -29,4 +29,17 @@ enum ConditionVerificationStatus: string
             self::REFUTED => __('patients.status.refuted')
         };
     }
+
+    public function color(): string
+    {
+        return match ($this) {
+            self::CONFIRMED => 'badge-green',
+
+            self::DIFFERENTIAL,
+            self::PROVISIONAL => 'badge-yellow',
+
+            self::ENTERED_IN_ERROR,
+            self::REFUTED => 'badge-red',
+        };
+    }
 }

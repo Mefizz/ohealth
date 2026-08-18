@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Repositories\MedicalEvents;
 
 use App\Core\Arr;
+use App\Enums\Episode\Status;
 use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\MedicalEvents\Sql\EpisodeCurrentDiagnosis;
 use App\Models\MedicalEvents\Sql\EpisodeDiagnosesHistory;
 use App\Models\MedicalEvents\Sql\EpisodeDiagnosesHistoryItem;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -21,14 +25,16 @@ class EpisodeRepository extends BaseRepository
      * Create episode for encounter in DB.
      *
      * @param  array  $data
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @param  int|null  $encounterId
      * @return void
      * @throws Throwable
      */
-    public function store(array $data, int $personId, ?int $encounterId = null): void
+    public function store(array $data, Person|Preperson $patient, ?int $encounterId = null): void
     {
-        DB::transaction(function () use ($data, $personId, $encounterId) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        DB::transaction(function () use ($data, $ownerColumn, $ownerId, $encounterId) {
             $type = Repository::coding()->store($data['type']);
 
             $managingOrganization = Repository::identifier()
@@ -40,7 +46,7 @@ class EpisodeRepository extends BaseRepository
 
             $episode = $this->model->create([
                 'uuid' => $data['id'],
-                'person_id' => $personId,
+                $ownerColumn => $ownerId,
                 'encounter_id' => $encounterId,
                 'episode_type_id' => $type->id,
                 'status' => $data['status'],
@@ -51,6 +57,128 @@ class EpisodeRepository extends BaseRepository
 
             $episode->period()->create(['start' => $data['period']['start']]);
         });
+    }
+
+    /**
+     * Update the episode fields that eHealth allows to change.
+     *
+     * @param  Episode  $episode
+     * @param  array  $data
+     * @return void
+     * @throws Throwable
+     */
+    public function update(Episode $episode, array $data): void
+    {
+        DB::transaction(function () use ($episode, $data) {
+            $this->updateIdentifier($episode->careManager, $data['careManager']);
+
+            $episode->update(['name' => $data['name']]);
+        });
+    }
+
+    /**
+     * Update a draft episode, which is stored locally only and therefore editable as a whole.
+     *
+     * @param  Episode  $episode
+     * @param  array  $data
+     * @return void
+     * @throws Throwable
+     */
+    public function updateDraft(Episode $episode, array $data): void
+    {
+        DB::transaction(function () use ($episode, $data) {
+            $this->updateIdentifier($episode->careManager, $data['careManager']);
+
+            $episode->type->update([
+                'system' => $data['type']['system'],
+                'code' => $data['type']['code']
+            ]);
+            $episode->period->update(['start' => $data['period']['start']]);
+
+            $episode->update([
+                'name' => $data['name'],
+                'status' => $data['status']
+            ]);
+        });
+    }
+
+    /**
+     * Mark the episode as entered in error, keeping the reason and the explanation behind it.
+     *
+     * @param  Episode  $episode
+     * @param  array  $data
+     * @return void
+     * @throws Throwable
+     */
+    public function markAsEnteredInError(Episode $episode, array $data): void
+    {
+        DB::transaction(function () use ($episode, $data): void {
+            $episode->update([
+                'status' => Status::ENTERED_IN_ERROR->value,
+                'status_reason_id' => $this->syncCodeableConcept($episode, $data['statusReason'], 'statusReason')->id,
+                'explanatory_letter' => $data['explanatoryLetter']
+            ]);
+        });
+    }
+
+    /**
+     * Close the episode, keeping the reason, the summary and the moment it was closed at.
+     *
+     * @param  Episode  $episode
+     * @param  array  $data
+     * @return void
+     * @throws Throwable
+     */
+    public function markAsClosed(Episode $episode, array $data): void
+    {
+        DB::transaction(function () use ($episode, $data): void {
+            $episode->update([
+                'status' => Status::CLOSED->value,
+                'status_reason_id' => $this->syncCodeableConcept($episode, $data['statusReason'], 'statusReason')->id,
+                'closing_summary' => $data['closingSummary']
+            ]);
+
+            $episode->period()->update(['end' => $data['period']['end']]);
+        });
+    }
+
+    /**
+     * Delete a draft episode together with the records that belong to it.
+     *
+     * @param  Episode  $episode
+     * @return void
+     * @throws Throwable
+     */
+    public function deleteDraft(Episode $episode): void
+    {
+        DB::transaction(function () use ($episode) {
+            $type = $episode->type;
+            $careManager = $episode->careManager;
+            $managingOrganization = $episode->managingOrganization;
+
+            $episode->period?->delete();
+            $episode->delete();
+
+            $type->delete();
+            $this->deleteIdentifier($careManager);
+            $this->deleteIdentifier($managingOrganization);
+        });
+    }
+
+    /**
+     * Delete an identifier with the codeable concepts and codings attached to it.
+     *
+     * @param  Identifier  $identifier
+     * @return void
+     */
+    private function deleteIdentifier(Identifier $identifier): void
+    {
+        foreach ($identifier->type as $codeableConcept) {
+            $codeableConcept->coding()->delete();
+            $codeableConcept->delete();
+        }
+
+        $identifier->delete();
     }
 
     /**
@@ -78,15 +206,17 @@ class EpisodeRepository extends BaseRepository
     }
 
     /**
-     * Get episode data that is related to the person.
+     * Get episode data that is related to the patient (person or preperson).
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return array
      */
-    public function getByPersonId(int $personId): array
+    public function getByPersonId(Person|Preperson $patient): array
     {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
         return $this->model
-            ->forPerson($personId)
+            ->where($ownerColumn, $ownerId)
             ->recentlyUpdatedFirst()
             ->get()
             ->toArray();
@@ -95,13 +225,15 @@ class EpisodeRepository extends BaseRepository
     /**
      * Sync episodes from eHealth API to database.
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @param  array  $validatedData
      * @throws Throwable
      */
-    public function sync(int $personId, array $validatedData): void
+    public function sync(Person|Preperson $patient, array $validatedData): void
     {
-        DB::transaction(function () use ($personId, $validatedData) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        DB::transaction(function () use ($ownerColumn, $ownerId, $validatedData) {
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             $existingEpisodes = $this->model->whereIn('uuid', $apiUuids)
@@ -113,7 +245,7 @@ class EpisodeRepository extends BaseRepository
                 $existing = $existingEpisodes->get($data['uuid']);
 
                 $episodeData = array_merge(
-                    ['person_id' => $personId],
+                    [$ownerColumn => $ownerId],
                     Arr::except($data, ['uuid', 'period'])
                 );
 
@@ -134,13 +266,15 @@ class EpisodeRepository extends BaseRepository
     /**
      * Sync full episode data from getBySearchParams endpoint.
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @param  array  $validatedData
      * @throws Throwable
      */
-    public function syncFull(int $personId, array $validatedData): void
+    public function syncFull(Person|Preperson $patient, array $validatedData): void
     {
-        DB::transaction(function () use ($personId, $validatedData) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        DB::transaction(function () use ($ownerColumn, $ownerId, $validatedData) {
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             $existingEpisodes = $this->model->whereIn('uuid', $apiUuids)
@@ -161,7 +295,7 @@ class EpisodeRepository extends BaseRepository
                 $statusReason = $this->syncCodeableConcept($existing, $data['status_reason'], 'statusReason');
 
                 $episodeData = [
-                    'person_id' => $personId,
+                    $ownerColumn => $ownerId,
                     'status' => $data['status'],
                     'name' => $data['name'],
                     'closing_summary' => $data['closing_summary'] ?? null,

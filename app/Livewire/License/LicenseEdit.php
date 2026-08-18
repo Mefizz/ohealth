@@ -23,6 +23,7 @@ class LicenseEdit extends LicenseComponent
     public function mount(LegalEntity $legalEntity, License $license): void
     {
         $this->uuid = $license->uuid;
+        $this->originalType = $license->type->value;
         $this->form->fill($license);
     }
 
@@ -44,7 +45,7 @@ class LicenseEdit extends LicenseComponent
         }
 
         try {
-            $response = EHealth::license()->update($this->uuid, $this->form->formatForApi($validated));
+            $response = EHealth::license()->update($this->uuid, $validated);
 
             try {
                 $validated = $response->validate();

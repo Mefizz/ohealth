@@ -17,7 +17,6 @@ use App\Rules\DivisionRules\AddressRule;
 use App\Rules\DivisionRules\LocationRule;
 use App\Rules\DivisionRules\WorkingHoursRule;
 use App\Exceptions\CustomValidationException;
-use App\Rules\DivisionRules\LocationTypeRule;
 use Livewire\Features\SupportFormObjects\Form;
 use Illuminate\Validation\ValidationException;
 use App\Rules\DivisionRules\LegalEntityStatusRule;
@@ -54,8 +53,8 @@ class DivisionForm extends Form
             'sun' => [[Division::WORKING_TIME_DEFAULT_START, Division::WORKING_TIME_DEFAULT_END]]
         ],
         'location' => [
-            'latitude' => Division::LOCATION_DEFAULT_LATITUDE,
-            'longitude' => Division::LOCATION_DEFAULT_LONGITUDE
+            'latitude' => null,
+            'longitude' => null
         ],
         'phones' => []
     ];
@@ -81,8 +80,7 @@ class DivisionForm extends Form
      * Set the division's form data.
      * Replaces the current division's form data with the provided array.
      *
-     * @param array $division The division data to set in the form.
-     *
+     * @param  array  $division  The division data to set in the form.
      * @return void
      */
     public function setDivision(array $division)
@@ -108,7 +106,7 @@ class DivisionForm extends Form
 
             if ($this->showReceptionAddress) {
                 $errors1 = $this->component->receptionAddressValidation();
-                $errors = \array_merge( $errors, $errors1 );
+                $errors = \array_merge($errors, $errors1);
             }
 
             $this->validate();
@@ -132,8 +130,8 @@ class DivisionForm extends Form
     {
         return [
             'division.externalId' => 'nullable|integer|gt:0',
-            'division.location.longitude' => ['nullable', 'numeric', new LocationRule($this->division)],
-            'division.location.latitude' => ['nullable', 'numeric', new LocationRule($this->division)],
+            'division.location.longitude' => ['required', 'numeric', new LocationRule($this->division)],
+            'division.location.latitude' => ['required', 'numeric', new LocationRule($this->division)],
             'division.phones' => 'required|array',
             'division.phones.*.number' => ['required', 'string', new PhoneNumber()],
             'division.phones.*.type' => [
@@ -150,6 +148,8 @@ class DivisionForm extends Form
         return [
             'division.externalId.integer' => __('divisions.errors.external_id'),
             'division.email.required' => __('divisions.errors.email.required'),
+            'division.location.longitude.required' => __('divisions.errors.location.longitude_required'),
+            'division.location.latitude.required' => __('divisions.errors.location.latitude_required'),
             'division.email.email' => __('divisions.errors.email.wrong'),
             'division.phones.*.type' => __('divisions.errors.phone.type_required'),
             'division.phones.*.number' => __('divisions.errors.phone.number_required')
@@ -173,8 +173,6 @@ class DivisionForm extends Form
         return [
             // Check that legal entity is in ‘ACTIVE’ or ‘SUSPENDED’ status
             new LegalEntityStatusRule(),
-            // Check that location exists in request for legal entity with type PHARMACY
-            new LocationTypeRule($this->division),
             // Check that all bunch of the address' data is correct and valid
             new AddressRule($this->division),
             // Check that working hours schedule is correct
@@ -210,10 +208,10 @@ class DivisionForm extends Form
      */
     protected function checkDefaultAddress(): void
     {
-       foreach ($this->division['addresses'] as &$address) {
-           if (isset($address['area']) && $address['area'] === 'М.КИЇВ' && empty($address['streetType'])) {
-               $address['streetType'] = 'STREET';
-           }
-       }
+        foreach ($this->division['addresses'] as &$address) {
+            if (isset($address['area']) && $address['area'] === 'М.КИЇВ' && empty($address['streetType'])) {
+                $address['streetType'] = 'STREET';
+            }
+        }
     }
 }

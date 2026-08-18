@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Enums\Person\DiagnosticReportStatus;
+use App\Enums\Person\ObservationStatus;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
+use App\Models\MedicalEvents\Sql\Observation;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Throwable;
 
 /**
@@ -63,13 +69,15 @@ class DiagnosticReportRepository extends BaseRepository
      * Store condition in DB.
      *
      * @param  array  $data
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return int|null
      * @throws Throwable
      */
-    public function store(array $data, int $personId): ?int
+    public function store(array $data, Person|Preperson $patient): ?int
     {
-        return DB::transaction(function () use ($data, $personId) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        return DB::transaction(function () use ($data, $ownerColumn, $ownerId) {
             foreach ($data as $datum) {
                 $codeValue = $datum['code']['identifier']['value'];
 
@@ -106,11 +114,13 @@ class DiagnosticReportRepository extends BaseRepository
 
                 $diagnosticReport = $this->model->create([
                     'uuid' => $datum['uuid'] ?? $datum['id'],
-                    'person_id' => $personId,
+                    $ownerColumn => $ownerId,
                     'status' => $datum['status'],
                     'code_id' => $code->id,
+                    'effective_date_time' => $datum['effectiveDateTime'] ?? null,
                     'issued' => $datum['issued'],
                     'conclusion' => $datum['conclusion'] ?? null,
+                    'explanatory_letter' => $datum['explanatoryLetter'] ?? null,
                     'conclusion_code_id' => isset($datum['conclusionCode'])
                         ? Repository::codeableConcept()->store($datum['conclusionCode'])->id
                         : null,
@@ -139,32 +149,40 @@ class DiagnosticReportRepository extends BaseRepository
 
                 $diagnosticReport->category()->attach($categoryIds);
 
-                $diagnosticReport->effectivePeriod()->create([
-                    'start' => $datum['effectivePeriod']['start'],
-                    'end' => $datum['effectivePeriod']['end']
-                ]);
+                if (isset($datum['effectivePeriod'])) {
+                    $diagnosticReport->effectivePeriod()->create([
+                        'start' =>
+                            $datum['effectivePeriod']['start'],
 
-                if (isset($datum['performer'])) {
+                        'end' =>
+                            $datum['effectivePeriod']['end']
+                            ?? null,
+                    ]);
+                }
+
+                $performerData = data_get($datum, 'performer.0') ?? data_get($datum, 'performer');
+
+                if (!empty($performerData)) {
                     $reference = null;
-                    if (isset($datum['performer']['reference'])) {
-                        $performerValue = $datum['performer']['reference']['identifier']['value'];
-                        $reference = Repository::identifier()->store(
-                            $performerValue,
-                            $this->getEmployeeDisplayValue($performerValue)
-                        );
-                        Repository::codeableConcept()->attach($reference, $datum['performer']['reference']);
+
+                    if (isset($performerData['reference'])) {
+                        $performerValue = data_get($performerData, 'reference.identifier.value');
+                        $reference = Repository::identifier()->store($performerValue, $this->getEmployeeDisplayValue($performerValue));
+
+                        Repository::codeableConcept()->attach($reference, $performerData['reference']);
                     }
 
                     $diagnosticReport->performer()->create([
                         'reference_id' => $reference?->id,
-                        'text' => $datum['performer']['text'] ?? null
+                        'text' => $performerData['text'] ?? null,
                     ]);
                 }
 
                 if (isset($datum['resultsInterpreter'])) {
                     $reference = null;
                     if (isset($datum['resultsInterpreter']['reference'])) {
-                        $resultsInterpreterValue = $datum['resultsInterpreter']['reference']['identifier']['value'];
+                        $resultsInterpreterValue = data_get($datum, 'resultsInterpreter.reference.identifier.value');
+
                         $reference = Repository::identifier()->store(
                             $resultsInterpreterValue,
                             $this->getEmployeeDisplayValue($resultsInterpreterValue)
@@ -175,10 +193,31 @@ class DiagnosticReportRepository extends BaseRepository
                         );
                     }
 
-                    $diagnosticReport->resultsInterpreter()->create([
-                        'reference_id' => $reference?->id,
-                        'text' => $datum['resultsInterpreter']['text'] ?? null
-                    ]);
+                    $diagnosticReport
+                        ->resultsInterpreter()
+                        ->create([
+                            'reference_id' => $reference?->id,
+                            'text' => $datum['resultsInterpreter']['text'] ?? null,
+                        ]);
+                }
+
+                if (!empty($datum['usedReferences'])) {
+                    $usedReferenceIds = [];
+
+                    foreach ($datum['usedReferences'] as $usedReferenceData) {
+                        $equipmentUuid = data_get($usedReferenceData, 'identifier.value');
+
+                        if (!$equipmentUuid) {
+                            continue;
+                        }
+
+                        $identifier = Repository::identifier()->store($equipmentUuid);
+                        Repository::codeableConcept()->attach($identifier, $usedReferenceData);
+
+                        $usedReferenceIds[] = $identifier->id;
+                    }
+
+                    $diagnosticReport->usedReferences()->attach($usedReferenceIds);
                 }
 
                 $diagnosticReportId = $diagnosticReport->id;
@@ -186,6 +225,37 @@ class DiagnosticReportRepository extends BaseRepository
 
             // Return the ID when creating separately
             return $diagnosticReportId;
+        });
+    }
+
+    public function markAsEnteredInError(
+        DiagnosticReport $diagnosticReport,
+        array $cancellationReason,
+        ?string $explanatoryLetter = null
+    ): void {
+        DB::transaction(static function () use ($diagnosticReport, $cancellationReason, $explanatoryLetter): void {
+            $diagnosticReport->loadMissing(['cancellationReason.coding']);
+
+            $cancellationReasonModel = $diagnosticReport->cancellationReason
+                ? Repository::codeableConcept()->update($diagnosticReport->cancellationReason, $cancellationReason)
+                : Repository::codeableConcept()->store($cancellationReason);
+
+            $diagnosticReport->update([
+                'status' => DiagnosticReportStatus::ENTERED_IN_ERROR->value,
+                'cancellation_reason_id' => $cancellationReasonModel->id,
+                'explanatory_letter' => $explanatoryLetter,
+            ]);
+
+            $ownerColumn = $diagnosticReport->prepersonId !== null ? 'preperson_id' : 'person_id';
+
+            Observation::query()
+                ->where($ownerColumn, $diagnosticReport->getAttribute($ownerColumn))
+                ->whereHas('diagnosticReport', fn (Builder $query) => $query->where('value', $diagnosticReport->uuid))
+                ->where('status', '!=', ObservationStatus::ENTERED_IN_ERROR->value)
+                ->update([
+                    'status' => ObservationStatus::ENTERED_IN_ERROR->value,
+                    'explanatory_letter' => $explanatoryLetter,
+                ]);
         });
     }
 
@@ -197,7 +267,7 @@ class DiagnosticReportRepository extends BaseRepository
      */
     public function get(string $encounterUuid): ?array
     {
-        $results = $this->model::with([
+        return $this->model::with([
             'basedOn.type.coding',
             'paperReferral',
             'code.type.coding',
@@ -210,28 +280,78 @@ class DiagnosticReportRepository extends BaseRepository
             'division.type.coding',
             'performer.reference.type.coding',
             'reportOrigin.coding',
-            'resultsInterpreter.reference.type.coding'
+            'resultsInterpreter.reference.type.coding',
+            'usedReferences.type.coding',
         ])
             ->whereHas('encounter', fn (Builder $query) => $query->where('value', $encounterUuid))
             ->get()
             ->toArray();
-
-        return $results;
     }
 
     /**
-     * Get diagnostic reports data that is related to the person.
+     * Get diagnostic reports data that is related to the patient (person or preperson).
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return array
      */
-    public function getByPersonId(int $personId): array
+    public function getByPersonId(Person|Preperson $patient): array
+    {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        return $this->model
+            ->withAllRelations()
+            ->where($ownerColumn, $ownerId)
+            ->get()
+            ->toArray();
+    }
+
+    /**
+     * Get paginated diagnostic reports related to the patient.
+     *
+     * @param  Person|Preperson  $patient
+     * @param  int  $page
+     * @param  int  $pageSize
+     * @return LengthAwarePaginator
+     */
+    public function getPaginatedByPatient(
+        Person|Preperson $patient,
+        int $page,
+        int $pageSize
+    ): LengthAwarePaginator {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        return $this->model
+            ->withAllRelations()
+            ->where($ownerColumn, $ownerId)
+            ->latest()
+            ->paginate($pageSize, ['*'], 'page', $page);
+    }
+
+    /**
+     * Get diagnostic report by id.
+     *
+     * @param  int  $diagnosticReportId
+     * @return DiagnosticReport
+     */
+    public function findById(int $diagnosticReportId): DiagnosticReport
     {
         return $this->model
             ->withAllRelations()
-            ->where('person_id', $personId)
-            ->get()
-            ->toArray();
+            ->findOrFail($diagnosticReportId);
+    }
+
+    /**
+     * Get diagnostic report by eHealth UUID.
+     *
+     * @param  string  $uuid
+     * @return DiagnosticReport
+     */
+    public function findByUuid(string $uuid): DiagnosticReport
+    {
+        return $this->model
+            ->withAllRelations()
+            ->where('uuid', $uuid)
+            ->firstOrFail();
     }
 
     /**
@@ -258,14 +378,16 @@ class DiagnosticReportRepository extends BaseRepository
     /**
      * Sync diagnostic report data and related data by deleting and creating.
      *
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @param  array  $validatedData
      * @return void
      * @throws Throwable
      */
-    public function sync(int $personId, array $validatedData): void
+    public function sync(Person|Preperson $patient, array $validatedData): void
     {
-        DB::transaction(function () use ($personId, $validatedData) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        DB::transaction(function () use ($ownerColumn, $ownerId, $validatedData) {
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             $existingDiagnosticReports = $this->model->whereIn('uuid', $apiUuids)
@@ -307,9 +429,10 @@ class DiagnosticReportRepository extends BaseRepository
                 );
 
                 $diagnosticReportData = [
-                    'person_id' => $personId,
+                    $ownerColumn => $ownerId,
                     'based_on_id' => $basedOn?->id,
                     'code_id' => $code->id,
+                    'effective_date_time' => $datum['effectiveDateTime'] ?? null,
                     'encounter_id' => $encounter?->id,
                     'division_id' => $division?->id,
                     'conclusion_code_id' => $conclusionCode?->id,
@@ -319,8 +442,10 @@ class DiagnosticReportRepository extends BaseRepository
                     'origin_episode_id' => $originEpisode?->id,
                     'cancellation_reason_id' => $cancellationReason?->id,
                     'status' => $data['status'],
+                    'effective_date_time' => $data['effective_date_time'] ?? null,
                     'issued' => $data['issued'],
                     'conclusion' => $data['conclusion'] ?? null,
+                    'explanatory_letter' => $data['explanatory_letter'] ?? null,
                     'primary_source' => $data['primary_source']
                 ];
 
@@ -345,7 +470,8 @@ class DiagnosticReportRepository extends BaseRepository
 
                 Repository::period()->sync($diagnosticReport, $data['effective_period'] ?? [], 'effectivePeriod');
 
-                $this->syncHasOneReference($diagnosticReport, 'performer', $data['performer'] ?? []);
+                $performerData = data_get($data, 'performer.0') ?? ($data['performer'] ?? []);
+                $this->syncHasOneReference($diagnosticReport, 'performer', $performerData);
                 $this->syncHasOneReference($diagnosticReport, 'resultsInterpreter', $data['results_interpreter'] ?? []);
 
                 $this->syncPivot(

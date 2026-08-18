@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Enums\Person\EpisodeStatus;
+use App\Enums\Episode\Status;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +17,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        $this->setStatusConstraint(EpisodeStatus::values());
+        $this->setStatusConstraint(Status::values());
     }
 
     /**
@@ -26,12 +26,12 @@ return new class extends Migration
     public function down(): void
     {
         DB::table('episodes')
-            ->where('status', EpisodeStatus::DRAFT->value)
-            ->update(['status' => EpisodeStatus::ACTIVE->value]);
+            ->where('status', Status::DRAFT->value)
+            ->update(['status' => Status::ACTIVE->value]);
 
         $this->setStatusConstraint(array_filter(
-            EpisodeStatus::values(),
-            static fn (string $value): bool => $value !== EpisodeStatus::DRAFT->value
+            Status::values(),
+            static fn (string $value): bool => $value !== Status::DRAFT->value
         ));
     }
 

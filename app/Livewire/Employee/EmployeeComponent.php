@@ -40,6 +40,7 @@ abstract class EmployeeComponent extends Component
     public ?int $employeeRequestId = null;
     public array $divisions = [];
     public bool $showSignatureModal = false;
+    public bool $showRequestPreviewModal = false;
 
     public ?array $dictionaryNames = [
         'PHONE_TYPE', 'COUNTRY', 'SETTLEMENT_TYPE', 'SPECIALITY_TYPE', 'DIVISION_TYPE',
@@ -69,6 +70,8 @@ abstract class EmployeeComponent extends Component
     protected function getDictionary(): void
     {
         $this->traitGetDictionary();
+
+        $this->filterEmployeeDocumentTypes();
 
         if (legalEntity()) {
             $allowedEmployeeTypes = config('ehealth.legal_entity_employee_types.' . legalEntity()->type->name, []);
@@ -105,6 +108,21 @@ abstract class EmployeeComponent extends Component
                 $this->employeeTypeDegrees[$employeeType] = array_intersect_key($masterDegreeDict, array_flip($allowedDegreeKeys));
             }
         }
+    }
+
+    /**
+     * Employee request accepts only EMPLOYEE_IDENTITY_DOCUMENT_TYPES (eHealth chart parameter).
+     *
+     * @see https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/17570365551/DRAFT+REST+API+Create+Employee+Request+v2+API-005-024-0001
+     */
+    protected function filterEmployeeDocumentTypes(): void
+    {
+        $allowedTypes = config('ehealth.employee_identity_document_types', []);
+
+        $this->dictionaries['DOCUMENT_TYPE'] = array_intersect_key(
+            $this->dictionaries['DOCUMENT_TYPE'] ?? [],
+            array_flip($allowedTypes)
+        );
     }
 
     #[Computed]
@@ -145,7 +163,7 @@ abstract class EmployeeComponent extends Component
         // 1. Validation
         if (Gate::denies('syncEmployee', $employee)) {
             $this->dispatch('flashMessage', [
-                'message' => 'Синхронізація недоступна для цього співробітника.',
+                'message' => 'Синхронізація недоступна для цього працівника.',
                 'type' => 'error'
             ]);
 
@@ -182,7 +200,7 @@ abstract class EmployeeComponent extends Component
             $this->actualizePendingRequests($employee, $token);
 
             $this->dispatch('flashMessage', [
-                'message' => 'Дані співробітника успішно оновлено з ЕСОЗ',
+                'message' => 'Дані працівника успішно оновлено з ЕСОЗ',
                 'type' => 'success'
             ]);
 
@@ -204,7 +222,7 @@ abstract class EmployeeComponent extends Component
     }
 
     /**
-     * Checks "hanging" requests (SIGNED) for this employee in eHealth.
+     * Checks hanging requests (NEW with uuid, or legacy SIGNED) for this employee in eHealth.
      * If the request in eHealth is already APPROVED/REJECTED, updates the local status.
      *
      * @param  Employee  $employee
@@ -213,9 +231,9 @@ abstract class EmployeeComponent extends Component
      */
     protected function actualizePendingRequests(Employee $employee, string $token): void
     {
-        $pendingRequests = EmployeeRequest::where('employee_id', $employee->id)
-            ->where('status', RequestStatus::SIGNED)
-            ->whereNull('applied_at')
+        $pendingRequests = EmployeeRequest::query()
+            ->where('employee_id', $employee->id)
+            ->pendingEhealth()
             ->get();
 
         if ($pendingRequests->isEmpty()) {
@@ -263,5 +281,56 @@ abstract class EmployeeComponent extends Component
                 // Continue to next request without stopping the flow
             }
         }
+    }
+
+    #[Computed]
+    public function canEnableNoTaxId(): bool
+    {
+        return array_any(
+            $this->form->documents,
+            fn ($document) => !empty($document['number']) && in_array(
+                $document['type'],
+                ['PASSPORT', 'NATIONAL_ID', 'REFUGEE_CERTIFICATE', 'PERMANENT_RESIDENCE_PERMIT']
+            )
+        );
+    }
+
+    /**
+     * Handles the click event on the "no tax ID" checkbox.
+     */
+    public function toggleNoTaxId(): void
+    {
+        if ($this->canEnableNoTaxId) {
+            $this->form->party['noTaxId'] = !$this->form->party['noTaxId'];
+            $this->syncTaxIdFromDocument();
+        } else {
+            $this->flashError(__('forms.no_tax_id_document_required'));
+            $this->dispatch('scroll-to-element', selector: '#section-documents');
+            $this->dispatch('highlight-section', selector: '#section-documents');
+        }
+    }
+
+    /**
+     * Syncs the Tax ID field with the number from a suitable document.
+     */
+    public function syncTaxIdFromDocument(): void
+    {
+        if (($this->form->party['noTaxId'] ?? false) === false) {
+            return;
+        }
+
+        foreach ($this->form->documents as $document) {
+            if (!empty($document['number']) && in_array($document['type'], ['PASSPORT', 'NATIONAL_ID', 'REFUGEE_CERTIFICATE', 'PERMANENT_RESIDENCE_PERMIT'])) {
+                $this->form->party['taxId'] = $document['number'];
+
+                return;
+            }
+        }
+    }
+
+    protected function flashError(string $message): void
+    {
+        session()->flash('error', $message);
+        $this->dispatch('flashMessage', ['message' => $message, 'type' => 'error']);
     }
 }

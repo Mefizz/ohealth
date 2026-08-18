@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Status;
 use App\Enums\User\Role;
 use App\Enums\JobStatus;
 use App\Models\Relations\Phone;
@@ -55,6 +56,7 @@ class LegalEntity extends Model
     public const string ENTITY_OBSERVATION = 'observation_';
     public const string ENTITY_CONDITION = 'condition_';
     public const string ENTITY_DIAGNOSTIC_REPORT = 'diagnostic_report_';
+    public const string ENTITY_PROCEDURE = 'procedure_';
 
     protected $fillable = [
         'uuid',
@@ -107,6 +109,13 @@ class LegalEntity extends Model
         'name',
     ];
 
+    /**
+     * Caches resolved route bindings for the lifetime of the current request.
+     *
+     * @var array<string, Model|null>
+     */
+    protected array $routeBindingCache = [];
+
     public null|object $owner;
 
     public function employees(): HasMany
@@ -152,6 +161,11 @@ class LegalEntity extends Model
     public function licenses(): HasMany
     {
         return $this->hasMany(License::class);
+    }
+
+    public function carePlans(): HasMany
+    {
+        return $this->hasMany(CarePlan::class);
     }
 
     public function equipments(): HasMany
@@ -204,7 +218,10 @@ class LegalEntity extends Model
      */
     public function getOwner(): ?object
     {
-        return $this->employees()->whereEmployeeType(Role::OWNER)->first();
+        return $this->employees()
+            ->whereEmployeeType(Role::OWNER)
+            ->whereStatus(Status::APPROVED)
+            ->first();
     }
 
     public function healthcareServices(): HasMany
@@ -236,9 +253,38 @@ class LegalEntity extends Model
         $query->where('uuid', $legalEntityUUID);
     }
 
+    /**
+     * Pharmacy legal entities dispense e-prescriptions; they do not issue referrals.
+     */
+    public function isPharmacy(): bool
+    {
+        return $this->type?->name === self::TYPE_PHARMACY;
+    }
+
+    /**
+     * Determine whether the legal entity has an active, non-expired primary license.
+     */
     public function hasActivePrimaryLicense(): bool
     {
-        return $this->licenses()->whereIsPrimary(true)->whereIsActive(true)->exists();
+        return $this->licenses()
+            ->whereIsPrimary(true)
+            ->whereIsActive(true)
+            ->where(static function (Builder $query): void {
+                $query->whereNull('expiry_date')
+                    ->orWhere('expiry_date', '>=', now()->toDateString());
+            })
+            ->exists();
+    }
+
+    /**
+     * License type codes allowed as additional licenses for this legal entity type.
+     * Driven by the LEGAL_ENTITY_<LEGAL_ENTITY_TYPE>_ADDITIONAL_LICENSE_TYPES configuration parameter.
+     *
+     * @return array
+     */
+    public function additionalLicenseTypeCodes(): array
+    {
+        return config('ehealth.legal_entity_' . strtolower($this->type->name) . '_additional_license_types', []);
     }
 
     /**
@@ -268,6 +314,10 @@ class LegalEntity extends Model
      */
     public function setEntityStatus(JobStatus $status, string $entityType = ''): void
     {
+        if (!$this->hasAttribute($entityType . 'sync_status')) {
+            return;
+        }
+
         $this->{$entityType . 'sync_status'} = $status->value;
         $this->save();
         $this->refresh();
@@ -285,17 +335,19 @@ class LegalEntity extends Model
     }
 
     /**
-     * Memoize route-binding resolution per request to avoid duplicate queries
+     * Memoize (or something like this) route-binding resolution per request to avoid duplicate queries
      * when Livewire's persistent middleware re-runs SubstituteBindings.
      */
     #[Override]
     public function resolveRouteBinding($value, $field = null): ?Model
     {
-        return cache()->memo()->remember(
-            "legal_entity_route:$value:" . ($field ?? $this->getRouteKeyName()),
-            now()->addMinute(),
-            fn () => parent::resolveRouteBinding($value, $field)
-        );
+        $key = $value.'|'.($field ?? $this->getRouteKeyName());
+
+        if (!array_key_exists($key, $this->routeBindingCache)) {
+            $this->routeBindingCache[$key] = parent::resolveRouteBinding($value, $field);
+        }
+
+        return $this->routeBindingCache[$key];
     }
 
     /**

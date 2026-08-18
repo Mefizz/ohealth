@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthTimestampCast;
-use App\Enums\Person\EpisodeStatus;
-use Eloquence\Behaviours\HasCamelCasing;
+use App\Enums\Episode\Status;
 use App\Models\Person\Person;
+use App\Models\Preperson;
+use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Support\Str;
 
 class Episode extends Model
 {
@@ -22,6 +25,7 @@ class Episode extends Model
     protected $fillable = [
         'uuid',
         'person_id',
+        'preperson_id',
         'encounter_id',
         'episode_type_id',
         'status',
@@ -38,6 +42,7 @@ class Episode extends Model
     protected $hidden = [
         'id',
         'person_id',
+        'preperson_id',
         'encounter_id',
         'episode_type_id',
         'managing_organization_id',
@@ -48,10 +53,38 @@ class Episode extends Model
     ];
 
     protected $casts = [
-        'status' => EpisodeStatus::class,
+        'status' => Status::class,
         'ehealth_inserted_at' => EHealthTimestampCast::class,
         'ehealth_updated_at' => EHealthTimestampCast::class
     ];
+
+    protected function ehealthInsertedDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => Str::before((string) $this->ehealthInsertedAt, ' ')
+        );
+    }
+
+    protected function ehealthInsertedTime(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => Str::after((string) $this->ehealthInsertedAt, ' ')
+        );
+    }
+
+    protected function ehealthUpdatedDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => Str::before((string) $this->ehealthUpdatedAt, ' ')
+        );
+    }
+
+    protected function ehealthUpdatedTime(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => Str::after((string) $this->ehealthUpdatedAt, ' ')
+        );
+    }
 
     public function period(): MorphOne
     {
@@ -88,6 +121,11 @@ class Episode extends Model
         return $this->belongsTo(Person::class);
     }
 
+    public function preperson(): BelongsTo
+    {
+        return $this->belongsTo(Preperson::class);
+    }
+
     public function currentDiagnoses(): HasMany
     {
         return $this->hasMany(EpisodeCurrentDiagnosis::class);
@@ -104,16 +142,39 @@ class Episode extends Model
     }
 
     /**
-     * Filter episodes belonging to the given person.
+     * Filter episodes belonging to the given patient (person or preperson).
      *
      * @param  Builder  $query
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return Builder
      */
     #[Scope]
-    protected function forPerson(Builder $query, int $personId): Builder
+    protected function forPatient(Builder $query, Person|Preperson $patient): Builder
     {
-        return $query->wherePersonId($personId);
+        return $patient instanceof Preperson
+            ? $query->wherePrepersonId($patient->id)
+            : $query->wherePersonId($patient->id);
+    }
+
+    /**
+     * Filter out the episodes known to be managed by another legal entity.
+     * The short episode endpoint does not return a managing organization, so those episodes are kept:
+     * without it there is nothing to tell them apart from the ones of the current legal entity.
+     *
+     * @param  Builder  $query
+     * @return Builder
+     */
+    #[Scope]
+    protected function forLegalEntity(Builder $query): Builder
+    {
+        return $query->where(
+            static fn (Builder $episode): Builder => $episode
+                ->whereNull('managing_organization_id')
+                ->orWhereHas(
+                    'managingOrganization',
+                    static fn (Builder $identifier): Builder => $identifier->whereValue(legalEntity()->uuid)
+                )
+        );
     }
 
     #[Scope]

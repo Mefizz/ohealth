@@ -33,6 +33,21 @@ class DiagnosticReport extends PatientApiBase
     }
 
     /**
+     * Cancel diagnostic report package by marking the diagnostic report and related observations as entered in error.
+     *
+     * @param  string  $uuid  Person UUID
+     * @param  array  $data
+     * @return EHealthResponse|PromiseInterface
+     * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
+     *
+     * @see https://medicaleventsmisapi.docs.apiary.io/#reference/medical-events/diagnostic-report-data-package/cancel-diagnostic-report-package
+     */
+    public function cancel(string $uuid, array $data = []): PromiseInterface|EHealthResponse
+    {
+        return $this->patch(self::URL . "/$uuid/diagnostic_report_package", $data);
+    }
+
+    /**
      * Get a diagnostic report by ID.
      *
      * @param  string  $patientId

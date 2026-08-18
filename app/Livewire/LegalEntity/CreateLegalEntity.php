@@ -4,25 +4,23 @@ declare(strict_types=1);
 
 namespace App\Livewire\LegalEntity;
 
-use Exception;
 use App\Models\License;
 use Illuminate\Support\Arr;
 use App\Models\Relations\Phone;
 use App\Models\LegalEntityType;
-use App\Livewire\Actions\Logout;
 use App\Models\Relations\Address;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use App\Repositories\PhoneRepository;
 use App\Repositories\AddressRepository;
-use Illuminate\Support\Facades\Redirect;
 use App\Enums\License\Type as LicenseType;
 use Illuminate\Validation\ValidationException;
 use App\Models\LegalEntity as LegalEntityModel;
+use Exception;
 
 class CreateLegalEntity extends LegalEntity
 {
+    protected bool $isNew = false;
+
     /**
      * @var int The current step of the process
      */
@@ -69,7 +67,8 @@ class CreateLegalEntity extends LegalEntity
     {
         parent::mount();
 
-        $this->setLegalEntity();
+        // parent::setLegalEntity() return false if previous legal entity is not set, so we can determine that we are creating new legal entity
+        $this->isNew = !parent::setLegalEntity();
 
         $this->getOwnerFields();
 
@@ -86,13 +85,6 @@ class CreateLegalEntity extends LegalEntity
         return $this->getLegalEntityFromCache();
     }
 
-    protected function setLegalEntity(): bool
-    {
-        $isNotNew = parent::setLegalEntity();
-
-        return $isNotNew;
-    }
-
     /**
      * Set the owner information from the cache if available.
      */
@@ -102,6 +94,7 @@ class CreateLegalEntity extends LegalEntity
         $this->legalEntityForm->owner = Cache::get($this->ownerCacheKey) ?? $this->setInitialOwnerValues([
             'taxId' => '',
             'phones' => [],
+            'documents' => [],
             'noTaxId' => false
         ]); // Set the base owner data if no data in cache
     }
@@ -359,6 +352,19 @@ class CreateLegalEntity extends LegalEntity
             Arr::set($this->legalEntityForm->owner, 'taxId', '');
         }
 
+        // Remove empty documents and phones records from the owner array
+        foreach (['documents', 'phones'] as $field) {
+            if (!empty($this->legalEntityForm->owner[$field])) {
+                $this->legalEntityForm->owner[$field] = array_values(
+                    array_filter(
+                        $this->legalEntityForm->owner[$field],
+                        fn($item, $index) => $index === 0 || !empty(array_filter($item)),
+                        ARRAY_FILTER_USE_BOTH
+                    )
+                );
+            }
+        }
+
         // Check if the owner information is cached
         if (Cache::has($this->ownerCacheKey)) {
             $cachedOwner = Cache::get($this->ownerCacheKey);
@@ -500,77 +506,16 @@ class CreateLegalEntity extends LegalEntity
         return true;
     }
 
-    /**
-     * Handle success response from API request.
-     *
-     * @param array $response The response from the API request
-     * @return void
-     */
-    protected function handleSuccessResponse(array $response, array $requestData = [])
-    {
-        try {
-            DB::transaction(function () use ($response, $requestData) {
-
-                $this->createNewLegalEntity($response);
-
-                setPermissionsTeamId($this->legalEntity->id);
-
-                if (isset($response['data']['license'])) {
-                    $this->saveLicense($response['data']['license']);
-                }
-
-                $user = $this->createUser();
-
-                $user->unsetRelation('roles');
-
-                $this->createEmployeeRequest($this->legalEntity, $requestData, $response['urgent']['employee_request_id']);
-
-                if (Cache::has($this->entityCacheKey)) {
-                    Cache::forget($this->entityCacheKey);
-                }
-
-                if (Cache::has($this->ownerCacheKey)) {
-                    Cache::forget($this->ownerCacheKey);
-                }
-
-                if (Cache::has($this->stepCacheKey)) {
-                    Cache::forget($this->stepCacheKey);
-                }
-            });
-
-            app(Logout::class)();
-
-            Log::info("LegalEntity: New OWNER has been successfully registered!");
-
-            return Redirect::route('login')->with('success', __('forms.legal_entity_registered')) ?? null;
-        } catch (Exception $err) {
-            Log::error(__('Сталася помилка під час обробки запиту'), ['error' => $err->getMessage()]);
-
-            throw new Exception(__('Сталася помилка під час обробки запиту.' .  ($err->getCode() !== 0 ? ' Код помилки: ' . $err->getCode() : '')));
-        }
-    }
-
     public function createLegalEntity()
     {
         $this->stepSignificancy();
 
         // Validate All the data from the form
         if ($this->validationRequest()) {
-            // TODO: until refactoring
-            if (! $result = $this->signLegalEntity()) {
-                return;
-            }
-
-            $requestData = $result['request'];
-
-            $response = $this->filterUnprovidedFields($result['response'], $requestData);
-
             try {
-                // Handle successful API response
-                $this->handleSuccessResponse($response, $requestData);
+                $this->legalEntityCreate();
             } catch (Exception $err) {
-                // Dispatch error message for possible errors
-                $this->dispatchErrorMessage($err->getMessage());
+                return;
             }
         }
     }
@@ -580,7 +525,8 @@ class CreateLegalEntity extends LegalEntity
         return view('livewire.legal-entity.create-legal-entity', [
             'activeStep' => $this->steps['index'],
             'currentStep' => $this->steps['index'],
-            'isEdit' => false
+            'isEdit' => false,
+            'isNew' => $this->isNew
         ]);
     }
 }

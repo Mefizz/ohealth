@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Policies;
 
 use App\Models\Contracts\ContractRequest;
+use App\Models\LegalEntity;
 use App\Models\User;
 use Illuminate\Auth\Access\Response;
 
@@ -60,12 +61,55 @@ class ContractRequestPolicy
     }
 
     /**
+     * Capitation contract creation is currently disabled for all legal entity types
+     * (including PRIMARY_CARE and OUTPATIENT).
+     */
+    public function createCapitation(User $user): Response
+    {
+        return Response::denyWithStatus(404);
+    }
+
+    /**
+     * Reimbursement contract creation is allowed only for pharmacy legal entities.
+     */
+    public function createReimbursement(User $user): Response
+    {
+        if (!$user->can('contract_request:create')) {
+            return Response::denyWithStatus(404);
+        }
+
+        $legalEntity = legalEntity();
+
+        // PRIMARY_CARE (ПМД) and other non-pharmacy LEs must not see/submit reimbursement contracts.
+        if ($legalEntity === null || $legalEntity->type?->name !== LegalEntity::TYPE_PHARMACY) {
+            return Response::denyWithStatus(404);
+        }
+
+        return Response::allow();
+    }
+
+    /**
      * Determine whether the user can approve the contract request from MSP side.
      */
     public function approve(User $user, ContractRequest $contractRequest): Response
     {
         if ($contractRequest->contractor_legal_entity_id !== legalEntity()->uuid) {
             return Response::denyWithStatus(404);
+        }
+
+        $status = $contractRequest->status instanceof \App\Enums\Contract\Status
+            ? $contractRequest->status
+            : \App\Enums\Contract\Status::tryFrom((string) $contractRequest->status);
+
+        if ($status !== \App\Enums\Contract\Status::APPROVED) {
+            return Response::deny(__('contracts.policy.approve_denied'));
+        }
+
+        if (($contractRequest->type === 'REIMBURSEMENT' || $contractRequest->type === \App\Enums\Contract\Type::REIMBURSEMENT->value)
+            && $user->hasAllowedRole([\App\Enums\User\Role::OWNER])
+            && legalEntity()->type->name === \App\Models\LegalEntity::TYPE_PRIMARY_CARE
+        ) {
+            return Response::deny(__('contracts.policy.approve_denied'));
         }
 
         return $user->can('contract_request:approve')
@@ -80,6 +124,14 @@ class ContractRequestPolicy
     {
         if ($contractRequest->contractor_legal_entity_id !== legalEntity()->uuid) {
             return Response::denyWithStatus(404);
+        }
+
+        $status = $contractRequest->status instanceof \App\Enums\Contract\Status
+            ? $contractRequest->status
+            : \App\Enums\Contract\Status::tryFrom((string) $contractRequest->status);
+
+        if ($status !== \App\Enums\Contract\Status::NHS_SIGNED) {
+            return Response::deny(__('contracts.policy.sign_denied'));
         }
 
         return $user->can('contract_request:sign')

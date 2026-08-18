@@ -22,6 +22,7 @@ use App\Rules\BirthDate;
 use App\Rules\PhoneNumber;
 use App\Rules\PhoneDuplicates;
 use App\Models\Relations\Party;
+use App\Models\User;
 use Illuminate\Validation\Rule;
 use App\Models\Employee\Employee;
 use App\Rules\UniqueEmailInLegalEntity;
@@ -39,6 +40,8 @@ class EmployeeForm extends Form
 
     public ?string $knedp = null;
     public ?TemporaryUploadedFile $keyContainerUpload = null;
+    /** Original client filename for UI after modal close/reopen (input value cannot be restored). */
+    public string $keyContainerFileName = '';
     public ?string $password = null;
 
     public array $documents = [];
@@ -103,8 +106,16 @@ class EmployeeForm extends Form
 
     protected function rootFieldsRules(): array
     {
+        $customPositionAllowed = config('ehealth.employee_type_custom_position_allowed', []);
+        $isCustomPositionAllowed = in_array($this->employeeType, $customPositionAllowed, true);
+
+        $positionRules = ['required', 'string'];
+        if (!$isCustomPositionAllowed) {
+            $positionRules[] = Rule::in(array_keys($this->component->dictionaries['POSITION'] ?? []));
+        }
+
         return [
-            'position' => ['required', 'string', Rule::in(array_keys($this->component->dictionaries['POSITION'] ?? []))],
+            'position' => $positionRules,
             'employeeType' => ['required', 'string', Rule::in(array_keys($this->component->dictionaries['EMPLOYEE_TYPE'] ?? []))],
             'startDate' => ['required', new DateFormat()],
             'endDate' => [
@@ -135,33 +146,46 @@ class EmployeeForm extends Form
      */
     public function validationAttributes(): array
     {
-        $attributes = [
-            'party.first_name' => __('forms.party.first_name'),
-            'party.last_name' => __('forms.party.last_name'),
-            'party.second_name' => __('forms.party.second_name'),
-            'party.tax_id' => __('forms.party.tax_id'),
-            'party.phones' => __('forms.party.phones'),
-            'documents' => __('forms.documents'),
-            'position' => __('forms.position'),
-            'start_date' => __('forms.start_date'),
+        return [
+            'form.position' => __('forms.position'),
+            'form.employeeType' => __('employees.employee_type'),
+            'form.startDate' => __('forms.start_date'),
+            'form.endDate' => __('forms.end_date'),
+            'form.divisionId' => __('forms.division'),
+            'form.party.lastName' => __('forms.party.lastName'),
+            'form.party.firstName' => __('forms.party.firstName'),
+            'form.party.secondName' => __('forms.party.secondName'),
+            'form.party.gender' => __('forms.party.gender'),
+            'form.party.birthDate' => __('forms.party.birthDate'),
+            'form.party.taxId' => __('forms.party.taxId'),
+            'form.party.noTaxId' => __('forms.party.noTaxId'),
+            'form.party.email' => __('forms.party.email'),
+            'form.party.workingExperience' => __('forms.working_experience'),
+            'form.party.aboutMyself' => __('forms.about_myself'),
+            'form.party.phones.*.number' => __('forms.phone_number'),
+            'form.party.phones.*.type' => __('forms.phone_type'),
+            'form.documents.*.number' => __('forms.document_number'),
+            'form.documents.*.type' => __('forms.document_type'),
+            'form.documents.*.issuedAt' => __('forms.document_issued_at'),
+            'form.documents.*.expirationDate' => __('forms.document_expiration_date'),
+            'form.documents.*.issuedBy' => __('forms.document_issued_by'),
         ];
+    }
 
-        // Add attributes for dynamic fields of documents and phones
-        if (!empty($this->party['phones'])) {
-            foreach ($this->party['phones'] as $index => $phone) {
-                $attributes["party.phones.{$index}.number"] = __('forms.phone_number') . ' #' . ($index + 1);
-                $attributes["party.phones.{$index}.type"] = __('forms.phone_type');
-            }
-        }
-
-        if (!empty($this->documents)) {
-            foreach ($this->documents as $index => $doc) {
-                $attributes["documents.{$index}.number"] = __('forms.document_number');
-                $attributes["documents.{$index}.type"] = __('forms.document_type');
-            }
-        }
-
-        return $attributes;
+    /**
+     * Custom validation messages.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'party.workingExperience.required' => __('validation.custom.party.working_experience_required'),
+            'party.workingExperience.integer' => __('validation.custom.party.working_experience_integer'),
+            'party.workingExperience.gt' => __('validation.custom.party.working_experience_gt'),
+            'documents.*.type.in' => __('validation.custom.employee.document_type_not_allowed'),
+            'documents.min' => __('validation.custom.identity_document_required'),
+        ];
     }
 
     protected function partyRules(): array
@@ -178,22 +202,14 @@ class EmployeeForm extends Form
             'party.taxId' => ['required', 'string', new TaxId()],
             'party.noTaxId' => ['boolean'],
             'party.email' => ['required', 'present', 'email', new UniqueEmailInLegalEntity($this->existingPartyId)],
-            'party.workingExperience' => ['nullable', 'numeric', 'integer', 'min:1'],
+            'party.workingExperience' => ['required', 'integer', 'gt:0'],
             'party.aboutMyself' => ['nullable', 'present', 'string'],
         ];
     }
 
     protected function documentsRules(): array
     {
-        $identityDocTypes = [
-            'COMPLEMENTARY_PROTECTION_CERTIFICATE',
-            'NATIONAL_ID',
-            'PASSPORT',
-            'PERMANENT_RESIDENCE_PERMIT',
-            'REFUGEE_CERTIFICATE',
-            'TEMPORARY_CERTIFICATE',
-            'TEMPORARY_PASSPORT'
-        ];
+        $allowedDocumentTypes = config('ehealth.employee_identity_document_types', []);
 
         return [
             'documents' => [
@@ -201,10 +217,10 @@ class EmployeeForm extends Form
                 'array',
                 'min:1',
                 new UniquePassportRule(),
-                new HasIdentityDocumentRule($identityDocTypes),
+                new HasIdentityDocumentRule($allowedDocumentTypes),
             ],
 
-            'documents.*.type' => ['required', 'string', Rule::in(array_keys($this->component->dictionaries['DOCUMENT_TYPE'] ?? []))],
+            'documents.*.type' => ['required', 'string', Rule::in($allowedDocumentTypes)],
             'documents.*.number' => [
                 'required',
                 'string',
@@ -256,7 +272,27 @@ class EmployeeForm extends Form
             'doctor.educations.*.degree' => ['required', 'string', 'max:255'],
             'doctor.educations.*.speciality' => ['required', 'string', 'max:255'],
 
-            'doctor.specialities' => $specialitiesRules,
+            'doctor.specialities' => array_merge($specialitiesRules, [
+                function (string $attribute, mixed $value, \Closure $fail) use ($isMedicalType): void {
+                    if (!is_array($value)) {
+                        return;
+                    }
+
+                    $primaryCount = collect($value)
+                        ->filter(function ($speciality) {
+                            $flag = $speciality['specialityOfficio'] ?? $speciality['speciality_officio'] ?? false;
+
+                            return filter_var($flag, FILTER_VALIDATE_BOOLEAN);
+                        })
+                        ->count();
+
+                    if ($primaryCount > 1) {
+                        $fail(__('errors.ehealth.messages.multiple_primary_specialities'));
+                    } elseif ($isMedicalType && $primaryCount !== 1) {
+                        $fail(__('errors.ehealth.messages.missing_primary_speciality'));
+                    }
+                },
+            ]),
             'doctor.specialities.*.speciality' => ['required', 'string', 'max:255'],
             'doctor.specialities.*.specialityOfficio' => ['required', 'boolean'],
             'doctor.specialities.*.level' => ['required', 'string', 'max:255'],
@@ -332,8 +368,7 @@ class EmployeeForm extends Form
         $this->party['birthDate'] = convertToAppDateFormat($party->birthDate);
         $this->party['taxId'] = $party->taxId;
         $this->party['noTaxId'] = (bool)$party->noTaxId;
-        $user = $party->users->first();
-        $this->party['email'] = $user ? $user->email : null;
+        $this->party['email'] = $this->resolvePartyEmailForCurrentLegalEntity($party);
         $this->party['workingExperience'] = $party->workingExperience;
         $this->party['aboutMyself'] = $party->aboutMyself;
 
@@ -355,6 +390,44 @@ class EmployeeForm extends Form
                 ];
             })->toArray();
         }
+    }
+
+    /**
+     * Prefer a user linked to this party in the current legal entity over users from other LEs.
+     */
+    private function resolvePartyEmailForCurrentLegalEntity(Party $party): ?string
+    {
+        $legalEntityId = legalEntity()?->id;
+
+        if ($legalEntityId) {
+            $user = User::query()
+                ->where('party_id', $party->id)
+                ->where(function ($query) use ($legalEntityId, $party) {
+                    $query->whereHas(
+                        'employees',
+                        fn ($employees) => $employees
+                            ->where('legal_entity_id', $legalEntityId)
+                            ->where('party_id', $party->id)
+                    )->orWhereIn(
+                        'id',
+                        Employee::query()
+                            ->where('legal_entity_id', $legalEntityId)
+                            ->where('party_id', $party->id)
+                            ->whereNotNull('user_id')
+                            ->select('user_id')
+                    );
+                })
+                ->oldest('id')
+                ->first();
+
+            if ($user) {
+                return $user->email;
+            }
+        }
+
+        $party->loadMissing('users');
+
+        return $party->users->sortBy('id')->first()?->email;
     }
 
     private function hydrateFromEmployee(Employee $employee): void
@@ -574,6 +647,9 @@ class EmployeeForm extends Form
         // --- 1. Root fields ---
         $formData['startDate'] = $toApiDate($formData['startDate'] ?? null);
         $formData['endDate'] = $toApiDate($formData['endDate'] ?? null);
+        if (($formData['divisionId'] ?? null) === '') {
+            $formData['divisionId'] = null;
+        }
 
         // --- 2. Identity (Party) ---
         if (isset($formData['party']['birthDate'])) {

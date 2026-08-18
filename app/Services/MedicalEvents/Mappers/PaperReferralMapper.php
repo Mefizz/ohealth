@@ -16,7 +16,7 @@ class PaperReferralMapper
             'requisition' => $data['paperReferralRequisition'] ?? '',
             'requesterEmployeeName' => $data['paperReferralRequesterEmployeeName'] ?? '',
             'requesterLegalEntityEdrpou' => $data['paperReferralRequesterLegalEntityEdrpou'],
-            'requesterLegalEntityName' => $data['paperReferralRequesterLegalEntityName'],
+            'requesterLegalEntityName' => $data['paperReferralRequesterLegalEntityName'] ?? '',
             'serviceRequestDate' => convertToYmd($data['paperReferralServiceRequestDate']),
             'note' => $data['paperReferralNote'] ?? ''
         ];

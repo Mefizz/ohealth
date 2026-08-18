@@ -4,40 +4,78 @@ declare(strict_types=1);
 
 namespace App\Livewire\DiagnosticReport;
 
-use App\Classes\Cipher\Traits\Cipher;
+use App\Classes\Cipher\Api\CipherRequest;
+use App\Classes\eHealth\EHealth;
+use App\Core\Arr;
+use App\Enums\Status;
+use App\Enums\User\Role;
+use App\Enums\Equipment\AvailabilityStatus;
 use App\Enums\Person\DiagnosticReportStatus;
+use App\Exceptions\Cipher\CipherConnectionException;
+use App\Exceptions\Cipher\CipherException;
+use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthException;
 use App\Services\MedicalEvents\Fhir;
 use App\Livewire\DiagnosticReport\Forms\DiagnosticReportForm as Form;
 use App\Models\Employee\Employee;
+use App\Models\Equipment;
 use App\Models\Icd10;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
+use App\Models\Preperson;
 use App\Repositories\ObservationConfigRepository;
 use App\Repositories\Repository;
 use App\Traits\FormTrait;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use RuntimeException;
+use Throwable;
 
-class DiagnosticReportComponent extends Component
+abstract class DiagnosticReportComponent extends Component
 {
     use FormTrait;
-    use Cipher;
     use WithFileUploads;
 
     public Form $form;
 
+    public bool $showSignatureModal = false;
+
     /**
-     * ID of the patient for which create an encounter.
+     * UUID of an existing report to reuse, or null to generate a new one.
      *
-     * @var int
+     * @var string|null
      */
     #[Locked]
-    public int $personId;
+    public ?string $diagnosticReportUuid = null;
+
+    /**
+     * Person ID (set when the patient is a person).
+     *
+     * @var int|null
+     */
+    #[Locked]
+    public ?int $personId = null;
+
+    /**
+     * Preperson ID (set when the patient is a preperson).
+     *
+     * @var int|null
+     */
+    #[Locked]
+    public ?int $prepersonId = null;
+
+    /**
+     * Request-scoped memoized patient model.
+     *
+     * @var Person|Preperson|null
+     */
+    private Person|Preperson|null $patientModel = null;
 
     /**
      * Patient UUID for API requests.
@@ -66,13 +104,6 @@ class DiagnosticReportComponent extends Component
      * @var array
      */
     public array $divisions;
-
-    /**
-     * Full name of employee.
-     *
-     * @var string
-     */
-    public string $employeeFullName;
 
     /**
      * List of LOINC observation codes per category.
@@ -109,6 +140,15 @@ class DiagnosticReportComponent extends Component
      */
     public array $results;
 
+    /**
+     * List of equipment options for combobox.
+     *
+     * @var array
+     */
+    public array $equipmentOptions = [];
+
+    public array $equipmentOptionsByDivision = [];
+
     protected array $dictionaryNames = [
         'eHealth/diagnostic_report_categories',
         'eHealth/report_origins',
@@ -132,8 +172,14 @@ class DiagnosticReportComponent extends Component
         'POSITION'
     ];
 
-    public function mount(LegalEntity $legalEntity, int $personId): void
+    public function mount(LegalEntity $legalEntity, ?Person $person = null, ?Preperson $preperson = null): void
     {
+        if ($preperson !== null) {
+            $this->prepersonId = $preperson->id;
+        } else {
+            $this->personId = $person->id;
+        }
+
         $authUser = Auth::user();
 
         if (!$authUser) {
@@ -157,24 +203,80 @@ class DiagnosticReportComponent extends Component
                 ->error('Error while loading observation dictionary in DiagnosticReportComponent');
         }
 
-        $this->personId = $personId;
-        $this->employeeFullName = $authUser->getDiagnosticReportWriterEmployee()->fullName;
-
-        $employees = $authUser->party->employees()
-            ->select(['uuid', 'party_id', 'position'])
+        $this->employees = Employee::query()
+            ->whereLegalEntityId($legalEntity->id)
+            ->whereStatus(Status::APPROVED)
+            ->whereIsActive(true)
+            ->whereIn('employee_type', [
+                Role::DOCTOR->value,
+                Role::SPECIALIST->value,
+                Role::ASSISTANT->value,
+                Role::LABORANT->value,
+            ])
+            ->select([
+                'uuid',
+                'party_id',
+                'position',
+                'employee_type',
+                'division_uuid',
+            ])
             ->with('party:id,last_name,first_name,second_name')
-            ->whereLegalEntityId(legalEntity()->id)
-            ->get();
-        $this->employees = $employees->map(function (Employee $employee) {
-            return [
-                'uuid' => $employee->uuid,
-                'name' => $employee->fullName,
-                'position' => $employee->position
-            ];
-        })->toArray();
+            ->get()
+            ->map(function (Employee $employee): array {
+                return [
+                    'uuid' => $employee->uuid,
+                    'name' => $employee->fullName,
+                    'position' => $employee->position,
+                    'employeeType' => $employee->employeeType,
+                    'divisionUuid' => $employee->divisionUuid,
+                ];
+            })
+            ->values()
+            ->toArray();
 
         $this->setPatientData();
         $this->divisions = $legalEntity->divisions()->select(['uuid', 'name'])->get()->toArray();
+
+        $this->equipmentOptions = Equipment::query()
+            ->whereLegalEntityId($legalEntity->id)
+            ->where(
+                'availability_status',
+                AvailabilityStatus::AVAILABLE->value
+            )
+            ->active()
+            ->with(['names', 'division:id,uuid'])
+            ->get()
+            ->map(static fn (Equipment $equipment): array => [
+                'uuid' => $equipment->uuid,
+                'name' => $equipment->names->first()?->name ?? $equipment->uuid,
+                'divisionUuid' => $equipment->division?->uuid,
+            ])
+            ->values()
+            ->toArray();
+
+        $this->equipmentOptionsByDivision = collect($this->equipmentOptions)
+            ->filter(
+                static fn (array $equipment): bool =>
+                    !empty($equipment['divisionUuid'])
+            )
+            ->groupBy('divisionUuid')
+            ->map(
+                static fn ($items): array =>
+                    $items->values()->toArray()
+            )
+            ->toArray();
+    }
+
+    /**
+     * Store the current report data and open the signature modal.
+     *
+     * @param  array  $diagnosticReportData
+     * @return void
+     */
+    public function openSignatureModal(array $diagnosticReportData): void
+    {
+        $this->form->diagnosticReport = $diagnosticReportData;
+        $this->showSignatureModal = true;
     }
 
     /**
@@ -191,15 +293,25 @@ class DiagnosticReportComponent extends Component
     }
 
     /**
+     * Resolve the patient model (person or preperson) for the current context.
+     *
+     * @return Person|Preperson
+     */
+    protected function patient(): Person|Preperson
+    {
+        return $this->patientModel ??= ($this->prepersonId !== null
+            ? Preperson::findOrFail($this->prepersonId)
+            : Person::findOrFail($this->personId));
+    }
+
+    /**
      * Set patient data.
      *
      * @return void
      */
     protected function setPatientData(): void
     {
-        $patient = Person::select(['uuid', 'first_name', 'last_name', 'second_name'])
-            ->whereId($this->personId)
-            ->firstOrFail();
+        $patient = $this->patient();
 
         $this->patientUuid = $patient->uuid;
         $this->patientFullName = $patient->fullName;
@@ -234,12 +346,15 @@ class DiagnosticReportComponent extends Component
      * Prepare formatted data.
      *
      * @param  array  $validatedData
-     * @param  DiagnosticReportStatus $status
-     * @param  string|null $diagnosticReportUuid
+     * @param  DiagnosticReportStatus  $status
+     * @param  string|null  $diagnosticReportUuid
      * @return array
      */
-    protected function prepareFormattedData(array $validatedData, DiagnosticReportStatus $status, ?string $diagnosticReportUuid = null): array 
-    {
+    protected function prepareFormattedData(
+        array $validatedData,
+        DiagnosticReportStatus $status,
+        ?string $diagnosticReportUuid = null
+    ): array {
         $uuids = [
             'employee' => Auth::user()->getDiagnosticReportWriterEmployee()->uuid,
             'diagnosticReport' => $diagnosticReportUuid ?? Str::uuid()->toString(),
@@ -261,4 +376,146 @@ class DiagnosticReportComponent extends Component
             'observations' => $observations,
         ];
     }
+
+    /**
+     * Validate and persist the report as a draft.
+     *
+     * @param  array  $diagnosticReportData
+     * @return void
+     */
+    public function save(array $diagnosticReportData): void
+    {
+        $formattedData = $this->buildFormattedData($diagnosticReportData, DiagnosticReportStatus::DRAFT);
+
+        if ($formattedData === null) {
+            return;
+        }
+
+        try {
+            $diagnosticReportId = $this->persist($formattedData);
+        } catch (Throwable $exception) {
+            $this->handleDatabaseErrors($exception, 'Error while saving diagnostic report');
+
+            return;
+        }
+
+        Session::flash('success', __('patients.messages.diagnostic_report_draft_saved'));
+
+        if ($this->prepersonId !== null) {
+            $this->redirectRoute(
+                'prepersons.diagnostic-report.edit',
+                [legalEntity(), 'preperson' => $this->prepersonId, 'diagnosticReportId' => $diagnosticReportId],
+                navigate: true
+            );
+
+            return;
+        }
+
+        $this->redirectRoute(
+            'diagnostic-report.edit',
+            [legalEntity(), 'person' => $this->personId, 'diagnosticReportId' => $diagnosticReportId],
+            navigate: true
+        );
+    }
+
+    /**
+     * Validate, sign with Cipher, submit to eHealth and persist the report.
+     *
+     * @return void
+     */
+    public function sign(): void
+    {
+        try {
+            $validatedCipher = $this->form->validate($this->form->signingRules());
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        $formattedData = $this->buildFormattedData($this->form->diagnosticReport, DiagnosticReportStatus::FINAL);
+
+        if ($formattedData === null) {
+            return;
+        }
+
+        try {
+            $signedContent = new CipherRequest()->signData(
+                Arr::toSnakeCase($formattedData),
+                $validatedCipher['knedp'],
+                $validatedCipher['keyContainerUpload'],
+                $validatedCipher['password'],
+                Auth::user()->party->taxId
+            );
+        } catch (CipherException|CipherConnectionException $exception) {
+            $exception->handle('Error when signing diagnostic report with Cipher');
+
+            return;
+        }
+
+        try {
+            EHealth::diagnosticReport()->create($this->patientUuid, ['signed_data' => $signedContent->getBase64Data()]);
+
+            $diagnosticReportId = $this->persist($formattedData);
+
+            Session::flash('success', __('patients.messages.diagnostic_report_create_request_sent'));
+
+            if ($this->prepersonId !== null) {
+                $this->redirectRoute(
+                    'prepersons.diagnostic-report.view',
+                    [legalEntity(), 'preperson' => $this->prepersonId, 'diagnosticReportId' => $diagnosticReportId],
+                    navigate: true
+                );
+
+                return;
+            }
+
+            $this->redirectRoute(
+                'diagnostic-report.view',
+                [legalEntity(), 'person' => $this->personId, 'diagnosticReportId' => $diagnosticReportId],
+                navigate: true
+            );
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            $exception->handle('Error when signing diagnostic report');
+
+            return;
+        } catch (Throwable $exception) {
+            $this->handleDatabaseErrors($exception, 'Error while saving diagnostic report');
+
+            return;
+        }
+    }
+
+    /**
+     * Assign report data to the form, validate it and build formatted FHIR data.
+     *
+     * @param  array  $diagnosticReportData
+     * @param  DiagnosticReportStatus  $status
+     * @return array|null
+     */
+    protected function buildFormattedData(array $diagnosticReportData, DiagnosticReportStatus $status): ?array
+    {
+        $this->form->diagnosticReport = $diagnosticReportData;
+
+        try {
+            $validated = $this->form->validate();
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return null;
+        }
+
+        return $this->prepareFormattedData($validated, $status, $this->diagnosticReportUuid);
+    }
+
+    /**
+     * Persist the formatted report and return its identifier for redirect.
+     *
+     * @param  array  $formattedData
+     * @return int|string
+     * @throws Throwable
+     */
+    abstract protected function persist(array $formattedData): int|string;
 }

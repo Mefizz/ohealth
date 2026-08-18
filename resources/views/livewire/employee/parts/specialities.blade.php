@@ -11,6 +11,7 @@
                   modalSpeciality: new Speciality(),
                   newSpeciality: false,
                   item: 0,
+                  primaryConflict: false,
                   specDict: $wire.dictionaries['SPECIALITY_TYPE'],
                   levelDict: $wire.dictionaries['SPECIALITY_LEVEL'],
                   qualTypeDict: $wire.dictionaries['QUALIFICATION_TYPE'],
@@ -22,6 +23,46 @@
                           && this.modalSpeciality.qualificationType
                           && this.modalSpeciality.attestationDate
                           && this.modalSpeciality.certificateNumber;
+                  },
+
+                  hasOtherPrimary(excludeIndex = null) {
+                      return (this.specialities || []).some((speciality, index) => {
+                          if (excludeIndex !== null && index === excludeIndex) {
+                              return false;
+                          }
+
+                          return !!(speciality.specialityOfficio || speciality.speciality_officio);
+                      });
+                  },
+
+                  canMarkAsPrimary() {
+                      return !this.hasOtherPrimary(this.newSpeciality ? null : this.item);
+                  },
+
+                  openAddSpecialityModal() {
+                      this.primaryConflict = false;
+                      this.newSpeciality = true;
+                      this.modalSpeciality = new Speciality();
+                      if (this.hasOtherPrimary()) {
+                          this.modalSpeciality.specialityOfficio = false;
+                          this.primaryConflict = true;
+                      }
+                      this.openModal = true;
+                  },
+
+                  saveSpeciality() {
+                      this.primaryConflict = false;
+                      if (this.modalSpeciality.specialityOfficio && !this.canMarkAsPrimary()) {
+                          this.primaryConflict = true;
+                          return;
+                      }
+
+                      if (this.newSpeciality) {
+                          this.specialities.push(this.modalSpeciality);
+                      } else {
+                          this.specialities[this.item] = this.modalSpeciality;
+                      }
+                      this.openModal = false;
                   },
               }"
     >
@@ -80,6 +121,7 @@
                                 :aria-controls="$id('dropdown-button')"
                                 type="button"
                                 class="cursor-pointer"
+                                x-show="!speciality.specialityOfficio || !($wire.isPositionDataLocked ?? false)"
                             >
                                 <svg class="w-6 h-6 text-gray-800 dark:text-gray-200 svg-hover-action" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
                                     <path stroke="currentColor" stroke-linecap="square" stroke-linejoin="round" stroke-width="2" d="M7 19H5a1 1 0 0 1-1-1v-1a3 3 0 0 1 3-3h1m4-6a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm7.441 1.559a1.907 1.907 0 0 1 0 2.698l-6.069 6.069L10 19l.674-3.372 6.07-6.07a1.907 1.907 0 0 1 2.697 0Z"></path>
@@ -101,6 +143,7 @@
                                         item = index;
                                         modalSpeciality = new Speciality(speciality);
                                         newSpeciality = false;
+                                        primaryConflict = false;
                                         openDropdown = false;
                                     "
                                     class="dropdown-button"
@@ -126,12 +169,7 @@
         </table>
 
         <div>
-            <button @click="
-                        openModal = true;
-                        newSpeciality = true;
-                        modalSpeciality = new Speciality();
-                    "
-                    @click.prevent
+            <button @click.prevent="openAddSpecialityModal()"
                     class="item-add my-5"
             >
                 {{ __('forms.addSpeciality') }}
@@ -178,11 +216,19 @@
                                     </div>
 
                                     <div class="flex flex-col justify-end">
-                                        <label class="inline-flex items-center mt-6">
+                                        <label class="inline-flex items-center mt-6"
+                                               :class="{ 'opacity-50 cursor-not-allowed': !canMarkAsPrimary() && !modalSpeciality.specialityOfficio }">
                                             <input type="checkbox" x-model="modalSpeciality.specialityOfficio"
+                                                   :disabled="!canMarkAsPrimary() && !modalSpeciality.specialityOfficio"
+                                                   @change="primaryConflict = modalSpeciality.specialityOfficio && !canMarkAsPrimary()"
                                                    class="h-4 w-4 text-blue-600 dark:text-blue-500 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 focus:ring-2">
                                             <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">{{ __('forms.speciality_officio') }}</span>
                                         </label>
+                                        <p class="text-red-500 dark:text-red-400 text-xs mt-1"
+                                           x-show="primaryConflict"
+                                           x-cloak>
+                                            {{ __('errors.ehealth.messages.multiple_primary_specialities') }}
+                                        </p>
                                         <p class="text-red-500 dark:text-red-400 text-xs mt-1"
                                            x-show="modalSpeciality.specialityOfficio === null || modalSpeciality.specialityOfficio === undefined">
                                             {{ __('forms.field_empty') }}
@@ -237,7 +283,7 @@
                                 <div class="mt-6 flex flex-row items-center gap-4 border-t border-gray-200 pt-6">
                                     <button type="button" @click="openModal = false" class="button-minor">{{ __('forms.cancel') }}</button>
 
-                                    <button @click.prevent="newSpeciality ? specialities.push(modalSpeciality) : specialities[item] = modalSpeciality; openModal = false"
+                                    <button @click.prevent="saveSpeciality()"
                                             class="button-primary"
                                             :class="{ 'opacity-50 cursor-not-allowed': !isModalValid() }"
                                             :disabled="!isModalValid()">

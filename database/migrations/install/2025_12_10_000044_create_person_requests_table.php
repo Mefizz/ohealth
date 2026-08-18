@@ -19,15 +19,12 @@ return new class extends Migration
             $table->uuid()->unique()->nullable();
             $table->enum('status', Status::values());
             $table->foreignId('person_id')->nullable()->constrained('persons');
-            $table->string('first_name');
-            $table->string('last_name');
-            $table->string('second_name')->nullable();
             $table->date('birth_date');
             $table->string('birth_country');
             $table->string('birth_settlement');
             $table->enum('gender', ['MALE', 'FEMALE']);
             $table->string('email')->nullable();
-            $table->boolean('no_tax_id');
+            $table->boolean('no_tax_id')->nullable();
             $table->string('tax_id')->nullable();
             $table->string('secret');
             $table->string('unzr')->nullable()->comment('the record number in the demographic register');

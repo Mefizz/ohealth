@@ -6,6 +6,8 @@ namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthTimestampCast;
 use App\Enums\Person\DiagnosticReportStatus;
+use App\Models\Person\Person;
+use App\Models\Preperson;
 use Carbon\CarbonImmutable;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -24,6 +26,7 @@ class DiagnosticReport extends Model
     protected $fillable = [
         'uuid',
         'person_id',
+        'preperson_id',
         'based_on_id',
         'status',
         'code_id',
@@ -47,6 +50,7 @@ class DiagnosticReport extends Model
     protected $hidden = [
         'id',
         'person_id',
+        'preperson_id',
         'based_on_id',
         'code_id',
         'conclusion_code_id',
@@ -67,12 +71,15 @@ class DiagnosticReport extends Model
         'effective_period_start_date',
         'effective_period_start_time',
         'effective_period_end_date',
-        'effective_period_end_time'
+        'effective_period_end_time',
+        'effective_date',
+        'effective_time',
     ];
 
     protected $casts = [
         'status' => DiagnosticReportStatus::class,
-        'issued' => EHealthTimestampCast::class
+        'issued' => EHealthTimestampCast::class,
+        'effective_date_time' => EHealthTimestampCast::class,
     ];
 
     protected function issuedDate(): Attribute
@@ -86,6 +93,20 @@ class DiagnosticReport extends Model
     {
         return Attribute::make(
             get: fn (): string => CarbonImmutable::parse($this->issued)->format('H:i'),
+        );
+    }
+
+    protected function effectiveDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->effectiveDateTime ? convertToAppDateFormat($this->effectiveDateTime) : '',
+        );
+    }
+
+    protected function effectiveTime(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->effectiveDateTime ? CarbonImmutable::parse($this->effectiveDateTime)->format('H:i') : '',
         );
     }
 
@@ -110,19 +131,22 @@ class DiagnosticReport extends Model
     protected function effectivePeriodEndDate(): Attribute
     {
         return Attribute::make(
-            get: fn (): string => $this->effectivePeriod
-                ? CarbonImmutable::parse($this->effectivePeriod->end)->format(config('app.date_format'))
-                : '',
+            get: fn (): string =>
+                $this->effectivePeriod?->end ? CarbonImmutable::parse($this->effectivePeriod->end)->format(config('app.date_format')) : '',
         );
     }
 
     protected function effectivePeriodEndTime(): Attribute
     {
         return Attribute::make(
-            get: fn (): string => $this->effectivePeriod
-                ? CarbonImmutable::parse($this->effectivePeriod->end)->format('H:i')
-                : '',
+            get: fn (): string =>
+                $this->effectivePeriod?->end ? CarbonImmutable::parse($this->effectivePeriod->end)->format('H:i') : '',
         );
+    }
+
+    public function preperson(): BelongsTo
+    {
+        return $this->belongsTo(Preperson::class);
     }
 
     public function basedOn(): BelongsTo
@@ -221,16 +245,18 @@ class DiagnosticReport extends Model
     }
 
     /**
-     * Filter diagnostic reports belonging to the given person.
+     * Filter diagnostic reports belonging to the given patient (person or preperson).
      *
      * @param  Builder  $query
-     * @param  int  $personId
+     * @param  Person|Preperson  $patient
      * @return Builder
      */
     #[Scope]
-    protected function forPerson(Builder $query, int $personId): Builder
+    protected function forPatient(Builder $query, Person|Preperson $patient): Builder
     {
-        return $query->wherePersonId($personId);
+        return $patient instanceof Preperson
+            ? $query->wherePrepersonId($patient->id)
+            : $query->wherePersonId($patient->id);
     }
 
     /**
@@ -256,6 +282,22 @@ class DiagnosticReport extends Model
     protected function final(Builder $query): Builder
     {
         return $query->whereStatus(DiagnosticReportStatus::FINAL);
+    }
+
+    /**
+     * Filter reports recorded within the given encounter, which is stored as an identifier holding its eHealth ID.
+     *
+     * @param  Builder  $query
+     * @param  string  $encounterId
+     * @return Builder
+     */
+    #[Scope]
+    protected function forEncounter(Builder $query, string $encounterId): Builder
+    {
+        return $query->whereHas(
+            'encounter',
+            static fn (Builder $identifier): Builder => $identifier->whereValue($encounterId)
+        );
     }
 
     /**

@@ -13,10 +13,12 @@ use App\Traits\FormTrait;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
 use App\Classes\eHealth\EHealth;
+use App\Enums\LegalEntity\States;
 use Livewire\Attributes\Computed;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use App\Enums\LegalEntity\EdrStates;
 use Illuminate\Support\Facades\Crypt;
 use App\Repositories\PhoneRepository;
 use App\Notifications\SyncNotification;
@@ -25,9 +27,9 @@ use App\Repositories\AddressRepository;
 use App\Traits\BatchLegalEntityQueries;
 use Spatie\Permission\PermissionRegistrar;
 use App\Enums\License\Type as LicenseType;
-use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\LegalEntity\LegalEntity as LegalEntityComponent;
 
@@ -142,6 +144,47 @@ class LegalEntityDetails extends LegalEntityComponent
     public function relatedLegalEntities(): Collection
     {
         return $this->legalEntity->legators;
+    }
+
+    /**
+     * Get the label for the current legal entity's status.
+     *
+     * @return string The label corresponding to the legal entity's status
+     */
+    public function getStatusLabelProperty(): string
+    {
+        return States::tryFrom($this->legalEntity->status)?->label() ?? __('forms.unknown');
+    }
+
+    /**
+     * Get the CSS class for the current legal entity's status.
+     *
+     * @return string The CSS class corresponding to the legal entity's status
+     */
+    public function getStatusStyleProperty(): string
+    {
+        return States::tryFrom($this->legalEntity->status)?->cssClass() ?? 'status-alert-default';
+    }
+
+    /**
+     * Get the label for the current legal entity's EDR status.
+     *
+     * @return string The label corresponding to the legal entity's EDR status
+     */
+    public function getEdrStatusLabelProperty(): string
+    {
+        return EdrStates::tryFrom($this->legalEntity->edr['state'])?->label() ?? __('forms.unknown');
+    }
+
+    /**
+     * Get the CSS class for the current legal entity's EDR status.
+     *
+     * @return string The CSS class corresponding to the legal entity's EDR status
+     */
+    public function getEdrStatusStyleProperty(): string
+    {
+        return EdrStates::tryFrom($this->legalEntity->edr['state'])?->cssClass()
+            ?? 'status-alert-default';
     }
 
     /**
@@ -277,10 +320,7 @@ class LegalEntityDetails extends LegalEntityComponent
             return [];
         }
 
-        // TODO: remove it when all other entity will use the same date format
-        // $documents[0]['issuedAt'] = Carbon::parse($documents[0]['issuedAt'])->format(config('app.date_format'));
-
-        return $this->convertArrayKeysToCamelCase($documents[0]);
+        return $this->convertArrayKeysToCamelCase($documents);
     }
 
     /**
@@ -322,7 +362,9 @@ class LegalEntityDetails extends LegalEntityComponent
          * and does NOT rehydrate protected typed properties.
          * Code below allows to ensure that property is set before use.
          */
-        $this->legalEntity ??= $this->getLegalEntity();
+        if (!isset($this->legalEntity)) {
+            $this->legalEntity = $this->getLegalEntity();
+        }
 
         if (Auth::user()->cannot('sync', $this->legalEntity)) {
             session()->flash('error', __('legal-entity.policy.deny.sync'));
@@ -344,7 +386,7 @@ class LegalEntityDetails extends LegalEntityComponent
 
             $this->resumeSynchronization($user, $token);
 
-            Session::flash('success', __('forms.success.sync_resumed'));
+            Session::flash('success', __('forms.success.sync_resumed_in_background'));
 
             $user->notify(new SyncNotification('legal_entity', 'resumed'));
 
@@ -362,7 +404,7 @@ class LegalEntityDetails extends LegalEntityComponent
 
             $legalEntityData = $this->normalizeDate(['data' => $response->validate()]);
 
-            // Set accreditation and archive to null concerns on the storda data in the DB table
+            // Set accreditation and archive to null concerns on the stored data in the DB table
             $legalEntityData = $this->filterUnprovidedFields($legalEntityData, $this->legalEntityForm->toArray());
 
             $this->modifyLegalEntity($legalEntityData);
@@ -440,8 +482,6 @@ class LegalEntityDetails extends LegalEntityComponent
         }
 
         $legalEntity?->setEntityStatus(JobStatus::COMPLETED);
-
-        $this->legalEntity = $this->legalEntity->fresh();
 
         session()->flash('success', implode(PHP_EOL, $messages));
 

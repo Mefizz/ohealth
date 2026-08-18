@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
+use App\Enums\Episode\Status;
+use App\Enums\Person\ConditionClinicalStatus;
 use App\Enums\Person\DiagnosticReportStatus;
-use App\Enums\Person\EpisodeStatus;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
@@ -16,10 +17,10 @@ class EncounterPackageBuilder
      *
      * @param  array  $data  Validated form data
      * @param  string  $episodeType  'new' or 'existing'
-     * @param  EpisodeStatus  $episodeStatus  Status to assign to the episode
+     * @param  Status  $episodeStatus  Status to assign to the episode
      * @return array
      */
-    public function build(array $data, string $episodeType, EpisodeStatus $episodeStatus = EpisodeStatus::ACTIVE): array
+    public function build(array $data, string $episodeType, Status $episodeStatus = Status::ACTIVE): array
     {
         $uuids = [
             'encounter' => Str::uuid()->toString(),
@@ -53,7 +54,15 @@ class EncounterPackageBuilder
     public function toFhir(array $data, array $uuids): array
     {
         $fhirConditions = collect($data['conditions'] ?? [])
-            ->map(fn (array $condition) => Fhir::condition()->toFhir($condition, $uuids))
+            ->map(
+                function (array $condition, int $index) use ($data, $uuids): array {
+                    if (isset($data['encounter']['diagnoses'][$index])) {
+                        $condition['clinicalStatus'] = ConditionClinicalStatus::ACTIVE->value;
+                    }
+
+                    return Fhir::condition()->toFhir($condition, $uuids);
+                }
+            )
             ->values()
             ->toArray();
 
@@ -63,13 +72,28 @@ class EncounterPackageBuilder
             ->toArray();
 
         $fhirDiagnosticReports = collect($data['diagnosticReports'] ?? [])
-            ->map(fn (array $diagnosticReport) => Fhir::diagnosticReport()->toFhir(
-                $diagnosticReport,
-                array_merge($uuids, [
-                    'diagnosticReport' => $diagnosticReport['uuid'] ?? Str::uuid()->toString(),
-                ]),
-                DiagnosticReportStatus::FINAL
-            ))
+            ->map(
+                function (array $diagnosticReport) use ($data, $uuids): array {
+                    $encounterPeriodDate = data_get($data, 'encounter.periodDate');
+                    $encounterPeriodStart = data_get($data, 'encounter.periodStart');
+                    $encounterPeriodEnd = data_get($data, 'encounter.periodEnd');
+                    $diagnosticReport['divisionId'] = data_get($data, 'encounter.divisionId');
+
+                    if (($diagnosticReport['effectiveType'] ?? null) === 'period') {
+                        $diagnosticReport['effectivePeriodStartDate'] = $encounterPeriodDate;
+                        $diagnosticReport['effectivePeriodStartTime'] = $encounterPeriodStart;
+                        $diagnosticReport['effectivePeriodEndDate'] = $encounterPeriodDate;
+                        $diagnosticReport['effectivePeriodEndTime'] = $encounterPeriodEnd;
+                    }
+
+                    return Fhir::diagnosticReport()->toFhir(
+                        $diagnosticReport,
+                        array_merge($uuids, ['diagnosticReport' => $diagnosticReport['uuid'] ?? Str::uuid()->toString(), ]),
+                        DiagnosticReportStatus::tryFrom($diagnosticReport['status'] ?? '')
+                            ?? DiagnosticReportStatus::FINAL
+                    );
+                }
+            )
             ->values()
             ->toArray();
 
@@ -79,7 +103,18 @@ class EncounterPackageBuilder
             ->toArray();
 
         $fhirProcedures = collect($data['procedures'] ?? [])
-            ->map(fn (array $procedure) => Fhir::procedure()->toFhir($procedure, $uuids))
+            ->map(
+                function (array $procedure) use ($data, $uuids): array {
+                    if (($procedure['performedType'] ?? null) === 'period') {
+                        $procedure['performedPeriodStartDate'] = data_get($data, 'encounter.periodDate');
+                        $procedure['performedPeriodStartTime'] = data_get($data, 'encounter.periodStart');
+                        $procedure['performedPeriodEndDate'] = data_get($data, 'encounter.periodDate');
+                        $procedure['performedPeriodEndTime'] = data_get($data, 'encounter.periodEnd');
+                    }
+
+                    return Fhir::procedure()->toFhir($procedure, $uuids);
+                }
+            )
             ->values()
             ->toArray();
 
@@ -88,8 +123,10 @@ class EncounterPackageBuilder
             ->values()
             ->toArray();
 
+        $encounterData = $data['encounter'];
+
         return [
-            'encounter' => Fhir::encounter()->toFhir($data['encounter'], $fhirConditions, $uuids),
+            'encounter' => Fhir::encounter()->toFhir($encounterData, $fhirConditions, $uuids),
             'conditions' => $fhirConditions,
             'immunizations' => $fhirImmunizations,
             'diagnosticReports' => $fhirDiagnosticReports,

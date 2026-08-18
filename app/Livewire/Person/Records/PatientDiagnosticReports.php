@@ -4,41 +4,62 @@ declare(strict_types=1);
 
 namespace App\Livewire\Person\Records;
 
+use App\Classes\Cipher\Api\CipherRequest;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
-use App\Repositories\MedicalEvents\Repository;
-use App\Traits\BatchLegalEntityQueries;
-use App\Jobs\DiagnosticReportSync;
-use App\Traits\HandlesSyncBatch;
-use App\Models\LegalEntity;
-use App\Models\MedicalEvents\Sql\Episode;
-use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Enums\JobStatus;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\Session;
-use Illuminate\View\View;
-use Livewire\WithPagination;
+use App\Enums\Person\DiagnosticReportStatus;
+use App\Enums\Person\ObservationStatus;
+use App\Exceptions\Cipher\CipherConnectionException;
+use App\Exceptions\Cipher\CipherException;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
+use App\Jobs\DiagnosticReportSync;
+use App\Livewire\DiagnosticReport\Forms\DiagnosticReportCancellationForm as Form;
+use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\DiagnosticReport;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Repositories\MedicalEvents\Repository;
+use App\Services\MedicalEvents\Fhir;
+use App\Services\MedicalEvents\FhirResource;
+use App\Traits\BatchLegalEntityQueries;
+use App\Traits\HandlesSyncBatch;
+use Illuminate\Support\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\View\View;
+use Livewire\Attributes\Computed;
+use Livewire\WithFileUploads;
+use Livewire\WithPagination;
 use Throwable;
 
 class PatientDiagnosticReports extends BasePatientComponent
 {
     use BatchLegalEntityQueries;
     use HandlesSyncBatch;
+    use WithFileUploads;
     use WithPagination;
 
-    public array $diagnosticReports = [];
+    public Form $form;
 
-    public array $filterCodeOptions = [];
+    public bool $showCancellationModal = false;
 
-    public array $filterEncounterOptions = [];
+    public bool $showSignatureModal = false;
 
-    public array $filterEpisodeOptions = [];
+    public ?int $cancellingDiagnosticReportId = null;
 
-    public array $filterBasedOnOptions = [];
+    public array $services = [];
 
-    public array $filterSpecimenOptions = [];
+    public array $encounters = [];
+
+    public array $episodes = [];
+
+    public array $basedOnRequests = [];
+
+    public array $specimens = [];
 
     public string $filterCategory = '';
 
@@ -60,14 +81,11 @@ class PatientDiagnosticReports extends BasePatientComponent
 
     public bool $showAdditionalParams = false;
 
-    public int $totalEntries = 0;
-
     public string $syncStatus = '';
-
-    public int $pageSize = 10;
 
     protected array $dictionaryNames = [
         'eHealth/diagnostic_report_categories',
+        'eHealth/cancellation_reasons',
     ];
 
     protected function getSyncStatus(string $entityType): ?string
@@ -95,24 +113,46 @@ class PatientDiagnosticReports extends BasePatientComponent
         $this->syncStatus = $status->value;
     }
 
-    public function initializeComponent(): void
+    protected function initializeComponent(): void
     {
         $this->getDictionary();
 
-        $this->dictionaries['custom/services'] = dictionary()->services()->flattened()->toArray();
+        $this->syncStatus = legalEntity()->getEntityStatus(LegalEntity::ENTITY_DIAGNOSTIC_REPORT) ?? '';
 
-        $this->loadFilters();
+        $this->loadFilterOptions();
+    }
 
-        $this->loadDiagnosticReportsFromDb();
+    /**
+     * Narrow the service list down to the picked category and drop the service that no longer belongs to it.
+     *
+     * @return void
+     */
+    public function updatedFilterCategory(): void
+    {
+        $this->filterCode = '';
+
+        $this->loadServices();
+    }
+
+    /**
+     * Diagnostic reports for the current page, either from the eHealth search or from the local database.
+     *
+     * @return LengthAwarePaginator
+     */
+    #[Computed]
+    public function paginatedDiagnosticReports(): LengthAwarePaginator
+    {
+        return $this->isSearching
+            ? $this->searchDiagnosticReportsFromEHealth()
+            : $this->paginateLocalDiagnosticReports();
     }
 
     public function search(): void
     {
         $this->validate($this->filterValidationRules());
 
+        $this->isSearching = true;
         $this->resetPage();
-
-        $this->loadDiagnosticReports($this->buildSearchParams());
     }
 
     public function resetFilters(): void
@@ -127,11 +167,12 @@ class PatientDiagnosticReports extends BasePatientComponent
             'filterIssuedTo',
             'filterBasedOn',
             'filterSpecimenId',
+            'isSearching'
         ]);
 
-        $this->resetPage();
+        $this->loadServices();
 
-        $this->loadDiagnosticReports($this->buildSearchParams());
+        $this->resetPage();
     }
 
     public function sync(): void
@@ -149,7 +190,7 @@ class PatientDiagnosticReports extends BasePatientComponent
         try {
             $response = EHealth::diagnosticReport()->getBySearchParams(
                 $this->uuid,
-                $this->buildSearchParams(),
+                ['managing_organization_id' => legalEntity()->uuid]
             );
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error while synchronizing diagnostic report');
@@ -159,7 +200,7 @@ class PatientDiagnosticReports extends BasePatientComponent
 
         try {
             $validatedData = $response->validate();
-            Repository::diagnosticReport()->sync($this->personId, $validatedData);
+            Repository::diagnosticReport()->sync($this->patient(), $validatedData);
         } catch (Throwable $exception) {
             $this->handleDatabaseErrors($exception, 'Error while synchronizing diagnostic report');
 
@@ -173,161 +214,427 @@ class PatientDiagnosticReports extends BasePatientComponent
             Session::flash('success', __('patients.messages.diagnostic_reports_synced_successfully'));
         }
 
-        $this->loadDiagnosticReportsFromDb();
+        $this->loadFilterOptions();
 
-        $this->loadEpisodes();
-        $this->loadEncounters();
+        $this->isSearching = false;
+        $this->resetPage();
     }
 
-    public function updatedPage(): void
+    public function openDiagnosticReportView(string $diagnosticReportUuid): void
     {
-        $this->loadDiagnosticReports($this->buildSearchParams());
+        $diagnosticReport = $this->findDiagnosticReportForAction($diagnosticReportUuid);
+
+        if (!$diagnosticReport) {
+            return;
+        }
+
+        if ($this->prepersonId !== null) {
+            $this->redirectRoute(
+                'prepersons.diagnostic-report.view',
+                [
+                    legalEntity(),
+                    'preperson' => $this->prepersonId,
+                    'diagnosticReportId' => $diagnosticReport->id,
+                ],
+                navigate: true
+            );
+
+            return;
+        }
+
+        $this->redirectRoute(
+            'diagnostic-report.view',
+            [
+                legalEntity(),
+                'person' => $this->personId,
+                'diagnosticReportId' => $diagnosticReport->id,
+            ],
+            navigate: true
+        );
     }
 
-    private function loadFilters(): void
+    public function openDiagnosticReportCancellation(string $diagnosticReportUuid): void
+    {
+        $diagnosticReport = $this->findDiagnosticReportForAction($diagnosticReportUuid);
+
+        if (!$diagnosticReport) {
+            return;
+        }
+
+        if ($message = $this->getCancellationForbiddenMessage($diagnosticReport)) {
+            Session::flash('error', $message);
+
+            return;
+        }
+
+        $this->resetCancellationState();
+
+        $this->cancellingDiagnosticReportId = $diagnosticReport->id;
+        $this->showCancellationModal = true;
+    }
+
+    public function closeDiagnosticReportCancellationModal(): void
+    {
+        $this->resetCancellationState();
+    }
+
+    public function proceedToSignature(): void
+    {
+        if ($this->cancellingDiagnosticReportId === null) {
+            Session::flash('error', __('patients.messages.diagnostic_report_not_found'));
+
+            return;
+        }
+
+        $diagnosticReport = Repository::diagnosticReport()->findById($this->cancellingDiagnosticReportId);
+
+        if ($message = $this->getCancellationForbiddenMessage($diagnosticReport)) {
+            $this->resetCancellationState();
+            Session::flash('error', $message);
+
+            return;
+        }
+
+        $this->form->explanatoryLetter = filled($this->form->explanatoryLetter)
+            ? $this->form->explanatoryLetter
+            : null;
+
+        try {
+            $this->form->validate($this->form->cancellationRules());
+        } catch (ValidationException $exception) {
+            $this->showCancellationModal = true;
+            $this->showSignatureModal = false;
+
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        $this->showCancellationModal = false;
+        $this->showSignatureModal = true;
+    }
+
+    public function cancelSelectedDiagnosticReport(): void
+    {
+        if ($this->cancellingDiagnosticReportId === null) {
+            Session::flash('error', __('patients.messages.diagnostic_report_not_found'));
+
+            return;
+        }
+
+        try {
+            $validated = $this->form->validate([
+                ...$this->form->cancellationRules(),
+                ...$this->form->signingRules(),
+            ]);
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        $diagnosticReport = Repository::diagnosticReport()->findById($this->cancellingDiagnosticReportId);
+
+        if ($message = $this->getCancellationForbiddenMessage($diagnosticReport)) {
+            $this->showSignatureModal = false;
+            Session::flash('error', $message);
+
+            return;
+        }
+
+        $explanatoryLetter = $validated['explanatoryLetter'] ?? null;
+
+        try {
+            $signedPayload = $this->buildCancellationPackage(
+                $diagnosticReport,
+                $validated['cancellationReason'],
+                $explanatoryLetter
+            );
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            $exception->handle(
+                'Error while building diagnostic report cancellation package',
+                __('patients.messages.diagnostic_report_cancel_package_prepare_error')
+            );
+
+            return;
+        }
+
+        try {
+            $signedContent = new CipherRequest()->signData(
+                $signedPayload,
+                $validated['knedp'],
+                $validated['keyContainerUpload'],
+                $validated['password'],
+                Auth::user()->party->taxId
+            );
+        } catch (CipherException|CipherConnectionException $exception) {
+            $exception->handle(
+                'Error while signing diagnostic report cancellation package',
+                __('patients.messages.diagnostic_report_cancel_package_sign_error')
+            );
+
+            return;
+        } finally {
+            $this->form->resetSigningFields();
+        }
+
+        $cancellationReason = FhirResource::make()
+            ->coding('eHealth/cancellation_reasons', $validated['cancellationReason'])
+            ->toCodeableConcept(
+                data_get($this->dictionaries, 'eHealth/cancellation_reasons.' . $validated['cancellationReason'], '')
+            );
+
+        try {
+            EHealth::diagnosticReport()->cancel($this->uuid, [
+                'signed_data' => $signedContent->getBase64Data(),
+                'signed_data_encoding' => 'base64',
+            ]);
+
+            Repository::diagnosticReport()->markAsEnteredInError(
+                $diagnosticReport,
+                $cancellationReason,
+                $explanatoryLetter
+            );
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            $exception->handle(
+                'Error while sending diagnostic report cancellation package',
+                __('patients.messages.diagnostic_report_cancel_package_request_error')
+            );
+
+            return;
+        } catch (Throwable $exception) {
+            $this->handleDatabaseErrors(
+                $exception,
+                'Error while saving diagnostic report cancellation status',
+                __('patients.messages.diagnostic_report_cancel_package_save_error')
+            );
+
+            return;
+        }
+
+        $this->resetCancellationState();
+
+        Session::flash('success', __('patients.messages.diagnostic_report_cancel_request_sent'));
+    }
+
+    private function findDiagnosticReportForAction(string $diagnosticReportUuid): ?DiagnosticReport
+    {
+        if (blank($diagnosticReportUuid)) {
+            Session::flash('error', __('patients.messages.diagnostic_report_not_found'));
+
+            return null;
+        }
+
+        try {
+            return Repository::diagnosticReport()->findByUuid($diagnosticReportUuid);
+        } catch (ModelNotFoundException) {
+            Session::flash('error', __('patients.messages.diagnostic_report_not_found_in_db'));
+
+            return null;
+        }
+    }
+
+    private function getCancellationForbiddenMessage(DiagnosticReport $diagnosticReport): ?string
+    {
+        if ($diagnosticReport->status === DiagnosticReportStatus::ENTERED_IN_ERROR) {
+            return __('patients.messages.diagnostic_report_already_entered_in_error');
+        }
+
+        if ($diagnosticReport->status !== DiagnosticReportStatus::FINAL) {
+            return __('patients.messages.only_final_diagnostic_report_can_be_cancelled');
+        }
+
+        $currentEmployeeUuid = Auth::user()?->getDiagnosticReportWriterEmployee()?->uuid;
+
+        if (!$currentEmployeeUuid || $diagnosticReport->recordedBy?->value !== $currentEmployeeUuid) {
+            return __('patients.messages.diagnostic_report_created_by_another_employee_cannot_be_cancelled');
+        }
+
+        if ($diagnosticReport->encounter_id !== null) {
+            return __('patients.messages.diagnostic_report_with_encounter_cannot_be_cancelled');
+        }
+
+        if (Auth::user()?->cannot('cancel', $diagnosticReport)) {
+            return __('patients.policy.cancel_diagnostic_report');
+        }
+
+        return null;
+    }
+
+    private function buildCancellationPackage(
+        DiagnosticReport $diagnosticReport,
+        string $cancellationReason,
+        ?string $explanatoryLetter
+    ): array {
+        $reportRaw = EHealth::diagnosticReport()
+            ->getById($this->uuid, $diagnosticReport->uuid)
+            ->getData();
+
+        try {
+            $observationsRaw = $this->loadObservationRawData($diagnosticReport->uuid, onlyActive: true);
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            report($exception);
+
+            $observationsRaw = collect(Repository::observation()->getByDiagnosticReportId($diagnosticReport->id))
+                ->filter(static fn (array $observation): bool => data_get($observation, 'status') !== ObservationStatus::ENTERED_IN_ERROR->value)
+                ->values()
+                ->toArray();
+        }
+
+        return Fhir::diagnosticReport()->toCancellationPackage(
+            $reportRaw,
+            $observationsRaw,
+            $cancellationReason,
+            $explanatoryLetter,
+            data_get($this->dictionaries, 'eHealth/cancellation_reasons.' . $cancellationReason)
+        );
+    }
+
+    private function loadObservationRawData(string $diagnosticReportUuid, bool $onlyActive = false): array
+    {
+        $page = 1;
+        $observations = [];
+
+        do {
+            $response = EHealth::observation()->getBySearchParams($this->uuid, [
+                'diagnostic_report_id' => $diagnosticReportUuid,
+                'page' => $page,
+            ]);
+
+            $pageData = collect($response->getData());
+
+            if ($onlyActive) {
+                $pageData = $pageData->filter(
+                    static fn (array $observation): bool => data_get($observation, 'status') !== ObservationStatus::ENTERED_IN_ERROR->value
+                );
+            }
+
+            $observations = [
+                ...$observations,
+                ...$pageData->values()->toArray(),
+            ];
+
+            $page++;
+        } while ($response->isNotLast());
+
+        return $observations;
+    }
+
+    private function resetCancellationState(): void
+    {
+        $this->showCancellationModal = false;
+        $this->showSignatureModal = false;
+        $this->cancellingDiagnosticReportId = null;
+        $this->form->resetCancellationFields();
+
+        if (isset($this->form->knedp)) {
+            $this->form->knedp = '';
+        }
+
+        if (isset($this->form->password)) {
+            $this->form->password = '';
+        }
+
+        $this->resetErrorBag();
+        $this->resetValidation();
+    }
+
+    /**
+     * Paginate locally stored (synced) diagnostic reports straight from the database.
+     *
+     * @return LengthAwarePaginator
+     */
+    protected function paginateLocalDiagnosticReports(): LengthAwarePaginator
+    {
+        $paginator = DiagnosticReport::forPatient($this->patient())
+            ->withAllRelations()
+            ->recentlyUpdatedFirst()
+            ->paginate(config('pagination.per_page'));
+
+        $paginator->setCollection(
+            collect($this->formatDatesForDisplay(Arr::toCamelCase($paginator->getCollection()->toArray())))
+        );
+
+        return $paginator;
+    }
+
+    /**
+     * Fetch a single page of diagnostic reports from the eHealth API for the active search filters.
+     *
+     * @return LengthAwarePaginator
+     */
+    protected function searchDiagnosticReportsFromEHealth(): LengthAwarePaginator
+    {
+        $perPage = config('pagination.per_page');
+        $page = $this->getPage();
+
+        try {
+            $response = EHealth::diagnosticReport()->getBySearchParams($this->uuid, $this->buildSearchParams());
+            $diagnosticReports = Arr::toCamelCase($response->validate());
+            $total = $response->getPaging()['total_entries'];
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            $exception->handle('Error while loading diagnostic reports');
+            $diagnosticReports = [];
+            $total = 0;
+        }
+
+        return new LengthAwarePaginator(collect($diagnosticReports), $total, $perPage, $page, [
+            'path' => LengthAwarePaginator::resolveCurrentPath()
+        ]);
+    }
+
+    /**
+     * Load the dropdown options the user can filter diagnostic reports by.
+     *
+     * @return void
+     */
+    private function loadFilterOptions(): void
     {
         $this->loadServices();
 
-        $this->loadEpisodesFromDb();
+        $this->episodes = Repository::episode()->getByPersonId($this->patient());
 
-        $this->loadEncountersFromDb();
+        $this->encounters = Repository::encounter()->getByPersonId($this->patient());
+
+        $this->loadBasedOnRequestsFromDb();
     }
 
-    private function loadDiagnosticReports(array $params = []): void
+    /**
+     * Build the service request options out of the referrals the stored diagnostic reports were based on.
+     *
+     * @return void
+     */
+    private function loadBasedOnRequestsFromDb(): void
     {
-        try {
-            $response = EHealth::diagnosticReport()->getBySearchParams($this->uuid, $params);
-
-            $validateData = $response->validate();
-
-            $paging = $response->getPaging();
-            $this->totalEntries = $paging['total_entries'] ?? 0;
-            $this->pageSize = $paging['page_size'] ?? 10;
-
-            $this->diagnosticReports = Arr::toCamelCase($validateData);
-        } catch (EHealthException|EHealthConnectionException $exception) {
-            $this->diagnosticReports = [];
-
-            $exception->handle('Error while loading diagnostic reports');
-        }
-    }
-
-    private function loadDiagnosticReportsFromDb(): void
-    {
-        $diagnosticReports = DiagnosticReport::withAllRelations()
-        ->where('person_id', $this->personId)
-        ->get();
-
-        $this->totalEntries = $diagnosticReports->count();
-
-        $this->diagnosticReports = $diagnosticReports
-            ->map(function (DiagnosticReport $diagnosticReport) {
-                $data = Arr::toCamelCase($diagnosticReport->toArray());
-                $data['id'] = $diagnosticReport->id;
-
-                return $data;
-            })
-            ->toArray();
-
-        $this->diagnosticReports = $this->formatDatesForDisplay($this->diagnosticReports);
-    }
-
-    private function loadEpisodes(): void
-    {
-        try {
-            $response = EHealth::episode()->getBySearchParams(
-                $this->uuid,
-                ['managing_organization_id' => legalEntity()?->uuid]
-            );
-
-            $validatedData = $response->validate();
-
-            $this->filterEpisodeOptions = collect($validatedData)
-                ->map(function (array $episode) {
-                    $episodeId = data_get($episode, 'uuid');
-
-                    if (!$episodeId) {
-                        return null;
-                    }
-
-                    return [
-                        'value' => $episodeId,
-                        'label' => data_get($episode, 'name') ?: $episodeId,
-                        'description' => $episodeId,
-                    ];
-                })
-                ->filter()
-                ->unique('value')
-                ->sortBy('label')
-                ->values()
-                ->toArray();
-        } catch (EHealthException|EHealthConnectionException $exception) {
-            $this->filterEpisodeOptions = [];
-
-            $exception->handle('Error while loading episodes');
-        }
-    }
-
-    private function loadEpisodesFromDb(): void
-    {
-        $filterEpisodeOptions = Episode::forPerson($this->personId)->get()->toArray();
-
-        $this->totalEntries = count($filterEpisodeOptions);
-
-        $this->filterEpisodeOptions = collect($filterEpisodeOptions)
-            ->map(function (array $episode) {
-                $episodeId = data_get($episode, 'uuid');
-
-                if (!$episodeId) {
-                    return null;
-                }
-
-                return [
-                    'value' => $episodeId,
-                    'label' => data_get($episode, 'name') ?: $episodeId,
-                    'description' => $episodeId,
-                ];
-            })
-            ->filter()
-            ->unique('value')
+        $this->basedOnRequests = DiagnosticReport::forPatient($this->patient())
+            ->with('basedOn')
+            ->get()
+            ->pluck('basedOn')
+            ->filter(static fn (?Identifier $basedOn): bool => (bool) $basedOn?->value)
+            ->map(static fn (Identifier $basedOn): array => [
+                'uuid' => $basedOn->value,
+                'name' => $basedOn->displayValue ?: $basedOn->value
+            ])
+            ->unique('uuid')
             ->values()
             ->toArray();
     }
 
-    private function loadEncounters(): void
-    {
-        try {
-            $response = EHealth::encounter()->getBySearchParams(
-                $this->uuid,
-                [
-                    'managing_organization_id' => legalEntity()?->uuid,
-                    'page_size' => 100,
-                ]
-            );
-
-            $validatedData = $response->validate();
-
-            $this->filterEncounterOptions = Arr::toCamelCase($validatedData);
-        } catch (EHealthException|EHealthConnectionException $exception) {
-            $this->filterEncounterOptions = [];
-
-            $exception->handle('Error while loading encounters');
-        }
-    }
-
-    private function loadEncountersFromDb(): void
-    {
-        $this->filterEncounterOptions = Arr::toCamelCase(
-            $this->formatDatesForDisplay(
-                Repository::encounter()->getByPersonId($this->personId)
-            )
-        );
-    }
-
+    /**
+     * Build the service options for the code combobox, limited to the picked category when there is one.
+     *
+     * @return void
+     */
     private function loadServices(): void
     {
-        $this->filterCodeOptions = collect(dictionary()->services()->flattened()->toArray())
-            ->map(function (array $service) {
+        $this->services = collect(dictionary()->services()->flattened()->toArray())
+            ->when(
+                $this->filterCategory !== '',
+                fn (Collection $services): Collection => $services->where('category', $this->filterCategory)
+            )
+            ->map(static function (array $service): ?array {
                 $serviceId = data_get($service, 'id');
 
                 if (!$serviceId) {
@@ -338,16 +645,15 @@ class PatientDiagnosticReports extends BasePatientComponent
                 $serviceName = data_get($service, 'name') ?: $serviceId;
 
                 return [
-                    'value' => $serviceId,
-                    'label' => $serviceCode
+                    'id' => $serviceId,
+                    'name' => $serviceCode
                         ? $serviceCode . ' | ' . $serviceName
-                        : $serviceName,
-                    'description' => $serviceId,
+                        : $serviceName
                 ];
             })
             ->filter()
-            ->unique('value')
-            ->sortBy('label')
+            ->unique('id')
+            ->sortBy('name')
             ->values()
             ->toArray();
     }
@@ -362,22 +668,11 @@ class PatientDiagnosticReports extends BasePatientComponent
             'issued_from' => $this->filterIssuedFrom ?: null,
             'issued_to' => $this->filterIssuedTo ?: null,
             'based_on' => $this->filterBasedOn ?: null,
-            'managing_organization_id' => legalEntity()?->uuid,
+            'managing_organization_id' => legalEntity()->uuid,
             'specimen_id' => $this->filterSpecimenId ?: null,
             'page' => $this->getPage(),
-            'page_size' => $this->pageSize,
-        ], static fn ($value) => $value !== null && $value !== '');
-    }
-
-    private function buildPaginator(): LengthAwarePaginator
-    {
-        return new LengthAwarePaginator(
-            $this->diagnosticReports,
-            $this->totalEntries,
-            $this->pageSize,
-            $this->getPage(),
-            ['path' => request()->url()]
-        );
+            'page_size' => config('pagination.per_page')
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
 
     protected function filterValidationRules(): array
@@ -397,8 +692,6 @@ class PatientDiagnosticReports extends BasePatientComponent
 
     public function render(): View
     {
-        return view('livewire.person.records.diagnostic-reports', [
-            'paginatedDiagnosticReports' => $this->buildPaginator(),
-        ]);
+        return view('livewire.person.records.diagnostic-reports');
     }
 }

@@ -22,10 +22,10 @@ use App\Exceptions\EHealth\EHealthValidationException;
 
 class DivisionEdit extends DivisionComponent
 {
-    use WorkTimeUtilities,
-        ReceptionAddressSearch,
-        AddressSearch,
-        HasAction;
+    use WorkTimeUtilities;
+    use ReceptionAddressSearch;
+    use AddressSearch;
+    use HasAction;
 
     /**
      * Array containing dictionary names only used within the component.
@@ -61,9 +61,9 @@ class DivisionEdit extends DivisionComponent
      */
     public function updatedDivisionFormDivisionLocationLatitude($value)
     {
-        $latitude = (float) (empty($value) ? 0 : $value);
-
-        $this->divisionForm->division['location']['latitude'] = (float) number_format($latitude, 6, '.', '');
+        $this->divisionForm->division['location']['latitude'] = empty($value) && !is_numeric($value)
+            ? null
+            : (float) number_format((float) $value, 6, '.', '');
     }
 
     /**
@@ -78,10 +78,9 @@ class DivisionEdit extends DivisionComponent
      */
     public function updatedDivisionFormDivisionLocationLongitude($value)
     {
-        $longitude = (float) (empty($value) ? 0 : $value);
-
-        $this->divisionForm->division['location']['longitude'] = (float) number_format($longitude, 6, '.', '') ;
-        ;
+        $this->divisionForm->division['location']['longitude'] = empty($value) && !is_numeric($value)
+            ? null
+            : (float) number_format((float) $value, 6, '.', '');
     }
 
     /**
@@ -101,7 +100,7 @@ class DivisionEdit extends DivisionComponent
         $this->divisionForm->division['addresses'] = $division->addresses->toArray();
 
         if (!empty($this->divisionForm->division['addresses'])) {
-            foreach ( $this->divisionForm->division['addresses'] as $address ) {
+            foreach ($this->divisionForm->division['addresses'] as $address) {
                 $addressType = strtolower($address['type']);
 
                 switch ($addressType) {
@@ -212,7 +211,9 @@ class DivisionEdit extends DivisionComponent
 
             return;
         } catch (EHealthResponseException $err) {
-            Log::channel('e_health_errors')->error(self::class . ':divisionUpdate', ['error' => $err->getMessage()]);
+            $err->handle(self::class . ':divisionUpdate', __('errors.ehealth.messages.request_error'));
+
+            return;
         } catch (EHealthValidationException $err) {
             Log::channel('e_health_errors')->error(self::class . ':divisionUpdate', ['error' => $err->getDetails()]);
         } catch (Throwable $err) {

@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Contract;
 
+use App\Enums\Status;
+use App\Enums\User\Role;
+use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
+use App\Models\Relations\Party;
 use App\Repositories\ContractRepository;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -15,7 +19,7 @@ use Tests\TestCase;
  */
 class ContractRepositoryTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function migrateFreshUsing(): array
     {
@@ -156,6 +160,42 @@ class ContractRepositoryTest extends TestCase
         $contract = $this->repository->saveFromEHealth($eHealthData);
 
         $this->assertSame($programs, $contract->medical_programs);
+    }
+
+    public function test_save_from_ehealth_falls_back_to_active_owner_uuid(): void
+    {
+        $ownerUuid = (string) Str::uuid();
+        $this->createActiveOwner($ownerUuid);
+
+        $payload = $this->eHealthContractPayload();
+        unset($payload['contractor_owner'], $payload['contractor_owner_id']);
+
+        $contract = $this->repository->saveFromEHealth($payload);
+
+        $this->assertSame($ownerUuid, $contract->contractor_owner_id);
+    }
+
+    private function createActiveOwner(string $uuid): Employee
+    {
+        $party = Party::create([
+            'uuid' => (string) Str::uuid(),
+            'first_name' => 'Owner',
+            'last_name' => 'Test',
+            'tax_id' => '1234567890',
+            'birth_date' => '1970-01-01',
+            'gender' => 'MALE',
+        ]);
+
+        return Employee::create([
+            'uuid' => $uuid,
+            'employee_type' => Role::OWNER->value,
+            'status' => Status::APPROVED->value,
+            'legal_entity_id' => $this->legalEntity->id,
+            'is_active' => true,
+            'position' => 'Owner',
+            'start_date' => now()->format('Y-m-d'),
+            'party_id' => $party->id,
+        ]);
     }
 
     // -----------------------------------------------------------------------

@@ -13,12 +13,13 @@ class CarePlanForm extends Form
     public string $author = '';
     public array $coAuthors = [];
     public string $category = '';
-    public string $clinicalProtocol = '';
     public string $context = '';
     public string $title = '';
     public string $intent = 'order';
     public string $periodStart = '';
+    public string $periodStartTime = '';
     public string $periodEnd = '';
+    public string $periodEndTime = '';
     public string $encounter = '';
     public string $description = '';
     public string $note = '';
@@ -26,8 +27,11 @@ class CarePlanForm extends Form
     public string $termsOfService = '';
     public array $episodes = [];
     public array $medicalRecords = [];
+    public ?string $based_on = null;
+    public ?string $part_of = null;
     public string $knedp = '';
     public mixed $keyContainerUpload = null;
+    public string $keyContainerFileName = '';
     public string $password = '';
 
     /**
@@ -37,7 +41,6 @@ class CarePlanForm extends Form
     {
         return [
             'category' => 'required|string',
-            'clinicalProtocol' => 'nullable|string',
             'context' => 'nullable|string',
             'title' => 'required|string',
             'periodStart' => 'required|string',
@@ -71,7 +74,6 @@ class CarePlanForm extends Form
     {
         return [
             'category' => __('care-plan.category'),
-            'clinicalProtocol' => __('care-plan.clinical_protocol'),
             'context' => __('care-plan.context'),
             'title' => __('care-plan.name_care_plan'),
             'periodStart' => __('care-plan.date_and_time_start'),
@@ -80,7 +82,7 @@ class CarePlanForm extends Form
             'description' => __('care-plan.extended_description'),
             'note' => __('care-plan.notes'),
             'informWith' => __('care-plan.inform_with'),
-            'termsOfService' => __('care-plan.terms_of_service') ?? 'Умови надання послуг',
+            'termsOfService' => __('forms.providing_condition'),
             'knedp' => __('forms.knedp') ?? 'КНЕДП',
             'keyContainerUpload' => __('forms.key_container') ?? 'Ключ-контейнер',
             'password' => __('forms.password'),

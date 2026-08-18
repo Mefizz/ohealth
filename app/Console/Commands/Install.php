@@ -1,22 +1,26 @@
 <?php
 
-declare(strict_types = 1);
+declare(strict_types=1);
 
 namespace App\Console\Commands;
 
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Console\Commands\MigrationsCommand;
 
 class Install extends MigrationsCommand
 {
+    protected bool $showHelpWhenEmpty = true;
+
     /**
      * The name and signature of the console command.
      *
      * @var string
      */
-    protected $signature = 'install {--clear : Clear the cache before installation} {--wipe : Wipe the database before installation} {--key : Generate application key}';
+    protected $signature = 'install
+        {--clear : Clear the cache before installation}
+        {--wipe : Wipe the database before installation}
+        {--key : Generate application key}';
 
     /**
      * The console command description.
@@ -70,7 +74,7 @@ class Install extends MigrationsCommand
         if ($this->options['key']) {
             $this->info('Generating new application key...');
 
-            $this->call('key:generate',  ['--force' => true]);
+            $this->call('key:generate', ['--force' => true]);
         }
     }
 
@@ -121,7 +125,7 @@ class Install extends MigrationsCommand
      * Resets the sequence for a given table to the current maximum ID.
      * This version is more robust and handles empty tables correctly.
      *
-     * @param string $tableName
+     * @param  string  $tableName
      * @return void
      */
     protected function fixPostgresSequence(string $tableName): void

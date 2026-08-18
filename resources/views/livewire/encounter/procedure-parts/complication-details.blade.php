@@ -94,10 +94,10 @@
         <div>
             <button @click.prevent="
                         openModal = true;
-                        selectedComplicationDetailIds = [];
-                        if ($wire.complicationDetailResults.length === 0) {
-                            $wire.searchComplicationDetails();
-                        }
+                        const availableIds = complicationOptions().map(option => option.id);
+                        selectedComplicationDetailIds = modalProcedure.complicationDetails
+                            .map(complicationDetail => complicationDetail.id)
+                            .filter(id => availableIds.includes(id));
                     "
                     class="item-add my-5"
             >
@@ -131,7 +131,7 @@
                             <form>
                                 <x-forms.loading/>
 
-                                <template x-if="$wire.complicationDetailResults.length > 0">
+                                <template x-if="complicationOptions().length > 0">
                                     <div class="table-container">
                                         <div class="overflow-visible">
                                             <table class="table-base">
@@ -143,7 +143,7 @@
                                                 </tr>
                                                 </thead>
                                                 <tbody>
-                                                <template x-for="result in $wire.complicationDetailResults" :key="result.id">
+                                                <template x-for="result in complicationOptions()" :key="result.id">
                                                     <tr class="border-b dark:border-gray-700">
                                                         <th scope="row" class="table-cell-primary">
                                                             <div class="text-base"
@@ -182,7 +182,7 @@
                                     </div>
                                 </template>
 
-                                <template x-if="$wire.complicationDetailResults.length <= 0">
+                                <template x-if="complicationOptions().length <= 0">
                                     <p class="default-p">{{ __('forms.nothing_found') }}</p>
                                 </template>
 
@@ -197,12 +197,8 @@
 
                                     <button @click.prevent
                                             @click="
-                                                const existingIds = modalProcedure.complicationDetails.map(complicationDetail => complicationDetail.id);
-
-                                                const newDetails = $wire.complicationDetailResults
-                                                    .filter(complicationDetail => selectedComplicationDetailIds.includes(complicationDetail.id) && !existingIds.includes(complicationDetail.id));
-
-                                                modalProcedure.complicationDetails = modalProcedure.complicationDetails.concat(newDetails);
+                                                modalProcedure.complicationDetails = complicationOptions()
+                                                    .filter(complicationDetail => selectedComplicationDetailIds.includes(complicationDetail.id));
 
                                                 openModal = false;
                                             "

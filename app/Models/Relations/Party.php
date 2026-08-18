@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Casts\EHealthDateCast;
 use App\Models\Employee\Employee;
 use App\Traits\SyncsMorphManyRelations;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Employee\EmployeeRequest;
 use Eloquence\Behaviours\HasCamelCasing;
@@ -47,17 +48,21 @@ class Party extends Model
      * Get the party's full name.
      * This is an accessor, allowing you to use it like a property: $party->fullName
      *
-     * @return string
+     * @return Attribute
      */
-    public function getFullNameAttribute(): string
+    protected function fullName(): Attribute
     {
-        $fullName = trim($this->last_name . ' ' . $this->first_name);
+        return Attribute::make(
+            get: function (): string {
+                $fullName = trim($this->lastName . ' ' . $this->firstName);
 
-        if (!empty($this->second_name)) {
-            $fullName .= ' ' . $this->second_name;
-        }
+                if (!empty($this->secondName)) {
+                    $fullName .= ' ' . $this->secondName;
+                }
 
-        return $fullName;
+                return $fullName;
+            }
+        );
     }
 
     /**
@@ -66,6 +71,34 @@ class Party extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    /**
+     * Users of this party that already have an employee record in the given legal entity.
+     * Used when adding another position so email choice cannot cross facilities.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, User>
+     */
+    public function usersWithEmployeeInLegalEntity(int $legalEntityId): \Illuminate\Database\Eloquent\Collection
+    {
+        return $this->users()
+            ->where(function ($query) use ($legalEntityId): void {
+                $query->whereHas(
+                    'employees',
+                    fn ($employees) => $employees
+                        ->where('legal_entity_id', $legalEntityId)
+                        ->where('party_id', $this->id)
+                )->orWhereIn(
+                    'users.id',
+                    Employee::query()
+                        ->where('legal_entity_id', $legalEntityId)
+                        ->where('party_id', $this->id)
+                        ->whereNotNull('user_id')
+                        ->select('user_id')
+                );
+            })
+            ->oldest()
+            ->get();
     }
 
     public function employees(): HasMany
@@ -91,15 +124,5 @@ class Party extends Model
     public function phones(): MorphMany
     {
         return $this->morphMany(Phone::class, 'phoneable');
-    }
-
-    /**
-     * Checks whether a person has an active role as an Owner in a given institution.
-     */
-    public function hasActiveOwnerRole(int $legalEntityId): bool
-    {
-        return $this->employees()
-            ->activeOwners($legalEntityId)
-            ->exists();
     }
 }

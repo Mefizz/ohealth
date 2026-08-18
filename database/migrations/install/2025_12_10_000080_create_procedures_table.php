@@ -17,11 +17,13 @@ return new class extends Migration
         Schema::create('procedures', static function (Blueprint $table) {
             $table->id();
             $table->uuid()->unique();
-            $table->foreignId('person_id')->constrained('persons');
+            $table->foreignId('person_id')->nullable()->constrained('persons');
+            $table->foreignId('preperson_id')->nullable()->constrained('prepersons');
             $table->enum('status', ProcedureStatus::values());
             $table->foreignId('status_reason_id')->nullable()->constrained('codeable_concepts');
             $table->foreignId('based_on_id')->nullable()->constrained('identifiers');
             $table->foreignId('code_id')->constrained('identifiers');
+            $table->timestamp('performed_date_time')->nullable();
             $table->foreignId('encounter_id')->nullable()->constrained('identifiers');
             $table->foreignId('origin_episode_id')->nullable()->constrained('identifiers');
             $table->foreignId('recorded_by_id')->constrained('identifiers');

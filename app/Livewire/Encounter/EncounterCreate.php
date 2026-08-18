@@ -7,13 +7,16 @@ namespace App\Livewire\Encounter;
 use App\Classes\Cipher\Api\CipherRequest;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Enums\Episode\Status;
 use App\Exceptions\Cipher\CipherConnectionException;
 use App\Exceptions\Cipher\CipherException;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
-use App\Enums\Person\EpisodeStatus;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\Person\Person;
+use App\Models\Preperson;
+use App\Enums\Person\EncounterStatus;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\EncounterPackageBuilder;
 use App\Traits\EnsuresEntityExists;
@@ -27,8 +30,76 @@ use Throwable;
 class EncounterCreate extends EncounterComponent
 {
     use EnsuresEntityExists;
+    use \App\Traits\SubmitsEHealthEncounter;
 
     private EncounterPackageBuilder $packageBuilder;
+
+    public ?int $prepersonId = null;
+
+    public bool $showReferralRedeemModal = false;
+    public string $referralToRedeemUuid = '';
+    public string $createdEncounterUuidForRedeem = '';
+
+    private function resolveReferralUuid(string $referralNum): ?string
+    {
+        if (empty($referralNum) || \Illuminate\Support\Str::isUuid($referralNum)) {
+            return $referralNum;
+        }
+
+        try {
+            $searchResult = \App\Classes\eHealth\Api\ServiceRequest::searchForServiceRequestsByParams(['requisition' => $referralNum]);
+            if (!empty($searchResult['data']) && is_array($searchResult['data']) && count($searchResult['data']) > 0) {
+                $status = $searchResult['data'][0]['status'] ?? '';
+                if (!in_array($status, ['active', 'program_processing'])) {
+                    $statusName = __('forms.status.' . $status) ?? $status;
+                    throw new \Exception("Направлення не дійсне (має статус: $statusName). Для взаємодії потрібне активне направлення.");
+                }
+
+                return $searchResult['data'][0]['id'];
+            }
+        } catch (\Exception $e) {
+            throw $e;
+        }
+
+        return null;
+    }
+
+    private function resolveAllReferrals(array &$validated): void
+    {
+        if (($validated['encounter']['referralType'] ?? '') === 'electronic' && !empty($validated['encounter']['referralNumber'])) {
+            try {
+                $uuid = $this->resolveReferralUuid($validated['encounter']['referralNumber']);
+                if (!$uuid) {
+                    throw new \Exception('Направлення не знайдено в ЕСОЗ');
+                }
+                $originalNumber = $validated['encounter']['referralNumber'];
+                $validated['encounter']['referralNumber'] = $uuid;
+                if ($uuid !== $originalNumber) {
+                    $validated['encounter']['referralDisplayValue'] = $originalNumber;
+                }
+            } catch (\Exception $e) {
+                $this->addError('form.encounter.referralNumber', $e->getMessage());
+                throw $e;
+            }
+        }
+
+        if (!empty($validated['procedures']) && is_array($validated['procedures'])) {
+            foreach ($validated['procedures'] as $index => $procedure) {
+                if (($procedure['referralType'] ?? '') === 'electronic' && !empty($procedure['basedOnIdentifier'])) {
+                    try {
+                        $uuid = $this->resolveReferralUuid($procedure['basedOnIdentifier']);
+                        if (!$uuid) {
+                            throw new \Exception('Направлення не знайдено в ЕСОЗ');
+                        }
+                        $validated['procedures'][$index]['basedOnIdentifier'] = $uuid;
+                    } catch (\Exception $e) {
+                        $this->addError("form.procedures.{$index}.basedOnIdentifier", $e->getMessage());
+                        throw $e;
+                    }
+                }
+            }
+        }
+    }
 
     public function boot(): void
     {
@@ -36,11 +107,20 @@ class EncounterCreate extends EncounterComponent
         $this->packageBuilder = app(EncounterPackageBuilder::class);
     }
 
-    public function mount(LegalEntity $legalEntity, int $personId): void
+    public function mount(LegalEntity $legalEntity, ?Person $person = null, ?Preperson $preperson = null): void
     {
-        $this->initializeComponent($personId);
+        if ($preperson !== null) {
+            $this->prepersonId = $preperson->id;
+        } else {
+            $this->personId = $person->id;
+        }
+
+        $this->initializeComponent();
 
         $this->setDefaultDate();
+
+        // Pre-load in-progress referrals from eHealth for the dropdown
+        $this->loadInProgressReferrals();
     }
 
     /**
@@ -51,31 +131,56 @@ class EncounterCreate extends EncounterComponent
     public function save(): void
     {
         if (Auth::user()->cannot('create', Encounter::class)) {
-            Session::flash('error', __('patients.policy.create_encounter'));
+            $message = __('patients.policy.create_encounter');
+            Session::flash('error', $message);
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
 
             return;
         }
 
         try {
+            $this->syncEncounterParticipants();
             $validated = $this->form->validate();
+            try {
+                $this->resolveAllReferrals($validated);
+            } catch (\Exception $e) {
+                $this->dispatch('scroll-to-error');
+
+                return;
+            }
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->validator->errors()->first()]);
+            $this->dispatch('scroll-to-error');
 
             return;
         }
 
-        $formattedData = $this->packageBuilder->build($validated, $this->episodeType, EpisodeStatus::DRAFT);
+        $formattedData = $this->packageBuilder->build($validated, $this->episodeType, Status::DRAFT);
+        $formattedData['encounter']['status'] = EncounterStatus::DRAFT->value;
 
         try {
             $encounterId = $this->storeValidatedData($formattedData);
         } catch (Throwable $exception) {
             $this->handleDatabaseErrors($exception, 'Failed to store validated data');
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => __('messages.database_error')]);
 
             return;
         }
 
         Session::flash('success', __('patients.messages.encounter_created'));
+
+        if ($this->prepersonId !== null) {
+            $this->redirectRoute(
+                'prepersons.encounter.edit',
+                [legalEntity(), 'preperson' => $this->prepersonId, 'encounterId' => $encounterId],
+                navigate: true
+            );
+
+            return;
+        }
+
         $this->redirectRoute('encounter.edit', [legalEntity(), $this->personId, $encounterId], navigate: true);
     }
 
@@ -87,17 +192,32 @@ class EncounterCreate extends EncounterComponent
     public function sign(): void
     {
         if (Auth::user()->cannot('create', Encounter::class)) {
-            Session::flash('error', __('patients.policy.create_encounter'));
+            $message = __('patients.policy.create_encounter');
+            Session::flash('error', $message);
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $message]);
 
             return;
         }
 
+        $this->syncEncounterParticipants();
+
         // First validate the encounter data
         try {
             $validatedData = $this->form->validate();
+            try {
+                $this->resolveAllReferrals($validatedData);
+            } catch (\Exception $e) {
+                $this->dispatch('scroll-to-error');
+
+                return;
+            }
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->validator->errors()->first()]);
+            $this->dispatch('scroll-to-error');
 
             return;
         }
@@ -108,6 +228,9 @@ class EncounterCreate extends EncounterComponent
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->validator->errors()->first()]);
+            $this->dispatch('scroll-to-error');
 
             return;
         }
@@ -115,9 +238,11 @@ class EncounterCreate extends EncounterComponent
         $formattedData = $this->packageBuilder->build($validatedData, $this->episodeType);
 
         try {
-            $this->storeValidatedData($formattedData);
+            $createdEncounterId = $this->storeValidatedData($formattedData);
         } catch (Throwable $exception) {
             $this->handleDatabaseErrors($exception, 'Failed to store validated data');
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => __('messages.database_error')]);
 
             return;
         }
@@ -139,6 +264,8 @@ class EncounterCreate extends EncounterComponent
             );
         } catch (CipherException|CipherConnectionException $exception) {
             $exception->handle('Error when signing data with Cipher');
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
 
             return;
         }
@@ -153,13 +280,49 @@ class EncounterCreate extends EncounterComponent
             ]);
 
             logger()->debug('Job ID to further debug', $resp->getData());
+            $encounterUuid = $formattedData['encounter']['id'];
+
+            // Call trait helper
+            $this->waitForEncounterJobAndSync(
+                $resp->getData(),
+                $this->patientUuid,
+                $encounterUuid,
+                $this->patient()
+            );
+
+            Session::flash('success', 'Взаємодію успішно створено та надіслано до ЕСОЗ.');
+            $this->showSignatureModal = false;
+
+            if (($this->form->encounter['referralType'] ?? '') === 'electronic' && !empty($this->form->encounter['referralNumber'])) {
+                $this->referralToRedeemUuid = $this->resolveReferralUuid($this->form->encounter['referralNumber']);
+                $this->createdEncounterUuidForRedeem = $encounterUuid;
+                if ($this->referralToRedeemUuid) {
+                    $this->showReferralRedeemModal = true;
+
+                    return; // Prevent redirect, show modal
+                }
+            }
+
+            $this->redirectAfterCreate($createdEncounterId);
+
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error while submitting encounter');
-
-            return;
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+        } catch (\RuntimeException $exception) {
+            logger()->error('Encounter submission runtime error: ' . $exception->getMessage());
+            Session::flash('error', $exception->getMessage());
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $exception->getMessage()]);
+        } catch (\Throwable $exception) {
+            logger()->error('Encounter submission unexpected error: ' . $exception->getMessage(), [
+                'trace' => $exception->getTraceAsString(),
+            ]);
+            $errorMessage = __('patients.messages.unexpected_error') ?? 'Виникла непередбачувана помилка.';
+            Session::flash('error', $errorMessage);
+            $this->showSignatureModal = false;
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => $errorMessage]);
         }
-
-        $this->redirectRoute('persons.encounters', [legalEntity(), $this->personId], navigate: true);
     }
 
     /**
@@ -186,30 +349,30 @@ class EncounterCreate extends EncounterComponent
     protected function storeValidatedData(array $formattedData): int
     {
         return DB::transaction(function () use ($formattedData) {
-            $createdEncounterId = Repository::encounter()->store($formattedData['encounter'], $this->personId);
+            $createdEncounterId = Repository::encounter()->store($formattedData['encounter'], $this->patient());
 
             if (isset($formattedData['episode'])) {
-                Repository::episode()->store($formattedData['episode'], $this->personId, $createdEncounterId);
+                Repository::episode()->store($formattedData['episode'], $this->patient(), $createdEncounterId);
             }
 
             if (isset($formattedData['conditions'])) {
-                Repository::condition()->store($formattedData['conditions'], $this->personId);
+                Repository::condition()->store($formattedData['conditions'], $this->patient());
             }
 
             if (isset($formattedData['immunizations'])) {
-                Repository::immunization()->store($formattedData['immunizations'], $this->personId);
+                Repository::immunization()->store($formattedData['immunizations'], $this->patient());
             }
 
             if (isset($formattedData['diagnosticReports'])) {
-                Repository::diagnosticReport()->store($formattedData['diagnosticReports'], $this->personId);
+                Repository::diagnosticReport()->store($formattedData['diagnosticReports'], $this->patient());
             }
 
             if (isset($formattedData['observations'])) {
-                Repository::observation()->store($formattedData['observations'], $this->personId);
+                Repository::observation()->store($formattedData['observations'], $this->patient());
             }
 
             if (isset($formattedData['procedures'])) {
-                Repository::procedure()->store($formattedData['procedures'], $this->personId);
+                Repository::procedure()->store($formattedData['procedures'], $this->patient());
 
                 foreach ($formattedData['procedures'] as $procedure) {
                     $this->processReasonReferences($procedure);
@@ -218,7 +381,7 @@ class EncounterCreate extends EncounterComponent
             }
 
             if (isset($formattedData['clinicalImpressions'])) {
-                Repository::clinicalImpression()->store($formattedData['clinicalImpressions'], $this->personId);
+                Repository::clinicalImpression()->store($formattedData['clinicalImpressions'], $this->patient());
 
                 foreach ($formattedData['clinicalImpressions'] as $clinicalImpression) {
                     $this->processPrevious($clinicalImpression);
@@ -245,6 +408,56 @@ class EncounterCreate extends EncounterComponent
             $exception->handle('Error when create episode');
 
             return;
+        }
+    }
+
+    public function closeRedeemModal(): void
+    {
+        $this->showReferralRedeemModal = false;
+        $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
+        if ($encounter) {
+            $this->redirectAfterCreate($encounter->id);
+        } else {
+            $this->redirectRoute('patients.encounters', [legalEntity(), 'patient' => $this->personId]);
+        }
+    }
+
+    public function redeemReferral(\App\Services\MedicalEvents\ReferralRequestLifecycleService $service): void
+    {
+        try {
+            if ($this->referralToRedeemUuid && $this->createdEncounterUuidForRedeem) {
+                $service->completeReferral($this->referralToRedeemUuid, $this->createdEncounterUuidForRedeem);
+                $this->dispatch('flashMessage', ['type' => 'success', 'message' => 'Направлення успішно погашено!']);
+            }
+        } catch (\Exception $e) {
+            $this->dispatch('flashMessage', ['type' => 'error', 'message' => 'Не вдалося погасити направлення: ' . $e->getMessage()]);
+        }
+
+        $this->showReferralRedeemModal = false;
+
+        // Find local encounter ID by UUID to redirect properly
+        $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
+        if ($encounter) {
+            $this->redirectAfterCreate($encounter->id);
+        } else {
+            $this->redirectRoute('patients.encounters', [legalEntity(), 'patient' => $this->personId]);
+        }
+    }
+
+    public function redirectAfterCreate(int $encounterId): void
+    {
+        if ($this->prepersonId !== null) {
+            $this->redirectRoute(
+                'prepersons.encounter.edit',
+                [legalEntity(), 'preperson' => $this->prepersonId, 'encounterId' => $encounterId],
+                navigate: true
+            );
+        } else {
+            $this->redirectRoute(
+                'encounter.edit',
+                [legalEntity(), 'person' => $this->personId, 'encounterId' => $encounterId],
+                navigate: true
+            );
         }
     }
 }

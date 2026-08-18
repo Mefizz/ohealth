@@ -4,28 +4,31 @@ declare(strict_types=1);
 
 namespace App\Livewire\LegalEntity;
 
-use App\Enums\User\Role;
 use Log;
 use Arr;
+use Throwable;
 use Exception;
 use Validator;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\License;
 use Livewire\Component;
-use App\Enums\JobStatus;
+use App\Enums\User\Role;
 use App\Traits\FormTrait;
 use Illuminate\Support\Str;
 use Livewire\WithFileUploads;
 use App\Models\LegalEntityType;
+use App\Livewire\Actions\Logout;
 use App\Repositories\Repository;
 use App\Models\Employee\Employee;
 use App\Events\LegalEntityCreate;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use App\Classes\Cipher\Traits\Cipher;
 use Illuminate\Support\Facades\Cache;
 use App\Repositories\PhoneRepository;
+use Illuminate\Http\RedirectResponse;
 use App\Enums\Employee\RequestStatus;
 use App\Traits\Addresses\AddressSearch;
 use App\Repositories\AddressRepository;
@@ -34,6 +37,7 @@ use App\Repositories\EmployeeRepository;
 use App\Enums\License\Type as LicenseType;
 use Illuminate\Validation\ValidationException;
 use App\Models\LegalEntity as LegalEntityModel;
+use Livewire\Features\SupportRedirects\Redirector;
 use App\Livewire\LegalEntity\Forms\LegalEntitiesForms;
 use App\Livewire\Employee\AbstractEmployeeFormManager;
 use App\Livewire\LegalEntity\Forms\LegalEntitiesRequestApi;
@@ -44,6 +48,11 @@ abstract class LegalEntity extends Component
     use Cipher;
     use WithFileUploads;
     use AddressSearch;
+
+    /**
+     * @var bool Indicates if the owner has changed
+     */
+    public bool $isOwnerChanged = false;
 
     protected const string STEP_PATH = 'views/livewire/legal-entity/step';
 
@@ -155,10 +164,13 @@ abstract class LegalEntity extends Component
      */
     protected function getOwnerFields(): void
     {
+        $excludeFromDocuments = ['PERMANENT_RESIDENCE_PERMIT'];
+
         // Get owner dictionary fields
         $fields = [
             'POSITION' => config('ehealth.employee_type.OWNER.position'),
-            'DOCUMENT_TYPE' => ['PASSPORT', 'NATIONAL_ID']
+            // TODO: remove some of the documents not mentioned by docs
+            'DOCUMENT_TYPE' => array_filter(config('ehealth.employee_identity_document_types'), fn($docType) => !\in_array($docType, $excludeFromDocuments))
         ];
 
         // Get dictionaries
@@ -281,7 +293,7 @@ abstract class LegalEntity extends Component
         // Convert form data to an array
         $data = $this->prepareDataForRequest($this->legalEntityForm->toArray());
 
-        $taxId = $this->legalEntityForm->owner['taxId'];
+        $taxId = $data['owner']['tax_id'];
 
         Log::info('Legal Entity Success SOURCE DATA', $data);
 
@@ -292,7 +304,7 @@ abstract class LegalEntity extends Component
         if (isset($base64Data['errors'])) {
             $this->dispatchErrorMessage($base64Data['errors']);
 
-            return null;
+            throw new Exception();
         }
 
         // Prepare data for API request
@@ -305,7 +317,7 @@ abstract class LegalEntity extends Component
         if (isset($response['errors']) && is_array($response['errors'])) {
             $this->dispatchErrorMessage(__('Запис не було збережено'), $response['errors']);
 
-            return null;
+            throw new Exception();
         }
 
         if ($this->legalEntityForm->owner['employee_id'] ?? null) {
@@ -319,13 +331,13 @@ abstract class LegalEntity extends Component
         } catch (Exception $err) {
             $this->dispatchErrorMessage($err->getMessage());
 
-            return null;
+            throw new Exception();
         }
 
         if (empty($response) || !is_array($response)) {
             $this->dispatchErrorMessage(__('auth.login.error.server.response'));
 
-            return null;
+            throw new Exception();
         }
 
         return ['response' => $response, 'request' => $data];
@@ -381,6 +393,7 @@ abstract class LegalEntity extends Component
             'data.nhs_verified' => 'required|boolean',
             'data.nhs_reviewed' => 'required|boolean',
             'data.nhs_comment' => 'nullable|string',
+
             'data.residence_address' => 'required|array',
             'data.residence_address.type' => 'required|string',
             'data.residence_address.country' => 'required|string',
@@ -394,26 +407,29 @@ abstract class LegalEntity extends Component
             'data.residence_address.building' => 'sometimes|string',
             'data.residence_address.apartment' => 'sometimes|string',
             'data.residence_address.zip' => 'sometimes|string',
+
             'data.accreditation' => 'nullable|array',
             'data.accreditation.category' => 'required_if:data.accreditation,array|string',
             'data.accreditation.issued_date' => 'sometimes|string',
             'data.accreditation.expiry_date' => 'sometimes|string',
             'data.accreditation.order_no' => 'required_with:data.accreditation.category|string',
-            'data.license' => 'nullable|array',
+
+            'data.license' => 'required|array',
             'data.license.uuid' => 'required_if:data.license,array|string',
             'data.license.type' => 'required_if:data.license,array|string',
-            'data.license.license_number' => 'sometimes|string',
-            'data.license.issued_by' => 'sometimes|string',
-            'data.license.issued_date' => 'sometimes|string',
+            'data.license.license_number' => 'nullable|string',
+            'data.license.issued_by' => 'required_if:data.license,array|string',
+            'data.license.issued_date' => 'required_if:data.license,array|string',
             'data.license.expiry_date' => 'nullable|string',
             'data.license.is_active' => 'nullable|boolean',
             'data.license.ehealth_inserted_at' => 'required_if:data.license,array|string',
             'data.license.ehealth_inserted_by' => 'required_if:data.license,array|string',
-            'data.license.active_from_date' => 'sometimes|string',
-            'data.license.what_licensed' => 'sometimes|string',
-            'data.license.order_no' => 'sometimes|string',
+            'data.license.active_from_date' => 'required_if:data.license,array|string',
+            'data.license.what_licensed' => 'required_if:data.license,array|string',
+            'data.license.order_no' => 'required_if:data.license,array|string',
             'data.license.ehealth_updated_at' => 'required_if:data.license,array|string',
             'data.license.ehealth_updated_by' => 'required_if:data.license,array|string',
+
             'data.archive' => 'nullable|array',
             'data.archive.*.date' => 'required_if:data.archive,array|string',
             'data.archive.*.place' => 'required_if:data.archive,array|string',
@@ -532,7 +548,7 @@ abstract class LegalEntity extends Component
     {
         $dateReformatArray = [
             'owner.birth_date',
-            'owner.documents.issued_at',
+            'owner.documents',
             'accreditation.order_date',
             'accreditation.issued_date',
             'accreditation.expiry_date',
@@ -560,24 +576,30 @@ abstract class LegalEntity extends Component
 
         $data = $this->dateReformat($data, $dateReformatArray);
 
-        // Converting documents to array
-        if (Arr::has($data, 'owner.employee_uuid')) {
+        // If employee_uuid is present, set employee_id to the same value
+        if (Arr::has($data, 'owner.employee_uuid') && !$this->isOwnerChanged) {
             Arr::set($data, 'owner.employee_id', Arr::get($data, 'owner.employee_uuid'));
+        } else {
+            Arr::forget($data, ['owner.employee_id']);
         }
 
         // If no_tax_id=true its means that taxID should store related document's number
         if (Arr::boolean($data, 'owner.no_tax_id')) {
-            Arr::set($data, 'owner.tax_id', Arr::get($data, 'owner.documents.number'));
+            $passportNumber = collect(Arr::get($data, 'owner.documents', []))
+                ->first(fn(array $doc) => \in_array($doc['type'], ['PASSPORT', 'NATIONAL_ID']))['number'];
+
+            Arr::set($data, 'owner.tax_id', $passportNumber);
         }
 
         // Converting documents to array
         if (Arr::has($data, 'owner.documents')) {
-            Arr::set($data, 'owner.documents', [Arr::get($data, 'owner.documents')]);
+            Arr::set($data, 'owner.documents', Arr::get($data, 'owner.documents'));
         }
 
         Arr::forget($data, [
             'owner.user_id',
             'owner.id',
+            'owner.party_id',
             'owner.employee_uuid',
             'owner.uuid',
             'owner.about_myself',
@@ -638,6 +660,10 @@ abstract class LegalEntity extends Component
                 $reformatted = collect($itemValue)->map(function ($item) {
                     if (isset($item['date'])) {
                         $item['date'] = convertToYmd($item['date']);
+                    }
+
+                    if (isset($item['issued_at'])) {
+                        $item['issued_at'] = convertToYmd($item['issued_at']);
                     }
 
                     return $item;
@@ -798,7 +824,9 @@ abstract class LegalEntity extends Component
         // This need to be null because when OWNER being edited (when employee_uuid is translated to the ESOZ in request) this field doesn't returned in response.
         // So here it SHOULD be null to successfully sync at the first login (mandatory when OWNER change email)!
         if ($isEdit) {
-            $updateResponse['start_date'] = null;
+            $updateResponse['start_date'] = $this->isOwnerChanged
+                ? Carbon::now()->format('Y-m-d')
+                : null;
         }
 
         $employeeRequest->update($updateResponse);
@@ -939,9 +967,9 @@ abstract class LegalEntity extends Component
         $legalEntityData = $this->persistLegalEntity($data);
 
         try {
-            $this->addressRepository->addAddresses($this->legalEntity, $legalEntityData['addressData']);
+            $this->addressRepository->addAddresses($this->legalEntity, Arr::get($legalEntityData, 'addressData'));
 
-            $this->phoneRepository->addPhones($this->legalEntity, $legalEntityData['phones']);
+            $this->phoneRepository->addPhones($this->legalEntity, Arr::get($legalEntityData, 'phones'));
 
             $this->legalEntity->refresh();
         } catch (Exception $err) {
@@ -1008,10 +1036,14 @@ abstract class LegalEntity extends Component
         // Check if a user with the provided email already exists
         $owner = User::where('email', $ownerEmail)->first() ?? User::create([
                 'email' => $ownerEmail,
-                'password' => Hash::make($password),
+                'password' => Hash::make($password)
             ]);
 
         try {
+            if ($owner->wasRecentlyCreated) {
+                $owner->email_verified_at = now();
+            }
+
             $owner->save();
 
             $owner->refresh();
@@ -1083,5 +1115,80 @@ abstract class LegalEntity extends Component
                 $this->updateLocalRecords($request, $eHealthResponse, $legalEntity);
             }
         };
+    }
+
+    /**
+     * Handle success response from API request.
+     *
+     * @param array $response The response from the API request
+     *
+     * @return RedirectResponse|Redirector|null
+     */
+    protected function handleSuccessResponse(array $response, array $requestData = []): RedirectResponse|Redirector|null
+    {
+        try {
+            DB::transaction(function () use ($response, $requestData) {
+
+                $this->createNewLegalEntity($response);
+
+                setPermissionsTeamId($this->legalEntity->id);
+
+                if (isset($response['data']['license'])) {
+                    $this->saveLicense($response['data']['license']);
+                }
+
+                $user = $this->createUser();
+
+                $user->unsetRelation('roles');
+
+                $this->createEmployeeRequest($this->legalEntity, $requestData, $response['urgent']['employee_request_id']);
+
+                if (Cache::has($this->entityCacheKey)) {
+                    Cache::forget($this->entityCacheKey);
+                }
+
+                if (Cache::has($this->ownerCacheKey)) {
+                    Cache::forget($this->ownerCacheKey);
+                }
+
+                if (Cache::has($this->stepCacheKey)) {
+                    Cache::forget($this->stepCacheKey);
+                }
+            });
+
+            if (!$this->isOwnerChanged) {
+                Log::info("LegalEntity: New OWNER has been successfully registered!");
+
+                return app(Logout::class)(message: __('forms.le_create_successfully'));
+            } else {
+                Log::info("LegalEntity: New OWNER has been successfully replaced (on the eHEalth's side)!");
+            }
+        } catch (Exception $err) {
+            Log::error(__('Сталася помилка під час обробки запиту'), ['error' => $err->getMessage()]);
+
+            throw new Exception(__('Сталася помилка під час обробки запиту.' .  ($err->getCode() !== 0 ? ' Код помилки: ' . $err->getCode() : '')));
+        }
+
+        return null;
+    }
+
+    protected function legalEntityCreate(): void
+    {
+        try {
+            $result = $this->signLegalEntity();
+
+            $requestData = $result['request'];
+
+            $response = $this->filterUnprovidedFields($result['response'], $requestData);
+
+            // Handle successful API response
+            $this->handleSuccessResponse($response, $requestData);
+        } catch (Throwable $err) {
+            if (!empty($err->getMessage())) {
+                // Dispatch error message for possible errors
+                $this->dispatchErrorMessage($err->getMessage());
+            }
+            throw new Exception();
+        }
     }
 }

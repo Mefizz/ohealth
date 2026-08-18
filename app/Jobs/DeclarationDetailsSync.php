@@ -96,7 +96,8 @@ class DeclarationDetailsSync extends EHealthJob
 
         Log::info('Processing DeclarationDetailsSync for declaration:' . $this->declaration->id . ', LE:' . ($this->legalEntity->id ?? 'N/A'));
 
-        $person = array_intersect_key($person, array_flip(new Person()->getFillable()));
+        $allowedKeys = [...new Person()->getFillable(), 'first_name', 'last_name', 'second_name'];
+        $person = array_intersect_key($person, array_flip($allowedKeys));
 
         $person['id'] = $person['uuid'];
         $person['addresses'] ??= [];
@@ -128,6 +129,8 @@ class DeclarationDetailsSync extends EHealthJob
 
         if (!empty($validatedData)) {
             $this->declaration->update($validatedData);
+
+            $this->declaration->refresh();
         }
 
         if ($this->legalEntity->status === Status::REORGANIZED->value) {
@@ -150,9 +153,16 @@ class DeclarationDetailsSync extends EHealthJob
     // Get next entity job if needed
     protected function getNextEntityJob(): ?EHealthJob
     {
-        return $this->standalone || !$this->nextEntity
+        // After declaration's details sync, we need to sync the person's authentication methods if they exist
+        $personAuthMethodJob = $this->declaration?->person
+            ? new PersonAuthMethodSync($this->declaration->person, $this->legalEntity, $this->nextEntity)
+            : null;
+
+        $nextEntity = $personAuthMethodJob ?? $this->nextEntity;
+
+        return $this->standalone || !$nextEntity
             ? new CompleteSync($this->legalEntity, isFirstLogin: $this->isFirstLogin)
-            : $this->getConfidantPersonStartJob($this->legalEntity, $this->nextEntity);
+            : $nextEntity;
     }
 
     /**

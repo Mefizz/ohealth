@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\View\Components\Forms;
 
 use App\Rules\Zip;
-use Illuminate\Validation\Rule;
 use Illuminate\Contracts\View\View;
 
 class AddressesReception extends Addresses
@@ -13,31 +12,31 @@ class AddressesReception extends Addresses
     /**
      * Create a new component instance.
      */
-    public function __construct($address, $districts, $settlements, $streets, $class, $readonly = false)
-    {
-        parent::__construct($address, $districts, $settlements, $streets, $class, $readonly);
+    public function __construct(
+        array $address,
+        array $districts,
+        array $settlements,
+        array $streets,
+        string $class,
+        bool $readonly = false,
+        bool $divisionView = false
+    ){
+        parent::__construct($address, $districts, $settlements, $streets, $class, $readonly, $divisionView);
     }
 
     public static function getAddressRules(array $address): array
     {
         return [
+            'address.type' => ['required', 'string'],
+            'address.country' => ['required', 'string'],
             'receptionAddress.area' => ['required', 'string'],
-            'receptionAddress.region' => [
-                'sometimes',
-                Rule::requiredIf(function () use ($address) {
-                    if (empty($address['area'])) {
-                        return true;
-                    }
-
-                    return $address['area'] !== 'М.КИЇВ';
-                }),
-            ],
+            'receptionAddress.region' => ['nullable', 'string'],
             'receptionAddress.settlementType' => ['required', 'string'],
             'receptionAddress.settlement' => ['required', 'string'],
             'receptionAddress.settlementId' => ['required', 'string'],
             'receptionAddress.streetType' => ['nullable', 'string'],
-            'receptionAddress.street' => ['nullable', 'string'],
-            'receptionAddress.building' => ['nullable', 'string'],
+            'receptionAddress.street' => ['required_with:receptionAddress.building', 'nullable', 'string'],
+            'receptionAddress.building' => ['required_with:receptionAddress.apartment', 'nullable', 'string'],
             'receptionAddress.apartment' => ['nullable', 'string'],
             'receptionAddress.zip' => ['nullable', 'string', new Zip()],
         ];
@@ -46,13 +45,14 @@ class AddressesReception extends Addresses
     public static function getAddressMessages(): array
     {
         return [
-            'receptionAddress.area' => __("Поле 'Область' є обов'язковим"),
-            'receptionAddress.region.required' => __("Поле 'Район' є обов’язковим"),
-            'receptionAddress.settlementType' => __("Поле 'Тип населеного пункту' є обов'язковим"),
-            'receptionAddress.settlement' => __("Поле 'Населений пункт' є обов'язковим"),
-            'receptionAddress.building' => __("Неправильний формат номеру будинка"),
-            'receptionAddress.apartment' => __("Неправильний формат номеру квартири"),
-            'receptionAddress.zip' => __("Неправильний формат поштового індекса"),
+            'receptionAddress.area' => __('forms.addresses.error.area'),
+            'receptionAddress.settlementType' => __('forms.addresses.error.settlementType'),
+            'receptionAddress.settlement' => __('forms.addresses.error.settlement'),
+            'receptionAddress.street.required_with' => __('forms.addresses.error.street_required_with'),
+            'receptionAddress.building.required_with' => __('forms.addresses.error.building_required_with'),
+            'receptionAddress.building' => __('forms.addresses.error.building'),
+            'receptionAddress.apartment' => __('forms.addresses.error.apartment'),
+            'receptionAddress.zip' => __('forms.addresses.error.zip'),
         ];
     }
 

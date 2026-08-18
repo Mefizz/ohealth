@@ -10,8 +10,12 @@ use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\Relations\ConfidantPerson;
+use App\Models\Relations\PersonName;
+use App\Models\Relations\PersonVerificationDetail;
+use App\Models\MedicalEvents\Sql\Approval;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Person extends BasePerson
 {
@@ -56,6 +60,26 @@ class Person extends BasePerson
     }
 
     /**
+     * The person's name groups, one per language.
+     *
+     * @return HasMany
+     */
+    public function names(): HasMany
+    {
+        return $this->hasMany(PersonName::class);
+    }
+
+    /**
+     * The person's verification result per registry.
+     *
+     * @return HasMany
+     */
+    public function verificationDetails(): HasMany
+    {
+        return $this->hasMany(PersonVerificationDetail::class);
+    }
+
+    /**
      * How many people do I represent as a confidant person.
      *
      * @return HasMany
@@ -83,5 +107,10 @@ class Person extends BasePerson
     public function confidantPersonRelationshipRequests(): HasMany
     {
         return $this->hasMany(ConfidantPersonRelationshipRequest::class, 'person_id');
+    }
+
+    public function approvals(): MorphMany
+    {
+        return $this->morphMany(Approval::class, 'approvable');
     }
 }

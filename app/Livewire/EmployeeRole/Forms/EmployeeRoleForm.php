@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Livewire\EmployeeRole\Forms;
 
+use App\Enums\Status;
 use App\Models\Employee\Employee;
 use App\Models\EmployeeRole;
 use App\Models\HealthcareService;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Form;
 
@@ -19,7 +21,13 @@ class EmployeeRoleForm extends Form
     public function rules(): array
     {
         return [
-            'employeeId' => ['required', 'uuid', 'exists:employees,uuid'],
+            'employeeId' => [
+                'required',
+                'uuid',
+                Rule::exists('employees', 'uuid')
+                    ->where('status', Status::APPROVED->value)
+                    ->where('is_active', true)
+            ],
             'healthcareServiceId' => ['required', 'uuid', 'exists:healthcare_services,uuid']
         ];
     }
@@ -29,7 +37,7 @@ class EmployeeRoleForm extends Form
         $validated = parent::validate($rules, $messages, $attributes);
 
         $employee = Employee::whereUuid($this->employeeId)
-            ->with('specialities:speciality,specialityable_id')
+            ->with('specialities:speciality,speciality_officio,specialityable_id')
             ->select('id')
             ->firstOrFail();
         $healthcareService = HealthcareService::whereUuid($this->healthcareServiceId)
@@ -51,7 +59,7 @@ class EmployeeRoleForm extends Form
     }
 
     /**
-     * Check that employee has the same specializations as the healthcare service
+     * Check that the employee's officio (primary) speciality matches the healthcare service speciality.
      *
      * @param  Employee  $employee
      * @param  HealthcareService  $healthcareService
@@ -59,11 +67,11 @@ class EmployeeRoleForm extends Form
      */
     protected function validateEmployeeSpeciality(Employee $employee, HealthcareService $healthcareService): void
     {
-        $specialities = $employee->specialities->pluck('speciality')->toArray();
+        $officioSpeciality = $employee->specialities->firstWhere('specialityOfficio', true)?->speciality;
 
-        if (!in_array($healthcareService->specialityType, $specialities, true)) {
+        if ($officioSpeciality !== $healthcareService->specialityType) {
             throw ValidationException::withMessages([
-                'specialization' => 'Спеціалізація працівника не відповідає типу медичної послуги'
+                'specialization' => __('validation.attributes.employeeRole.constraint.specialityMismatch')
             ]);
         }
     }
@@ -77,14 +85,14 @@ class EmployeeRoleForm extends Form
      */
     protected function validateConstraints(Employee $employee, HealthcareService $healthcareService): void
     {
-        $exists = EmployeeRole::where('employee_id', $employee->id)
-            ->where('healthcare_service_id', $healthcareService->id)
-            ->where('status', 'ACTIVE')
+        $exists = EmployeeRole::whereEmployeeId($employee->id)
+            ->whereHealthcareServiceId($healthcareService->id)
+            ->whereStatus(Status::ACTIVE)
             ->exists();
 
         if ($exists) {
             throw ValidationException::withMessages([
-                'employee_role' => 'Для цього співробітника і медичної послуги вже існує активна роль'
+                'employee_role' => __('validation.attributes.employeeRole.constraint.duplicateActiveRole')
             ]);
         }
     }

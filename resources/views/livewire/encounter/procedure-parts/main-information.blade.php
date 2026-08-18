@@ -1,9 +1,48 @@
+@php
+    use App\Enums\Person\ProcedureStatus;
+    $procedureErrorPath = $context === 'encounter' ? 'form.procedures.*' : 'form.procedure';
+@endphp
+
 <fieldset class="fieldset">
     <legend class="legend">
         {{ __('forms.main_information') }}
     </legend>
 
     <div>
+        <div class="form-row-2">
+            <div class="form-group group">
+                <select x-model="modalProcedure.status"
+                        @change="
+                            modalProcedure.status === 'completed'
+                                ? setPerformedType(modalProcedure.performedType || 'period')
+                                : setPerformedType('');
+                        "
+                        id="procedureStatus"
+                        class="input-select peer"
+                        required
+                >
+                    <option value="">{{ __('forms.select') }} {{ mb_strtolower(__('forms.status.label')) }} *</option>
+                    <option value="completed">{{ __('patients.status.completed') }}</option>
+
+                    @if(in_array(($context ?? null), ['encounter', 'procedure'], true))
+                        <option value="{{ ProcedureStatus::NOT_DONE->value }}">
+                            {{ __('patients.status.not_done') }}
+                        </option>
+                    @endif
+
+                    @if(data_get($this->form, 'procedure.status') === ProcedureStatus::ENTERED_IN_ERROR->value)
+                        <option value="{{ ProcedureStatus::ENTERED_IN_ERROR->value }}">
+                            {{ __('patients.status.entered_in_error') }}
+                        </option>
+                    @endif
+                </select>
+
+                @error($procedureErrorPath . '.status')
+                    <p class="text-error">{{ $message }}</p>
+                @enderror
+            </div>
+        </div>
+        
         {{-- Is referral available, show only in encounter. For single procedure referral is neccessary. --}}
         @if($context === 'encounter')
             <div class="form-row-2">
@@ -49,16 +88,16 @@
                     {{-- Electronic referral --}}
                     <template x-if="modalProcedure.referralType === 'electronic'" x-transition>
                         <div class="form-group group">
-                            <input wire:model="form.encounter.episode.identifier.value"
-                                   type="text"
-                                   name="eReferralNumber"
-                                   id="eReferralNumber"
-                                   class="input-select peer"
-                                   placeholder=" "
-                                   required
-                                   autocomplete="off"
+                            <input x-model="modalProcedure.basedOnIdentifier"
+                                type="text"
+                                name="basedOnIdentifier"
+                                id="basedOnIdentifier"
+                                class="input-select peer"
+                                placeholder=" "
+                                required
+                                autocomplete="off"
                             />
-                            <label for="eReferralNumber" class="label">
+                            <label for="basedOnIdentifier" class="label">
                                 {{ __('forms.number') }}
                             </label>
                         </div>
@@ -82,7 +121,7 @@
                                     {{ __('forms.number') }}
                                 </label>
 
-                                @error('form.procedures.*.paperReferralRequisition')
+                                @error($procedureErrorPath . '.paperReferralRequisition')
                                 <p class="text-error">{{ $message }}</p>
                                 @enderror
                             </div>
@@ -100,7 +139,7 @@
                                     {{ __('patients.author') }}
                                 </label>
 
-                                @error('form.procedures.*.paperReferralRequesterEmployeeName')
+                                @error($procedureErrorPath . '.paperReferralRequesterEmployeeName')
                                 <p class="text-error">{{ $message }}</p>
                                 @enderror
                             </div>
@@ -122,7 +161,7 @@
                                     {{ __('patients.edrpou_of_the_issuing_institution') }}
                                 </label>
 
-                                @error('form.procedures.*.paperReferralRequesterLegalEntityEdrpou')
+                                @error($procedureErrorPath . '.paperReferralRequesterLegalEntityEdrpou')
                                 <p class="text-error">{{ $message }}</p>
                                 @enderror
                             </div>
@@ -135,13 +174,12 @@
                                        class="input peer"
                                        placeholder=" "
                                        autocomplete="off"
-                                       required
                                 >
                                 <label for="requesterLegalEntityName" class="label">
                                     {{ __('patients.name_of_the_institution_that_issued_it') }}
                                 </label>
 
-                                @error('form.procedures.*.paperReferralRequesterLegalEntityName')
+                                @error($procedureErrorPath . '.paperReferralRequesterLegalEntityName')
                                 <p class="text-error">{{ $message }}</p>
                                 @enderror
                             </div>
@@ -163,7 +201,7 @@
                                         {{ __('forms.date') }}
                                     </label>
 
-                                    @error('form.procedures.*.paperReferralServiceRequestDate')
+                                    @error($procedureErrorPath . '.paperReferralServiceRequestDate')
                                     <p class="text-error">{{ $message }}</p>
                                     @enderror
                                 </div>
@@ -182,7 +220,7 @@
                                     {{ __('patients.notes') }}
                                 </label>
 
-                                @error('form.procedures.*.paperReferralNote')
+                                @error($procedureErrorPath . '.paperReferralNote')
                                 <p class="text-error">{{ $message }}</p>
                                 @enderror
                             </div>
@@ -209,7 +247,7 @@
                     @endforeach
                 </select>
 
-                @error('form.procedures.*.categoryCode')
+                @error($procedureErrorPath . '.categoryCode')
                 <p class="text-error">{{ $message }}</p>
                 @enderror
             </div>
@@ -227,7 +265,7 @@
                     {{ __('forms.select')}} {{ mb_strtolower(__('forms.services')) }} *
                 </label>
 
-                @error('form.procedures.*.codeValue')
+                @error($procedureErrorPath . '.codeValue')
                 <p class="text-error">{{ $message }}</p>
                 @enderror
             </div>
@@ -237,12 +275,12 @@
         <div class="form-row-2">
             <div class="form-group group">
                 <select x-model="modalProcedure.divisionId"
-                        @if(count($divisions) === 1)
-                            {{-- Set division by default if only one exist --}}
-                            x-init="modalProcedure.divisionId = '{{ $divisions[0]['uuid'] }}';"
-                        @endif
-                        id="divisionNames"
-                        class="input-select peer"
+                    @change="modalProcedure.usedReferences = []"
+                    @if(count($divisions) === 1)
+                        x-init="if (!modalProcedure.divisionId) modalProcedure.divisionId = '{{ $divisions[0]['uuid'] }}';"
+                    @endif
+                    id="divisionNames"
+                    class="input-select peer"
                 >
                     <option selected value="">
                         {{ __('forms.select') }} {{ mb_strtolower(__('forms.division_name')) }}
@@ -252,7 +290,7 @@
                     @endforeach
                 </select>
 
-                @error('form.procedures.*.divisionId')
+                @error($procedureErrorPath . '.divisionId')
                 <p class="text-error">{{ $message }}</p>
                 @enderror
             </div>
@@ -274,8 +312,8 @@
                     @endforeach
                 </select>
 
-                @error('form.procedures.*.outcomeCode')
-                <p class="text-error">{{ $message }}</p>
+                @error($procedureErrorPath . '.outcomeCode')
+                    <p class="text-error">{{ $message }}</p>
                 @enderror
             </div>
         </div>

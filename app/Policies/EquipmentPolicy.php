@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Policies;
 
 use App\Enums\Equipment\Status;
+use App\Enums\User\Role;
 use App\Models\Equipment;
 use App\Models\User;
 use Illuminate\Auth\Access\Response;
@@ -61,8 +62,18 @@ class EquipmentPolicy
             return Response::denyWithStatus(404);
         }
 
-        // Check legal entity validity.
-        if (legalEntity()->isActive && !in_array(legalEntity()->status, ['ACTIVE', 'SUSPENDED'], true)) {
+        // Only OWNER and ADMIN are allowed to create equipment
+        if (!$user->hasAllowedRole([Role::OWNER, Role::ADMIN])) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Legal entity should exist and be active
+        if (!legalEntity()->isActive) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Legal entity should be in one of the allowed statuses
+        if (!in_array(legalEntity()->status, ['ACTIVE', 'SUSPENDED'], true)) {
             return Response::denyWithStatus(404);
         }
 
@@ -102,6 +113,16 @@ class EquipmentPolicy
         }
 
         if ($user->cannot('equipment:write')) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Only OWNER and ADMIN are allowed to change the equipment status
+        if (!$user->hasAllowedRole([Role::OWNER, Role::ADMIN])) {
+            return Response::denyWithStatus(404);
+        }
+
+        // It is allowed to change status only for active equipment
+        if ($equipment->status !== Status::ACTIVE) {
             return Response::denyWithStatus(404);
         }
 

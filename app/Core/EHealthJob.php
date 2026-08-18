@@ -6,6 +6,7 @@ namespace App\Core;
 
 use Throwable;
 use App\Models\User;
+use ReflectionClass;
 use App\Enums\JobStatus;
 use Illuminate\Bus\Batch;
 use App\Traits\FormTrait;
@@ -194,13 +195,22 @@ abstract class EHealthJob implements ShouldQueue
         if ($this->user) {
             $this->token = $this->getToken();
 
-            // Prepare the current job for retry
-            $retryJob = new static(
-                legalEntity: $this->legalEntity,
-                page: $this->page,
-                isFirstLogin: $this->isFirstLogin,
-                nextEntity: $this->nextEntity
-            );
+            $reflection = new ReflectionClass(static::class);
+
+            $args = [];
+
+            // Use reflection to get the constructor parameters of the current job class
+            // This need due to some of job's params doesn't exist in all job classes,
+            // so we need to dynamically determine which parameters to pass when creating a new instance of the job for retry
+            foreach ($reflection->getConstructor()?->getParameters() ?? [] as $param) {
+                $name = $param->getName();
+
+                if (property_exists($this, $name)) {
+                    $args[$name] = $this->{$name};
+                }
+            }
+
+            $retryJob = new static(...$args);
 
             $failedJobUuids = $this->batch()?->failedJobIds ?? [];
             $failedBatchId = $this->batch()?->id;
@@ -319,7 +329,7 @@ abstract class EHealthJob implements ShouldQueue
 
         // Execute complex query to find users matching three criteria
         $users = User::with('roles', 'permissions')
-            // FIRST CRITERIA: Exclude current user's party from search (if it still logined but does not have valid token)
+            // FIRST CRITERIA: Exclude current user's party from search (if it still logined but if here (error occurs), we need to find another user)
             ->whereNot('users.party_id', $user->party_id ?? 0)
             // SECOND CRITERIA: User must be employee of this legal entity
             // This uses nested whereHas to check User -> Employee relationship
@@ -341,7 +351,9 @@ abstract class EHealthJob implements ShouldQueue
         echo "Found " . $users->count() . " users with active sessions for legal entity {$legalEntity->id}" . PHP_EOL;
 
         // $users here is a Collection of User models. $userKey is the key/index of the first user that has the required scope/permission
-        $userKey = $users->search(fn (User $user) => $user->hasPermissionTo($this->requiredScope(), 'ehealth'));
+        $userKey = empty($this->requiredScope())
+            ? $users->keys()->first()
+            : $users->search(fn (User $user) => $user->hasPermissionTo($this->requiredScope(), 'ehealth'));
 
         // If no user found with required scope, return null
         return $users->get($userKey);

@@ -243,18 +243,19 @@ class EmployeeRequest extends EHealthRequest
         $transformedData = self::replaceEHealthPropNames($response->getData());
 
         $validator = Validator::make($transformedData, [
-            "employee_type" => 'required|string',
+            'employee_type' => 'required|string',
             'division_uuid' => 'nullable|uuid',
-            "uuid" => 'required|uuid',
-            "inserted_at" => 'required|date',
-            "created_at" => 'required|date', // The same as 'inserted_at' date
-            "legal_entity_uuid" => 'required|uuid',
+            'uuid' => 'required|uuid',
+            'employee_id' => 'nullable|uuid',
+            'inserted_at' => 'required|date',
+            'created_at' => 'required|date', // The same as 'inserted_at' date
+            'legal_entity_uuid' => 'required|uuid',
             'party' => 'required|array',
-            "email" => 'required|string',
-            "position" => 'required|string',
-            "start_date" => 'nullable|date',
-            "status" => ['required', Rule::enum(Status::class)],
-            "updated_at" => 'required|date'
+            'email' => 'required|string',
+            'position' => 'required|string',
+            'start_date' => 'nullable|date',
+            'status' => ['required', Rule::enum(Status::class)],
+            'updated_at' => 'required|date',
         ]);
 
         if ($validator->fails()) {
@@ -321,7 +322,12 @@ class EmployeeRequest extends EHealthRequest
         ]);
 
         $partyPayload['no_tax_id'] = (bool) Arr::get($nestedData, 'party.no_tax_id');
-        $partyPayload['working_experience'] = (int) Arr::get($nestedData, 'party.working_experience');
+
+        $workingExperience = Arr::get($nestedData, 'party.working_experience');
+        if ($workingExperience !== null && $workingExperience !== '') {
+            $partyPayload['working_experience'] = (int) $workingExperience;
+        }
+
         $partyPayload['documents'] = $nestedData['documents'] ?? [];
         $partyPayload['phones'] = $nestedData['phones'] ?? [];
 
@@ -406,7 +412,15 @@ class EmployeeRequest extends EHealthRequest
             'properties' => [
                 'type' => [
                     'type' => 'string',
-                    'enum' => ['PASSPORT', 'NATIONAL_ID', 'BIRTH_CERTIFICATE', 'TEMPORARY_CERTIFICATE'],
+                    'enum' => [
+                        'PASSPORT',
+                        'NATIONAL_ID',
+                        'COMPLEMENTARY_PROTECTION_CERTIFICATE',
+                        'PERMANENT_RESIDENCE_PERMIT',
+                        'REFUGEE_CERTIFICATE',
+                        'TEMPORARY_CERTIFICATE',
+                        'TEMPORARY_PASSPORT',
+                    ],
                 ],
                 'number' => ['type' => 'string'],
             ],

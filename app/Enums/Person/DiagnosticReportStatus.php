@@ -25,4 +25,13 @@ enum DiagnosticReportStatus: string
             self::DRAFT => __('patients.status.draft')
         };
     }
+
+    public function color(): string
+    {
+        return match ($this) {
+            self::FINAL => 'badge-green',
+            self::ENTERED_IN_ERROR => 'badge-red',
+            self::DRAFT => 'badge-dark',
+        };
+    }
 }

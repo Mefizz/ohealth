@@ -25,8 +25,8 @@
             <tr>
                 <td class="td-input text-sm text-gray-600 dark:text-gray-400">{{ $request['uuid'] }}</td>
                 <td class="td-input">
-                        <span class="text-gray-700 dark:text-gray-300">
-                            {{ $request['status']->label() }}
+                        <span @class([$request['status']?->color()])>
+                            {{ $request['status']?->label() ?? '-' }}
                         </span>
                 </td>
                 <td class="td-input text-gray-700 dark:text-gray-300">

@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\Status;
+use App\Casts\EHealthTimestampCast;
+use App\Enums\EmployeeRole\Status;
 use App\Models\Employee\Employee;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -30,11 +31,17 @@ class EmployeeRole extends Model
         'ehealth_updated_by'
     ];
 
-    protected $hidden = ['id'];
+    protected $hidden = [
+        'id',
+        'created_at',
+        'updated_at'
+    ];
 
     protected $casts = [
-        'start_date' => 'datetime',
-        'end_date' => 'datetime',
+        'start_date' => 'immutable_datetime',
+        'end_date' => 'immutable_datetime',
+        'ehealth_inserted_at' => EHealthTimestampCast::class,
+        'ehealth_updated_at' => EHealthTimestampCast::class,
         'status' => Status::class
     ];
 
@@ -46,6 +53,26 @@ class EmployeeRole extends Model
     public function healthcareService(): BelongsTo
     {
         return $this->belongsTo(HealthcareService::class);
+    }
+
+    /**
+     * User who created the role in eHealth, resolved from the inserted_by UUID.
+     *
+     * @return BelongsTo
+     */
+    public function insertedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'ehealth_inserted_by', 'uuid');
+    }
+
+    /**
+     * User who last updated the role in eHealth, resolved from the updated_by UUID.
+     *
+     * @return BelongsTo
+     */
+    public function updatedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'ehealth_updated_by', 'uuid');
     }
 
     /**
@@ -64,47 +91,48 @@ class EmployeeRole extends Model
             'healthcareService.legalEntity:id',
             'healthcareService.division:id,name'
         ])
-            ->select(['id', 'uuid', 'employee_id', 'healthcare_service_id', 'start_date', 'end_date', 'status', 'is_active'])
             ->whereHas(
                 'healthcareService',
-                fn (Builder $query) => $query->select('id')->where('legal_entity_id', legalEntity()->id)
+                fn (Builder $healthcareServiceQuery) => $healthcareServiceQuery->whereLegalEntityId(legalEntity()->id)
             )
-            ->orderByDesc('created_at');
+            ->latest();
     }
 
     /**
-     * Filter by party full name.
+     * Filter by the selected employee (used as employee_id in the request).
      *
      * @param  Builder  $query
-     * @param  string  $search
+     * @param  string|null  $employeeUuid
      * @return Builder
      */
     #[Scope]
-    protected function filterByEmployeeSearch(Builder $query, string $search): Builder
+    protected function filterByEmployeeId(Builder $query, ?string $employeeUuid): Builder
     {
-        if ($search) {
+        if ($employeeUuid) {
             $query->whereHas(
                 'employee',
-                fn (Builder $employeeQuery) => $employeeQuery->select('id')
-                    ->whereHas(
-                        'party',
-                        fn (Builder $partyQuery) => $partyQuery->select('id')
-                            ->where('first_name', 'ILIKE', "%$search%")
-                            ->orWhere('last_name', 'ILIKE', "%$search%")
-                            ->orWhere('second_name', 'ILIKE', "%$search%")
-                    )
+                fn (Builder $employeeQuery) => $employeeQuery->whereUuid($employeeUuid)
             );
         }
 
         return $query;
     }
 
+    /**
+     * Filter by the selected healthcare service (used as healthcare_service_id in the request).
+     *
+     * @param  Builder  $query
+     * @param  string|null  $healthcareServiceUuid
+     * @return Builder
+     */
     #[Scope]
-    protected function filterBySpecialityType(Builder $query, ?string $specialityTypeFilter): Builder
+    protected function filterByHealthcareServiceId(Builder $query, ?string $healthcareServiceUuid): Builder
     {
-        if ($specialityTypeFilter) {
-            $query->whereHas('healthcareService', fn (Builder $subQuery) => $subQuery->select('speciality_type')
-                ->where('speciality_type', $specialityTypeFilter));
+        if ($healthcareServiceUuid) {
+            $query->whereHas(
+                'healthcareService',
+                fn (Builder $healthcareServiceQuery) => $healthcareServiceQuery->whereUuid($healthcareServiceUuid)
+            );
         }
 
         return $query;

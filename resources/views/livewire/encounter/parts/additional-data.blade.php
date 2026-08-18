@@ -156,7 +156,7 @@
                        autocomplete="off"
                 />
                 <label for="periodStart" class="wrapped-label required">
-                    {{ __('patients.period_start') }}
+                    {{ __('forms.start_time') }}
                 </label>
             </div>
             @error('form.encounter.periodStart')
@@ -190,6 +190,9 @@
 
     <div class="form-group group">
         <select wire:model="form.encounter.divisionId"
+                x-on:change="$dispatch('encounter-division-changed', {
+                    divisionId: $event.target.value
+                })"
                 id="divisionNames"
                 class="input-select peer @error('form.encounter.divisionId') input-error @enderror"
         >
@@ -212,14 +215,13 @@
         <select wire:model="form.encounter.priorityCode"
                 id="priority"
                 class="input-select peer @error('form.encounter.priorityCode') input-error @enderror"
-                required
         >
             <option value="" selected>{{ __('forms.select') }} {{ mb_strtolower(__('patients.priority')) }}</option>
             @foreach($this->dictionaries['eHealth/encounter_priority'] as $key => $encounterPriority)
                 <option value="{{ $key }}">{{ $encounterPriority }}</option>
             @endforeach
         </select>
-        <label for="priority" class="label required">
+        <label for="priority" class="label">
             {{ __('patients.priority') }}
         </label>
         @error('form.encounter.priorityCode')
@@ -240,7 +242,6 @@
 
     <div x-data="{
             services: $wire.entangle('form.encounter.actionReferences'),
-            coAuthors: $wire.entangle('form.encounter.participant'),
             serviceOptions: [],
             serviceSearches: [],
             serviceDropdowns: [],
@@ -252,12 +253,13 @@
                         id: String(typeof service === 'object' ? (service.id ?? key) : key),
                         code: String(typeof service === 'object' ? (service.code ?? '') : ''),
                         name: String(typeof service === 'object' ? (service.name ?? '') : service),
+                        category: String(typeof service === 'object' ? (service.category ?? '') : ''),
                         searchText: (String(typeof service === 'object' ? (service.name ?? '') : service) + ' ' + String(typeof service === 'object' ? (service.code ?? '') : '')).toLowerCase(),
                     }))
-                    .filter(service => service.id);
+                    .filter(service => service.id && service.category);
 
                 this.services = Array.isArray(this.services) && this.services.length ? this.services : [{uuid: ''}];
-                this.coAuthors = Array.isArray(this.coAuthors) && this.coAuthors.length ? this.coAuthors : [{uuid: ''}];
+                this.coAuthors = Array.isArray(this.coAuthors) ? this.coAuthors : [];
 
                 this.serviceSearches = this.services.map(service => {
                     if (!service.uuid) { return ''; }
@@ -297,10 +299,12 @@
                 const query = String(this.serviceSearches[index] ?? '').toLowerCase().trim();
                 const MAX = 200;
                 const results = [];
+                const onlyCounselling = $wire.form.encounter.classCode === 'AMB';
 
                 if (query) {
                     for (const service of this.serviceOptions) {
                         if (results.length >= MAX) break;
+                        if (onlyCounselling && service.category !== 'counselling') continue;
                         if (service.searchText.includes(query)) {
                             results.push(service);
                         }
@@ -325,18 +329,63 @@
                 this.updateFilteredOptions(index);
             },
 
+            isCoAuthorAlreadySelected(employeeUuid, currentIndex) {
+                if (!employeeUuid) {
+                    return false;
+                }
+
+                return (Array.isArray(this.coAuthors) ? this.coAuthors : [])
+                    .some((coAuthor, index) =>
+                        index !== currentIndex
+                        && coAuthor?.uuid
+                        && String(coAuthor.uuid) === String(employeeUuid)
+                    );
+            },
+
+            validateCoAuthorSelection(index) {
+                const selectedUuid = this.coAuthors[index]?.uuid;
+
+                if (selectedUuid && this.isCoAuthorAlreadySelected(selectedUuid, index)) {
+                    this.coAuthors[index].uuid = '';
+                }
+            },
+
             addCoAuthor() {
-                this.coAuthors = [...(Array.isArray(this.coAuthors) ? this.coAuthors : []), {uuid: ''}];
+                this.coAuthors = [
+                    ...(Array.isArray(this.coAuthors) ? this.coAuthors : []),
+                    {
+                        uuid: '',
+                        name: '',
+                        locked: false,
+                        manual: true,
+                        sources: []
+                    }
+                ];
             },
 
             removeCoAuthor(index) {
-                this.coAuthors = this.coAuthors.filter((_, rowIndex) => rowIndex !== index);
-                this.coAuthors = this.coAuthors.length ? this.coAuthors : [''];
+                if (this.coAuthors[index]?.locked) {
+                    return;
+                }
+
+                this.coAuthors = this.coAuthors.filter(
+                    (_, rowIndex) => rowIndex !== index
+                );
             },
         }"
          class="space-y-6"
     >
-        <div class="space-y-3" x-show="$wire.form.encounter.classCode !== 'PHC'">
+        <div class="space-y-3"
+             x-show="$wire.form.encounter.classCode !== 'PHC'"
+             x-effect="
+                 if ($wire.form.encounter.classCode === 'PHC' && services.some(service => service.uuid)) {
+                     services = [{uuid: ''}];
+                     serviceSearches = [''];
+                     serviceDropdowns = [false];
+                     serviceFilteredOptions = [[]];
+                 }
+             "
+        >
             <template x-for="(service, index) in services" :key="index">
                 <div class="relative pr-10">
                     <div class="form-group group relative" @click.away="serviceDropdowns[index] = false">
@@ -400,22 +449,58 @@
         </div>
 
         <div class="space-y-3">
-            <template x-for="(coAuthor, index) in coAuthors" :key="index">
+            <template x-for="(coAuthor, index) in coAuthors" :key="`${coAuthor.uuid || 'manual'}-${index}`">
                 <div class="relative pr-10">
-                    <div class="form-group group">
-                        <select class="input-select peer @error('form.encounter.participant.0') input-error @enderror"
+                    <template x-if="coAuthor.locked || {{ $isReadonly ? 'true' : 'false' }}">
+                        <div class="form-group group">
+                            <input type="text"
+                                class="input peer"
+                                :id="'coAuthor_' + index"
+                                :value="participantName(coAuthor)"
+                                disabled
+                                placeholder=" "
+                            >
+                            <label
+                                :for="'coAuthor_' + index"
+                                class="label"
+                                x-text="participantLabel(coAuthor)"
+                            ></label>
+                        </div>
+                    </template>
+
+                    <template x-if="!coAuthor.locked && !{{ $isReadonly ? 'true' : 'false' }}">
+                        <div class="form-group group">
+                            <select
+                                class="input-select peer @error('form.encounter.participant.0') input-error @enderror"
                                 :id="'coAuthor_' + index"
                                 x-model="coAuthors[index].uuid"
-                        >
-                            <option value="" selected>{{ __('patients.find_doctor') }}</option>
-                            @foreach($this->employees as $employee)
-                                <option value="{{ $employee['uuid'] }}">{{ $employee['name'] }}</option>
-                            @endforeach
-                        </select>
-                        <label :for="'coAuthor_' + index" class="label">{{ __('patients.coauthor') }}</label>
-                    </div>
+                                @change="validateCoAuthorSelection(index)"
+                            >
+                                <option value="">
+                                    {{ __('patients.find_doctor') }}
+                                </option>
+
+                                @foreach($this->employees as $employee)
+                                    <option
+                                        value="{{ $employee['uuid'] }}"
+                                        :disabled="isCoAuthorAlreadySelected(
+                                            @js((string) $employee['uuid']),
+                                            index
+                                        )"
+                                    >
+                                        {{ $employee['name'] }}
+                                    </option>
+                                @endforeach
+                            </select>
+
+                            <label :for="'coAuthor_' + index" class="label">
+                                {{ __('patients.coauthor') }}
+                            </label>
+                        </div>
+                    </template>
+
                     <button type="button"
-                            x-show="index > 0"
+                            x-show="!coAuthor.locked && !{{ $isReadonly ? 'true' : 'false' }}"
                             x-cloak
                             @click="removeCoAuthor(index)"
                             class="absolute right-0 top-3 text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors"
@@ -425,14 +510,19 @@
                 </div>
             </template>
 
-            <button type="button"
-                    @click="addCoAuthor()"
-                    class="cursor-pointer text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1.5 font-medium text-sm transition-colors ml-1"
-            >
-                @icon('plus', 'w-4 h-4')
-                <span>{{ __('patients.add_coauthor') }}</span>
-            </button>
+            @unless($isReadonly)
+                <button type="button"
+                        @click="addCoAuthor()"
+                        class="cursor-pointer text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1.5 font-medium text-sm transition-colors ml-1"
+                >
+                    @icon('plus', 'w-4 h-4')
+                    <span>{{ __('patients.add_coauthor') }}</span>
+                </button>
+            @endunless
             @error('form.encounter.participant.0')
+                <p class="text-error">{{ $message }}</p>
+            @enderror
+            @error('form.encounter.participant')
                 <p class="text-error">{{ $message }}</p>
             @enderror
         </div>

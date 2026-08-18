@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Enums\Person\EpisodeStatus;
+use App\Enums\Episode\Status;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -67,7 +67,7 @@ return new class extends Migration
             Schema::create('episode_status_history', static function (Blueprint $table) {
                 $table->id();
                 $table->foreignId('episode_id')->constrained('episodes')->cascadeOnDelete();
-                $table->enum('status', EpisodeStatus::values());
+                $table->enum('status', Status::values());
                 $table->foreignId('status_reason_id')->nullable()->constrained('codeable_concepts');
                 $table->uuid('ehealth_inserted_by');
                 $table->timestamp('ehealth_inserted_at');

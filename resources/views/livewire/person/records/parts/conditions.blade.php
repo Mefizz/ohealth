@@ -32,14 +32,15 @@
                 <div class="record-inner-column-bordered w-full md:w-36 shrink-0">
                     <div class="record-inner-label">{{ __('patients.status_clinical') }}</div>
                     <div>
-                        <span class="badge-green">
-                            {{ ConditionClinicalStatus::from(data_get($condition, 'clinicalStatus'))->label() }}
+                        @php($status = ConditionClinicalStatus::from(data_get($condition, 'clinicalStatus')))
+                        <span @class([$status->color()])>
+                            {{ $status->label() ?? '-' }}
                         </span>
                     </div>
                 </div>
 
                 <div class="record-inner-action-col">
-                    <button class="record-inner-action-btn">
+                    <button class="record-inner-action-btn cursor-pointer">
                         @icon('edit-user-outline', 'w-5 h-5')
                     </button>
                 </div>
@@ -58,7 +59,10 @@
                         <div>
                             <div class="record-inner-label">{{ __('patients.verification_status') }}</div>
                             <div class="record-inner-subvalue">
-                                {{ ConditionClinicalStatus::from(data_get($condition, 'clinicalStatus'))->label() }}
+                                @php($verificationStatus = ConditionVerificationStatus::from(data_get($condition, 'verificationStatus')))
+                                <span @class([$verificationStatus->color()])>
+                                    {{ $verificationStatus->label() ?? '-' }}
+                                </span>
                             </div>
                         </div>
                         <div>
@@ -85,7 +89,7 @@
                             </div>
                         </div>
                         <div>
-                            <div class="record-inner-label">{{ __('patients.start_date') }}</div>
+                            <div class="record-inner-label">{{ __('forms.start_date') }}</div>
                             <div class="record-inner-subvalue">{{ data_get($condition, 'ehealthInsertedAt') }}</div>
                         </div>
                     </div>

@@ -29,11 +29,23 @@ class ContractIndex extends Component
 
     public array $typeFilter = [];
     public bool $isFiltersApplied = false;
+    public string $search = '';
 
     public function mount(): void
     {
-        // Initialize filter using enum values
-        $this->typeFilter = [Type::CAPITATION->value, Type::REIMBURSEMENT->value];
+        $this->typeFilter = array_column(Type::cases(), 'value');
+    }
+
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+        $this->isFiltersApplied = true;
+    }
+
+    public function updatedTypeFilter(): void
+    {
+        $this->resetPage();
+        $this->isFiltersApplied = true;
     }
 
     public function search(): void
@@ -44,10 +56,8 @@ class ContractIndex extends Component
 
     public function resetFilters(): void
     {
-        $this->reset(['typeFilter', 'isFiltersApplied']);
-
-        // Reset filter using enum values
-        $this->typeFilter = [Type::CAPITATION->value, Type::REIMBURSEMENT->value];
+        $this->reset(['search', 'typeFilter', 'isFiltersApplied']);
+        $this->typeFilter = array_column(Type::cases(), 'value');
     }
 
     public function sync(): void
@@ -115,8 +125,11 @@ class ContractIndex extends Component
     {
         $contracts = Contract::query()
             ->where('legal_entity_id', legalEntity()->id)
-            ->when($this->isFiltersApplied, function ($query) {
+            ->when($this->typeFilter, function ($query) {
                 $query->whereIn('type', $this->typeFilter);
+            })
+            ->when($this->search, function ($query) {
+                $query->where('contract_number', 'like', '%' . $this->search . '%');
             })
             ->orderByDesc('start_date')
             ->paginate(config('app.per_page', 15));

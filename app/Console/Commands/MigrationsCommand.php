@@ -12,10 +12,10 @@ use Illuminate\Support\Carbon;
 use App\Models\LegalEntityType;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\PermissionRegistrar;
 use Illuminate\Database\Migrations\Migrator;
-use Illuminate\Support\Facades\File;
 
 abstract class MigrationsCommand extends Command
 {
@@ -26,6 +26,9 @@ abstract class MigrationsCommand extends Command
     protected const string CONFIG_ROLES_SCOPE_PATH = 'config/scopes/roles.php';
 
     protected const int CHUNK_SIZE = 1000;
+
+    // Flag to display the command help if no additional arguments were provided
+    protected bool $showHelpWhenEmpty = false;
 
     // Flag indicating whether the command is performing a rollback operation.
     protected bool $isRollback = false;
@@ -59,6 +62,10 @@ abstract class MigrationsCommand extends Command
      */
     public function handle(Migrator $migrator): void
     {
+        if ($this->showHelpIfNeeded()) {
+            return;
+        }
+
         if ($this->hasOption('scopes') && $this->option('scopes')) {
             $this->call('config:clear');
 
@@ -739,8 +746,8 @@ abstract class MigrationsCommand extends Command
             $extra = explode(" ", Arr::get($item, 'extra', ""));
 
             $scopes = collect([...$scopes, ...$missed, ...$extra])
-                ->filter(fn($scope) => !empty($scope))
-                ->map(fn($scope) => "'$scope'")
+                ->filter(fn ($scope) => !empty($scope))
+                ->map(fn ($scope) => "'$scope'")
                 ->unique()
                 ->values()
                 ->toArray();
@@ -748,7 +755,7 @@ abstract class MigrationsCommand extends Command
             $config[$typeName] = $scopes;
         }
 
-        $config['CLOSE'] ="];";
+        $config['CLOSE'] = "];";
 
         $this->saveScopesToFile(self::CONFIG_TYPES_SCOPE_PATH, $config);
     }
@@ -801,8 +808,8 @@ abstract class MigrationsCommand extends Command
             $scopes = explode(" ", Arr::get($item, 'scope', ""));
 
             $scopes = collect([...$scopes])
-                ->filter(fn($scope) => !empty($scope))
-                ->map(fn($scope) => "'$scope'")
+                ->filter(fn ($scope) => !empty($scope))
+                ->map(fn ($scope) => "'$scope'")
                 ->unique()
                 ->values()
                 ->toArray();
@@ -810,7 +817,7 @@ abstract class MigrationsCommand extends Command
             $config[$roleName] = $scopes;
         }
 
-        $config['CLOSE'] ="];";
+        $config['CLOSE'] = "];";
 
         $this->saveScopesToFile(self::CONFIG_ROLES_SCOPE_PATH, $config);
     }
@@ -818,11 +825,9 @@ abstract class MigrationsCommand extends Command
     /**
      * Persist generated scopes configuration to a PHP config file.
      *
-     * @param string $path Target config file path.
-     * @param array<string, mixed> $config Prepared scopes configuration data.
-     *
+     * @param  string  $path  Target config file path.
+     * @param  array<string, mixed>  $config  Prepared scopes configuration data.
      * @return void
-     *
      * @throws Exception
      */
     protected function saveScopesToFile(string $path, array $config = []): void
@@ -860,5 +865,23 @@ abstract class MigrationsCommand extends Command
         } catch (Exception $err) {
             $this->error("Error writing to file: {$path}. Error: " . $err->getMessage());
         }
+    }
+
+    /**
+     * Display the command help if no additional arguments were provided and the flag is enabled.
+     *
+     * @return bool True if help was displayed and execution should stop, false otherwise.
+     */
+    protected function showHelpIfNeeded(): bool
+    {
+        if ($this->showHelpWhenEmpty && !array_filter($this->options())) {
+            $this->call('help', [
+                'command_name' => $this->getName(),
+            ]);
+
+            return true;
+        }
+
+        return false;
     }
 }

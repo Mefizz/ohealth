@@ -1,4 +1,4 @@
-{{-- Document drawer works for both PersonUpdate and PersonCreate --}}
+{{-- Document drawer works for both managed relationship and person request flows. --}}
 
 {{-- Document Drawer Overlay --}}
 <div x-show="showDocumentDrawer"
@@ -144,6 +144,6 @@
     </div>
 </div>
 
-@if($this instanceof PersonUpdate)
+@if($canManageConfidantRelationships)
     @include('livewire.person.parts.drawers.add-auth-verification')
 @endif

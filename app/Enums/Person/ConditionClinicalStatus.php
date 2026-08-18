@@ -29,4 +29,16 @@ enum ConditionClinicalStatus: string
             self::RESOLVED => __('patients.status.resolved')
         };
     }
+
+    public function color(): string
+    {
+        return match ($this) {
+            self::ACTIVE,
+            self::FINISHED,
+            self::RESOLVED => 'badge-green',
+
+            self::RECURRENCE,
+            self::REMISSION => 'badge-yellow',
+        };
+    }
 }

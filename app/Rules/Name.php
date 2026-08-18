@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Rules;
 
 use Closure;
@@ -15,8 +17,8 @@ class Name implements ValidationRule
      */
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        foreach ($this->getVvalidationFieldsMap() as $method => $errorMessage) {
-            if (! $this->$method($value)) {
+        foreach ($this->getValidationFieldsMap() as $method => $errorMessage) {
+            if (!$this->$method($value)) {
                 $fail($errorMessage);
 
                 // IMPORTANT: after first error occurs do return because Laravel shows only first error message
@@ -26,11 +28,12 @@ class Name implements ValidationRule
     }
 
     /**
-     * Get Validation Fiselds Map (per method for differ case)
+     * Get Validation Fields Map (per method for differ case)
      *
      * @return array
      */
-    protected function getVvalidationFieldsMap() {
+    protected function getValidationFieldsMap()
+    {
         return [
             'checkCommonNamePattern' => ' :attribute містить неприпустимі символи.',
             'checkFirstLetterNamePattern' => ' :attribute має починатись лише з літери',
@@ -46,21 +49,19 @@ class Name implements ValidationRule
      * This method validates the given string to ensure it conforms to expected
      * patterns for common names: only ukrainian letters and special chars: "-", "'", "\", "+", " "
      *
-     * @param string $value The value to be checked against the name pattern.
-     *
+     * @param  string  $value  The value to be checked against the name pattern.
      * @return bool Returns true if the value matches the pattern, false otherwise.
      */
     protected function checkCommonNamePattern(string $value): bool
     {
-        return (bool) preg_match('/^(?!.*[ЫЪЭЁыъэё@%&$^#])[А-ЯҐЇІЄа-яґїіє’\\\'\\- ]+$/u', $value);
+        return (bool) preg_match("/^[А-ЩЬЮЯҐЄІЇа-щьюяґєії\\s\\.\\-\\/']+$/u", $value);
     }
 
     /**
      * Checks if the first letter of the given name matches a specific pattern.
      * see: https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/19155189761/RCC_+CSI-3870+Create+Update+Legal+Entity+V2
      *
-     * @param string $value The name value to be checked.
-     *
+     * @param  string  $value  The name value to be checked.
      * @return bool Returns true if the first letter matches the required pattern, false otherwise.
      */
     protected function checkFirstLetterNamePattern(string $value): bool
@@ -72,25 +73,23 @@ class Name implements ValidationRule
      * Checks if the given value ends with a specific name pattern.
      * see: https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/19155189761/RCC_+CSI-3870+Create+Update+Legal+Entity+V2
      *
-     * @param string $value The value to be checked.
-     *
+     * @param  string  $value  The value to be checked.
      * @return bool Returns false if the value matches the ending name pattern, true otherwise.
      */
     protected function checkEndsNamePattern(string $value): bool
     {
-        return ! (bool) preg_match("/[\\s\\-\\/']$/", $value);
+        return !(bool) preg_match("/[\\s\\-\\/']$/", $value);
     }
 
     /**
      * Checks if the given value contains special characters appearing twice in a row.
      * see: https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/19155189761/RCC_+CSI-3870+Create+Update+Legal+Entity+V2
      *
-     * @param string $value The input string to validate.
-     *
+     * @param  string  $value  The input string to validate.
      * @return bool Returns false if the pattern is valid, true otherwise.
      */
     protected function checkTwiceSpecialCharsPattern(string $value): bool
     {
-        return ! (bool) preg_match("/([\\s\\.\\/\\-'])\\1/", $value);
+        return !(bool) preg_match("/([\\s\\.\\/\\-'])\\1/", $value);
     }
 }

@@ -174,7 +174,7 @@ input:-webkit-autofill:active {
 }
 
 .input-select option {
-    @apply py-2 px-3 text-base leading-relaxed
+    @apply py-2 px-3 text-base leading-relaxed bg-white text-gray-900 dark:bg-gray-800 dark:text-white
 }
 
 .input-error {
@@ -238,6 +238,25 @@ input:-webkit-autofill ~ .label {
 /* Dropdown panel */
 .dropdown-panel {
     @apply absolute left-0 rounded-lg shadow-sm mt-2 z-10 origin-top-left bg-white dark:bg-gray-700 outline-none border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200
+}
+
+.multiselect-dropdown {
+    @apply !bg-white dark:!bg-gray-800;
+    background-color: #ffffff !important;
+}
+
+.multiselect-dropdown :is(ul, li, label) {
+    @apply !bg-white dark:!bg-gray-800;
+}
+
+:is(.dark .multiselect-dropdown),
+:is(.dark .multiselect-dropdown :is(ul, li, label)) {
+    background-color: rgb(31 41 55) !important; /* gray-800 */
+}
+
+/* Open multiselect must stack above following .form-group siblings (they use z-0). */
+.form-group:has(.multiselect-dropdown:not([style*="display: none"])) {
+    z-index: 50;
 }
 
 .dropdown-panel button {
@@ -733,6 +752,10 @@ input:-webkit-autofill {
 
     .record-inner-checkbox-col {
         @apply p-4 flex items-center justify-center shrink-0 w-14 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700
+    }
+
+    .record-inner-badge-error {
+        @apply self-center shrink-0 ml-4 inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/20
     }
 
     .record-inner-action-col {

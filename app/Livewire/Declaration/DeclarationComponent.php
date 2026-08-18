@@ -7,6 +7,7 @@ namespace App\Livewire\Declaration;
 use App\Classes\Cipher\Api\CipherRequest;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Enums\Declaration\RequestStatus;
 use App\Enums\Declaration\Status;
 use App\Enums\JobStatus;
 use App\Enums\Person\AuthenticationMethod;
@@ -60,9 +61,9 @@ abstract class DeclarationComponent extends Component
     /**
      * Status of declaration request, that we use to determine which actions user can do with declaration request and which buttons show.
      *
-     * @var Status
+     * @var RequestStatus
      */
-    public Status $status = Status::DRAFT;
+    public RequestStatus $status = RequestStatus::DRAFT;
 
     public bool $isNeedToPersonUpdate = false;
 
@@ -140,6 +141,13 @@ abstract class DeclarationComponent extends Component
      */
     protected string $patientUuid;
 
+    /**
+     * Check is patient data still syncing.
+     *
+     * @var bool
+     */
+    public bool $isSyncing = false;
+
     public function boot(): void
     {
         $this->getDictionary();
@@ -147,13 +155,11 @@ abstract class DeclarationComponent extends Component
 
     protected function baseMount(int $personId): void
     {
-        $patient = Person::select(['uuid', 'first_name', 'last_name', 'second_name'])
+        $patient = Person::select(['id', 'uuid', 'is_syncing'])
+            ->with('names')
             ->withExists('documents')
             ->whereId($personId)
             ->firstOrFail();
-
-        // Use 'documents_exists' dynamic attribute (added by withExists) to determine if we need to update person data
-        $this->isNeedToPersonUpdate = !(bool) $patient->documents_exists;
 
         $this->patientFullName = $patient->fullName;
         $this->personId = $personId;
@@ -164,7 +170,17 @@ abstract class DeclarationComponent extends Component
         $this->form->personId = $this->patientUuid;
         $this->authMethods = $this->getPersonAuthMethods();
 
+        // Use 'documents_exists' dynamic attribute (added by withExists) to determine if we need to update person data (for one haven't OTP authentication method)
+        $this->isNeedToPersonUpdate = !$patient->documents_exists && collect($this->authMethods)
+            ->whereIn('type', [AuthenticationMethod::OTP->value, AuthenticationMethod::THIRD_PERSON->value])
+            ->isEmpty();
+
+        // Use 'documents_exists' dynamic attribute (added by withExists) to determine if we need to update person data (for one haven't OTP authentication method)
+        $this->isNeedToPersonUpdate = !$patient->documents_exists &&
+            collect($this->authMethods)->whereIn('type', [AuthenticationMethod::OTP->value, AuthenticationMethod::THIRD_PERSON->value])->isEmpty();
+
         $this->isNeedToResign = Repository::declarationRequest()->checkIfNeedToResign($this->patientUuid);
+        $this->isSyncing = $patient->isSyncing;
     }
 
     public function openSignatureModal(): void
@@ -192,7 +208,7 @@ abstract class DeclarationComponent extends Component
         if ($authMethodType === AuthenticationMethod::OFFLINE->value) {
             $this->uploadedDocuments[] = $declarationRequest?->person?->documents->toArray()[0] ?? [];
             $this->uploadedDocuments[0]['url'] = $declarationRequest->person->authenticationMethods()
-                            ->where('type', AuthenticationMethod::OFFLINE->value)->value('url');
+                ->where('type', AuthenticationMethod::OFFLINE->value)->value('url');
         }
 
         $this->showInformationMessageModal = true;
@@ -222,6 +238,12 @@ abstract class DeclarationComponent extends Component
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
             $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        if ($this->isNeedToPersonUpdate) {
+            $this->showUpdatePersonDataModal = true;
 
             return;
         }
@@ -280,7 +302,7 @@ abstract class DeclarationComponent extends Component
         // Redirect to edit page after successfully creating new declaration request
         $this->redirectRoute(
             'declaration.edit',
-            [legalEntity(), 'personId' => $declarationRequest->person_id, 'declarationRequest' => $this->declarationRequestId],
+            [legalEntity(), 'person' => $declarationRequest->person_id, 'declarationRequest' => $this->declarationRequestId],
             navigate: true
         );
     }
@@ -344,7 +366,7 @@ abstract class DeclarationComponent extends Component
                 $this->showAuthModal = false;
                 $this->showSignModal = true;
 
-                $this->status = Status::APPROVED;
+                $this->status = RequestStatus::APPROVED;
             }
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error when approving a declaration');
@@ -467,7 +489,7 @@ abstract class DeclarationComponent extends Component
     public function approveSimplifiedDeclaration(): void
     {
         $resignedDeclarationRequest = DeclarationRequest::where('person_id', $this->personId)
-            ->where('status', Status::NEW->value)
+            ->where('status', RequestStatus::NEW->value)
             ->whereNotNull('parent_declaration_uuid')
             ->firstOrFail();
 
@@ -477,7 +499,7 @@ abstract class DeclarationComponent extends Component
 
         $this->showSignModal = true;
 
-        $this->status = Status::APPROVED;
+        $this->status = RequestStatus::APPROVED;
     }
 
     /**
@@ -516,7 +538,7 @@ abstract class DeclarationComponent extends Component
             $this->showUploadingDocumentsModal = false;
             $this->showSignModal = true;
 
-            $this->status = Status::APPROVED;
+            $this->status = RequestStatus::APPROVED;
         }
     }
 
@@ -583,7 +605,7 @@ abstract class DeclarationComponent extends Component
             if ($response->getStatusCode() === 200) {
                 try {
                     $context = 'updating declaration request status';
-                    Repository::declarationRequest()->updateStatus($this->declarationRequestId, Status::SIGNED->value);
+                    Repository::declarationRequest()->updateStatus($this->declarationRequestId, RequestStatus::SIGNED->value);
 
                     $context = 'creating declaration';
                     Repository::declaration()->store($response->getData());
@@ -598,7 +620,7 @@ abstract class DeclarationComponent extends Component
 
                     $parentDeclaration->status = Status::TERMINATED;
                     $parentDeclaration->save();
-                } else if ($oldDeclaration) {
+                } elseif ($oldDeclaration) {
                     $oldDeclaration->status = Status::TERMINATED;
                     $oldDeclaration->save();
                 }
@@ -711,5 +733,18 @@ abstract class DeclarationComponent extends Component
             $users = Repository::user()->getLegalEntityOwners();
             Notification::send($users, new LegalEntityUpdated());
         }
+    }
+
+    /**
+     * Redirect to the patient data page for the current person.
+     *
+     * @param  int |null  $personId  Optional person ID; if not provided, uses the component's personId property.
+     * @return void
+     */
+    public function goToPatientData(?int $personId = null): void
+    {
+        $personId ??= $this->personId;
+
+        $this->redirectRoute('persons.patient-data', [legalEntity(), 'person' => $personId]);
     }
 }

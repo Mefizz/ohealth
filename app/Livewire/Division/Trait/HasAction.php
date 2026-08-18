@@ -7,6 +7,7 @@ namespace App\Livewire\Division\Trait;
 use Exception;
 use Throwable;
 use App\Models\Division;
+use App\Enums\Division\Status;
 use App\Classes\eHealth\EHealth;
 use App\Repositories\Repository;
 use Illuminate\Support\Facades\Log;
@@ -18,17 +19,15 @@ trait HasAction
     /**
      * Set 'ACTIVE' action status for specified division
      *
-     * @param int $divisionId
-     *
+     * @param  int  $divisionId
      * @return void
-     *
      * @throws Exception|EHealthResponseException
      */
     public function activate(int $divisionId): void
     {
         $division = $this->getDivision($divisionId);
 
-        if (! $division) {
+        if (!$division) {
             return;
         }
 
@@ -43,9 +42,7 @@ trait HasAction
 
             session()->flash('success', __('divisions.request.activated'));
         } catch (EHealthResponseException $err) {
-            Log::channel('e_health_errors')->error(static::class . ':activateDivision:', ['message' => $err->getMessage()]);
-
-            session()->flash('error', __('divisions.errors.activate'));
+            $err->handle(static::class . ':activateDivision:', __('divisions.errors.activate'));
 
             return;
         }
@@ -61,8 +58,13 @@ trait HasAction
             // Keep a fresh instance on the component if it uses it
             $this->divisionForm->division['status'] = $responseData['status'];
 
-            // Trigger a lightweight re-render
-            $this->dispatch('$refresh');
+            if (property_exists($this, 'statusLabel')) {
+                $this->statusLabel = Status::tryFrom($responseData['status'])?->label() ?? __('forms.unknown');
+            }
+
+            if (property_exists($this, 'statusStyle')) {
+                $this->statusStyle = Status::tryFrom($responseData['status'])?->cssClass() ?? 'status-alert-default';
+            }
         } catch (Exception $err) {
             Log::channel('db_errors')->error(static::class . ':activateDivision:', ['message' => $err->getMessage()]);
 
@@ -73,17 +75,15 @@ trait HasAction
     /**
      * Set 'INACTIVE' action status for specified division
      *
-     * @param int $divisionId
-     *
+     * @param  int  $divisionId
      * @return void
-     *
      * @throws Exception|EHealthResponseException
      */
     public function deactivate(int $divisionId): void
     {
         $division = $this->getDivision($divisionId);
 
-        if (! $division) {
+        if (!$division) {
             return;
         }
 
@@ -98,9 +98,7 @@ trait HasAction
 
             session()->flash('success', __('divisions.request.deactivated'));
         } catch (EHealthResponseException $err) {
-            Log::channel('e_health_errors')->error(static::class . ':deactivateDivision:', ['message' => $err->getMessage()]);
-
-            session()->flash('error', __('divisions.errors.deactivate'));
+            $err->handle(static::class . ':deactivateDivision:', __('divisions.errors.deactivate'));
 
             return;
         }
@@ -116,8 +114,13 @@ trait HasAction
             // Keep a fresh instance on the component if it uses it
             $this->divisionForm->division['status'] = $responseData['status'];
 
-            // Trigger a lightweight re-render
-            $this->dispatch('$refresh');
+            if (property_exists($this, 'statusLabel')) {
+                $this->statusLabel = Status::tryFrom($responseData['status'])?->label() ?? __('forms.unknown');
+            }
+
+            if (property_exists($this, 'statusStyle')) {
+                $this->statusStyle = Status::tryFrom($responseData['status'])?->cssClass() ?? 'status-alert-default';
+            }
         } catch (Exception $err) {
             Log::channel('db_errors')->error(static::class . ':deactivateDivision:', ['message' => $err->getMessage()]);
 
@@ -129,17 +132,15 @@ trait HasAction
      * Delete the record from DB for specified division
      * NOTE: only for divsions with DRAFT status!
      *
-     * @param int $divisionId
-     *
+     * @param  int  $divisionId
      * @return void
-     *
      * @throws Exception|Throwable
      */
     public function delete(int $divisionId): void
     {
         $division = $this->getDivision($divisionId);
 
-        if (! $division) {
+        if (!$division) {
             return;
         }
 
@@ -167,15 +168,14 @@ trait HasAction
     /**
      * Retrieves a Division model by its primary key.
      *
-     * @param int $id
-     *
+     * @param  int  $id
      * @return Division|null
      */
     protected function getDivision(int $id): ?Division
     {
         $division = Division::find($id);
 
-        if (! $division) {
+        if (!$division) {
             Log::channel('db_errors')->error(static::class . ':getDivision:', ['message' => "Cannot find model with id=$id"]);
 
             session()->flash('error', __('errors.ehealth.messages.request_error'));

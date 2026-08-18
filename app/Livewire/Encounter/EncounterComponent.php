@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter;
 
+use App\Classes\eHealth\Api\ServiceRequest;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\Exceptions\ApiException as eHealthApiException;
-use App\Classes\eHealth\Api\ServiceRequestApi;
 use App\Core\Arr;
+use App\Enums\Episode\Status as EpisodeStatus;
+use App\Enums\Equipment\AvailabilityStatus;
 use App\Enums\Person\ClinicalImpressionStatus;
-use App\Enums\Person\EpisodeStatus;
+use App\Enums\Person\ImmunizationStatus;
 use App\Enums\Person\ObservationStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
@@ -18,15 +20,24 @@ use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Encounter\Forms\Api\EncounterRequestApi;
+use App\Livewire\Encounter\Forms\EncounterForm as Form;
 use App\Models\Employee\Employee;
+use App\Models\Equipment;
 use App\Models\Icd10;
+use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Immunization;
 use App\Models\Person\Person;
+use App\Models\Preperson;
+use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\EpisodeCurrentDiagnosis;
 use App\Repositories\Repository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Services\MedicalEvents\Fhir;
+use App\Services\Dictionary\Mappers\ImmunizationDictionaryMapper;
 use App\Traits\FormTrait;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
-use App\Livewire\Encounter\Forms\EncounterForm as Form;
 use Livewire\WithFileUploads;
 
 class EncounterComponent extends Component
@@ -38,13 +49,30 @@ class EncounterComponent extends Component
 
     public bool $showSignatureModal = false;
 
+    public ?string $actionType = null;
+
     /**
-     * ID of the patient for which create an encounter.
+     * Person ID (set when the patient is a person).
      *
-     * @var int
+     * @var int|null
      */
     #[Locked]
-    public int $personId;
+    public ?int $personId = null;
+
+    /**
+     * Preperson ID (set when the patient is a preperson).
+     *
+     * @var int|null
+     */
+    #[Locked]
+    public ?int $prepersonId = null;
+
+    /**
+     * Request-scoped memoized patient model.
+     *
+     * @var Person|Preperson|null
+     */
+    private Person|Preperson|null $patientModel = null;
 
     /**
      * Patient full name.
@@ -96,11 +124,20 @@ class EncounterComponent extends Component
     public string $employeeFullName;
 
     /**
-     * Patient UUID for API requests.
+     * Patient UUID for API requests. Null for a preperson that is not yet registered in eHealth.
      *
-     * @var string
+     * @var string|null
      */
-    public string $patientUuid;
+    public ?string $patientUuid = null;
+    public array $availableReferrals = [];
+    public bool $referralsLoaded = false;
+
+    /**
+     * Found the ICD-10 code and description.
+     *
+     * @var array
+     */
+    public array $results;
 
     /**
      * Legal entity type of auth user.
@@ -110,18 +147,11 @@ class EncounterComponent extends Component
     protected string $legalEntityType;
 
     /**
-     * Role of auth user.
+     * Employee type of the employee the auth user writes the encounter as.
      *
-     * @var string
+     * @var string|null
      */
-    protected string $role;
-
-    /**
-     * Found the ICD-10 code and description.
-     *
-     * @var array
-     */
-    public array $results;
+    protected ?string $employeeType = null;
 
     /**
      * List of LOINC observation codes per category.
@@ -188,13 +218,6 @@ class EncounterComponent extends Component
     public array $findingResults = [];
 
     /**
-     * List of founded conditions for procedure complication details.
-     *
-     * @var array
-     */
-    public array $complicationDetailResults = [];
-
-    /**
      * List of founded conditions or observations for procedure reason references.
      *
      * @var array
@@ -207,6 +230,85 @@ class EncounterComponent extends Component
      * @var array
      */
     public array $problems = [];
+
+    /**
+     * List of equipment options for combobox.
+     *
+     * @var array
+     */
+    public array $equipmentOptions = [];
+
+    /**
+     * List of equipment options by division for combobox.
+     *
+     * @var array
+     */
+    public array $equipmentOptionsByDivision = [];
+
+    /**
+     * List of employees available as diagnostic report performers.
+     *
+     * @var array
+     */
+    public array $diagnosticReportEmployees = [];
+
+    /**
+     * List of employees available as procedure performers.
+     *
+     * @var array
+     */
+    public array $procedureEmployees = [];
+
+    /**
+     * eHealth IDs of the package records picked to be marked as entered in error, keyed by package section.
+     * Only an encounter that has been signed has records to pick, so on creation these stay empty.
+     *
+     * @var array
+     */
+    public array $selectedRecords = self::NO_RECORDS_SELECTED;
+
+    /**
+     * eHealth IDs of the package records already marked as entered in error, keyed by package section.
+     *
+     * @var array
+     */
+    #[Locked]
+    public array $cancelledRecords = self::NO_RECORDS_SELECTED;
+
+    /**
+     * Package sections whose records may be marked as entered in error on their own.
+     */
+    protected const array NO_RECORDS_SELECTED = [
+        'observations' => [],
+        'immunizations' => [],
+        'diagnosticReports' => [],
+        'procedures' => [],
+        'clinicalImpressions' => []
+    ];
+
+    /**
+     * Vaccine options prepared for search by code, name and target disease.
+     *
+     * @var array<int, array{
+     *     code: string,
+     *     name: string,
+     *     targetDiseases: array<int, array{code: string, name: string}>
+     * }>
+     */
+    public array $vaccineOptions = [];
+
+    /**
+     *
+     *
+     * @var array<int, array{
+     *      uuid: string,
+     *      vaccineCode: string,
+     *      date: string,
+     *      notGiven: bool,
+     *      status: string
+     * }>
+     */
+    public array $reactionImmunizations = [];
 
     /**
      * List of dictionary names.
@@ -256,8 +358,18 @@ class EncounterComponent extends Component
         'eHealth/procedure_categories',
         'eHealth/procedure_outcomes',
         'eHealth/clinical_impression_patient_categories',
+        'eHealth/cancellation_reasons',
         'POSITION'
     ];
+
+    public function updatedFormKeyContainerUpload(): void
+    {
+        if (isset($this->form->keyContainerUpload) && method_exists($this->form->keyContainerUpload, 'getClientOriginalName')) {
+            $this->form->keyContainerFileName = $this->form->keyContainerUpload->getClientOriginalName();
+        } else {
+            $this->form->keyContainerFileName = '';
+        }
+    }
 
     public function boot(): void
     {
@@ -271,6 +383,8 @@ class EncounterComponent extends Component
         ];
 
         $this->getDictionary();
+
+        $this->loadVaccineOptions();
 
         $this->dictionaries['eHealth/ICD10_AM/condition_codes'] = $icd10Cache;
 
@@ -288,11 +402,63 @@ class EncounterComponent extends Component
             ->toArray();
 
         $this->legalEntityType = legalEntity()->type->name;
-        $this->role = Auth::user()->roles->first()->name;
+        $this->employeeType = Auth::user()->getEncounterWriterEmployee()?->employeeType;
 
         $this->adjustEpisodeTypes();
         $this->adjustEncounterClasses();
         $this->adjustEncounterTypes();
+    }
+
+    /**
+     * Fetch all in_progress referrals for the patient from eHealth.
+     * Called from mount() in EncounterCreate/EncounterEdit.
+     */
+    public function loadInProgressReferrals(): void
+    {
+        if ($this->referralsLoaded) {
+            return;
+        }
+
+        try {
+            $patient = $this->patient();
+            // Person UUID is the eHealth patient identifier (not a separate ehealth_id column)
+            $patientUuid = $patient->uuid ?? null;
+            if (!$patientUuid) {
+                return;
+            }
+
+            // searchForServiceRequestsByParams sends GET /api/service_requests
+            // The Request::sendRequest() already returns $data['data'] for successful responses
+            // so the result here IS the array of service requests directly
+            $items = ServiceRequest::searchForServiceRequestsByParams([
+                'patient_id' => $patientUuid,
+                'status' => 'in_progress',
+            ]);
+
+            // If the API returns a wrapped structure, unwrap it
+            if (isset($items['data'])) {
+                $items = $items['data'];
+            }
+
+            if (is_array($items)) {
+                $this->availableReferrals = collect($items)->map(function ($referral) {
+                    $codings = $referral['category']['coding'] ?? [];
+                    $category = $codings[0]['display'] ?? ($codings[0]['code'] ?? 'Направлення');
+                    $requisition = $referral['requisition'] ?? $referral['id'];
+
+                    return [
+                        'id' => $referral['id'],
+                        'requisition' => $requisition,
+                        'category' => $category,
+                    ];
+                })->values()->toArray();
+            }
+
+            $this->referralsLoaded = true;
+        } catch (\Throwable $e) {
+            logger()->error('loadInProgressReferrals failed: ' . $e->getMessage());
+            // Don't show an error toast — just silently leave the dropdown empty
+        }
     }
 
     /**
@@ -304,7 +470,7 @@ class EncounterComponent extends Component
     public function searchForReferralNumber(): void
     {
         $buildSearchRequest = EncounterRequestApi::buildGetServiceRequestList($this->form->referralNumber);
-        ServiceRequestApi::searchForServiceRequestsByParams($buildSearchRequest);
+        ServiceRequest::searchForServiceRequestsByParams($buildSearchRequest);
     }
 
     /**
@@ -340,12 +506,32 @@ class EncounterComponent extends Component
     }
 
     /**
-     * Initialize the component data based on the patient ID.
+     * Resolve the patient model (person or preperson) for the current context.
      *
-     * @param  int  $personId
+     * @return Person|Preperson
+     */
+    protected function patient(): Person|Preperson
+    {
+        return $this->patientModel ??= ($this->prepersonId !== null
+            ? Preperson::findOrFail($this->prepersonId)
+            : Person::with('names')->findOrFail($this->personId));
+    }
+
+    /**
+     * Livewire AJAX does not remount the layout toast, so session flash alone is invisible.
+     */
+    protected function flashOutcome(string $type, string $message): void
+    {
+        session()->flash($type, $message);
+        $this->dispatch('flashMessage', ['message' => $message, 'type' => $type]);
+    }
+
+    /**
+     * Initialize the component data for the current patient.
+     *
      * @return void
      */
-    protected function initializeComponent(int $personId): void
+    protected function initializeComponent(): void
     {
         $authUser = Auth::user();
 
@@ -363,14 +549,72 @@ class EncounterComponent extends Component
             ];
         })->toArray();
 
-        $this->personId = $personId;
+        $this->diagnosticReportEmployees = Employee::query()
+            ->whereLegalEntityId(legalEntity()->id)
+            ->whereStatus(Status::APPROVED)
+            ->whereIsActive(true)
+            ->whereIn('employee_type', [
+                Role::DOCTOR->value,
+                Role::SPECIALIST->value,
+                Role::ASSISTANT->value,
+                Role::LABORANT->value,
+            ])
+            ->select([
+                'uuid',
+                'party_id',
+                'position',
+                'employee_type',
+                'division_uuid',
+            ])
+            ->with('party:id,last_name,first_name,second_name')
+            ->get()
+            ->map(function (Employee $employee): array {
+                return [
+                    'uuid' => $employee->uuid,
+                    'name' => $employee->fullName,
+                    'position' => $employee->position,
+                    'employeeType' => $employee->employeeType,
+                    'divisionUuid' => $employee->divisionUuid,
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        $this->procedureEmployees = collect($this->diagnosticReportEmployees)
+            ->whereIn('employeeType', [
+                Role::DOCTOR->value,
+                Role::SPECIALIST->value,
+                Role::ASSISTANT->value,
+            ])
+            ->values()
+            ->toArray();
+
         $this->legalEntityType = legalEntity()->type->name;
-        $this->role = $authUser->roles->first()->name;
         $this->divisions = legalEntity()->divisions()->whereStatus(Status::ACTIVE)->get()->toArray();
 
         $encounterWriterEmployee = $authUser->getEncounterWriterEmployee();
         $this->employeeFullName = $encounterWriterEmployee->fullName;
         $this->allowedConditionCodesBySystem = $this->computeAllowedConditionCodesBySystem($encounterWriterEmployee);
+
+        $this->equipmentOptions = Equipment::query()
+            ->where('legal_entity_id', legalEntity()->id)
+            ->where('availability_status', AvailabilityStatus::AVAILABLE)
+            ->active()
+            ->with(['names', 'division:id,uuid'])
+            ->get()
+            ->map(static fn (Equipment $equipment) => [
+                'uuid' => $equipment->uuid,
+                'name' => $equipment->names->first()?->name ?? $equipment->uuid,
+                'divisionUuid' => $equipment->division?->uuid,
+            ])
+            ->values()
+            ->toArray();
+
+        $this->equipmentOptionsByDivision = collect($this->equipmentOptions)
+            ->filter(static fn (array $equipment) => !empty($equipment['divisionUuid']))
+            ->groupBy('divisionUuid')
+            ->map(static fn ($items) => $items->values()->toArray())
+            ->toArray();
 
         $this->setPatientData();
 
@@ -380,6 +624,53 @@ class EncounterComponent extends Component
         }
 
         $this->getEpisodes();
+    }
+
+    /**
+     * Load the primary diagnosis from the selected episode.
+     *
+     * @param string|null $episodeId Episode UUID.
+     * @return void
+     */
+    public function updatedFormEpisodeId(?string $episodeId): void
+    {
+        $this->form->conditions = [];
+        $this->form->encounter['diagnoses'] = [];
+
+        if (empty($episodeId)) {
+            return;
+        }
+
+        $episode = Episode::forPatient($this->patient())
+            ->whereUuid($episodeId)
+            ->with(['currentDiagnoses.condition', 'currentDiagnoses.role.coding'])
+            ->first();
+
+        $diagnosis = $episode?->currentDiagnoses->first(
+            static fn (EpisodeCurrentDiagnosis $diagnosis): bool => $diagnosis->role?->coding->first()?->code === 'primary'
+        );
+
+        if ($diagnosis?->condition === null) {
+            return;
+        }
+
+        $condition = MedicalEventsRepository::condition()->getByUuids([$diagnosis->condition->value])[0] ?? null;
+
+        if ($condition === null) {
+            return;
+        }
+
+        $detailsMap = MedicalEventsRepository::condition()->getDetailsMapForEvidences([$condition]);
+
+        $this->form->conditions = [Arr::except(
+            Fhir::condition()->fromFhir($condition, $detailsMap),
+            ['uuid', 'assertedDate', 'assertedTime']
+        )];
+
+        $this->form->encounter['diagnoses'] = [[
+            'roleCode' => $diagnosis->role->coding->first()?->code,
+            'rank' => $diagnosis->rank ?? ''
+        ]];
     }
 
     /**
@@ -414,20 +705,6 @@ class EncounterComponent extends Component
     }
 
     /**
-     * Search conditions to use as procedure complication details.
-     *
-     * @return void
-     */
-    public function searchComplicationDetails(): void
-    {
-        try {
-            $this->complicationDetailResults = $this->fetchConditionsOrObservations('condition');
-        } catch (EHealthException|EHealthConnectionException $exception) {
-            $exception->handle('Error while getting complication details');
-        }
-    }
-
-    /**
      * Search conditions or observations to use as procedure reason references.
      *
      * @param  string  $type  'condition' or 'observation'
@@ -440,6 +717,46 @@ class EncounterComponent extends Component
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error while getting reason references');
         }
+    }
+
+    /**
+     * Load patient immunizations that may be referenced from observation.reaction_on.
+     */
+    public function searchReactionImmunizations(?string $episodeId = null): void
+    {
+        $patient = $this->patient();
+
+        $query = Immunization::query()
+            ->forPatient($patient)
+            ->with('vaccineCode.coding')
+            ->where('status', ImmunizationStatus::COMPLETED->value)
+            ->where('not_given', false);
+
+        if ($episodeId) {
+            $query->whereHas(
+                'context',
+                static fn ($context) => $context->whereIn(
+                    'value',
+                    Encounter::query()
+                        ->forPatient($patient)
+                        ->forEpisode($episodeId)
+                        ->select('uuid')
+                )
+            );
+        }
+
+        $this->reactionImmunizations = $query
+            ->get()
+            ->map(static fn (Immunization $immunization): array => [
+                'uuid' => $immunization->uuid,
+                'vaccineCode' => $immunization->vaccineCode?->coding?->first()?->code,
+                'date' => convertToAppDateFormat($immunization->date),
+                'episodeId' => $episodeId,
+                'notGiven' => false,
+                'status' => ImmunizationStatus::COMPLETED->value
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -616,26 +933,61 @@ class EncounterComponent extends Component
         }
     }
 
+    public function syncEncounterParticipants(): void
+    {
+        $this->form->syncParticipants();
+
+        $encounterWriterEmployee = Auth::user()->getEncounterWriterEmployee(
+            data_get($this->form->encounter, 'classCode')
+        );
+
+        $employeeNames = collect($this->diagnosticReportEmployees)
+            ->when(
+                $encounterWriterEmployee !== null,
+                static fn ($employees) => $employees->push([
+                    'uuid' => $encounterWriterEmployee->uuid,
+                    'name' => $encounterWriterEmployee->fullName,
+                ])
+            )
+            ->filter(static fn (array $employee): bool => !empty($employee['uuid']))
+            ->unique('uuid')
+            ->pluck('name', 'uuid');
+
+        $this->form->encounter['participant'] = collect($this->form->encounter['participant'] ?? [])
+            ->map(
+                static function (array $participant) use ($employeeNames): array {
+                    if (($participant['locked'] ?? false) !== true) {
+                        return $participant;
+                    }
+
+                    $participant['name'] = $employeeNames->get($participant['uuid'], $participant['uuid']);
+
+                    return $participant;
+                }
+            )
+            ->values()
+            ->toArray();
+    }
+
     protected function setPatientData(): void
     {
-        $patient = Person::select(['uuid', 'first_name', 'last_name', 'second_name'])
-            ->whereId($this->personId)
-            ->firstOrFail();
+        $patient = $this->patient();
 
         $this->patientUuid = $patient->uuid;
         $this->patientFullName = $patient->fullName;
     }
 
     /**
-     * Adjust episode types according to legal entity type and employee type.
+     * Adjust episode types to the ones allowed for the legal entity type and for the employee type at once,
+     * the same way EncounterForm validates the chosen type.
      *
      * @return void
      */
     protected function adjustEpisodeTypes(): void
     {
-        $keys = $this->getFilteredKeysFromConfig(
-            "legal_entity_episode_types.$this->legalEntityType",
-            "employee_episode_types.$this->role"
+        $keys = array_intersect(
+            config("ehealth.legal_entity_episode_types.$this->legalEntityType", []),
+            config("ehealth.employee_episode_types.$this->employeeType", [])
         );
 
         $this->adjustDictionary('eHealth/episode_types', $keys);
@@ -650,7 +1002,7 @@ class EncounterComponent extends Component
     {
         $keys = $this->getFilteredKeysFromConfig(
             "legal_entity_encounter_classes.$this->legalEntityType",
-            "performer_employee_encounter_classes.$this->role"
+            "performer_employee_encounter_classes.$this->employeeType"
         );
 
         $this->adjustDictionary('eHealth/encounter_classes', $keys);
@@ -668,10 +1020,22 @@ class EncounterComponent extends Component
      */
     protected function adjustEncounterTypes(): void
     {
-        $selectedClass = key($this->dictionaries['eHealth/encounter_classes']);
-        $keys = $this->getFilteredKeysFromConfig("encounter_class_encounter_types.$selectedClass");
+        $selectedClass = $this->form->encounter['classCode'] ?: key($this->dictionaries['eHealth/encounter_classes']);
+        $classEncounterTypes = config("ehealth.encounter_class_encounter_types.$selectedClass", []);
+
+        $roleEncounterTypes = Auth::user()->allowedRoles
+            ->flatMap(static fn (string $role): array => config("ehealth.performer_employee_encounter_types.$role", []))
+            ->unique()
+            ->values()
+            ->all();
+
+        $keys = array_values(array_intersect($classEncounterTypes, $roleEncounterTypes));
 
         $this->adjustDictionary('eHealth/encounter_types', $keys);
+
+        if (count($this->dictionaries['eHealth/encounter_types']) === 1) {
+            $this->form->encounter['typeCode'] = array_key_first($this->dictionaries['eHealth/encounter_types']);
+        }
     }
 
     /**
@@ -681,6 +1045,10 @@ class EncounterComponent extends Component
      */
     protected function getEpisodes(): void
     {
+        if ($this->patientUuid === null) {
+            return;
+        }
+
         try {
             $this->episodes = EHealth::episode()
                 ->getBySearchParams(
@@ -697,6 +1065,19 @@ class EncounterComponent extends Component
     }
 
     /**
+     * Prepare vaccine options for searching by vaccine code, name and target disease.
+     *
+     * @return void
+     */
+    private function loadVaccineOptions(): void
+    {
+        $this->vaccineOptions = app(ImmunizationDictionaryMapper::class)->map(
+            $this->dictionaries['eHealth/vaccine_codes'] ?? [],
+            $this->dictionaries['eHealth/vaccination_target_diseases'] ?? []
+        );
+    }
+
+    /**
      * Load dictionaries that are not part of the standard eHealth basic dictionary list.
      *
      * @return void
@@ -709,7 +1090,7 @@ class EncounterComponent extends Component
             ->flattenedChildValues()
             ->toArray();
         $this->dictionaries['eHealth/assistive_products'] = $basics->byName('eHealth/assistive_products')
-            ->flattenedChildValues()
+            ->flattenedChildValues(true, true)
             ->toArray();
         $this->dictionaries['custom/services'] = dictionary()->services()->flattened()->toArray();
 

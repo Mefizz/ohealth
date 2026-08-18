@@ -18,6 +18,9 @@ return new class extends Migration
             $table->string('type');
             $table->string('number');
             $table->string('issued_by')->nullable();
+            $table->string('issuing_country')
+                ->nullable()
+                ->comment('Dictionary ISSUING_COUNTRY - country that issued the document');
             $table->date('issued_at')->nullable();
             $table->date('expiration_date')->nullable();
             $table->date('active_to')->nullable();

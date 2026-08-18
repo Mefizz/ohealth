@@ -1,13 +1,3 @@
-@php
-    $hasLicenseTypeError = $errors->has('legalEntityForm.license.type');
-    $hasLicenseIssuedByError = $errors->has('legalEntityForm.license.issuedBy');
-    $hasLicenseIssuedDateError = $errors->has('legalEntityForm.license.issuedDate');
-    $hasLicenseActiveFromDateError = $errors->has('legalEntityForm.license.activeFromDate');
-    $hasLicenseExpirationDateError = $errors->has('legalEntityForm.license.expiryDate');
-    $hasLicenseOrderNumberError = $errors->has('legalEntityForm.license.orderNo');
-    $hasLicenseNumberError = $errors->has('legalEntityForm.license.licenseNumber');
-@endphp
-
 <fieldset
     class="p-4 sm:p-8 sm:pb-10 mb-16 mt-6 border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 max-w-[1280px]"
     xmlns="http://www.w3.org/1999/html"
@@ -31,10 +21,9 @@
                 required
                 id="licenseType"
                 wire:model.defer="legalEntityForm.license.type"
-                aria-describedby="{{ $hasLicenseTypeError ? 'licenseTypeErrorHelp' : '' }}"
-                class="input-select  {{ $hasLicenseTypeError ? 'input-error border-red-500 focus:border-red-500' : ''}} peer"
-                :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
-                :disabled="{{ $isEdit ? 'true' : 'false' }}"
+                aria-describedby="@error('legalEntityForm.license.type') licenseTypeErrorHelp @enderror"
+                class="input-select !cursor-default text-gray-400 border-gray-200 dark:text-gray-500 @error('legalEntityForm.license.type') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
+                disabled
             >
                 <option value="_placeholder_" selected hidden>-- {{ __('forms.select') }} --</option>
 
@@ -45,11 +34,11 @@
                 @endforeach
             </select>
 
-            @if($hasLicenseTypeError)
+            @error('legalEntityForm.license.type')
                 <p id="licenseTypeErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.type') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseType" class="label z-10">
                 {{ __('licenses.type.label') }}
@@ -62,17 +51,17 @@
                 placeholder=" "
                 id="licenseNumber"
                 wire:model="legalEntityForm.license.licenseNumber"
-                class="input peer"
-                aria-describedby="{{ $hasLicenseNumberError ? 'licenseNumberErrorHelp' : '' }}"
+                class="input  @error('legalEntityForm.license.licenseNumber') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
+                aria-describedby="@error('legalEntityForm.license.licenseNumber') licenseNumberErrorHelp @enderror"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
 
-            @if($hasLicenseNumberError)
+            @error('legalEntityForm.license.licenseNumber')
                 <p id="licenseNumberErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.licenseNumber') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseNumber" class="label z-10">
                 {{ __('licenses.number') }}
@@ -86,20 +75,20 @@
                 placeholder=" "
                 id="licenseIssuedBy"
                 wire:model="legalEntityForm.license.issuedBy"
-                aria-describedby="{{ $hasLicenseIssuedByError ? 'licenseIssuedByErrorHelp' : '' }}"
-                class="input {{ $hasLicenseIssuedByError ? 'input-error border-red-500 focus:border-red-500' : ''}} peer"
+                aria-describedby="@error('legalEntityForm.license.issuedBy') licenseIssuedByErrorHelp @enderror"
+                class="input @error('legalEntityForm.license.issuedBy') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
 
-            @if($hasLicenseIssuedByError)
+            @error('legalEntityForm.license.issuedBy')
                 <p id="licenseIssuedByErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.issuedBy') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseIssuedBy" class="label z-10">
-                {{ __('forms.document_issued_by') }}
+                {{ __('forms.issued_by') }}
             </label>
         </div>
 
@@ -115,17 +104,17 @@
                 datepicker-format="{{ frontendDateFormat() }}"
                 id="licenseIssuedDate"
                 wire:model="legalEntityForm.license.issuedDate"
-                aria-describedby="{{ $hasLicenseIssuedDateError ? 'licenseIssuedDateErrorHelp' : '' }}"
-                class="input datepicker-input {{ $hasLicenseIssuedDateError ? 'input-error border-red-500 focus:border-red-500' : ''}} peer"
+                aria-describedby="@error('legalEntityForm.license.issuedDate') licenseIssuedDateErrorHelp @enderror"
+                class="input datepicker-input @error('legalEntityForm.license.issuedDate') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
 
-            @if($hasLicenseIssuedDateError)
+            @error('legalEntityForm.license.issuedDate')
                 <p id="licenseIssuedDateErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.issuedDate') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseIssuedDate" class="label z-10">
                 {{ __('forms.document_issued_at') }}
@@ -144,17 +133,17 @@
                 datepicker-format="{{ frontendDateFormat() }}"
                 id="licenseActiveFromDate"
                 wire:model="legalEntityForm.license.activeFromDate"
-                aria-describedby="{{ $hasLicenseActiveFromDateError ? 'licenseActiveFromDateErrorHelp' : '' }}"
-                class="input datepicker-input {{ $hasLicenseActiveFromDateError ? 'input-error border-red-500 focus:border-red-500' : ''}} peer"
+                aria-describedby="@error('legalEntityForm.license.activeFromDate') licenseActiveFromDateErrorHelp @enderror"
+                class="input datepicker-input @error('legalEntityForm.license.activeFromDate') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
 
-            @if($hasLicenseActiveFromDateError)
+            @error('legalEntityForm.license.activeFromDate')
                 <p id="licenseActiveFromDateErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.activeFromDate') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseActiveFromDate" class="label z-10">
                 {{ __('licenses.active_from_date') }}
@@ -172,17 +161,17 @@
                 datepicker-format="{{ frontendDateFormat() }}"
                 id="licenseExpiryDate"
                 wire:model="legalEntityForm.license.expiryDate"
-                class="input datepicker-input peer"
-                aria-describedby="{{ $hasLicenseExpirationDateError ? 'licenseExpirationDateErrorHelp' : '' }}"
+                class="input @error('legalEntityForm.license.expiryDate') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror datepicker-input peer"
+                aria-describedby="@error('legalEntityForm.license.expiryDate') licenseExpirationDateErrorHelp @enderror"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
 
-            @if($hasLicenseExpirationDateError)
+            @error('legalEntityForm.license.expiryDate')
                 <p id="licenseExpirationDateErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.expiryDate') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseExpiryDate" class="label z-10">
                 {{ __('forms.end_date') }}
@@ -191,14 +180,22 @@
 
         <div class="form-group group">
             <input
+                required
                 type="text"
                 placeholder=" "
                 id="licenseWhatLicensed"
                 wire:model="legalEntityForm.license.whatLicensed"
-                class="input peer"
+                class="input @error('legalEntityForm.license.whatLicensed') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
+                aria-describedby="@error('legalEntityForm.license.whatLicensed') licenseWhatLicensedErrorHelp @enderror"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
+
+            @error('legalEntityForm.license.whatLicensed')
+                <p id="licenseWhatLicensedErrorHelp" class="text-error">
+                    {{ $message }}
+                </p>
+            @enderror
 
             <label for="licenseWhatLicensed" class="label z-10">
                 {{ __('licenses.what_licensed') }}
@@ -212,17 +209,17 @@
                 placeholder=" "
                 id="licenseOrderNumber"
                 wire:model="legalEntityForm.license.orderNo"
-                aria-describedby="{{ $hasLicenseOrderNumberError ? 'licenseOrderNumberErrorHelp' : '' }}"
-                class="input {{ $hasLicenseOrderNumberError ? 'input-error border-red-500 focus:border-red-500' : ''}} peer"
+                aria-describedby="@error('legalEntityForm.license.orderNo') licenseOrderNumberErrorHelp @enderror"
+                class="input @error('legalEntityForm.license.orderNo') input-error border-red-500 focus:border-red-500 scroll-to-error @enderror peer"
                 :class="isDisabled ? 'text-gray-400 border-gray-200 dark:text-gray-500' : 'text-gray-900 border-gray-300'"
                 :disabled="isDisabled"
             />
 
-            @if($hasLicenseOrderNumberError)
+            @error('legalEntityForm.license.orderNo')
                 <p id="licenseOrderNumberErrorHelp" class="text-error">
-                    {{ $errors->first('legalEntityForm.license.orderNo') }}
+                    {{ $message }}
                 </p>
-            @endif
+            @enderror
 
             <label for="licenseOrderNumber" class="label z-10">
                 {{ __('licenses.order_no') }}

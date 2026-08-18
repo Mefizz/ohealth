@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -11,7 +13,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('ehealth_request_processing', function (Blueprint $table) {
+        Schema::create('ehealth_request_processings', function (Blueprint $table) {
             $table->id();
 
             $table->foreignId('ehealth_link_id')->nullable()
@@ -29,6 +31,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('ehealth_request_processing');
+        Schema::dropIfExists('ehealth_request_processings');
     }
 };

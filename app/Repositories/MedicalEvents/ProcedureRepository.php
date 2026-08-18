@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
-use App\Classes\eHealth\Api\PatientApi;
 use App\Models\MedicalEvents\Sql\Procedure;
+use App\Models\Employee\Employee;
+use App\Models\Person\Person;
+use App\Models\Preperson;
+use App\Enums\Person\ProcedureStatus;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -19,127 +22,76 @@ use Throwable;
  */
 class ProcedureRepository extends BaseRepository
 {
-    protected string $employeeUuid;
+    protected ?string $employeeUuid;
+
+    protected ?string $employeeFullName;
 
     public function __construct(Model $model)
     {
         parent::__construct($model);
 
-        $this->employeeUuid = Auth::user()?->getProcedureWriterEmployee()->uuid;
+        $employee = Auth::user()?->getProcedureWriterEmployee();
+
+        $this->employeeUuid = $employee?->uuid;
+        $this->employeeFullName = $employee?->fullName;
     }
 
-    /**
-     * Format data before request.
-     *
-     * @param  array  $procedure
-     * @return array
-     */
-    public function formatEHealthRequest(array $procedure): array
+    private function getEmployeeDisplayValue(?string $employeeUuid): ?string
     {
-        if ($procedure['referralType'] === 'electronic' || $procedure['referralType'] === '') {
-            unset($procedure['paperReferral']);
+        if (!$employeeUuid) {
+            return null;
         }
 
-        if ($procedure['referralType'] === 'paper' || $procedure['referralType'] === '') {
-            unset($procedure['basedOn']);
+        if ($employeeUuid === $this->employeeUuid) {
+            return $this->employeeFullName;
         }
 
-        // delete frontend properties
-        unset($procedure['isReferralAvailable'], $procedure['referralType']);
+        return Employee::query()
+            ->select(['uuid', 'party_id'])
+            ->with('party:id,last_name,first_name,second_name')
+            ->where('uuid', $employeeUuid)
+            ->first()
+            ?->fullName;
+    }
 
-        $procedure['id'] = Str::uuid()->toString();
-        $procedure['status'] = 'completed';
-
-        $procedure['recordedBy']['identifier']['value'] = $this->employeeUuid;
-
-        $procedure['managingOrganization'] = [
-            'identifier' => [
-                'type' => [
-                    'coding' => [['system' => 'eHealth/resources', 'code' => 'legal_entity']],
-                    'text' => ''
-                ],
-                'value' => legalEntity()->uuid
-            ],
-        ];
-
-        if (!empty($procedure['reasonReferences'])) {
-            foreach ($procedure['reasonReferences'] as &$reasonReference) {
-                $code = str_contains($reasonReference['code']['coding'][0]['system'], 'condition_codes')
-                    ? 'condition'
-                    : 'observation';
-
-                $identifier = [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => $code]]
-                    ],
-                    'value' => $reasonReference['id']
-                ];
-
-                // Keep only the identifier key
-                $reasonReference = ['identifier' => $identifier];
-            }
-
-            unset($reasonReference);
+    private function getServiceDisplayValue(?string $serviceId): ?string
+    {
+        if (!$serviceId) {
+            return null;
         }
 
-        if ($procedure['outcome']['coding'][0]['code'] === '') {
-            unset($procedure['outcome']);
-        }
-
-        if (!empty($procedure['usedCodes'])) {
-            $procedure['usedCodes'] = collect($procedure['usedCodes'])
-                ->map(fn (array $uc) => [
-                    'coding' => [['system' => 'eHealth/assistive_products', 'code' => $uc['code']]]
-                ])
-                ->values()
-                ->toArray();
-        }
-
-        $normalizedData = schemaService()
-            ->setDataSchema($procedure, app(PatientApi::class))
-            ->requestSchemaNormalize('schemaProcedurePackageRequest')
-            ->camelCaseKeys()
-            ->getNormalizedData();
-
-        // schema service delete effectivePeriod, performer and reportOrigin, because of 'One Of', so manually add it
-        if ($normalizedData['primarySource']) {
-            $normalizedData['performer'] = $procedure['performer'];
-            $normalizedData['performer']['identifier']['value'] = $this->employeeUuid;
-        } else {
-            $normalizedData['reportOrigin'] = $procedure['reportOrigin'];
-        }
-
-        $normalizedData['performedPeriod'] = [
-            'start' => convertToISO8601(
-                $procedure['performedPeriodStartDate'] . $procedure['performedPeriodStartTime']
-            ),
-            'end' => convertToISO8601(
-                $procedure['performedPeriodEndDate'] . $procedure['performedPeriodEndTime']
-            ),
-        ];
-
-        return $normalizedData;
+        return collect(dictionary()->services()->flattened()->toArray())
+            ->firstWhere('id', $serviceId)['name'] ?? null;
     }
 
     /**
      * Store procedure in DB.
      *
      * @param  array  $data
-     * @param  int  $personId
-     * @return void
+     * @param  Person|Preperson  $patient
+     * @return int
      * @throws Throwable
      */
-    public function store(array $data, int $personId): void
+    public function store(array $data, Person|Preperson $patient): int
     {
-        DB::transaction(function () use ($data, $personId) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        return DB::transaction(function () use ($data, $ownerColumn, $ownerId) {
             foreach ($data as $datum) {
                 $basedOn = null;
-                if (isset($datum['basedOn'])) {
-                    $basedOn = Repository::identifier()->store($datum['basedOn']['identifier']['value']);
-                    Repository::codeableConcept()->attach($basedOn, $datum['basedOn']);
+                $basedOnData = data_get($datum, 'basedOn.0') ?? data_get($datum, 'basedOn');
+                if (!empty($basedOnData)) {
+                    $basedOn = Repository::identifier()->store($basedOnData['identifier']['value']);
+                    Repository::codeableConcept()->attach($basedOn, $basedOnData);
                 }
 
-                $code = Repository::identifier()->store($datum['code']['identifier']['value']);
+                $codeValue = $datum['code']['identifier']['value'];
+
+                $code = Repository::identifier()->store(
+                    $codeValue,
+                    $this->getServiceDisplayValue($codeValue)
+                );
+
                 Repository::codeableConcept()->attach($code, $datum['code']);
 
                 $encounter = null;
@@ -148,13 +100,27 @@ class ProcedureRepository extends BaseRepository
                     Repository::codeableConcept()->attach($encounter, $datum['encounter']);
                 }
 
-                $recordedBy = Repository::identifier()->store($datum['recordedBy']['identifier']['value']);
+                $recordedByValue = $datum['recordedBy']['identifier']['value'];
+
+                $recordedBy = Repository::identifier()->store(
+                    $recordedByValue,
+                    $this->getEmployeeDisplayValue($recordedByValue)
+                );
+
                 Repository::codeableConcept()->attach($recordedBy, $datum['recordedBy']);
 
                 $performer = null;
-                if (isset($datum['performer'])) {
-                    $performer = Repository::identifier()->store($datum['performer']['identifier']['value']);
-                    Repository::codeableConcept()->attach($performer, $datum['performer']);
+                $performerData = data_get($datum, 'performer.0') ?? data_get($datum, 'performer');
+
+                if (!empty($performerData)) {
+                    $performerValue = $performerData['identifier']['value'];
+
+                    $performer = Repository::identifier()->store(
+                        $performerValue,
+                        $this->getEmployeeDisplayValue($performerValue)
+                    );
+
+                    Repository::codeableConcept()->attach($performer, $performerData);
                 }
 
                 $division = null;
@@ -163,18 +129,21 @@ class ProcedureRepository extends BaseRepository
                     Repository::codeableConcept()->attach($division, $datum['division']);
                 }
 
-                $managingOrganization = Repository::identifier()
-                    ->store($datum['managingOrganization']['identifier']['value']);
+                $managingOrganization = Repository::identifier()->store(
+                    $datum['managingOrganization']['identifier']['value'],
+                    legalEntity()->name
+                );
                 Repository::codeableConcept()->attach($managingOrganization, $datum['managingOrganization']);
 
                 $category = Repository::codeableConcept()->store($datum['category']);
 
                 $procedure = $this->model->create([
                     'uuid' => $datum['uuid'] ?? $datum['id'],
-                    'person_id' => $personId,
+                    $ownerColumn => $ownerId,
                     'status' => $datum['status'],
                     'based_on_id' => $basedOn?->id,
                     'code_id' => $code->id,
+                    'performed_date_time' => $datum['performedDateTime'] ?? null,
                     'encounter_id' => $encounter?->id,
                     'recorded_by_id' => $recordedBy->id,
                     'primary_source' => $datum['primarySource'],
@@ -191,10 +160,12 @@ class ProcedureRepository extends BaseRepository
                     'category_id' => $category->id
                 ]);
 
-                $procedure->performedPeriod()->create([
-                    'start' => $datum['performedPeriod']['start'],
-                    'end' => $datum['performedPeriod']['end']
-                ]);
+                if (isset($datum['performedPeriod'])) {
+                    $procedure->performedPeriod()->create([
+                        'start' => $datum['performedPeriod']['start'],
+                        'end' => $datum['performedPeriod']['end'],
+                    ]);
+                }
 
                 if (isset($datum['reasonReferences'])) {
                     foreach ($datum['reasonReferences'] as $reasonReference) {
@@ -230,7 +201,30 @@ class ProcedureRepository extends BaseRepository
 
                     $procedure->usedCodes()->attach($usedCodeIds);
                 }
+
+                if (!empty($datum['usedReferences'])) {
+                    $usedReferenceIds = [];
+
+                    foreach ($datum['usedReferences'] as $usedReferenceData) {
+                        $equipmentUuid = data_get($usedReferenceData, 'identifier.value');
+
+                        if (!$equipmentUuid) {
+                            continue;
+                        }
+
+                        $identifier = Repository::identifier()->store($equipmentUuid);
+                        Repository::codeableConcept()->attach($identifier, $usedReferenceData);
+
+                        $usedReferenceIds[] = $identifier->id;
+                    }
+
+                    $procedure->usedReferences()->attach($usedReferenceIds);
+                }
+
+                $procedureId = $procedure->id;
             }
+
+            return $procedureId;
         });
     }
 
@@ -257,7 +251,8 @@ class ProcedureRepository extends BaseRepository
             'category.coding',
             'paperReferral',
             'usedCodes.coding',
-            'performedPeriod'
+            'performedPeriod',
+            'usedReferences.type.coding',
         ])
             ->whereHas('encounter', fn (Builder $query) => $query->where('value', $encounterUuid))
             ->get()
@@ -268,16 +263,99 @@ class ProcedureRepository extends BaseRepository
     }
 
     /**
-     * Sync procedure data and related data by updating or creating.
+     * Get data that is related to the person.
      *
      * @param  int  $personId
+     * @return array
+     */
+    public function getByPersonId(int $personId): array
+    {
+        return $this->model
+            ->withAllRelations()
+            ->where('person_id', $personId)
+            ->get()
+            ->toArray();
+    }
+
+    /**
+     * Get procedure by id.
+     *
+     * @param  int  $procedureId
+     * @return Procedure
+     */
+    public function findById(int $procedureId): Procedure
+    {
+        return $this->model
+            ->withAllRelations()
+            ->findOrFail($procedureId);
+    }
+
+    /**
+     * Get procedure by eHealth uuid.
+     *
+     * @param  string  $uuid
+     * @return Procedure
+     */
+    public function findByUuid(string $uuid): Procedure
+    {
+        return $this->model
+            ->withAllRelations()
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+    }
+
+    public function markAsEnteredInError(
+        Procedure $procedure,
+        array $statusReason,
+        ?string $explanatoryLetter = null
+    ): void {
+        DB::transaction(static function () use ($procedure, $statusReason, $explanatoryLetter): void {
+            $procedure->loadMissing(['statusReason.coding']);
+
+            $statusReasonModel = $procedure->statusReason
+                ? Repository::codeableConcept()->update($procedure->statusReason, $statusReason)
+                : Repository::codeableConcept()->store($statusReason);
+
+            $procedure->update([
+                'status' => ProcedureStatus::ENTERED_IN_ERROR->value,
+                'status_reason_id' => $statusReasonModel->id,
+                'explanatory_letter' => $explanatoryLetter,
+            ]);
+        });
+    }
+
+    /**
+     * Get paginated procedures related to the patient.
+     *
+     * @param  Person|Preperson  $patient
+     * @param  int  $page
+     * @param  int  $pageSize
+     * @return LengthAwarePaginator
+     */
+    public function getPaginatedByPatient(Person|Preperson $patient, int $page, int $pageSize): LengthAwarePaginator
+    {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        return $this->model
+            ->withAllRelations()
+            ->where($ownerColumn, $ownerId)
+            ->latest()
+            ->paginate($pageSize, ['*'], 'page', $page);
+    }
+
+    /**
+     * Sync procedure data and related data by updating or creating.
+     *
+     * @param  Person|Preperson  $patient
      * @param  array  $validatedData
      * @return void
      * @throws Throwable
      */
-    public function sync(int $personId, array $validatedData): void
+    public function sync(Person|Preperson $patient, array $validatedData): void
     {
-        DB::transaction(function () use ($personId, $validatedData) {
+        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+
+        DB::transaction(function () use ($ownerColumn, $ownerId, $validatedData) {
             $apiUuids = collect($validatedData)->pluck('uuid')->toArray();
 
             $existingProcedures = $this->model->whereIn('uuid', $apiUuids)
@@ -294,7 +372,8 @@ class ProcedureRepository extends BaseRepository
                 $encounter = $this->syncIdentifier($existing, $data['encounter'] ?? null, 'encounter');
                 $originEpisode = $this->syncIdentifier($existing, $data['origin_episode'] ?? null, 'originEpisode');
                 $recordedBy = $this->syncIdentifier($existing, $data['recorded_by'], 'recordedBy');
-                $performer = $this->syncIdentifier($existing, $data['performer'] ?? null, 'performer');
+                $performerData = data_get($data, 'performer.0') ?? ($data['performer'] ?? null);
+                $performer = $this->syncIdentifier($existing, $performerData, 'performer');
                 $reportOrigin = $this->syncCodeableConcept($existing, $data['report_origin'] ?? null, 'reportOrigin');
                 $division = $this->syncIdentifier($existing, $data['division'] ?? null, 'division');
                 $managingOrganization = $this->syncIdentifier($existing, $data['managing_organization'], 'managingOrganization');
@@ -302,7 +381,7 @@ class ProcedureRepository extends BaseRepository
                 $category = $this->syncCodeableConcept($existing, $data['category'], 'category');
 
                 $procedureData = [
-                    'person_id' => $personId,
+                    $ownerColumn => $ownerId,
                     'status' => $data['status'],
                     'status_reason_id' => $statusReason?->id,
                     'primary_source' => $data['primary_source'],
@@ -310,6 +389,7 @@ class ProcedureRepository extends BaseRepository
                     'explanatory_letter' => $data['explanatory_letter'] ?? null,
                     'based_on_id' => $basedOn?->id,
                     'code_id' => $code->id,
+                    'performed_date_time' => $data['performed_date_time'] ?? null,
                     'encounter_id' => $encounter?->id,
                     'origin_episode_id' => $originEpisode?->id,
                     'recorded_by_id' => $recordedBy->id,
@@ -366,8 +446,8 @@ class ProcedureRepository extends BaseRepository
     /**
      * Get the episode for the clinical impression based on the provided UUID to display the selected supporting info.
      *
-     * @param  string  $uuid
-     * @return array|null
+     * @param  array  $uuids
+     * @return array
      */
     public function getDetailsMapByUuids(array $uuids): array
     {
@@ -376,20 +456,11 @@ class ProcedureRepository extends BaseRepository
             ->get()
             ->mapWithKeys(fn (Procedure $procedure) => [
                 $procedure->uuid => [
-                    'ehealthInsertedAt' => convertToAppDateFormat($procedure->performedPeriod?->start),
+                    'ehealthInsertedAt' => convertToAppDateFormat($procedure->performedDateTime ?? $procedure->performedPeriod?->start),
                     'codeCode' => $procedure->code?->value,
                     'type' => 'procedure',
                 ],
             ])
             ->toArray();
-    }
-
-    public function getForClinicalImpression(string $uuid): ?array
-    {
-        return Procedure::whereUuid($uuid)
-            ->select(['id', 'code_id'])
-            ->with('code.coding')
-            ->first()
-            ?->toArray();
     }
 }

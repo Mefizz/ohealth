@@ -1,21 +1,23 @@
-@use('App\Livewire\Person\PersonUpdate')
+@use(App\Livewire\Person\PersonCreate)
+@use(App\Livewire\Person\PersonRequestEdit)
+@use(App\Enums\Person\Gender)
 
 <fieldset class="fieldset"
           data-fieldset="incapacitated"
           x-data="{
               isIncapacitated: $wire.entangle('isIncapacitated'),
               showSignatureModal: $wire.showSignatureModal,
-              showConfidantPersonDrawer: @if($this instanceof PersonUpdate) $wire.entangle('showConfidantPersonDrawer') @else false @endif,
-              showDeactivateConfidantPersonDrawer: @if($this instanceof PersonUpdate) $wire.entangle('showDeactivateConfidantPersonDrawer') @else false @endif,
+              showConfidantPersonDrawer: @if($canManageConfidantRelationships) $wire.entangle('showConfidantPersonDrawer') @else false @endif,
+              showDeactivateConfidantPersonDrawer: @if($canManageConfidantRelationships) $wire.entangle('showDeactivateConfidantPersonDrawer') @else false @endif,
               showDocumentDrawer: false,
-              showAuthDrawer: @if($this instanceof PersonUpdate) $wire.entangle('showAuthDrawer') @else false @endif,
-              showSignatureDrawer: @if($this instanceof PersonUpdate) $wire.entangle('showSignatureDrawer') @else false @endif,
-              showTerminateModal: @if($this instanceof PersonUpdate) $wire.entangle('showTerminateModal') @else false @endif,
+              showAuthDrawer: @if($canManageConfidantRelationships) $wire.entangle('showAuthDrawer') @else false @endif,
+              showSignatureDrawer: @if($canManageConfidantRelationships) $wire.entangle('showSignatureDrawer') @else false @endif,
+              showTerminateModal: @if($canManageConfidantRelationships) $wire.entangle('showTerminateModal') @else false @endif,
               deactivateDocIndex: null,
               selectedPatient: null,
               confidantPerson: $wire.entangle('newConfidantPerson'),
-              confidantPersons: @if($this instanceof PersonUpdate) $wire.entangle('form.person.confidantPersons') @else [] @endif,
-              authenticationMethods: @if($this instanceof PersonUpdate) $wire.entangle('form.person.authenticationMethods') @else [] @endif,
+              confidantPersons: @if($canManageConfidantRelationships) $wire.entangle('form.person.confidantPersons') @else [] @endif,
+              authenticationMethods: @if($canManageConfidantRelationships) $wire.entangle('form.person.authenticationMethods') @else [] @endif,
               selectedConfidantIndex: null,
               documentRelationshipTypes: @js($this->dictionaries['DOCUMENT_RELATIONSHIP_TYPE']),
               documentTypes: @js($this->dictionaries['DOCUMENT_TYPE']),
@@ -33,11 +35,13 @@
                   this.selectedPatient = null;
                   $wire.form.firstName = '';
                   $wire.form.lastName = '';
+                  $wire.form.noLastName = false;
                   $wire.form.birthDate = '';
                   $wire.form.secondName = '';
                   $wire.form.taxId = '';
                   $wire.form.phoneNumber = '';
-                  $wire.form.birthCertificate = '';
+                  $wire.form.documentType = '';
+                  $wire.form.documentNumber = '';
                   $wire.confidantPerson = [];
               },
               timer: 60,
@@ -145,7 +149,7 @@
                id="isIncapacitated"
         />
         <label for="isIncapacitated" class="cursor-pointer">
-            {{ __('patients.incapacitated') }}
+            {{ $incapacitatedLabel ?? __('patients.incapacitated') }}
         </label>
     </legend>
 
@@ -157,7 +161,7 @@
                     {{ __('patients.confidant_persons') }}
                 </h3>
 
-                @if($this instanceof PersonUpdate)
+                @if($canManageConfidantRelationships)
                     <button type="button" class="button-sync" wire:click.prevent="syncConfidantPersons">
                         @icon('refresh', 'w-4 h-4 mr-2')
                         {{ __('patients.sync_confidant_persons') }}
@@ -167,7 +171,7 @@
 
             {{-- Combined table for both PersonUpdate and PersonCreate --}}
             <div wire:ignore
-                 x-show="@if($this instanceof PersonUpdate) confidantPersons && confidantPersons.length > 0 @else confidantPerson && confidantPerson.documentsRelationship && confidantPerson.documentsRelationship.length > 0 @endif"
+                 x-show="@if($canManageConfidantRelationships) confidantPersons && confidantPersons.length > 0 @else confidantPerson && confidantPerson.documentsRelationship && confidantPerson.documentsRelationship.length > 0 @endif"
             >
                 <table class="table-input w-full">
                     <thead class="thead-input">
@@ -182,8 +186,8 @@
                     </thead>
                     <tbody>
 
-                    @if($this instanceof PersonUpdate)
-                        {{-- PersonUpdate: Multiple confidant persons --}}
+                    @if($canManageConfidantRelationships)
+                        {{-- Existing person: Multiple confidant persons --}}
                         <template x-for="(confidantPerson, confidantIndex) in confidantPersons"
                                   :key="'confidant-' + confidantIndex"
                         >
@@ -195,7 +199,7 @@
                                         ></span>
                                     </div>
                                     <div class="text-sm text-gray-500 dark:text-gray-400">
-                                    <span x-text="(confidantPerson.person?.gender) === 'MALE' ? '{{ __('patients.male') }}' : '{{ __('patients.female') }}'"></span>
+                                    <span x-text="confidantPerson.person?.gender === '{{ Gender::MALE->value }}' ? '{{ Gender::MALE->label() }}' : (confidantPerson.person?.gender === '{{ Gender::FEMALE->value }}' ? '{{ Gender::FEMALE->label() }}' : '')"></span>
                                     </div>
                                     <div class="text-sm text-gray-500 dark:text-gray-400">
                                         <span>{{ __('forms.rnokpp') }} </span>
@@ -285,7 +289,7 @@
                                              class="absolute right-0 z-10 w-56 whitespace-nowrap bg-white rounded shadow-lg border border-gray-200 dark:bg-gray-700 dark:border-gray-600"
                                         >
                                             <div class="py-1">
-                                                @if(!$this instanceof PersonUpdate)
+                                                @if(!$canManageConfidantRelationships)
                                                     <button type="button"
                                                             class="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 whitespace-nowrap"
                                                             @click="selectedConfidantIndex = confidantIndex; editLegalRepresentative(confidantIndex); openDropdown = false"
@@ -322,12 +326,12 @@
                                 {{-- Personal Data - only show on first row --}}
                                 <td class="td-input align-top" x-show="docIndex === 0">
                                     <div class="font-bold text-gray-900 dark:text-white">
-                                        <span x-text="confidantPerson.lastName"></span>
-                                        <span x-text="confidantPerson.firstName"></span>
-                                        <span x-text="confidantPerson.secondName || ''"></span>
+                                        <span x-text="confidantPerson.names?.[0]?.lastName"></span>
+                                        <span x-text="confidantPerson.names?.[0]?.firstName"></span>
+                                        <span x-text="confidantPerson.names?.[0]?.secondName || ''"></span>
                                     </div>
                                     <div class="text-sm text-gray-500 dark:text-gray-400">
-                                    <span x-text="confidantPerson.gender === 'MALE' ? '{{ __('patients.male') }}' : (confidantPerson.gender === 'FEMALE' ? '{{ __('patients.female') }}' : '')"></span>
+                                    <span x-text="confidantPerson.gender === '{{ Gender::MALE->value }}' ? '{{ Gender::MALE->label() }}' : (confidantPerson.gender === '{{ Gender::FEMALE->value }}' ? '{{ Gender::FEMALE->label() }}' : '')"></span>
                                     </div>
                                     <div class="text-sm text-gray-500 dark:text-gray-400">
                                         <span>{{ __('forms.rnokpp') }} </span>
@@ -434,7 +438,7 @@
                 </table>
             </div>
 
-            @unless(($this instanceof \App\Livewire\Person\PersonCreate || $this instanceof \App\Livewire\Person\PersonRequestEdit) && $this->selectedConfidantPersonId && !empty($this->newConfidantPerson['documentsRelationship']))
+            @unless(($this instanceof PersonCreate || $this instanceof PersonRequestEdit) && $this->selectedConfidantPersonId && !empty($this->newConfidantPerson['documentsRelationship']))
                 <button type="button"
                         @click="
                             resetForm();
@@ -449,7 +453,7 @@
             @endunless
         </div>
 
-        @if($this instanceof PersonUpdate)
+        @if($canManageConfidantRelationships)
             @include('livewire.person.parts.drawers.confidant-person-relationship-requests')
             @include('livewire.person.parts.drawers.add-auth-verification')
             @include('livewire.person.parts.modals.terminate-relationship')

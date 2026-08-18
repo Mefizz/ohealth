@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Livewire\License;
 
-use App\Models\LegalEntity;
 use App\Traits\FormTrait;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -17,16 +16,20 @@ abstract class LicenseComponent extends Component
     #[Locked]
     public string $uuid = '';
 
+    #[Locked]
+    public string $originalType = '';
+
     public Form $form;
 
     public array $licenseTypes = [];
 
     public function boot(): void
     {
-        $this->licenseTypes = dictionary()->basics()->byName('LICENSE_TYPE')->asCodeDescription()->toArray();
+        $licenseTypes = dictionary()->basics()->byName('LICENSE_TYPE')->asCodeDescription()->toArray();
+        $allowedCodes = legalEntity()->additionalLicenseTypeCodes();
 
-        if (legalEntity()->type->name === LegalEntity::TYPE_OUTPATIENT || legalEntity()->type->name === LegalEntity::TYPE_PHARMACY) {
-            $this->licenseTypes = ['PHARMACY_DRUGS' => $this->licenseTypes['PHARMACY_DRUGS']];
-        }
+        $this->licenseTypes = $allowedCodes
+            ? array_intersect_key($licenseTypes, array_flip($allowedCodes))
+            : $licenseTypes;
     }
 }

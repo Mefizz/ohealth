@@ -13,6 +13,8 @@ use App\Models\LegalEntity;
 use App\Notifications\SyncNotification;
 use App\Repositories\Repository;
 use App\Traits\BatchLegalEntityQueries;
+use App\Enums\Contract\Status;
+use App\Enums\Contract\Type;
 use Auth;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
@@ -26,6 +28,48 @@ class ContractRequestIndex extends Component
 {
     use BatchLegalEntityQueries;
     use WithPagination;
+
+    public string $search = '';
+    public array $statusFilter = [];
+    public array $typeFilter = [];
+    public bool $isFiltersApplied = false;
+
+    public function mount(): void
+    {
+        $this->statusFilter = array_column(Status::cases(), 'value');
+        $this->typeFilter = array_column(Type::cases(), 'value');
+    }
+
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+        $this->isFiltersApplied = true;
+    }
+
+    public function updatedStatusFilter(): void
+    {
+        $this->resetPage();
+        $this->isFiltersApplied = true;
+    }
+
+    public function updatedTypeFilter(): void
+    {
+        $this->resetPage();
+        $this->isFiltersApplied = true;
+    }
+
+    public function search(): void
+    {
+        $this->resetPage();
+        $this->isFiltersApplied = true;
+    }
+
+    public function resetFilters(): void
+    {
+        $this->reset(['search', 'statusFilter', 'typeFilter', 'isFiltersApplied']);
+        $this->statusFilter = array_column(Status::cases(), 'value');
+        $this->typeFilter = array_column(Type::cases(), 'value');
+    }
 
     /**
      * Force reset sync status if stuck
@@ -61,16 +105,19 @@ class ContractRequestIndex extends Component
         $token = session()?->get(config('ehealth.api.oauth.bearer_token'));
         $encryptedToken = Crypt::encryptString($token);
 
+        // Read-only sync for 3.1.5: fetch existing requests of both API types.
+        // Creating capitation is disabled; we still list/sync capitation records already in ESOZ.
         $types = ['capitation', 'reimbursement'];
         $batchJobs = [];
         $syncedCount = 0;
+        $syncErrors = [];
 
         foreach ($types as $type) {
             try {
                 $response = EHealth::contractRequest()
                     ->withToken($token)
                     ->getMany($type, [
-                        'contractor_legal_entity_id' => $currentLegalEntity->uuid
+                        'contractor_legal_entity_id' => $currentLegalEntity->uuid,
                     ]);
 
                 $data = $response->validate();
@@ -90,15 +137,16 @@ class ContractRequestIndex extends Component
                         isFirstLogin: false,
                         user: $user,
                         contractType: strtoupper($type),
+                        page: 2,
                     );
                 }
-
             } catch (\Exception $e) {
                 Log::error("ContractRequest sync ($type) error.", ['error' => $e->getMessage()]);
+                $syncErrors[] = "$type: {$e->getMessage()}";
             }
         }
 
-        if (!empty($batchJobs)) {
+        if ($batchJobs !== []) {
             Bus::batch($batchJobs)
                 ->withOption('legal_entity_id', $currentLegalEntity->id)
                 ->withOption('token', $encryptedToken)
@@ -118,7 +166,18 @@ class ContractRequestIndex extends Component
             $detailsJob = $this->getContractRequestDetailsStartJob($currentLegalEntity, null);
 
             if ($detailsJob !== null) {
-                Bus::dispatch($detailsJob)->onQueue('sync');
+                Bus::batch([$detailsJob])
+                    ->withOption('legal_entity_id', $currentLegalEntity->id)
+                    ->withOption('token', $encryptedToken)
+                    ->withOption('user', $user)
+                    ->then(fn (Batch $batch) => $user->notify(new SyncNotification('contract_request', 'completed')))
+                    ->catch(function (Batch $batch, \Throwable $e) use ($user) {
+                        Log::error('ContractRequest details batch failed.', ['err' => $e->getMessage()]);
+                        $user->notify(new SyncNotification('contract_request', 'failed'));
+                    })
+                    ->onQueue('sync')
+                    ->name('Contract Request Details Sync')
+                    ->dispatch();
                 $currentLegalEntity->setEntityStatus(JobStatus::PROCESSING, LegalEntity::ENTITY_CONTRACT_REQUEST);
                 $msg = __('contracts.sync_details_started', ['count' => $syncedCount]);
             } else {
@@ -127,7 +186,14 @@ class ContractRequestIndex extends Component
             }
         }
 
-        $this->dispatch('flashMessage', ['message' => $msg, 'type' => 'success']);
+        if (!empty($syncErrors)) {
+            $msg = implode('; ', $syncErrors) . ($syncedCount > 0 ? " ({$syncedCount} items saved before error)" : '');
+        }
+
+        $this->dispatch('flashMessage', [
+            'message' => $msg,
+            'type' => empty($syncErrors) ? 'success' : 'error',
+        ]);
     }
 
     /**
@@ -174,6 +240,16 @@ class ContractRequestIndex extends Component
     {
         $contracts = ContractRequest::query()
             ->where('contractor_legal_entity_id', legalEntity()->uuid)
+            ->when($this->statusFilter, function ($query) {
+                $query->whereIn('status', $this->statusFilter);
+            })
+            ->when($this->typeFilter, function ($query) {
+                $query->whereIn('type', $this->typeFilter);
+            })
+            ->when($this->search, function ($query) {
+                $query->where('contract_number', 'like', '%' . $this->search . '%');
+            })
+            ->orderByRaw("CASE WHEN status = 'NEW' THEN 0 ELSE 1 END")
             ->orderByDesc('created_at')
             ->paginate(10);
 

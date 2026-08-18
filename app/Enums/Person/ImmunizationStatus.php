@@ -23,4 +23,12 @@ enum ImmunizationStatus: string
             self::ENTERED_IN_ERROR => __('patients.status.entered_in_error')
         };
     }
+
+    public function color(): string
+    {
+        return match ($this) {
+            self::COMPLETED => 'badge-green',
+            self::ENTERED_IN_ERROR => 'badge-red',
+        };
+    }
 }

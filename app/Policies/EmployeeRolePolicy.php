@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
-use App\Enums\Status;
+use App\Enums\EmployeeRole\Status;
 use App\Models\EmployeeRole;
 use App\Models\User;
 use Illuminate\Auth\Access\Response;
@@ -12,9 +12,21 @@ use Illuminate\Auth\Access\Response;
 class EmployeeRolePolicy
 {
     /**
-     * User allowed to view the list of healthcare services
+     * User allowed to view the list of employee roles
      */
     public function viewAny(User $user): Response
+    {
+        if ($user->cannot('employee_role:read')) {
+            return Response::denyWithStatus(404);
+        }
+
+        return Response::allow();
+    }
+
+    /**
+     * User allowed to view an employee role
+     */
+    public function view(User $user, EmployeeRole $employeeRole): Response
     {
         if ($user->cannot('employee_role:read')) {
             return Response::denyWithStatus(404);

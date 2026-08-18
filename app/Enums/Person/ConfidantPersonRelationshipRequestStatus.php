@@ -29,4 +29,18 @@ enum ConfidantPersonRelationshipRequestStatus: string
             self::EXPIRED => __('patients.status.expired')
         };
     }
+
+    public function color(): string
+    {
+        return match ($this) {
+            self::APPROVED,
+            self::COMPLETED => 'badge-green',
+
+            self::NEW => 'badge-yellow',
+
+            self::CANCELLED => 'badge-red',
+
+            self::EXPIRED => 'badge-dark',
+        };
+    }
 }

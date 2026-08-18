@@ -1,8 +1,8 @@
 {{-- Action Buttons --}}
 <div class="mt-6 flex flex-row items-center gap-4 border-t border-gray-200 pt-6">
     <div class="flex items-center space-x-4">
-        <a href="{{ route('employee.index', ['legalEntity' => legalEntity()->id]) }}" class="button-minor">
-            {{__('forms.cancel')}}
+        <a href="{{ route('employee.index', legalEntity()) }}" class="button-minor">
+            {{ __('forms.cancel') }}
         </a>
         {{-- This button now just toggles the Alpine.js modal --}}
         <button type="button" wire:click="prepareForSigning" class="button-primary">

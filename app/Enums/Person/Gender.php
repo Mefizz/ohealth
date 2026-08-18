@@ -16,8 +16,16 @@ enum Gender: string
     public function label(): string
     {
         return match ($this) {
-            self::MALE => __('чоловіча'),
-            self::FEMALE => __('жіноча')
+            self::MALE => __('patients.male'),
+            self::FEMALE => __('patients.female')
+        };
+    }
+
+    public function icon(): string
+    {
+        return match ($this) {
+            self::MALE => 'men',
+            self::FEMALE => 'women'
         };
     }
 }

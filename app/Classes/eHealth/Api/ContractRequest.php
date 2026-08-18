@@ -24,20 +24,18 @@ class ContractRequest extends EHealthRequest
 
     /**
      * Gets a list of contract requests from E-Health.
+     *
+     * ESOZ API-005-012-0007: GET /api/contract_requests/{contract_type}
      */
     public function getMany(string $contractType, $query = null): PromiseInterface|EHealthResponse
     {
         $this->setValidator($this->validateMany(...));
         $this->setDefaultPageSize();
 
-        // Combining existing query parameters with passed ones
         $mergedQuery = array_merge($this->options['query'] ?? [], $query ?? []);
+        $url = self::URL . '/' . strtolower($contractType);
 
-        // Pass the type as a query parameter, not part of the URL
-        $mergedQuery['type'] = strtoupper($contractType);
-
-        // We use the base URL (self::URL), the parameters will go to the query string
-        return $this->get(self::URL, $mergedQuery);
+        return $this->get($url, $mergedQuery);
     }
 
     /**
@@ -72,14 +70,16 @@ class ContractRequest extends EHealthRequest
             'contract_number' => $data['contract_number'] ?? null,
             'status' => $data['status'],
             'status_reason' => $data['status_reason'] ?? null,
-            'type' => $data['type'] ?? 'REIMBURSEMENT', // Default if missing
+            'type' => isset($data['type'])
+                ? strtoupper((string) $data['type'])
+                : (isset($data['contract_type']) ? strtoupper((string) $data['contract_type']) : null),
             'id_form' => $data['id_form'] ?? null,
 
-            // Dates
+            // Dates — never invent "today" when eHealth omits inserted_at
             'start_date' => $data['start_date'] ?? null,
             'end_date' => $data['end_date'] ?? null,
-            'inserted_at' => $data['inserted_at'] ?? now(),
-            'updated_at' => $data['updated_at'] ?? now(),
+            'inserted_at' => !empty($data['inserted_at']) ? $data['inserted_at'] : null,
+            'updated_at' => !empty($data['updated_at']) ? $data['updated_at'] : null,
 
             // Signer details and addresses
             'contractor_base' => $data['contractor_base'] ?? null,
@@ -358,18 +358,21 @@ class ContractRequest extends EHealthRequest
     {
         $transformedData = [];
         foreach ($response->getData() as $item) {
-            $transformedData[] = self::replaceEHealthPropNames($item);
+            $transformedData[] = self::normalizeListItem(
+                self::replaceEHealthPropNames($item)
+            );
         }
 
-        // Validate filters based on user's URL example
+        // List items may lack contract_number and nhs_signer_id (e.g. NEW / early statuses).
+        // See API-005-012-0007 — both fields are optional in the list response.
         $validator = Validator::make($transformedData, [
             '*.uuid' => 'required|uuid',
             '*.status' => 'required|string',
-            '*.contract_number' => 'required|string',
-            '*.contractor_legal_entity_id' => 'sometimes|uuid',
-            '*.contractor_owner_id' => 'sometimes|uuid',
-            '*.nhs_signer_id' => 'sometimes|uuid',
-            '*.edrpou' => 'sometimes|string',
+            '*.contract_number' => 'sometimes|nullable|string',
+            '*.contractor_legal_entity_id' => 'sometimes|nullable|uuid',
+            '*.contractor_owner_id' => 'sometimes|nullable|uuid',
+            '*.nhs_signer_id' => 'sometimes|nullable|string',
+            '*.edrpou' => 'sometimes|nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -378,7 +381,7 @@ class ContractRequest extends EHealthRequest
             throw ValidationException::withMessages(['ehealth_error' => $error]);
         }
 
-        return $validator->validated();
+        return $transformedData;
     }
 
     /**
@@ -642,6 +645,9 @@ class ContractRequest extends EHealthRequest
                 case 'id':
                     $replaced['uuid'] = $value;
                     break;
+                case 'contract_type':
+                    $replaced['type'] = is_string($value) ? strtoupper($value) : $value;
+                    break;
                 case 'party':
                 case 'contractor_legal_entity':
                 case 'contractor_owner':
@@ -685,5 +691,22 @@ class ContractRequest extends EHealthRequest
         }
 
         return $replaced;
+    }
+
+    /**
+     * Normalize optional list fields: eHealth may send "" instead of null for absent UUIDs.
+     *
+     * @param  array<string, mixed>  $item
+     * @return array<string, mixed>
+     */
+    protected static function normalizeListItem(array $item): array
+    {
+        foreach (['contract_number', 'contractor_legal_entity_id', 'contractor_owner_id', 'nhs_signer_id', 'edrpou'] as $field) {
+            if (array_key_exists($field, $item) && $item[$field] === '') {
+                $item[$field] = null;
+            }
+        }
+
+        return $item;
     }
 }

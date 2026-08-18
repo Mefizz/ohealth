@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Core\EHealthJob;
+use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Repositories\Repository;
@@ -34,7 +35,7 @@ class EmployeeRoleSync extends EHealthJob
     {
         return EHealth::employeeRole()
             ->withToken($token)
-            ->getMany(query: ['page' => $this->page]);
+            ->getMany(['page' => $this->page]);
     }
 
     /**
@@ -46,7 +47,7 @@ class EmployeeRoleSync extends EHealthJob
      */
     protected function processResponse(?EHealthResponse $response): void
     {
-        $employeeRolesData = $this->normalizeDate($response?->validate());
+        $employeeRolesData = $response?->validate();
 
         if (empty($employeeRolesData)) {
             return;

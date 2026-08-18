@@ -23,13 +23,25 @@ class Contract extends EHealthRequest
     /**
      * Maps eHealth API contract response fields to local database columns.
      *
-     * @param  array  $data  Raw data from eHealth API
-     * @return array
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
      */
     public function mapCreate(array $data): array
     {
+        $extractId = static function ($value): ?string {
+            if (is_array($value)) {
+                return $value['id'] ?? $value['uuid'] ?? null;
+            }
+
+            return is_string($value) ? $value : null;
+        };
+
         return [
             'uuid' => $data['id'] ?? $data['uuid'],
+            'contractor_legal_entity_id' => $extractId($data['contractor_legal_entity'] ?? null)
+                ?? $data['contractor_legal_entity_id'] ?? null,
+            'contractor_owner_id' => $extractId($data['contractor_owner'] ?? null)
+                ?? $data['contractor_owner_id'] ?? null,
             'contract_number' => $data['contract_number'] ?? null,
             'status' => $data['status'] ?? 'ACTIVE',
             'type' => $data['type'] ?? null,
@@ -41,8 +53,8 @@ class Contract extends EHealthRequest
             'contractor_divisions' => $data['contractor_divisions'] ?? [],
             'external_contractor_flag' => $data['external_contractor_flag'] ?? false,
             'external_contractors' => $data['external_contractors'] ?? [],
-            'nhs_signer_id' => $data['nhs_signer']['id'] ?? $data['nhs_signer_id'] ?? null,
-            'nhs_legal_entity_id' => $data['nhs_legal_entity']['id'] ?? $data['nhs_legal_entity_id'] ?? null,
+            'nhs_signer_id' => $extractId($data['nhs_signer'] ?? null) ?? $data['nhs_signer_id'] ?? null,
+            'nhs_legal_entity_id' => $extractId($data['nhs_legal_entity'] ?? null) ?? $data['nhs_legal_entity_id'] ?? null,
             'nhs_signer_base' => $data['nhs_signer_base'] ?? null,
             'nhs_payment_method' => $data['nhs_payment_method'] ?? null,
             'nhs_contract_price' => $data['nhs_contract_price'] ?? null,
@@ -50,7 +62,8 @@ class Contract extends EHealthRequest
             'id_form' => $data['id_form'] ?? null,
             'issue_city' => $data['issue_city'] ?? null,
             'medical_programs' => $data['medical_programs'] ?? [],
-            'inserted_at' => $data['inserted_at'] ?? now(),
+            // Never invent "today" when eHealth omits inserted_at — that caused false creation dates in UI.
+            'inserted_at' => !empty($data['inserted_at']) ? $data['inserted_at'] : null,
             'data' => $data,
         ];
     }
@@ -127,10 +140,35 @@ class Contract extends EHealthRequest
             '*.uuid' => 'required|uuid',
             '*.status' => 'required|string',
             '*.contract_number' => 'required|string',
-            '*.contractor_legal_entity_id' => 'sometimes|uuid',
-            '*.contractor_owner_id' => 'sometimes|uuid',
-            '*.nhs_signer_id' => 'sometimes|uuid',
-            '*.edrpou' => 'sometimes|string',
+            '*.contractor_legal_entity_id' => 'sometimes|uuid|nullable',
+            '*.contractor_owner_id' => 'sometimes|uuid|nullable',
+            '*.nhs_signer_id' => 'sometimes|uuid|nullable',
+            '*.edrpou' => 'sometimes|string|nullable',
+
+            // Preserve other contract fields so they are not stripped by $validator->validated()
+            '*.type' => 'sometimes|string|nullable',
+            '*.start_date' => 'sometimes|string|nullable',
+            '*.end_date' => 'sometimes|string|nullable',
+            '*.contractor_base' => 'sometimes|string|nullable',
+            '*.contractor_payment_details' => 'sometimes|array|nullable',
+            '*.contractor_rmsp_amount' => 'sometimes|integer|nullable',
+            '*.contractor_divisions' => 'sometimes|array|nullable',
+            '*.external_contractor_flag' => 'sometimes|boolean|nullable',
+            '*.external_contractors' => 'sometimes|array|nullable',
+            '*.nhs_legal_entity_id' => 'sometimes|uuid|nullable',
+            '*.nhs_signer_base' => 'sometimes|string|nullable',
+            '*.nhs_payment_method' => 'sometimes|string|nullable',
+            '*.nhs_contract_price' => 'sometimes|numeric|nullable',
+            '*.nhs_signed_date' => 'sometimes|string|nullable',
+            '*.id_form' => 'sometimes|string|nullable',
+            '*.issue_city' => 'sometimes|string|nullable',
+            '*.medical_programs' => 'sometimes|array|nullable',
+            '*.inserted_at' => 'sometimes|string|nullable',
+
+            '*.contractor_legal_entity' => 'sometimes|array|nullable',
+            '*.contractor_owner' => 'sometimes|array|nullable',
+            '*.nhs_signer' => 'sometimes|array|nullable',
+            '*.nhs_legal_entity' => 'sometimes|array|nullable',
         ]);
 
         if ($validator->fails()) {

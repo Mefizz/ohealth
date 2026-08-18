@@ -7,16 +7,17 @@ namespace App\Livewire\Declaration;
 use Exception;
 use App\Core\Arr;
 use App\Models\LegalEntity;
+use App\Models\Person\Person;
 use App\Repositories\Repository;
-use App\Enums\Declaration\Status;
+use App\Enums\Declaration\RequestStatus;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 
 class DeclarationCreate extends DeclarationComponent
 {
-    public function mount(LegalEntity $legalEntity, int $personId): void
+    public function mount(LegalEntity $legalEntity, Person $person): void
     {
-        $this->baseMount($personId);
+        $this->baseMount($person->id);
     }
 
     public function createLocally(): void
@@ -37,7 +38,7 @@ class DeclarationCreate extends DeclarationComponent
         }
 
         try {
-            $validated['status'] = Status::DRAFT->value;
+            $validated['status'] = RequestStatus::DRAFT->value;
 
             Repository::declarationRequest()->store(Arr::toSnakeCase($validated));
 

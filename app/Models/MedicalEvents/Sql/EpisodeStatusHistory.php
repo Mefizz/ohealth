@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthTimestampCast;
-use App\Enums\Person\EpisodeStatus;
+use App\Enums\Episode\Status;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -33,7 +33,7 @@ class EpisodeStatusHistory extends Model
     ];
 
     protected $casts = [
-        'status' => EpisodeStatus::class,
+        'status' => Status::class,
         'ehealth_inserted_at' => EHealthTimestampCast::class
     ];
 

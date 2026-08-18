@@ -1,8 +1,22 @@
 <div>
-    <x-header-navigation>
+    <x-header-navigation class="items-start">
         <x-slot name="title">
             {{ __('party_verification.verification_list') }}
         </x-slot>
+
+        <div class="mt-3 ml-0 flex flex-col sm:flex-row sm:flex-wrap gap-2 self-start">
+            @can('syncVerification', \App\Models\Relations\Party::class)
+                <button
+                    type="button"
+                    wire:click="{{ !$isSyncing ? 'sync' : '' }}"
+                    @disabled($isSyncing)
+                    class="{{ $isSyncing ? 'button-sync-disabled' : 'button-sync' }} flex items-center gap-2 whitespace-nowrap"
+                >
+                    @icon('refresh', 'w-4 h-4')
+                    {{ __('forms.synchronise_with_eHealth') }}
+                </button>
+            @endcan
+        </div>
     </x-header-navigation>
 
     <div class="flow-root mt-8 shift-content pl-3.5">
@@ -11,7 +25,7 @@
             <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
                 <div class="flex items-center gap-4">
                     <div class="form-group group w-72">
-                        <select wire:model.live="dracsDeathStatus" id="dracsDeathStatus" class="input peer px-4 py-2">
+                        <select wire:model.live="dracsDeathStatus" id="dracsDeathStatus" class="input-select peer px-4 py-2">
                             <option value="">{{ __('forms.all') }}</option>
                             <option value="VERIFIED">{{ __('party_verification.statuses.VERIFIED') }}</option>
                             <option value="NOT_VERIFIED">{{ __('party_verification.statuses.NOT_VERIFIED') }}</option>
@@ -72,7 +86,7 @@
             @endif
 
             @if($verifications->isNotEmpty())
-                <div class="mt-8 pl-3.5 pb-8 lg:pl-8 2xl:pl-5">
+                <div class="pagination">
                     {{ $verifications->links() }}
                 </div>
             @endif

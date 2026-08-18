@@ -24,21 +24,37 @@ class EmployeeRole extends Request
     /**
      * Get list of employee roles.
      *
-     * @param  string  $url
-     * @param  $query
+     * @param  array{employee_id?: string, healthcare_service_id?: string, status?: string, page?: int, page_size?: int}  $query
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
+     *
+     * @see https://uaehealthapi.docs.apiary.io/#reference/public.-medical-service-provider-integration-layer/employee-roles/get-employee-roles
      */
-    public function getMany(string $url = self::URL, $query = null): PromiseInterface|EHealthResponse
+    public function getMany(array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setDefaultPageSize();
         $this->setValidator($this->validateMany(...));
         $this->setMapper($this->mapMany(...));
 
-        $query = array_merge([
-            self::QUERY_PARAM_PAGE_SIZE => config('ehealth.api.page_size')
-        ], $query ?? []);
+        $mergedQuery = array_merge($this->options['query'], $query);
 
-        return $this->get($url, $query);
+        return $this->get(self::URL, $mergedQuery);
+    }
+
+    /**
+     * Get employee role by id.
+     *
+     * @param  string  $id
+     * @return PromiseInterface|EHealthResponse
+     * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
+     *
+     * @see https://uaehealthapi.docs.apiary.io/#reference/public.-medical-service-provider-integration-layer/employee-roles/get-employee-role-by-id
+     */
+    public function getById(string $id): PromiseInterface|EHealthResponse
+    {
+        $this->setValidator($this->validateResponse(...));
+
+        return $this->get(self::URL . "/$id");
     }
 
     /**

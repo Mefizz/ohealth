@@ -84,6 +84,11 @@ class Approval extends Request
     /**
      * Resend SMS code for Approval.
      *
+     * eHealth documents this as PATCH (not POST). Using POST yields ACL 403:
+     * "No matching rule was found for path /api/patients".
+     *
+     * @see https://e-health-ua.atlassian.net/wiki/spaces/EH/pages/583403110/Resend+SMS+on+Approval
+     *
      * @param  string  $patientId
      * @param  string  $approvalId
      * @return PromiseInterface|EHealthResponse
@@ -91,13 +96,7 @@ class Approval extends Request
      */
     public function resendSms(string $patientId, string $approvalId): PromiseInterface|EHealthResponse
     {
-        // Fallback for backwards compatibility: try the new endpoint without patient prefix first.
-        // If it throws an HTTP exception (e.g., 404), fallback to the old endpoint with patientId.
-        try {
-            return $this->post("/api/approvals/{$approvalId}/actions/resend", []);
-        } catch (\Exception $e) {
-            return $this->post("/api/patients/{$patientId}/approvals/{$approvalId}/actions/resend", []);
-        }
+        return $this->patch("/api/patients/{$patientId}/approvals/{$approvalId}/actions/resend", []);
     }
 
     /**

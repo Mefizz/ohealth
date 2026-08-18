@@ -17,19 +17,23 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Person\Forms\PersonForm as Form;
 use App\Models\Person\Person;
 use App\Models\Person\PersonRequest;
+use App\Models\Relations\Address;
+use App\Notifications\NhsVerificationNeededNotification;
 use App\Repositories\Repository;
-use App\Traits\Addresses\AddressSearch;
+use App\Traits\Addresses\BaseAddress;
 use App\Traits\FormTrait;
 use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Throwable;
@@ -38,14 +42,43 @@ class PersonComponent extends Component
 {
     use FormTrait;
     use WithFileUploads;
-    use AddressSearch;
+    use BaseAddress;
 
     private const int SMS_RESEND_LIMIT = 1;
+
+    /**
+     * Addresses of the person, exactly one of which has to be the address of residence.
+     *
+     * @var array
+     */
+    public array $addresses = [
+        ['country' => Address::DEFAULT_COUNTRY, 'type' => Address::DEFAULT_TYPE]
+    ];
+
+    /**
+     * Suggestions of the address registry for the address being filled in.
+     *
+     * @var array
+     */
+    public array $districts = [];
+
+    public array $settlements = [];
+
+    public array $streets = [];
 
     #[Locked]
     public int $personId;
 
     public string $mode = 'create';
+
+    /**
+     * Selected patient type that toggles the form between an identified person and an unidentified preperson.
+     * Bound to the "type" query parameter so the create page can be opened directly on a given type.
+     *
+     * @var string
+     */
+    #[Url(as: 'type')]
+    public string $patientType = 'person';
 
     public Form $form;
 
@@ -64,6 +97,13 @@ class PersonComponent extends Component
      * @var array
      */
     public array $uploadedDocuments = [];
+
+    /**
+     * Current authentication method returned in eHealth urgent data for approving the person request.
+     *
+     * @var array
+     */
+    public array $authenticationMethodCurrent = [];
 
     /**
      * Content that shows to the patient when signing the leaflet.
@@ -107,6 +147,8 @@ class PersonComponent extends Component
      */
     public bool $isIncapacitated = false;
 
+    public bool $canManageConfidantRelationships = false;
+
     /**
      * UUID of a person who is younger than 18 y/o.
      *
@@ -138,7 +180,11 @@ class PersonComponent extends Component
         'DOCUMENT_TYPE',
         'DOCUMENT_RELATIONSHIP_TYPE',
         'GENDER',
-        'PHONE_TYPE'
+        'PHONE_TYPE',
+        'LANGUAGE',
+        'ISSUING_COUNTRY',
+        'COUNTRY',
+        'ADDRESS_TYPE'
     ];
 
     public function baseMount(): void
@@ -162,7 +208,9 @@ class PersonComponent extends Component
     {
         $birthDate = CarbonImmutable::parse($personData['birthDate']);
 
-        if ($birthDate->age < 18) {
+        // Below the self-registration age a person cannot be a confidant (the remaining eligibility
+        // rules — legal capacity, verification statuses, existing relationships — are enforced by eHealth)
+        if ($birthDate->age < Form::NO_SELF_REGISTRATION_AGE) {
             $this->invalidPersonId = $personData['id'];
 
             return;
@@ -222,7 +270,7 @@ class PersonComponent extends Component
 
         try {
             $this->confidantPerson = Arr::toCamelCase(
-                EHealth::person()->searchForPersonByParams($validated)->getData()
+                EHealth::person()->searchForPersonByParams($validated)->validate()
             );
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error when searching for person');
@@ -244,19 +292,14 @@ class PersonComponent extends Component
             return;
         }
 
-        $this->form->person['addresses'] = [$this->address]; // must be multiple
+        $this->form->person['addresses'] = $this->addresses;
 
         try {
-            $addressErrors = $this->addressValidation();
-            if (!empty($addressErrors)) {
-                throw ValidationException::withMessages($addressErrors);
-            }
-
             $validated = $this->form->validate($this->form->rulesForCreate());
             $this->formKey++;
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
-            $this->setErrorBag($exception->validator->getMessageBag());
+            $this->setAddressAwareErrorBag($exception);
             $this->formKey++;
 
             return;
@@ -276,29 +319,33 @@ class PersonComponent extends Component
         }
 
         // Save in DB and show new frontend
-        if ($response->successful()) {
-            try {
-                if ($this instanceof PersonRequestEdit) {
-                    Repository::personRequest()->updateDraft(
-                        $this->form->person['id'],
-                        removeEmptyKeys($response->map($response->validate())),
-                        $selectedConfidantPersonData
-                    );
-                } else {
-                    Repository::personRequest()->create(
-                        removeEmptyKeys($response->map($response->validate())),
-                        $selectedConfidantPersonData
-                    );
-                }
-            } catch (Throwable $exception) {
-                $this->handleDatabaseErrors($exception, 'Failed to store person request');
-
-                return;
+        try {
+            if ($this instanceof PersonRequestEdit) {
+                Repository::personRequest()->updateDraft(
+                    $this->form->person['id'],
+                    removeEmptyKeys($response->map($response->validate())),
+                    $selectedConfidantPersonData
+                );
+            } else {
+                Repository::personRequest()->create(
+                    removeEmptyKeys($response->map($response->validate())),
+                    $selectedConfidantPersonData
+                );
             }
+        } catch (Throwable $exception) {
+            $this->handleDatabaseErrors($exception, 'Failed to store person request');
 
-            $this->form->person['id'] = $response->getData()['id'];
-            $this->uploadedDocuments = $response->getUrgent()['documents'];
-            $this->showInformationMessageModal = true;
+            return;
+        }
+
+        $urgent = $response->getUrgent();
+        $this->form->person['id'] = $response->getData()['id'];
+        $this->uploadedDocuments = $urgent['documents'] ?? [];
+        $this->authenticationMethodCurrent = $urgent['authentication_method_current'] ?? [];
+        $this->showInformationMessageModal = true;
+
+        if ($this->form->needsNhsVerification()) {
+            Auth::user()->notify(new NhsVerificationNeededNotification());
         }
     }
 
@@ -321,14 +368,14 @@ class PersonComponent extends Component
             return;
         }
 
-        $this->form->person['addresses'] = [$this->address]; // must be multiple
+        $this->form->person['addresses'] = $this->addresses;
 
         try {
             $validated = $this->form->validate($this->form->rulesForCreate());
             $this->formKey++;
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
-            $this->setErrorBag($exception->validator->getMessageBag());
+            $this->setAddressAwareErrorBag($exception);
             $this->formKey++;
 
             return;
@@ -363,6 +410,125 @@ class PersonComponent extends Component
 
         Session::flash('success', $successMessage);
         $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
+    }
+
+    /**
+     * Report the address errors of the form under the addresses.* keys as well, because that is where the
+     * shared address component looks them up.
+     *
+     * @param  ValidationException  $exception
+     * @return void
+     */
+    protected function setAddressAwareErrorBag(ValidationException $exception): void
+    {
+        $messages = $exception->validator->errors()->getMessages();
+
+        foreach ($messages as $key => $keyMessages) {
+            if (str_starts_with($key, 'form.person.addresses.')) {
+                $messages[Str::replaceFirst('form.person.', '', $key)] = $keyMessages;
+            }
+        }
+
+        $this->setErrorBag($messages);
+    }
+
+    /**
+     * Give every address a slot of its own in the suggestion lists. The address component binds them by
+     * position, and a slot that does not exist yet leaves the registry search of that address unbound.
+     *
+     * @return void
+     */
+    public function dehydrate(): void
+    {
+        foreach (array_keys($this->addresses) as $index) {
+            $this->districts[$index] ??= [];
+            $this->settlements[$index] ??= [];
+            $this->streets[$index] ??= [];
+        }
+    }
+
+    /**
+     * Add an address the user fills in on top of the one the form starts with.
+     *
+     * @return void
+     */
+    public function addAddress(): void
+    {
+        $this->addresses[] = ['country' => Address::DEFAULT_COUNTRY, 'type' => ''];
+    }
+
+    /**
+     * Remove the address at the given position, leaving at least one in the form.
+     *
+     * @param  int  $index
+     * @return void
+     */
+    public function removeAddress(int $index): void
+    {
+        if (count($this->addresses) <= 1) {
+            return;
+        }
+
+        unset($this->addresses[$index]);
+
+        $this->addresses = array_values($this->addresses);
+
+        $this->districts = $this->shiftSuggestions($this->districts, $index);
+        $this->settlements = $this->shiftSuggestions($this->settlements, $index);
+        $this->streets = $this->shiftSuggestions($this->streets, $index);
+    }
+
+    /**
+     * Drop the suggestion slot of the removed address and pull the ones behind it down, so that every slot
+     * keeps matching the position of its address.
+     *
+     * @param  array  $lists
+     * @param  int  $index
+     * @return array
+     */
+    private function shiftSuggestions(array $lists, int $index): array
+    {
+        unset($lists[$index]);
+
+        $shifted = [];
+
+        foreach ($lists as $position => $list) {
+            $shifted[$position > $index ? $position - 1 : $position] = $list;
+        }
+
+        return $shifted;
+    }
+
+    /**
+     * Drop the address being edited when it stops being a Ukrainian one or becomes it, because the two are
+     * filled in a different alphabet and only the Ukrainian one takes its values from the address registry.
+     * A switch between two countries abroad keeps everything that was typed in.
+     *
+     * @param  mixed  $value
+     * @param  string|null  $key
+     * @return void
+     */
+    public function updatingAddresses(mixed $value, ?string $key): void
+    {
+        [$index, $field] = array_pad(explode('.', (string)$key, 2), 2, null);
+
+        if ($field !== 'country') {
+            return;
+        }
+
+        $currentCountry = $this->addresses[$index]['country'] ?? Address::DEFAULT_COUNTRY;
+
+        if ($value === $currentCountry) {
+            return;
+        }
+
+        if ($value !== Address::DEFAULT_COUNTRY && $currentCountry !== Address::DEFAULT_COUNTRY) {
+            return;
+        }
+
+        $this->addresses[$index] = ['type' => $this->addresses[$index]['type'] ?? Address::DEFAULT_TYPE];
+
+        unset($this->districts[$index], $this->settlements[$index], $this->streets[$index]);
     }
 
     /**
@@ -419,7 +585,9 @@ class PersonComponent extends Component
         }
 
         if ($this->selectedConfidantPersonId || !empty($this->form->uploadedDocuments)) {
-            $this->uploadDocuments();
+            if (!$this->uploadDocuments()) {
+                return;
+            }
         }
 
         try {
@@ -503,8 +671,16 @@ class PersonComponent extends Component
             return;
         }
 
-        if ($this->selectedConfidantPersonId && $this->form->uploadedDocuments) {
-            $this->uploadDocuments();
+        if (!empty($this->uploadedDocuments)) {
+            if (count($this->form->uploadedDocuments) !== count($this->uploadedDocuments)) {
+                Session::flash('error', __('patients.messages.upload_all_files'));
+
+                return;
+            }
+
+            if (!$this->uploadDocuments()) {
+                return;
+            }
         }
 
         try {
@@ -553,18 +729,16 @@ class PersonComponent extends Component
             return;
         }
 
-        if ($response->successful()) {
-            try {
-                Repository::personRequest()->updateStatusByUuid($response->getData());
-            } catch (Exception|Throwable $exception) {
-                $this->handleDatabaseErrors($exception, $exception->getMessage());
+        try {
+            Repository::personRequest()->updateStatusByUuid($response->getData());
+        } catch (Exception|Throwable $exception) {
+            $this->handleDatabaseErrors($exception, $exception->getMessage());
 
-                return;
-            }
-
-            Session::flash('success', __('patients.messages.person_request_rejected'));
-            $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
+            return;
         }
+
+        Session::flash('success', __('patients.messages.person_request_rejected'));
+        $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
     }
 
     /**
@@ -626,34 +800,46 @@ class PersonComponent extends Component
         }
 
         // Create/update person, update request status
-        if ($signResponse->successful()) {
-            try {
-                DB::transaction(function () use ($responseData, $approvedPersonRequest, &$successMessage) {
-                    Repository::personRequest()->updateStatusByUuid($responseData);
+        try {
+            DB::transaction(function () use ($responseData, $approvedPersonRequest, &$successMessage) {
+                Repository::personRequest()->updateStatusByUuid($responseData);
 
-                    if ($this instanceof PersonUpdate) {
-                        Repository::person()->update(
-                            $approvedPersonRequest->map($approvedPersonRequest->validate()),
-                            $responseData['person_id']
-                        );
-                        $successMessage = __('patients.messages.person_updated');
-                    } else {
-                        Repository::person()->create(
-                            $approvedPersonRequest->map($approvedPersonRequest->validate()),
-                            $responseData['person_id']
-                        );
-                        $successMessage = __('patients.messages.person_created');
-                    }
-                });
-            } catch (Exception|Throwable $exception) {
-                $this->handleDatabaseErrors($exception, $exception->getMessage());
+                if ($this instanceof PersonUpdate) {
+                    Repository::person()->update(
+                        $approvedPersonRequest->map($approvedPersonRequest->validate()),
+                        $responseData['person_id']
+                    );
+                    $successMessage = __('patients.messages.person_updated');
+                } else {
+                    Repository::person()->create(
+                        $approvedPersonRequest->map($approvedPersonRequest->validate()),
+                        $responseData['person_id']
+                    );
+                    $successMessage = __('patients.messages.person_created');
+                }
+            });
+        } catch (Exception|Throwable $exception) {
+            $this->handleDatabaseErrors($exception, $exception->getMessage());
 
-                return;
-            }
-
-            Session::flash('success', $successMessage);
-            $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
+            return;
         }
+
+        // Sync authentication methods for the person after signing the request
+        try {
+            $authMethodsResponse = EHealth::person()->getAuthMethods($responseData['person_id']);
+
+            $authMethodsData = $authMethodsResponse->validate();
+
+            $person = Person::whereUuid($responseData['person_id'])->first();
+
+            Repository::authenticationMethod()->sync($person, $authMethodsData);
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            // Only log the error, but do not block the user from proceeding, as the person's auth methods can be synced via declaration's page
+            $exception->handle('Error when getting person authentication methods', __('patients.errors.person_auth_methods_sync_error'));
+        }
+
+        Session::flash('success', $successMessage);
+        $this->redirectRoute('persons.index', [legalEntity()], navigate: true);
     }
 
     /**
@@ -674,18 +860,18 @@ class PersonComponent extends Component
     }
 
     /**
-     * Upload documents to URLs that EHealth provide.
+     * Upload documents to URLs that eHealth provided for the person request.
      *
-     * @return void
+     * @return bool
      */
-    protected function uploadDocuments(): void
+    protected function uploadDocuments(): bool
     {
         $totalFiles = count($this->form->uploadedDocuments);
         // Check that all provided files were uploaded
         if ($totalFiles !== count($this->uploadedDocuments)) {
             Session::flash('error', __('patients.messages.upload_all_files'));
 
-            return;
+            return false;
         }
 
         $successCount = 0;
@@ -719,7 +905,11 @@ class PersonComponent extends Component
         // Show final status message
         if ($successCount === $totalFiles) {
             Session::flash('success', __('patients.messages.files_uploaded_successfully'));
+
+            return true;
         }
+
+        return false;
     }
 
     /**
@@ -734,14 +924,12 @@ class PersonComponent extends Component
         $response = EHealth::personRequest()->approve($this->form->person['id'], $requestData);
         $responseData = $response->getData();
 
-        if ($response->successful()) {
-            try {
-                Repository::personRequest()->updateStatusByUuid($responseData);
-            } catch (Exception $exception) {
-                $this->handleDatabaseErrors($exception, 'Failed to update person request status');
+        try {
+            Repository::personRequest()->updateStatusByUuid($responseData);
+        } catch (Exception $exception) {
+            $this->handleDatabaseErrors($exception, 'Failed to update person request status');
 
-                return;
-            }
+            return;
         }
 
         $this->leafletContent = $responseData['content'];

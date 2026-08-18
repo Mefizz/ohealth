@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Policies;
 
 use App\Models\User;
-use App\Enums\Status;
+use App\Enums\Status as DivisionStatus;
+use App\Enums\HealthcareService\Status;
 use App\Models\HealthcareService;
 use Illuminate\Auth\Access\Response;
 
@@ -40,12 +41,12 @@ class HealthcareServicePolicy
      */
     public function view(User $user, HealthcareService $healthcareService): Response
     {
-        // Should belong to the same legal entity
-        if (legalEntity()->id !== $healthcareService->legalEntityId) {
+        if ($user->cannot('healthcare_service:read')) {
             return Response::denyWithStatus(404);
         }
 
-        if ($user->cannot('healthcare_service:read')) {
+        // Should belong to the same legal entity
+        if (legalEntity()->id !== $healthcareService->legalEntityId) {
             return Response::denyWithStatus(404);
         }
 
@@ -98,12 +99,12 @@ class HealthcareServicePolicy
      */
     public function edit(User $user, HealthcareService $healthcareService): Response
     {
-        // Should belong to the same legal entity
-        if ($healthcareService->legalEntityId !== legalEntity()->id) {
+        if ($user->cannot('healthcare_service:write')) {
             return Response::denyWithStatus(404);
         }
 
-        if ($user->cannot('healthcare_service:write')) {
+        // Should belong to the same legal entity
+        if ($healthcareService->legalEntityId !== legalEntity()->id) {
             return Response::denyWithStatus(404);
         }
 
@@ -120,12 +121,12 @@ class HealthcareServicePolicy
      */
     public function update(User $user, HealthcareService $healthcareService): Response
     {
-        // Should belong to the same legal entity
-        if ($healthcareService->legalEntityId !== legalEntity()->id) {
+        if ($user->cannot('healthcare_service:write')) {
             return Response::denyWithStatus(404);
         }
 
-        if ($user->cannot('healthcare_service:write')) {
+        // Should belong to the same legal entity
+        if ($healthcareService->legalEntityId !== legalEntity()->id) {
             return Response::denyWithStatus(404);
         }
 
@@ -151,8 +152,23 @@ class HealthcareServicePolicy
             return Response::denyWithStatus(404);
         }
 
-        // Some healthcare services cannot be activated
-        if ($healthcareService->status === Status::ACTIVE || $healthcareService->status === Status::DRAFT) {
+        // Should belong to the same legal entity
+        if ($healthcareService->legalEntityId !== legalEntity()->id) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Check that legal entity is in 'ACTIVE' or 'SUSPENDED' status
+        if (!in_array(legalEntity()->status, ['ACTIVE', 'SUSPENDED'], true)) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Healthcare service can be activated only for an active division
+        if ($healthcareService->division->status !== DivisionStatus::ACTIVE) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Only an inactive healthcare service can be activated
+        if ($healthcareService->status !== Status::INACTIVE) {
             return Response::denyWithStatus(404);
         }
 
@@ -168,8 +184,18 @@ class HealthcareServicePolicy
             return Response::denyWithStatus(404);
         }
 
-        // Some healthcare services cannot be deactivated
-        if ($healthcareService->status === Status::INACTIVE || $healthcareService->status === Status::DRAFT) {
+        // Should belong to the same legal entity
+        if ($healthcareService->legalEntityId !== legalEntity()->id) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Check that legal entity is in 'ACTIVE' or 'SUSPENDED' status
+        if (!in_array(legalEntity()->status, ['ACTIVE', 'SUSPENDED'], true)) {
+            return Response::denyWithStatus(404);
+        }
+
+        // Only an active healthcare service can be deactivated
+        if ($healthcareService->status !== Status::ACTIVE) {
             return Response::denyWithStatus(404);
         }
 

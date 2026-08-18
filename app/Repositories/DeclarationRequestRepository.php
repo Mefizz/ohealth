@@ -130,8 +130,8 @@ class DeclarationRequestRepository
      */
     public function syncPersonData(array $personData): bool
     {
-        $person = Person::where('uuid', $personData['id'])
-            ->with(['addresses', 'authenticationMethods', 'documents', 'phones', 'confidantPersons'])
+        $person = Person::where('uuid', $personData['id'] ?? $personData['uuid'])
+            ->with(['names', 'addresses', 'authenticationMethods', 'documents', 'phones', 'confidantPersons'])
             ->firstOrFail();
 
         $isUpdated = false;
@@ -141,6 +141,7 @@ class DeclarationRequestRepository
         // Emergency contact has been updated, so delete it.
         unset($personData['emergency_contact']);
         $isUpdated |= $this->syncBasicData($person, $personData);
+        $isUpdated |= $this->syncPersonNames($person, $personData);
 
         $isUpdated |= $this->syncRelatedData($person, 'addresses', $personData['addresses'], Address::class);
         $isUpdated |= $this->syncRelatedData(
@@ -153,6 +154,44 @@ class DeclarationRequestRepository
         $isUpdated |= $this->syncRelatedData($person, 'phones', $personData['phones'], Phone::class);
 
         return (bool)$isUpdated;
+    }
+
+    /**
+     * Sync the person's uk name group from the flat declaration payload.
+     *
+     * The declaration endpoint returns names inline (first_name, last_name, second_name)
+     * instead of a names[] array, so the single uk name group is rebuilt from those fields.
+     *
+     * @param  Person  $person
+     * @param  array  $personData
+     * @return bool
+     */
+    protected function syncPersonNames(Person $person, array $personData): bool
+    {
+        $incoming = [
+            'language' => 'uk',
+            'first_name' => $personData['first_name'] ?? null,
+            'last_name' => $personData['last_name'] ?? null,
+            'second_name' => $personData['second_name'] ?? null
+        ];
+
+        $existing = $person->names->firstWhere('language', 'uk');
+
+        if (!$existing) {
+            $person->names()->create($incoming);
+
+            return true;
+        }
+
+        $diff = array_diff_assoc($incoming, $existing->only(array_keys($incoming)));
+
+        if (empty($diff)) {
+            return false;
+        }
+
+        $existing->update($diff);
+
+        return true;
     }
 
     /**

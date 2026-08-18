@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace App\Livewire\MedicationRequest;
 
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\LegalEntity;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use Exception;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 class MedicationRequestForm extends Component
 {
+    use WithFileUploads;
+
     public LegalEntity $legalEntity;
 
     public string $patientId = '';
@@ -21,7 +27,25 @@ class MedicationRequestForm extends Component
     public bool $isDraftCreated = false;
     public ?string $draftId = null;
     public ?string $statusMessage = null;
+    public bool $showSignatureModal = false;
 
+    /**
+     * Draft content returned by eHealth. This is what gets signed with the KEP,
+     * so it must never be reconstructed locally.
+     *
+     * @var array<string, mixed>
+     */
+    public array $draftContent = [];
+
+    /** @var array<string, mixed> */
+    public array $form = [
+        'knedp' => '',
+        'keyContainerUpload' => null,
+        'keyContainerFileName' => '',
+        'password' => '',
+    ];
+
+    /** @var array<string, string> */
     protected array $rules = [
         'patientId' => 'required|string',
         'medicalProgram' => 'required|string',
@@ -29,85 +53,143 @@ class MedicationRequestForm extends Component
         'duration' => 'required|numeric|min:1',
     ];
 
-    public function preQualify(MedicationRequestLifecycleService $service)
+    public function preQualify(MedicationRequestLifecycleService $service): void
     {
         $this->validate();
 
         try {
-            $payload = [
+            $service->preQualify([
                 'person_id' => $this->patientId,
-                'medical_program_id' => $this->medicalProgram, // Assuming string maps to ID for simplicity
-                // Mock payload structure based on typical eHealth API
+                'medical_program_id' => $this->medicalProgram,
                 'programs' => [
-                    ['id' => $this->medicalProgram]
-                ]
-            ];
+                    ['id' => $this->medicalProgram],
+                ],
+            ]);
 
-            $response = $service->preQualify($payload);
-
-            $this->statusMessage = "PreQualify успішно пройдено. Можна створювати чернетку.";
+            $this->statusMessage = __('care-plan.prequalify_passed');
+        } catch (EHealthValidationException $e) {
+            $this->failWith($e->getFormattedMessage());
         } catch (Exception $e) {
-            $this->statusMessage = "Помилка PreQualify: " . $e->getMessage();
+            $this->failWith($e->getMessage());
         }
     }
 
-    public function createDraft(MedicationRequestLifecycleService $service)
+    public function createDraft(MedicationRequestLifecycleService $service): void
     {
         $this->validate();
 
         try {
-            $payload = [
+            $response = $service->createDraft([
                 'person_id' => $this->patientId,
                 'medical_program_id' => $this->medicalProgram,
                 'dosage_instruction' => $this->dosageInstruction,
                 'dispense_request' => [
                     'expected_supply_duration' => [
-                        'value' => (int)$this->duration,
+                        'value' => (int) $this->duration,
                         'system' => 'http://unitsofmeasure.org',
-                        'code' => 'd'
-                    ]
-                ]
-            ];
+                        'code' => 'd',
+                    ],
+                ],
+            ]);
+        } catch (EHealthValidationException $e) {
+            $this->failWith($e->getFormattedMessage());
 
-            $response = $service->createDraft($payload);
-
-            $this->isDraftCreated = true;
-            $this->draftId = $response['id'] ?? 'dummy-uuid-1234';
-
-            $this->statusMessage = "Чернетка створена (ID: {$this->draftId}). Очікується підпис КЕП.";
+            return;
         } catch (Exception $e) {
-            $this->statusMessage = "Помилка створення чернетки: " . $e->getMessage();
-        }
-    }
-
-    public function sign(MedicationRequestLifecycleService $service)
-    {
-        if (!$this->isDraftCreated || !$this->draftId) {
-            $this->statusMessage = "Спершу створіть чернетку!";
+            $this->failWith($e->getMessage());
 
             return;
         }
 
-        try {
-            // Mock KEП signing payload
-            $payload = [
-                'signed_medication_request_request' => base64_encode(json_encode(['id' => $this->draftId, 'status' => 'ACTIVE'])),
-                'signed_content_encoding' => 'base64',
-            ];
+        $draftId = $response['id'] ?? ($response['medication_request_request']['id'] ?? null);
 
-            $service->sign($this->draftId, $payload);
+        if (!is_string($draftId) || $draftId === '') {
+            Log::channel('e_health_errors')->error('ePrescription draft created without an identifier', [
+                'person_id' => $this->patientId,
+            ]);
+            $this->failWith(__('care-plan.draft_missing_identifier'));
 
-            $this->statusMessage = "Рецепт успішно підписано КЕП та переведено у статус «Активний»!";
-
-            // Dispatch event to parent to refresh list
-            $this->dispatch('medication-request-created');
-        } catch (Exception $e) {
-            $this->statusMessage = "Помилка підписання: " . $e->getMessage();
+            return;
         }
+
+        $this->isDraftCreated = true;
+        $this->draftId = $draftId;
+        $this->draftContent = $response['medication_request_request'] ?? $response;
+
+        $this->statusMessage = __('care-plan.draft_created_awaiting_signature', ['id' => $draftId]);
+    }
+
+    public function openSignatureModal(): void
+    {
+        if (!$this->isDraftCreated || $this->draftId === null) {
+            $this->failWith(__('care-plan.draft_required_before_signing'));
+
+            return;
+        }
+
+        $this->showSignatureModal = true;
+    }
+
+    public function sign(MedicationRequestLifecycleService $service): void
+    {
+        if (!$this->isDraftCreated || $this->draftId === null) {
+            $this->failWith(__('care-plan.draft_required_before_signing'));
+
+            return;
+        }
+
+        $this->validate([
+            'form.knedp' => 'required|string',
+            'form.keyContainerUpload' => 'required|file|max:1024',
+            'form.password' => 'required|string',
+        ]);
+
+        try {
+            $signedContent = signatureService()->signData(
+                $this->draftContent,
+                $this->form['password'],
+                $this->form['knedp'],
+                $this->form['keyContainerUpload'],
+                (string) Auth::user()?->party?->taxId
+            );
+
+            $service->sign($this->draftId, [
+                'signed_medication_request_request' => $signedContent,
+                'signed_content_encoding' => 'base64',
+            ]);
+        } catch (EHealthValidationException $e) {
+            $this->failWith($e->getFormattedMessage());
+
+            return;
+        } catch (Exception $e) {
+            $this->failWith($e->getMessage());
+
+            return;
+        } finally {
+            $this->resetSigningFields();
+        }
+
+        $this->showSignatureModal = false;
+        $this->statusMessage = __('care-plan.prescription_signed');
+        session()->flash('success', $this->statusMessage);
+        $this->dispatch('medication-request-created');
     }
 
     public function render()
     {
         return view('livewire.medication-request.medication-request-form');
+    }
+
+    private function resetSigningFields(): void
+    {
+        $this->form['password'] = '';
+        $this->form['keyContainerUpload'] = null;
+        $this->form['keyContainerFileName'] = '';
+    }
+
+    private function failWith(string $message): void
+    {
+        $this->statusMessage = $message;
+        session()->flash('error', $message);
     }
 }

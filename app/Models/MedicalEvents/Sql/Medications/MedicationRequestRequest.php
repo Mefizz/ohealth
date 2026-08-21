@@ -39,7 +39,11 @@ class MedicationRequestRequest extends Model
         'note',
         'inform_with',
         'ehealth_payload',
+        'source',
     ];
+
+    public const SOURCE_LOCAL = 'local';
+    public const SOURCE_EHEALTH = 'ehealth';
 
     protected $casts = [
         'started_at' => 'datetime',

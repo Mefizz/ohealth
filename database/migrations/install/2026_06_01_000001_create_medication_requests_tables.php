@@ -51,6 +51,7 @@ return new class extends Migration
                 $table->text('note')->nullable();
                 $table->string('inform_with')->nullable();
                 $table->json('ehealth_payload')->nullable();
+                $table->string('source')->default('local'); // 'local' = drafted here, 'ehealth' = synced from ЄСОЗ
                 $table->timestamps();
             });
         }

@@ -148,6 +148,12 @@ class MedicationRequestRepository extends BaseRepository
             $query->whereDate('ended_at', '<=', $filters['ended_at_to']);
         }
 
+        // Filter by source ('local' or 'ehealth'); defaults to 'local' if not specified
+        $source = $filters['source'] ?? null;
+        if ($source !== null) {
+            $query->where('source', $source);
+        }
+
         $requests = $query
             ->orderByDesc('started_at')
             ->orderByDesc('id')
@@ -291,5 +297,68 @@ class MedicationRequestRepository extends BaseRepository
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->where('status', '!=', MedicationRequestStatus::ENTERED_IN_ERROR->value)
             ->sum('medication_qty');
+    }
+
+    /**
+     * Upsert a MedicationRequest record returned from the eHealth API into the local DB.
+     * The eHealth `medication_request` (signed prescription) is stored in `medication_request_requests`
+     * with source = 'ehealth' so it can be listed on the patient card without re-querying eHealth.
+     *
+     * @param  array<string, mixed>  $eHealthData  Raw payload from GET /persons/{id}/medication_requests or similar.
+     * @param  int  $personId  Local person ID.
+     * @return MedicationRequestRequest
+     */
+    public function upsertFromEHealth(array $eHealthData, int $personId): MedicationRequestRequest
+    {
+        $uuid = $eHealthData['id'] ?? $eHealthData['uuid'] ?? null;
+
+        if (empty($uuid)) {
+            throw new \InvalidArgumentException('eHealth MedicationRequest record must have an id/uuid field.');
+        }
+
+        return $this->model->updateOrCreate(
+            ['uuid' => $uuid],
+            [
+                'person_id'             => $personId,
+                'employee_id'           => null, // not always available for external records
+                'status'                => $eHealthData['status'] ?? 'unknown',
+                'request_number'        => $eHealthData['request_number'] ?? $eHealthData['requisition'] ?? null,
+                'started_at'            => $eHealthData['started_at'] ?? null,
+                'ended_at'              => $eHealthData['ended_at'] ?? null,
+                'medication_id'         => $eHealthData['medication_id'] ?? data_get($eHealthData, 'medication_info.id') ?? '',
+                'medication_qty'        => (float) ($eHealthData['medication_qty'] ?? 1),
+                'medication_program_id' => $eHealthData['medical_program_id'] ?? data_get($eHealthData, 'medical_program.id') ?? null,
+                'ehealth_payload'       => $eHealthData,
+                'source'                => MedicationRequestRequest::SOURCE_EHEALTH,
+            ]
+        );
+    }
+
+    /**
+     * Search locally-stored eHealth-sourced MedicationRequests for a patient
+     * (these are the signed prescriptions, as opposed to request-requests which are drafts).
+     *
+     * @param  int  $personId
+     * @param  array<string, mixed>  $filters
+     * @return list<array<string, mixed>>
+     */
+    public function searchEHealthPrescriptionsByPersonId(int $personId, array $filters = []): array
+    {
+        $query = $this->model->newQuery()
+            ->where('person_id', $personId)
+            ->where('source', MedicationRequestRequest::SOURCE_EHEALTH);
+
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status !== '') {
+            $query->whereRaw('LOWER(status) = ?', [strtolower($status)]);
+        }
+
+        if (!empty($filters['request_number'])) {
+            $query->where('request_number', 'like', '%' . $filters['request_number'] . '%');
+        }
+
+        return $query->orderByDesc('started_at')->orderByDesc('id')->get()
+            ->map(fn (MedicationRequestRequest $r): array => $this->toPatientRegistryRow($r))
+            ->all();
     }
 }

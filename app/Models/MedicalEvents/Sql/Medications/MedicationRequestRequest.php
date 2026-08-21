@@ -29,11 +29,11 @@ class MedicationRequestRequest extends Model
         'medication_id',
         'medication_qty',
         'medication_program_id',
-        'intent',
-        'category',
+        'intent_id',
+        'category_id',
         'based_on_id',
         'context_id',
-        'priority',
+        'priority_id',
         'prior_prescription_id',
         'container_dosage',
         'note',
@@ -51,5 +51,30 @@ class MedicationRequestRequest extends Model
     public function dosageInstructions(): HasMany
     {
         return $this->hasMany(DosageInstruction::class);
+    }
+
+    public function intent(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\MedicalEvents\Sql\Coding::class, 'intent_id');
+    }
+
+    public function category(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\MedicalEvents\Sql\CodeableConcept::class, 'category_id');
+    }
+
+    public function basedOn(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\MedicalEvents\Sql\Identifier::class, 'based_on_id');
+    }
+
+    public function context(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\MedicalEvents\Sql\Identifier::class, 'context_id');
+    }
+
+    public function priority(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\MedicalEvents\Sql\CodeableConcept::class, 'priority_id');
     }
 }

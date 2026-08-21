@@ -409,7 +409,7 @@ abstract class CarePlanComponent extends Component
 
         $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
         $this->activePrescriptions = class_exists($medicationRequestClass)
-            ? $medicationRequestClass::whereIn('based_on_id', $this->carePlan->activities->pluck('id'))->get()->toArray()
+            ? $medicationRequestClass::with('basedOn')->whereHas('basedOn', fn($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))->get()->toArray()
             : [];
         $this->loadActiveReferrals();
 
@@ -673,7 +673,7 @@ abstract class CarePlanComponent extends Component
 
         $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
         $this->activePrescriptions = class_exists($medicationRequestClass)
-            ? $medicationRequestClass::whereIn('based_on_id', $this->carePlan->activities->pluck('id'))->get()->toArray()
+            ? $medicationRequestClass::with('basedOn')->whereHas('basedOn', fn($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))->get()->toArray()
             : [];
 
         $this->loadActiveReferrals();
@@ -681,28 +681,31 @@ abstract class CarePlanComponent extends Component
 
     protected function loadActiveReferrals(): void
     {
-        $activityIds = $this->carePlan->activities->pluck('id');
         $serviceReferrals = [];
         $deviceReferrals = [];
 
         $serviceRequestClass = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::class;
+        $deviceRequestClass = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
+
         if (class_exists($serviceRequestClass)) {
+            $activityUuids = $this->carePlan->activities->pluck('uuid')->toArray();
+
             $serviceReferrals = $serviceRequestClass::query()
-                ->with('employee')
-                ->whereIn('based_on_id', $activityIds)
+                ->with(['employee', 'basedOn'])
+                ->whereHas('basedOn', fn($q) => $q->whereIn('value', $activityUuids))
                 ->get()
                 ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'service_request'))
-                ->all();
+                ->toArray();
         }
 
-        $deviceRequestClass = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
         if (class_exists($deviceRequestClass)) {
+            $activityUuids = $activityUuids ?? $this->carePlan->activities->pluck('uuid')->toArray();
             $deviceReferrals = $deviceRequestClass::query()
-                ->with('employee')
-                ->whereIn('based_on_id', $activityIds)
+                ->with(['employee', 'basedOn'])
+                ->whereHas('basedOn', fn($q) => $q->whereIn('value', $activityUuids))
                 ->get()
                 ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'device_request'))
-                ->all();
+                ->toArray();
         }
 
         $this->activeReferrals = array_values(array_merge($serviceReferrals, $deviceReferrals));

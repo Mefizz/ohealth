@@ -44,11 +44,11 @@ class MedicationRequestRepository extends BaseRepository
                 'medication_id' => $data['medication_id'],
                 'medication_qty' => $data['medication_qty'],
                 'medication_program_id' => $data['medication_program_id'] ?? null,
-                'intent' => $data['intent'] ?? 'order',
-                'category' => $data['category'] ?? null,
-                'based_on_id' => $data['based_on_id'] ?? null,
-                'context_id' => $data['context_id'] ?? null,
-                'priority' => $data['priority'] ?? null,
+                'intent_id' => !empty($data['intent']) ? \App\Models\MedicalEvents\Sql\Coding::firstOrCreate(['code' => $data['intent'], 'system' => 'http://snomed.info/sct'])->id : null,
+                'category_id' => !empty($data['category']) ? \App\Models\MedicalEvents\Sql\CodeableConcept::firstOrCreate(['text' => $data['category']])->id : null,
+                'based_on_id' => !empty($data['based_on_uuid']) ? \App\Repositories\MedicalEvents\Repository::identifier()->store($data['based_on_uuid'])->id : null,
+                'context_id' => !empty($data['context_uuid']) ? \App\Repositories\MedicalEvents\Repository::identifier()->store($data['context_uuid'])->id : null,
+                'priority_id' => !empty($data['priority']) ? \App\Models\MedicalEvents\Sql\CodeableConcept::firstOrCreate(['text' => $data['priority']])->id : null,
                 'prior_prescription_id' => $data['prior_prescription_id'] ?? null,
                 'container_dosage' => $data['container_dosage'] ?? null,
                 'note' => $data['note'] ?? null,
@@ -285,10 +285,10 @@ class MedicationRequestRepository extends BaseRepository
         return $this->model->newQuery()->where('uuid', $uuid)->first();
     }
 
-    public function sumIssuedQuantityByActivity(int $activityId): float
+    public function sumIssuedQuantityByActivity(string $activityUuid): float
     {
         return (float) $this->model->newQuery()
-            ->where('based_on_id', $activityId)
+            ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->where('status', '!=', MedicationRequestStatus::ENTERED_IN_ERROR->value)
             ->sum('medication_qty');
     }

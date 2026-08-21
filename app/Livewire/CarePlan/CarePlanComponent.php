@@ -719,7 +719,7 @@ abstract class CarePlanComponent extends Component
         return [
             'uuid' => $record->getAttribute('uuid'),
             'kind' => $kind,
-            'based_on_id' => $record->getAttribute('based_on_id'),
+            'based_on_uuid' => $record->basedOn?->value,
             'status' => $record->getAttribute('status'),
             'status_label' => $this->resolveReferralStatusLabel((string) $record->getAttribute('status')),
             'request_number' => $record->getAttribute('request_number'),
@@ -858,16 +858,16 @@ abstract class CarePlanComponent extends Component
         return $cleaned;
     }
 
-    protected function scopeDocumentsToActivity(int $activityId): void
+    protected function scopeDocumentsToActivity(string $activityUuid): void
     {
         $this->activePrescriptions = array_values(array_filter(
             $this->activePrescriptions,
-            static fn (array $prescription): bool => (int) ($prescription['based_on_id'] ?? $prescription['basedOnId'] ?? 0) === $activityId
+            static fn (array $prescription): bool => ($prescription['based_on_uuid'] ?? null) === $activityUuid
         ));
 
         $this->activeReferrals = array_values(array_filter(
             $this->activeReferrals,
-            static fn (array $referral): bool => (int) ($referral['based_on_id'] ?? $referral['basedOnId'] ?? 0) === $activityId
+            static fn (array $referral): bool => ($referral['based_on_uuid'] ?? null) === $activityUuid
         ));
     }
 

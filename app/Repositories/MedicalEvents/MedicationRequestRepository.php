@@ -127,7 +127,7 @@ class MedicationRequestRepository extends BaseRepository
     {
         $query = $this->model
             ->newQuery()
-            ->with(['dosageInstructions.doseRate'])
+            ->with(['dosageInstructions.doseRate', 'basedOn', 'context', 'category'])
             ->where('person_id', $personId);
 
         $status = trim((string) ($filters['status'] ?? ''));
@@ -159,23 +159,41 @@ class MedicationRequestRepository extends BaseRepository
             ->orderByDesc('id')
             ->get();
 
-        $activityIds = $requests
-            ->pluck('basedOnId')
-            ->filter(static fn ($id): bool => (int) $id > 0)
+        $activityUuids = $requests
+            ->map(fn ($r) => $r->basedOn?->value)
+            ->filter()
             ->unique()
             ->values()
             ->all();
 
-        $carePlanIdsByActivity = $activityIds === []
+        $carePlanIdsByActivityUuid = $activityUuids === []
             ? []
             : CarePlanActivity::query()
-                ->whereIn('id', $activityIds)
-                ->pluck('care_plan_id', 'id')
-                ->map(static fn ($id): int => (int) $id)
+                ->whereIn('uuid', $activityUuids)
+                ->get(['id', 'uuid', 'care_plan_id'])
+                ->keyBy('uuid')
+                ->all();
+
+        $encounterUuids = $requests
+            ->map(fn ($r) => $r->context?->value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $encounterIdsByUuid = $encounterUuids === []
+            ? []
+            : \App\Models\MedicalEvents\Sql\Encounter::query()
+                ->whereIn('uuid', $encounterUuids)
+                ->pluck('id', 'uuid')
                 ->all();
 
         return $requests
-            ->map(fn (MedicationRequestRequest $request): array => $this->toPatientRegistryRow($request, $carePlanIdsByActivity))
+            ->map(fn (MedicationRequestRequest $request): array => $this->toPatientRegistryRow(
+                $request,
+                $carePlanIdsByActivityUuid,
+                $encounterIdsByUuid
+            ))
             ->all();
     }
 
@@ -202,7 +220,7 @@ class MedicationRequestRepository extends BaseRepository
      *     carePlanId: int|null
      * }
      */
-    public function toPatientRegistryRow(MedicationRequestRequest $request, array $carePlanIdsByActivity = []): array
+    public function toPatientRegistryRow(MedicationRequestRequest $request, array $carePlanIdsByActivityUuid = [], array $encounterIdsByUuid = []): array
     {
         $payload = is_array($request->ehealthPayload) ? $request->ehealthPayload : [];
         $status = strtolower((string) $request->status);
@@ -229,19 +247,23 @@ class MedicationRequestRepository extends BaseRepository
             ?: ''
         );
 
-        $category = strtolower((string) ($request->category ?: data_get($payload, 'category') ?: ''));
+        $categoryValue = $request->category?->text ?: data_get($payload, 'category') ?: '';
+        $category = strtolower((string) $categoryValue);
         $categoryLabel = match ($category) {
             'community' => 'Амбулаторно',
             'inpatient' => 'Стаціонар',
             default => $category !== '' ? $category : '—',
         };
 
-        $activityId = $request->basedOnId !== null ? (int) $request->basedOnId : null;
-        $encounterId = $request->contextId !== null ? (int) $request->contextId : null;
-        $carePlanId = ($activityId !== null && $activityId > 0)
-            ? (int) ($carePlanIdsByActivity[$activityId] ?? 0)
-            : 0;
-        $carePlanId = $carePlanId > 0 ? $carePlanId : null;
+        $activityUuid = $request->basedOn?->value;
+        $encounterUuid = $request->context?->value;
+        
+        $activityData = $activityUuid ? ($carePlanIdsByActivityUuid[$activityUuid] ?? null) : null;
+        $activityId = $activityData ? $activityData->id : null;
+        $carePlanId = $activityData ? $activityData->care_plan_id : null;
+        
+        $encounterId = $encounterUuid ? ($encounterIdsByUuid[$encounterUuid] ?? null) : null;
+        
         $basisLabel = match (true) {
             $activityId !== null && $activityId > 0 => 'План лікування',
             $encounterId !== null && $encounterId > 0 => 'Взаємодія',

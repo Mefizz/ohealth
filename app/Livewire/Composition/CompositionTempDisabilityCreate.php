@@ -251,7 +251,7 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         $previous = Composition::whereUuid($previousUuid)->first();
 
         if (!$previous?->isTempDisability || empty($previous->data)) {
-            Session::flash('error', __('patients.composition.errors.related_not_found'));
+            Session::flash('error', __('compositions.errors.related_not_found'));
 
             return;
         }

@@ -73,7 +73,7 @@ class CompositionCreate extends BasePatientComponent
         return $options !== [] ? $options : [
             'MALE' => __('patients.male'),
             'FEMALE' => __('patients.female'),
-            'UNKNOWN' => __('patients.composition.create_newborn.sex_unknown'),
+            'UNKNOWN' => __('compositions.create_newborn.sex_unknown'),
         ];
     }
 

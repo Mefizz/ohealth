@@ -28,8 +28,8 @@ enum CompositionType: string
     public function label(): string
     {
         return match ($this) {
-            self::NEWBORN => __('patients.composition.type.newborn'),
-            self::TEMP_DISABILITY => __('patients.composition.type.temp_disability'),
+            self::NEWBORN => __('compositions.type.newborn'),
+            self::TEMP_DISABILITY => __('compositions.type.temp_disability'),
         };
     }
 

@@ -4,12 +4,10 @@
     The action is inseparable from signing it, so it reuses the shared KEP modal and adds
     the reason as a custom field rather than presenting two dialogs in sequence.
 --}}
-<x-signature-modal method="cancelComposition" :agreementText="__('patients.composition.cancel.warning_message')">
+<x-signature-modal method="cancelComposition" :agreementText="__('compositions.cancel.warning_message')">
     <x-slot name="customFields">
         <div>
-            <label for="cancel-reason" class="default-label">
-                {{ __('patients.composition.cancel.reason_label') }} *
-            </label>
+            <label for="cancel-reason" class="default-label"> {{ __('compositions.cancel.reason_label') }} * </label>
             <select class="input-modal" wire:model="form.reason" name="cancel-reason" id="cancel-reason">
                 <option value="" selected>{{ __('forms.select') }}</option>
                 @foreach ($this->cancellationReasons as $code => $description)
@@ -24,7 +22,7 @@
 
         <div>
             <label for="cancel-reason-text" class="default-label">
-                {{ __('patients.composition.cancel.justification_label') }} *
+                {{ __('compositions.cancel.justification_label') }} *
             </label>
             <textarea
                 wire:model="form.reasonText"
@@ -32,7 +30,7 @@
                 name="cancel-reason-text"
                 rows="3"
                 class="default-input"
-                placeholder="{{ __('patients.composition.cancel.justification_placeholder') }}"
+                placeholder="{{ __('compositions.cancel.justification_placeholder') }}"
             ></textarea>
 
             @error('form.reasonText')

@@ -34,10 +34,10 @@ enum CompositionStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::PRELIMINARY => __('patients.composition.status.preliminary'),
-            self::FINAL => __('patients.composition.status.final'),
-            self::AMENDED => __('patients.composition.status.amended'),
-            self::ENTERED_IN_ERROR => __('patients.composition.status.entered_in_error'),
+            self::PRELIMINARY => __('compositions.status.preliminary'),
+            self::FINAL => __('compositions.status.final'),
+            self::AMENDED => __('compositions.status.amended'),
+            self::ENTERED_IN_ERROR => __('compositions.status.entered_in_error'),
         };
     }
 

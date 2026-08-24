@@ -9,7 +9,7 @@
                     class="button-primary-outline flex items-center gap-2 px-5 py-2 text-sm shadow-sm"
                 >
                     @icon('plus', 'w-4 h-4')
-                    {{ __('patients.composition.actions.create_newborn') }}
+                    {{ __('compositions.actions.create_newborn') }}
                 </a>
             @endcan
             @can('createTempDisability', \App\Models\MedicalEvents\Sql\Composition::class)
@@ -18,7 +18,7 @@
                     class="button-primary flex items-center gap-2 px-5 py-2 text-sm shadow-sm"
                 >
                     @icon('plus', 'w-4 h-4')
-                    {{ __('patients.composition.actions.create_temp_disability') }}
+                    {{ __('compositions.actions.create_temp_disability') }}
                 </a>
             @endcan
         </div>
@@ -28,7 +28,7 @@
         <div class="mt-6 w-full">
             <div class="mb-4 flex items-center gap-1 font-semibold text-gray-900 dark:text-gray-100">
                 @icon('search-outline', 'w-4.5 h-4.5')
-                <p>{{ __('patients.composition.search_title') }}</p>
+                <p>{{ __('compositions.search_title') }}</p>
             </div>
 
             <div class="form-row-3 mb-6">
@@ -39,7 +39,7 @@
                             <option value="{{ $type['value'] }}">{{ $type['label'] }}</option>
                         @endforeach
                     </select>
-                    <label for="filterType" class="label"> {{ __('patients.composition.filter.type') }} </label>
+                    <label for="filterType" class="label"> {{ __('compositions.filter.type') }} </label>
                 </div>
 
                 <div class="form-group group">
@@ -54,7 +54,7 @@
                             <option value="{{ $status['value'] }}">{{ $status['label'] }}</option>
                         @endforeach
                     </select>
-                    <label for="filterStatus" class="label"> {{ __('patients.composition.filter.status') }} </label>
+                    <label for="filterStatus" class="label"> {{ __('compositions.filter.status') }} </label>
                 </div>
 
                 <div class="form-group group">
@@ -68,9 +68,7 @@
                             placeholder=" "
                             autocomplete="off"
                         />
-                        <label for="filterEncounterId" class="label">
-                            {{ __('patients.composition.filter.encounter') }}
-                        </label>
+                        <label for="filterEncounterId" class="label"> {{ __('compositions.filter.encounter') }} </label>
                         <button
                             type="button"
                             wire:click="$set('filterEncounterId', '')"
@@ -102,14 +100,14 @@
                     <div class="record-inner-card" wire:key="composition-{{ $composition->id }}">
                         <div class="record-inner-header">
                             <div class="record-inner-column flex-1">
-                                <div class="record-inner-label">{{ __('patients.composition.columns.title') }}</div>
+                                <div class="record-inner-label">{{ __('compositions.columns.title') }}</div>
                                 <div class="record-inner-value text-[17px] font-semibold text-gray-900 dark:text-gray-100">
                                     {{ $composition->title ?: '-' }}
                                 </div>
                             </div>
 
                             <div class="record-inner-column-bordered w-full shrink-0 md:w-36">
-                                <div class="record-inner-label">{{ __('patients.composition.columns.status') }}</div>
+                                <div class="record-inner-label">{{ __('compositions.columns.status') }}</div>
                                 <div>
                                     <span @class([$composition->status->color()])>
                                         {{ $composition->status->label() }}
@@ -156,7 +154,7 @@
                                             class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
                                         >
                                             @icon('document', 'w-5 h-5 text-gray-500')
-                                            {{ __('patients.composition.actions.print') }}
+                                            {{ __('compositions.actions.print') }}
                                         </button>
 
                                         @can('cancel', $composition)
@@ -167,7 +165,7 @@
                                                 class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-600 transition-colors hover:bg-gray-50 dark:text-red-400 dark:hover:bg-gray-600"
                                             >
                                                 @icon('close', 'w-5 h-5')
-                                                {{ __('patients.composition.actions.cancel') }}
+                                                {{ __('compositions.actions.cancel') }}
                                             </button>
                                         @endcan
 
@@ -179,7 +177,7 @@
                                                 class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
                                             >
                                                 @icon('refresh', 'w-5 h-5 text-gray-500')
-                                                {{ __('patients.composition.actions.resend_erln') }}
+                                                {{ __('compositions.actions.resend_erln') }}
                                             </button>
                                         @endcan
 
@@ -191,28 +189,28 @@
                                                 class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
                                             >
                                                 @icon('refresh', 'w-5 h-5 text-gray-500')
-                                                {{ __('patients.composition.actions.refresh_integration') }}
+                                                {{ __('compositions.actions.refresh_integration') }}
                                             </button>
                                         @endif
 
                                         @if (
                                             $composition->isTempDisability
-                                                                                                                            && $composition->status->isCancellable()
-                                                                                                                            && $personId
+                                                                                                                                                                    && $composition->status->isCancellable()
+                                                                                                                                                                    && $personId
 )
                                             <a
                                                 href="{{ $this->refineUrl($composition) }}"
                                                 class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
                                             >
                                                 @icon('document', 'w-5 h-5 text-gray-500')
-                                                {{ __('patients.composition.actions.refine') }}
+                                                {{ __('compositions.actions.refine') }}
                                             </a>
                                             <a
                                                 href="{{ $this->continueUrl($composition) }}"
                                                 class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-600"
                                             >
                                                 @icon('plus', 'w-5 h-5 text-gray-500')
-                                                {{ __('patients.composition.actions.continue') }}
+                                                {{ __('compositions.actions.continue') }}
                                             </a>
                                         @endif
                                     </div>
@@ -225,7 +223,7 @@
                                 <div class="mb-4 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3 lg:grid-cols-5">
                                     <div class="min-w-0">
                                         <div class="record-inner-label text-[10px] uppercase">
-                                            {{ __('patients.composition.columns.type') }}
+                                            {{ __('compositions.columns.type') }}
                                         </div>
                                         <div class="record-inner-value text-[14px] font-semibold break-words">
                                             {{ $composition->type->label() }}
@@ -233,7 +231,7 @@
                                     </div>
                                     <div class="min-w-0">
                                         <div class="record-inner-label text-[10px] uppercase">
-                                            {{ __('patients.composition.columns.category') }}
+                                            {{ __('compositions.columns.category') }}
                                         </div>
                                         <div class="record-inner-value text-[14px] font-semibold break-words">
                                             {{ $composition->category?->label() ?? '-' }}
@@ -241,7 +239,7 @@
                                     </div>
                                     <div class="min-w-0">
                                         <div class="record-inner-label text-[10px] uppercase">
-                                            {{ __('patients.composition.columns.period_start') }}
+                                            {{ __('compositions.columns.period_start') }}
                                         </div>
                                         <div class="record-inner-value text-[14px] font-semibold break-words">
                                             {{ $composition->eventPeriodStartDate ?: '-' }}
@@ -249,7 +247,7 @@
                                     </div>
                                     <div class="min-w-0">
                                         <div class="record-inner-label text-[10px] uppercase">
-                                            {{ __('patients.composition.columns.period_end') }}
+                                            {{ __('compositions.columns.period_end') }}
                                         </div>
                                         <div class="record-inner-value text-[14px] font-semibold break-words">
                                             {{ $composition->eventPeriodEndDate ?: '-' }}
@@ -257,7 +255,7 @@
                                     </div>
                                     <div class="min-w-0">
                                         <div class="record-inner-label text-[10px] uppercase">
-                                            {{ __('patients.composition.columns.date') }}
+                                            {{ __('compositions.columns.date') }}
                                         </div>
                                         <div class="record-inner-value text-[14px] font-semibold break-words">
                                             {{ $composition->compositionDateFormatted ?: '-' }}
@@ -269,7 +267,7 @@
                                     <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2">
                                         <div class="min-w-0">
                                             <div class="record-inner-label text-[10px] uppercase">
-                                                {{ __('patients.composition.columns.erln_status') }}
+                                                {{ __('compositions.columns.erln_status') }}
                                             </div>
                                             <div class="record-inner-value text-[14px] font-semibold break-words">
                                                 {{ $composition->erlnRecordNumber ?: $composition->erlnStatus }}
@@ -278,7 +276,7 @@
                                         @if ($composition->erlnStatusMessage)
                                             <div class="min-w-0">
                                                 <div class="record-inner-label text-[10px] uppercase">
-                                                    {{ __('patients.composition.erln_resend.error_message') }}
+                                                    {{ __('compositions.erln_resend.error_message') }}
                                                 </div>
                                                 <div class="record-inner-value text-[14px] font-semibold break-words text-red-600 dark:text-red-400">
                                                     {{ $composition->erlnStatusMessage }}
@@ -296,7 +294,7 @@
                                 </div>
                                 <div class="min-w-0">
                                     <div class="record-inner-label text-[10px] uppercase">
-                                        {{ __('patients.composition.columns.encounter') }}
+                                        {{ __('compositions.columns.encounter') }}
                                     </div>
                                     <div class="record-inner-id-value">{{ $composition->encounterUuid ?: '-' }}</div>
                                 </div>
@@ -315,7 +313,7 @@
     @include('livewire.composition.composition-show')
 
     <x-dialog-modal maxWidth="3xl" id="modal-composition-print" wire:model.live="showPrintModal">
-        <x-slot name="title">{{ __('patients.composition.print.title') }}</x-slot>
+        <x-slot name="title">{{ __('compositions.print.title') }}</x-slot>
 
         <x-slot name="content">
             {{--
@@ -339,7 +337,7 @@
                 id="btn-print-iframe"
                 class="button-primary px-5 py-2 text-sm"
             >
-                {{ __('patients.composition.actions.print') }}
+                {{ __('compositions.actions.print') }}
             </button>
             <button type="button" wire:click="closePrintModal" class="button-primary-outline ml-2 px-5 py-2 text-sm">
                 {{ __('forms.close') }}
@@ -350,10 +348,10 @@
     @include('livewire.composition.composition-cancellation')
 
     <x-dialog-modal id="modal-erln-resend" wire:model.live="showErlnResendModal">
-        <x-slot name="title">{{ __('patients.composition.erln_resend.title') }}</x-slot>
+        <x-slot name="title">{{ __('compositions.erln_resend.title') }}</x-slot>
 
         <x-slot name="content">
-            <p>{{ __('patients.composition.erln_resend.confirm_message') }}</p>
+            <p>{{ __('compositions.erln_resend.confirm_message') }}</p>
         </x-slot>
 
         <x-slot name="footer">
@@ -363,7 +361,7 @@
                 id="btn-confirm-erln-resend"
                 class="button-primary px-5 py-2 text-sm"
             >
-                {{ __('patients.composition.erln_resend.confirm_button') }}
+                {{ __('compositions.erln_resend.confirm_button') }}
             </button>
             <button
                 type="button"

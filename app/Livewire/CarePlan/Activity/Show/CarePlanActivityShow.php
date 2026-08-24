@@ -25,7 +25,7 @@ class CarePlanActivityShow extends CarePlanComponent
 
     public string $activityProductLabel = '';
 
-    public function mount(CarePlan $carePlan, CarePlanActivity $activity): void
+    public function mount(\App\Models\LegalEntity $legalEntity, CarePlan $carePlan, CarePlanActivity $activity): void
     {
         $this->bootCarePlan($carePlan);
 

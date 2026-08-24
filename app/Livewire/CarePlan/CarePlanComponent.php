@@ -405,7 +405,7 @@ abstract class CarePlanComponent extends Component
 
         $this->carePlanUuid = $this->carePlan->uuid;
         $this->patientId = $this->carePlan->person->uuid;
-        $this->loadDeviceProgramParticipationState();
+
 
         $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
         $this->activePrescriptions = class_exists($medicationRequestClass)
@@ -906,21 +906,7 @@ abstract class CarePlanComponent extends Component
                 return true;
             });
 
-        if ($this->participatingDeviceProgramIds !== []) {
-            $filtered = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
-                ->filterProgramsForParticipation($filtered, $this->participatingDeviceProgramIds);
-        }
-
         return $filtered;
-    }
-
-    protected function loadDeviceProgramParticipationState(): void
-    {
-        $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
-        $this->participatingDeviceProgramIds = $guard->resolveParticipatingProgramIds(legalEntity());
-        $this->deviceParticipationWarning = $this->participatingDeviceProgramIds === []
-            ? __('care-plan.device_program_participation_sync_hint')
-            : '';
     }
 
     /**

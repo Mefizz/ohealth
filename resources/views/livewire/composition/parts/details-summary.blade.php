@@ -27,19 +27,19 @@
         : '-';
 
     $rows = [
-        __('patients.composition.detail.number') => data_get($detail, 'title') ?: '-',
-        __('patients.composition.detail.type') => $type?->label() ?? '-',
-        __('patients.composition.detail.category') => $category?->label() ?? '-',
-        __('patients.composition.detail.date') => $asDate(data_get($detail, 'date')),
-        __('patients.composition.detail.period_start') => $asDate(data_get($detail, 'event.0.period.start')),
-        __('patients.composition.detail.period_end') => $asDate(data_get($detail, 'event.0.period.end')),
+        __('compositions.detail.number') => data_get($detail, 'title') ?: '-',
+        __('compositions.detail.type') => $type?->label() ?? '-',
+        __('compositions.detail.category') => $category?->label() ?? '-',
+        __('compositions.detail.date') => $asDate(data_get($detail, 'date')),
+        __('compositions.detail.period_start') => $asDate(data_get($detail, 'event.0.period.start')),
+        __('compositions.detail.period_end') => $asDate(data_get($detail, 'event.0.period.end')),
     ];
 @endphp
 
 <div class="record-inner-card">
     <div class="record-inner-header">
         <div class="record-inner-column flex-1">
-            <div class="record-inner-label">{{ __('patients.composition.detail.title') }}</div>
+            <div class="record-inner-label">{{ __('compositions.detail.title') }}</div>
             <div class="record-inner-value text-[17px] font-semibold text-gray-900 dark:text-gray-100">
                 {{ data_get($detail, 'title') ?: '-' }}
             </div>
@@ -47,7 +47,7 @@
 
         @if ($status)
             <div class="record-inner-column-bordered w-full shrink-0 md:w-36">
-                <div class="record-inner-label">{{ __('patients.composition.detail.status') }}</div>
+                <div class="record-inner-label">{{ __('compositions.detail.status') }}</div>
                 <div><span @class([$status->color()])>{{ $status->label() }}</span></div>
             </div>
         @endif
@@ -67,7 +67,7 @@
                     @if ($extensions->get($flag))
                         <div class="min-w-0">
                             <div class="record-inner-label text-[10px] uppercase">
-                                {{ __('patients.composition.detail.flags.' . strtolower($flag)) }}
+                                {{ __('compositions.detail.flags.' . strtolower($flag)) }}
                             </div>
                             <div class="record-inner-value text-[14px] font-semibold">{{ __('forms.yes') }}</div>
                         </div>
@@ -77,7 +77,7 @@
                 @if ($extensions->has('TREATMENT_VIOLATION'))
                     <div class="min-w-0">
                         <div class="record-inner-label text-[10px] uppercase">
-                            {{ __('patients.composition.detail.treatment_violation') }}
+                            {{ __('compositions.detail.treatment_violation') }}
                         </div>
                         <div class="record-inner-value text-[14px] font-semibold break-words">
                             {{ $extensions->get('TREATMENT_VIOLATION') }}
@@ -96,9 +96,7 @@
                 <div class="record-inner-id-value">{{ data_get($detail, 'identifier.value') ?: '-' }}</div>
             </div>
             <div class="min-w-0">
-                <div class="record-inner-label text-[10px] uppercase">
-                    {{ __('patients.composition.detail.encounter') }}
-                </div>
+                <div class="record-inner-label text-[10px] uppercase">{{ __('compositions.detail.encounter') }}</div>
                 <div class="record-inner-id-value">{{ data_get($detail, 'encounter.value') ?: '-' }}</div>
             </div>
         </div>

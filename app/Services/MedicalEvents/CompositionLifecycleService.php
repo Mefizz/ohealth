@@ -10,6 +10,7 @@ use App\Enums\Person\CompositionType;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
+use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 
@@ -53,7 +54,7 @@ class CompositionLifecycleService
      */
     public function jobStatus(string $jobId): array
     {
-        $data = EHealth::composition()->getAsyncJobStatus($jobId)->getData();
+        $data = EHealth::composition()->getAsyncJobStatus($jobId)->validate();
 
         return [
             'status' => (string) (data_get($data, 'status') ?? self::JOB_PENDING),
@@ -84,15 +85,11 @@ class CompositionLifecycleService
         }
 
         try {
-            $response = EHealth::composition()->search([
+            $results = EHealth::composition()->search([
                 'subject' => $patientUuid,
                 'encounter' => $encounterUuid,
                 'type' => $type->value,
-            ]);
-            $results = $response->getData();
-            if (empty($results)) {
-                $results = $response->json() ?? [];
-            }
+            ])->validate();
         } catch (\Throwable $exception) {
             Log::warning('Could not locate the created composition by encounter', [
                 'encounter' => $encounterUuid,
@@ -123,16 +120,9 @@ class CompositionLifecycleService
         string $episodeUuid,
         string $encounterUuid
     ): array {
-        $response = EHealth::composition()
-            ->getById($patientUuid, $compositionUuid, $episodeUuid, $encounterUuid);
-
-        $data = $response->getData();
-
-        if (empty($data)) {
-            $data = $response->json() ?? [];
-        }
-
-        return $data;
+        return EHealth::composition()
+            ->getById($patientUuid, $compositionUuid, $episodeUuid, $encounterUuid)
+            ->validate();
     }
 
     /**
@@ -174,29 +164,37 @@ class CompositionLifecycleService
         $attributes = array_filter([
             'person_id' => $isPreperson ? null : $patient->id,
             'preperson_id' => $isPreperson ? $patient->id : null,
-            'type' => data_get($details, 'type.coding.0.code'),
-            'category' => data_get($details, 'category.coding.0.code'),
             'status' => CompositionStatus::fromEHealth(data_get($details, 'status'))?->value,
             'title' => data_get($details, 'title'),
-            'encounter_uuid' => data_get($details, 'encounter.value'),
-            'episode_of_care_uuid' => $episodeUuid,
-            'author_uuid' => data_get($details, 'author.value'),
-            'custodian_uuid' => data_get($details, 'custodian.value'),
-            'section_focus_uuid' => data_get($details, 'section.focus.value'),
-            'subject_uuid' => data_get($details, 'subject.value'),
-            'event_period_start' => data_get($details, 'event.0.period.start'),
-            'event_period_end' => data_get($details, 'event.0.period.end'),
-            'composition_date' => data_get($details, 'date'),
+            'date' => data_get($details, 'date'),
+            'type_id' => $this->storeCodeableConcept(data_get($details, 'type')),
+            'category_id' => $this->storeCodeableConcept(data_get($details, 'category')),
+            'encounter_id' => $this->storeIdentifier(data_get($details, 'encounter')),
+            'author_id' => $this->storeIdentifier(data_get($details, 'author')),
+            'custodian_id' => $this->storeIdentifier(data_get($details, 'custodian')),
+            'subject_id' => $this->storeIdentifier(data_get($details, 'subject')),
+            'section_focus_id' => $this->storeIdentifier(data_get($details, 'section.focus')),
+            'episode_of_care_id' => $this->storeIdentifier(
+                $episodeUuid ? ['value' => $episodeUuid, 'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'episode']]]] : null
+            ),
             'relates_to_code' => data_get($details, 'relatesTo.code'),
-            'relates_to_target_uuid' => data_get($details, 'relatesTo.targetIdentifier.value'),
+            'relates_to_target_id' => $this->storeIdentifier(data_get($details, 'relatesTo.targetIdentifier')),
+            'extension' => data_get($details, 'extension'),
             'async_job_id' => $asyncJobId,
             'data' => $details,
         ], static fn (mixed $value) => $value !== null);
 
-        return Composition::updateOrCreate(['uuid' => $uuid], array_merge(
-            $attributes,
-            $this->extensionColumns(data_get($details, 'extension', []))
-        ));
+        $composition = Composition::updateOrCreate(['uuid' => $uuid], $attributes);
+
+        $period = data_get($details, 'event.0.period');
+        if (is_array($period)) {
+            Repository::period()->sync($composition, [
+                'start' => $period['start'] ?? null,
+                'end' => $period['end'] ?? null,
+            ], 'eventPeriod');
+        }
+
+        return $composition->refresh();
     }
 
     /**
@@ -271,34 +269,33 @@ class CompositionLifecycleService
         return $this->fetchIntegration($composition) !== [];
     }
 
-    /**
-     * Flatten the extension list into the columns that mirror it.
-     *
-     * @return array<string, mixed>
-     */
-    private function extensionColumns(array $extensions): array
+    private function storeCodeableConcept(mixed $concept): ?int
     {
-        $byCode = collect($extensions)
-            ->filter(static fn ($extension) => is_array($extension) && isset($extension['valueCode']))
-            ->mapWithKeys(static fn (array $extension) => [
-                $extension['valueCode'] => $extension['valueUuid']
-                    ?? $extension['valueDate']
-                    ?? $extension['valueString']
-                    ?? $extension['valueBoolean']
-                    ?? null,
-            ]);
+        if (!is_array($concept) || empty($concept['coding'][0]['code'])) {
+            return null;
+        }
 
-        return array_filter([
-            'inform_with_uuid' => $byCode->get('INFORM_WITH'),
-            'is_accident' => $byCode->get('IS_ACCIDENT'),
-            'is_intoxicated' => $byCode->get('IS_INTOXICATED'),
-            'is_foreign_treatment' => $byCode->get('IS_FOREIGN_TREATMENT'),
-            'is_force_renew' => $byCode->get('IS_FORCE_RENEW'),
-            'treatment_violation' => $byCode->get('TREATMENT_VIOLATION'),
-            'treatment_violation_date' => $byCode->get('TREATMENT_VIOLATION_DATE'),
-            'newborn_birth_date' => $byCode->get('NEWBORN_BIRTH_DATE'),
-            'newborn_sex' => $byCode->get('NEWBORN_SEX'),
-        ], static fn (mixed $value) => $value !== null);
+        return Repository::codeableConcept()->store($concept)->id;
+    }
+
+    private function storeIdentifier(mixed $reference): ?int
+    {
+        $value = data_get($reference, 'value');
+
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $identifier = Repository::identifier()->store($value);
+        $type = data_get($reference, 'type');
+
+        if (is_array($type)) {
+            Repository::codeableConcept()->attach($identifier, [
+                'identifier' => ['type' => $type],
+            ]);
+        }
+
+        return $identifier->id;
     }
 
     /**

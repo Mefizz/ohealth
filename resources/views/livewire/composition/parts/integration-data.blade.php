@@ -2,7 +2,7 @@
 @if (!empty($items))
     <div class="mt-6 space-y-3">
         <div class="mb-1 font-semibold text-gray-900 dark:text-gray-100">
-            {{ __('patients.composition.integration.title') }}
+            {{ __('compositions.integration.title') }}
         </div>
         @foreach ($items as $item)
             @php
@@ -14,19 +14,19 @@
             >
                 <div class="record-inner-header">
                     <div class="record-inner-column flex-1">
-                        <div class="record-inner-label">{{ __('patients.composition.integration.component') }}</div>
+                        <div class="record-inner-label">{{ __('compositions.integration.component') }}</div>
                         <div class="record-inner-value text-[15px] font-semibold">
                             {{ data_get($item, 'component') ?: '-' }}
                         </div>
                     </div>
                     <div class="record-inner-column flex-1">
-                        <div class="record-inner-label">{{ __('patients.composition.integration.type') }}</div>
+                        <div class="record-inner-label">{{ __('compositions.integration.type') }}</div>
                         <div class="record-inner-value text-[15px] font-semibold">
                             {{ data_get($item, 'type') ?: '-' }}
                         </div>
                     </div>
                     <div class="record-inner-column-bordered w-full shrink-0 md:w-36">
-                        <div class="record-inner-label">{{ __('patients.composition.integration.status') }}</div>
+                        <div class="record-inner-label">{{ __('compositions.integration.status') }}</div>
                         <div class="record-inner-value text-[14px] font-semibold">{{ $status ?: '-' }}</div>
                     </div>
                 </div>
@@ -36,7 +36,7 @@
                             @if (data_get($item, 'details.SL_NUM'))
                                 <div class="min-w-0">
                                     <div class="record-inner-label text-[10px] uppercase">
-                                        {{ __('patients.composition.integration.erln_number') }}
+                                        {{ __('compositions.integration.erln_number') }}
                                     </div>
                                     <div class="record-inner-value text-[14px] font-semibold">
                                         {{ data_get($item, 'details.SL_NUM') }}
@@ -46,7 +46,7 @@
                             @if (data_get($item, 'statusMessage'))
                                 <div class="min-w-0">
                                     <div class="record-inner-label text-[10px] uppercase">
-                                        {{ __('patients.composition.erln_resend.error_message') }}
+                                        {{ __('compositions.erln_resend.error_message') }}
                                     </div>
                                     <div class="record-inner-value text-[14px] font-semibold text-red-600 dark:text-red-400">
                                         {{ data_get($item, 'statusMessage') }}

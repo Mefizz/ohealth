@@ -173,11 +173,22 @@ class CompositionPolicyTest extends TestCase
         string $authorUuid,
         array $overrides = []
     ): Composition {
+        $type = CompositionType::from($overrides['type'] ?? CompositionType::TEMP_DISABILITY->value);
+        unset($overrides['type'], $overrides['author_uuid']);
+
+        $typeConcept = \App\Models\MedicalEvents\Sql\CodeableConcept::create(['text' => null]);
+        $typeConcept->coding()->create([
+            'system' => 'COMPOSITION_TYPES',
+            'code' => $type->value,
+        ]);
+
+        $author = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $authorUuid]);
+
         return Composition::create(array_merge([
             'uuid' => (string) Str::uuid(),
-            'type' => CompositionType::TEMP_DISABILITY->value,
             'status' => $status->value,
-            'author_uuid' => $authorUuid,
+            'type_id' => $typeConcept->id,
+            'author_id' => $author->id,
         ], $overrides));
     }
 

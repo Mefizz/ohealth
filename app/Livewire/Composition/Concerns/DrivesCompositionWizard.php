@@ -158,7 +158,7 @@ trait DrivesCompositionWizard
             ->firstWhere('uuid', $encounterUuid);
 
         if (!$encounter) {
-            Session::flash('error', __('patients.composition.errors.encounter_not_selectable'));
+            Session::flash('error', __('compositions.errors.encounter_not_selectable'));
 
             return;
         }
@@ -189,7 +189,7 @@ trait DrivesCompositionWizard
                 'error' => $exception->getMessage(),
             ]);
 
-            Session::flash('error', __('patients.composition.errors.auth_methods_failed'));
+            Session::flash('error', __('compositions.errors.auth_methods_failed'));
         }
     }
 
@@ -225,7 +225,7 @@ trait DrivesCompositionWizard
         $authorUuid = $this->authorEmployeeUuid();
 
         if ($authorUuid === null) {
-            Session::flash('error', __('patients.composition.errors.author_not_found'));
+            Session::flash('error', __('compositions.errors.author_not_found'));
 
             return;
         }
@@ -302,7 +302,7 @@ trait DrivesCompositionWizard
         }
 
         if ($this->compositionUuid === null) {
-            $this->asyncJobErrors = [__('patients.composition.errors.created_not_found')];
+            $this->asyncJobErrors = [__('compositions.errors.created_not_found')];
 
             return;
         }
@@ -363,7 +363,7 @@ trait DrivesCompositionWizard
             $this->printFormHtml = $response->body();
             $this->showPrintModal = true;
         } catch (EHealthConnectionException | EHealthException $exception) {
-            Session::flash('error', __('patients.composition.errors.print_form_failed'));
+            Session::flash('error', __('compositions.errors.print_form_failed'));
 
             Log::error('Failed to load the conclusion print form', [
                 'composition' => $this->compositionUuid,
@@ -389,7 +389,7 @@ trait DrivesCompositionWizard
         $composition = Composition::whereUuid($this->compositionUuid)->first();
 
         if (!$composition) {
-            Session::flash('error', __('patients.composition.errors.not_found'));
+            Session::flash('error', __('compositions.errors.not_found'));
 
             return;
         }
@@ -424,7 +424,7 @@ trait DrivesCompositionWizard
             $this->asyncJobErrors = [];
             $this->step = self::STEP_AWAITING_JOB;
 
-            Session::flash('success', __('patients.composition.messages.signature_submitted'));
+            Session::flash('success', __('compositions.messages.signature_submitted'));
         } catch (Throwable $exception) {
             Session::flash('error', $exception->getMessage());
 

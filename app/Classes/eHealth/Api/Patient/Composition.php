@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Classes\eHealth\Api\Patient;
 
 use App\Classes\eHealth\EHealthResponse;
+use App\Classes\eHealth\ValidationRuleBuilder;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 /**
  * Composition API — Medical Conclusions (МВН / МВТН).
@@ -53,6 +57,8 @@ class Composition extends PatientApiBase
      */
     public function getAsyncJobStatus(string $asyncJobId): PromiseInterface|EHealthResponse
     {
+        $this->setValidator($this->validateJob(...));
+
         return $this->get(self::URL . '/' . self::SEGMENT_COMPOSITION . "/job/$asyncJobId");
     }
 
@@ -72,6 +78,8 @@ class Composition extends PatientApiBase
         string $episodeId,
         string $encounterId
     ): PromiseInterface|EHealthResponse {
+        $this->setValidator($this->validateOne(...));
+
         return $this->get($this->contextUrl($patientId, $compositionId, $episodeId, $encounterId));
     }
 
@@ -95,6 +103,8 @@ class Composition extends PatientApiBase
      */
     public function search(array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator($this->validateMany(...));
+
         return $this->get(self::URL . '/searchComposition', $query);
     }
 
@@ -188,5 +198,100 @@ class Composition extends PatientApiBase
     ): string {
         return self::URL . "/$patientId/" . self::SEGMENT_COMPOSITION
             . "/$compositionId/episode/$episodeId/encounter/$encounterId";
+    }
+
+    protected function validateOne(EHealthResponse $response): array
+    {
+        $data = $response->getData();
+        $validator = Validator::make(is_array($data) ? $data : [], $this->compositionRules());
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error(
+                'Composition validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+        }
+
+        return $validator->validate();
+    }
+
+    protected function validateMany(EHealthResponse $response): array
+    {
+        $items = [];
+        foreach ($response->getData() as $item) {
+            $items[] = is_array($item) ? $item : [];
+        }
+
+        $rules = collect($this->searchRules())
+            ->mapWithKeys(static fn ($rule, $key) => ["*.$key" => $rule])
+            ->all();
+
+        $validator = Validator::make($items, $rules);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error(
+                'Composition search validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+        }
+
+        return $validator->validate();
+    }
+
+    protected function validateJob(EHealthResponse $response): array
+    {
+        $validator = Validator::make($response->getData() ?: [], [
+            'id' => ['nullable', 'string'],
+            'status' => ['required', 'string', Rule::in(['PENDING', 'DONE', 'FAILED'])],
+            'eta' => ['nullable', 'string'],
+            'links' => ['nullable', 'array'],
+            'error' => ['nullable'],
+        ]);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error(
+                'Composition job validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+        }
+
+        return $validator->validate();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function compositionRules(): array
+    {
+        return ValidationRuleBuilder::merge(
+            [
+                'identifier.value' => ['required', 'uuid'],
+                'status' => ['required', 'string'],
+                'title' => ['nullable', 'string'],
+                'date' => ['nullable', 'date'],
+            ],
+            ValidationRuleBuilder::codeableConceptRules('type', true),
+            ValidationRuleBuilder::codeableConceptRules('category'),
+            [
+                'subject.value' => ['nullable', 'uuid'],
+                'encounter.value' => ['nullable', 'uuid'],
+                'author.value' => ['nullable', 'uuid'],
+                'event' => ['nullable', 'array'],
+            ],
+            ValidationRuleBuilder::periodRules('event.0.period'),
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function searchRules(): array
+    {
+        return [
+            'identifier.value' => ['required', 'uuid'],
+            'status' => ['required', 'string'],
+            'title' => ['nullable', 'string'],
+            'type.coding.0.code' => ['nullable', 'string'],
+            'encounter.value' => ['nullable', 'uuid'],
+            'episodeOfCare.value' => ['nullable', 'uuid'],
+            'subject.value' => ['nullable', 'uuid'],
+        ];
     }
 }

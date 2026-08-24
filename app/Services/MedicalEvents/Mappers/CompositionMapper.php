@@ -6,6 +6,7 @@ namespace App\Services\MedicalEvents\Mappers;
 
 use App\Enums\Person\CompositionCategory;
 use App\Enums\Person\CompositionType;
+use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
 
 /**
@@ -113,7 +114,7 @@ class CompositionMapper
         if (!empty($data['relatesToTargetUuid'])) {
             $payload['relatesTo'] = [
                 'code' => $data['relatesToCode'] ?? self::RELATION_REPLACES,
-                'targetIdentifier' => $this->reference('composition', $data['relatesToTargetUuid']),
+                'targetIdentifier' => $this->resourceIdentifier('composition', $data['relatesToTargetUuid']),
             ];
         }
 
@@ -191,11 +192,11 @@ class CompositionMapper
                     ],
                 ],
             ],
-            'subject' => $this->reference($subjectResource, $subjectUuid),
-            'encounter' => $this->reference('encounter', $encounterUuid),
-            'author' => $this->reference('employee', $authorEmployeeUuid),
+            'subject' => $this->resourceIdentifier($subjectResource, $subjectUuid),
+            'encounter' => $this->resourceIdentifier('encounter', $encounterUuid),
+            'author' => $this->resourceIdentifier('employee', $authorEmployeeUuid),
             'section' => [
-                'focus' => $this->reference($focusResource, $focusUuid),
+                'focus' => $this->resourceIdentifier($focusResource, $focusUuid),
             ],
         ];
     }
@@ -211,23 +212,24 @@ class CompositionMapper
     }
 
     /**
-     * @return array{coding: list<array{system: string, code: string}>}
+     * @return array{coding: list<array{system: string, code: string}>, text: string}
      */
     private function codeableConcept(string $system, string $code): array
     {
-        return ['coding' => [['system' => $system, 'code' => $code]]];
+        return FhirResource::make()->coding($system, $code)->toCodeableConcept();
     }
 
     /**
+     * Composition references are bare `{type, value}` identifiers, not the
+     * `{identifier: {type, value}}` wrapper that {@see FhirResource::toIdentifier()}
+     * produces for the other medical-event entities.
+     *
      * @return array{type: array{coding: list<array{system: string, code: string}>, text: string}, value: string}
      */
-    private function reference(string $resource, string $uuid): array
+    private function resourceIdentifier(string $resource, string $uuid): array
     {
         return [
-            'type' => [
-                'coding' => [['system' => self::SYSTEM_RESOURCES, 'code' => $resource]],
-                'text' => '',
-            ],
+            'type' => FhirResource::make()->coding(self::SYSTEM_RESOURCES, $resource)->toCodeableConcept(),
             'value' => $uuid,
         ];
     }

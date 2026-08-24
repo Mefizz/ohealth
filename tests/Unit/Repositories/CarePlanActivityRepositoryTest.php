@@ -17,8 +17,8 @@ class CarePlanActivityRepositoryTest extends TestCase
 {
     public function test_device_request_quantity_is_integer_in_payload(): void
     {
-        $carePlan = new CarePlan([
-            'period_start' => now()->subDay(),
+        $carePlan = (new CarePlan([
+            'period_start' => now())->subDay(),
             'period_end' => now()->addMonth(),
         ]);
         $carePlan->setRawAttributes(array_merge($carePlan->getAttributes(), [
@@ -26,7 +26,7 @@ class CarePlanActivityRepositoryTest extends TestCase
             'period_end' => now()->addMonth()->format('Y-m-d'),
         ]));
 
-        $activity = new CarePlanActivity([
+        $activity = (new CarePlanActivity([
             'kind' => 'device_request',
             'status' => CarePlanStatus::DRAFT->value,
             'quantity' => 1,
@@ -34,7 +34,7 @@ class CarePlanActivityRepositoryTest extends TestCase
             'quantity_code' => 'piece',
             'product_reference' => '0cf026bd-82f0-46eb-becb-669a0552368d',
             'program' => '0cefbce3-0000-0000-0000-000000000001',
-            'scheduled_period_start' => now()->format('Y-m-d'),
+            'scheduled_period_start' => now())->format('Y-m-d'),
             'scheduled_period_end' => now()->addWeek()->format('Y-m-d'),
         ]);
         $activity->setRelation('carePlan', $carePlan);
@@ -47,8 +47,8 @@ class CarePlanActivityRepositoryTest extends TestCase
 
     public function test_device_payload_prefers_device_definition_uuid_over_classification(): void
     {
-        $carePlan = new CarePlan([
-            'period_start' => now()->subDay(),
+        $carePlan = (new CarePlan([
+            'period_start' => now())->subDay(),
             'period_end' => now()->addMonth(),
         ]);
         $carePlan->setRawAttributes(array_merge($carePlan->getAttributes(), [
@@ -57,7 +57,7 @@ class CarePlanActivityRepositoryTest extends TestCase
         ]));
 
         $deviceUuid = '0b70715d-0e6e-4a89-889f-815cf429cb87';
-        $activity = new CarePlanActivity([
+        $activity = (new CarePlanActivity([
             'kind' => 'device_request',
             'status' => CarePlanStatus::DRAFT->value,
             'quantity' => 1,
@@ -66,7 +66,7 @@ class CarePlanActivityRepositoryTest extends TestCase
             'product_reference' => $deviceUuid,
             'product_codeable_concept' => '18_09_03',
             'program' => 'af8ba0d3-1520-4a01-8156-22065e96fd9a',
-            'scheduled_period_start' => now()->format('Y-m-d'),
+            'scheduled_period_start' => now())->format('Y-m-d'),
             'scheduled_period_end' => now()->addWeek()->format('Y-m-d'),
         ]);
         $activity->setRelation('carePlan', $carePlan);

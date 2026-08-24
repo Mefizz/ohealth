@@ -258,7 +258,7 @@ class EncounterCreate extends EncounterComponent
         }
 
         try {
-            $signedContent = new CipherRequest()->signData(
+            $signedContent = (new CipherRequest())->signData(
                 $formattedData,
                 $validated['knedp'],
                 $validated['keyContainerUpload'],

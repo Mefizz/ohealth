@@ -253,7 +253,7 @@ class EncounterEdit extends EncounterComponent
         unset($formattedData['encounter']['incoming_referral']['display_value']);
 
         try {
-            $signedContent = new CipherRequest()->signData(
+            $signedContent = (new CipherRequest())->signData(
                 $formattedData,
                 $validated['knedp'],
                 $validated['keyContainerUpload'],

@@ -9,9 +9,8 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Local cache of eHealth Composition (МВН / МВТН), stored in the same FHIR
-     * shape as the other medical-event tables: CodeableConcept and Identifier FKs,
-     * a morph Period for event.period, and the original extension list as JSON.
+     * Same table as the install migration: existing environments run `update`,
+     * not a fresh install.
      */
     public function up(): void
     {

@@ -33,13 +33,13 @@ class CompositionPolicy
     {
         return $user->can('composition:search') && $this->inConclusionIssuingEntity()
             ? Response::allow()
-            : Response::deny(__('patients.composition.errors.view_not_allowed'));
+            : Response::deny(__('compositions.errors.view_not_allowed'));
     }
 
     public function view(User $user, Composition $composition): Response
     {
         if (!$user->can('composition:read') || !$this->inConclusionIssuingEntity()) {
-            return Response::deny(__('patients.composition.errors.view_not_allowed'));
+            return Response::deny(__('compositions.errors.view_not_allowed'));
         }
 
         return Response::allow();
@@ -53,7 +53,7 @@ class CompositionPolicy
         return $this->mayCreate(
             $user,
             CompositionType::NEWBORN,
-            __('patients.composition.errors.create_newborn_not_allowed')
+            __('compositions.errors.create_newborn_not_allowed')
         );
     }
 
@@ -67,7 +67,7 @@ class CompositionPolicy
         return $this->mayCreate(
             $user,
             CompositionType::TEMP_DISABILITY,
-            __('patients.composition.errors.create_temp_disability_not_allowed')
+            __('compositions.errors.create_temp_disability_not_allowed')
         );
     }
 
@@ -101,16 +101,16 @@ class CompositionPolicy
     public function sign(User $user, Composition $composition): Response
     {
         if (!$user->can('composition:sign')) {
-            return Response::deny(__('patients.composition.errors.sign_not_allowed'));
+            return Response::deny(__('compositions.errors.sign_not_allowed'));
         }
 
         if (!$composition->status->isSignable()) {
-            return Response::deny(__('patients.composition.errors.sign_status_not_preliminary'));
+            return Response::deny(__('compositions.errors.sign_status_not_preliminary'));
         }
 
         return $this->isAuthor($user, $composition)
             ? Response::allow()
-            : Response::deny(__('patients.composition.errors.sign_not_author'));
+            : Response::deny(__('compositions.errors.sign_not_author'));
     }
 
     /**
@@ -122,16 +122,16 @@ class CompositionPolicy
     public function cancel(User $user, Composition $composition): Response
     {
         if (!$user->can('composition:cancel')) {
-            return Response::deny(__('patients.composition.errors.cancel_not_allowed'));
+            return Response::deny(__('compositions.errors.cancel_not_allowed'));
         }
 
         if (!$composition->status->isCancellable()) {
-            return Response::deny(__('patients.composition.errors.cancel_status_not_final'));
+            return Response::deny(__('compositions.errors.cancel_status_not_final'));
         }
 
         return $this->isAuthor($user, $composition)
             ? Response::allow()
-            : Response::deny(__('patients.composition.errors.cancel_not_author'));
+            : Response::deny(__('compositions.errors.cancel_not_author'));
     }
 
     /**
@@ -142,20 +142,20 @@ class CompositionPolicy
         // Retrying is a PATCH on an existing conclusion, so it is gated by the write
         // scope rather than by the one that allows a brand new conclusion to be issued.
         if (!$user->can('composition:write')) {
-            return Response::deny(__('patients.composition.errors.erln_resend_not_allowed'));
+            return Response::deny(__('compositions.errors.erln_resend_not_allowed'));
         }
 
         if ($composition->type !== CompositionType::TEMP_DISABILITY) {
-            return Response::deny(__('patients.composition.errors.erln_resend_not_applicable'));
+            return Response::deny(__('compositions.errors.erln_resend_not_applicable'));
         }
 
         if (!$composition->status->isCancellable()) {
-            return Response::deny(__('patients.composition.errors.erln_resend_not_final'));
+            return Response::deny(__('compositions.errors.erln_resend_not_final'));
         }
 
         return $composition->erlnStatus === self::ERLN_STATUS_ERROR
             ? Response::allow()
-            : Response::deny(__('patients.composition.errors.erln_resend_not_error'));
+            : Response::deny(__('compositions.errors.erln_resend_not_error'));
     }
 
     /**

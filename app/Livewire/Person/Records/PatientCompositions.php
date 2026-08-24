@@ -201,7 +201,7 @@ class PatientCompositions extends BasePatientComponent
         $composition = $this->findLocalComposition($compositionUuid);
 
         if (!$composition?->hasReadContext) {
-            Session::flash('error', __('patients.composition.errors.missing_read_context'));
+            Session::flash('error', __('compositions.errors.missing_read_context'));
 
             return;
         }
@@ -209,14 +209,12 @@ class PatientCompositions extends BasePatientComponent
         $this->authorize('view', $composition);
 
         try {
-            $response = EHealth::composition()->getById(
+            $this->compositionDetail = EHealth::composition()->getById(
                 $composition->patientUuid,
                 $composition->uuid,
                 $composition->episodeOfCareUuid,
                 $composition->encounterUuid
-            );
-
-            $this->compositionDetail = $response->getData() ?: ($response->json() ?? []);
+            )->validate();
             $this->showDetailModal = true;
 
             try {
@@ -249,7 +247,7 @@ class PatientCompositions extends BasePatientComponent
         $composition = $this->findLocalComposition($compositionUuid);
 
         if (!$composition?->hasReadContext) {
-            Session::flash('error', __('patients.composition.errors.missing_read_context'));
+            Session::flash('error', __('compositions.errors.missing_read_context'));
 
             return;
         }
@@ -270,7 +268,7 @@ class PatientCompositions extends BasePatientComponent
             $this->printFormHtml = $response->body();
             $this->showPrintModal = true;
         } catch (EHealthConnectionException | EHealthException $exception) {
-            Session::flash('error', __('patients.composition.errors.print_form_failed'));
+            Session::flash('error', __('compositions.errors.print_form_failed'));
 
             Log::error('Failed to load composition print form', [
                 'compositionUuid' => $compositionUuid,
@@ -298,7 +296,7 @@ class PatientCompositions extends BasePatientComponent
         $composition = $this->findLocalComposition($compositionUuid);
 
         if (!$composition) {
-            Session::flash('error', __('patients.composition.errors.not_found'));
+            Session::flash('error', __('compositions.errors.not_found'));
 
             return;
         }
@@ -319,7 +317,7 @@ class PatientCompositions extends BasePatientComponent
         // processing has started. The call is skipped for МВТН: those may already
         // have an ERLN record and are cancelled together with it.
         if ($composition->isNewborn && $this->lifecycle()->hasIntegrationProcesses($composition)) {
-            Session::flash('error', __('patients.composition.errors.cancel_has_integration'));
+            Session::flash('error', __('compositions.errors.cancel_has_integration'));
 
             return;
         }
@@ -477,7 +475,7 @@ class PatientCompositions extends BasePatientComponent
             ]);
 
             $this->closeCancellationModal();
-            Session::flash('success', __('patients.composition.messages.cancellation_submitted'));
+            Session::flash('success', __('compositions.messages.cancellation_submitted'));
         } catch (Throwable $e) {
             Session::flash('error', $e->getMessage());
 
@@ -594,7 +592,7 @@ class PatientCompositions extends BasePatientComponent
         $composition = $this->findLocalComposition($compositionUuid);
 
         if (!$composition) {
-            Session::flash('error', __('patients.composition.errors.not_found'));
+            Session::flash('error', __('compositions.errors.not_found'));
 
             return;
         }
@@ -645,7 +643,7 @@ class PatientCompositions extends BasePatientComponent
             ]);
 
             $this->closeErlnResendModal();
-            Session::flash('success', __('patients.composition.messages.erln_resent_successfully'));
+            Session::flash('success', __('compositions.messages.erln_resent_successfully'));
         } catch (Throwable $e) {
             Session::flash('error', $e->getMessage());
 
@@ -668,7 +666,7 @@ class PatientCompositions extends BasePatientComponent
         $composition = $this->findLocalComposition($compositionUuid);
 
         if (!$composition?->hasReadContext) {
-            Session::flash('error', __('patients.composition.errors.missing_read_context'));
+            Session::flash('error', __('compositions.errors.missing_read_context'));
 
             return;
         }
@@ -677,7 +675,7 @@ class PatientCompositions extends BasePatientComponent
 
         try {
             $this->lifecycle()->syncIntegration($composition);
-            Session::flash('success', __('patients.composition.messages.integration_refreshed'));
+            Session::flash('success', __('compositions.messages.integration_refreshed'));
         } catch (EHealthConnectionException | EHealthException $exception) {
             $exception->handle('Error refreshing composition integration data');
         }
@@ -689,10 +687,17 @@ class PatientCompositions extends BasePatientComponent
     private function paginateLocalCompositions(): LengthAwarePaginator
     {
         $query = Composition::forPatient($this->patient())
+            ->with([
+                'typeCodeableConcept.coding',
+                'categoryCodeableConcept.coding',
+                'encounter',
+                'episodeOfCare',
+                'eventPeriod',
+            ])
             ->recentlyUpdatedFirst();
 
         if ($this->filterType) {
-            $query->where('type', $this->filterType);
+            $query->ofType(\App\Enums\Person\CompositionType::from($this->filterType));
         }
 
         if ($this->filterStatus) {
@@ -700,11 +705,14 @@ class PatientCompositions extends BasePatientComponent
         }
 
         if ($this->filterEncounterId) {
-            $query->where('encounter_uuid', $this->filterEncounterId);
+            $query->forEncounter($this->filterEncounterId);
         }
 
         if ($this->filterEpisodeOfCareId) {
-            $query->where('episode_of_care_uuid', $this->filterEpisodeOfCareId);
+            $query->whereHas(
+                'episodeOfCare',
+                fn ($episode) => $episode->where('value', $this->filterEpisodeOfCareId)
+            );
         }
 
         if ($this->filterSectionFocusUuid) {
@@ -743,9 +751,9 @@ class PatientCompositions extends BasePatientComponent
                 'limit' => $limit,
             ]);
 
-            $response = EHealth::composition()->search($query);
-
-            $this->syncLocalCompositions($response->getData() ?: ($response->json() ?? []));
+            $this->syncLocalCompositions(
+                EHealth::composition()->search($query)->validate()
+            );
         } catch (EHealthConnectionException | EHealthException $exception) {
             $exception->handle('Error searching compositions');
         }

@@ -181,7 +181,7 @@ class DeviceRequestRequestRepository extends BaseRepository
             'id' => $request->id,
             'uuid' => (string) $request->uuid,
             'kind' => 'device_request',
-            'requestNumber' => (string) ($request->requestNumber ?: $request->uuid),
+            'requestNumber' => trim((string) ($request->requestNumber ?? '')),
             'status' => (string) $request->status,
             'statusLabel' => ServiceRequestStatus::labelFor($status),
             'statusBadge' => ServiceRequestStatus::colorFor($status),

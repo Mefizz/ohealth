@@ -384,15 +384,15 @@
 
                             <fieldset class="fieldset-card p-5">
                                 <legend class="legend">{{ __('patients.medical_reports') }}</legend>
-                                @if ($this instanceof EncounterEdit && $this->createCompositionFromEncounterUrl)
-                                    <a
-                                        href="{{ $this->createCompositionFromEncounterUrl }}"
-                                        wire:navigate
+                                @if ($this instanceof EncounterEdit && $this->canOpenEncounterCompositionDrawer)
+                                    <button
+                                        type="button"
+                                        wire:click="openEncounterCompositionDrawer"
                                         class="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                     >
                                         @icon('plus', 'w-4 h-4')
                                         <span>{{ __('encounters.add_medical_report') }}</span>
-                                    </a>
+                                    </button>
                                 @else
                                     <span
                                         class="flex cursor-not-allowed items-center gap-1.5 text-sm font-medium text-gray-400 opacity-60"
@@ -513,16 +513,17 @@
 
     @if ($this instanceof EncounterEdit && $this->canBeCancelled)
         @include('livewire.encounter.encounter-cancellation', [
-                    'formPath' => 'cancellationForm',
-                    'description' => array_filter($this->selectedRecords)
-                        ? __('encounters.records_cancel_modal_description')
-                        : __('encounters.cancel_modal_description')
-                ])
+                                    'formPath' => 'cancellationForm',
+                                    'description' => array_filter($this->selectedRecords)
+                                        ? __('encounters.records_cancel_modal_description')
+                                        : __('encounters.cancel_modal_description')
+                                ])
     @endif
 
     @if ($this instanceof EncounterEdit)
         @include('livewire.encounter.parts.encounter-eprescription-drawer')
         @include('livewire.encounter.parts.encounter-referral-drawer')
+        @include('livewire.encounter.parts.encounter-composition-drawer')
     @endif
 
     <livewire:components.x-message :listen-async="true" :key="time()" />

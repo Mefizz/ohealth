@@ -17,6 +17,7 @@ use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MergeRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
+use App\Models\LegalEntity;
 use App\Services\MedicalEvents\Fhir;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
@@ -67,6 +68,22 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         'eHealth/encounter_classes',
         'eHealth/encounter_types',
     ];
+
+    public function mount(
+        LegalEntity $legalEntity,
+        ?Person $person = null,
+        ?Preperson $preperson = null,
+        bool $embedded = false,
+        ?string $encounter = null,
+    ): void {
+        $this->embedded = $embedded;
+
+        if ($encounter !== null) {
+            $this->encounter = $encounter;
+        }
+
+        parent::mount($legalEntity, $person, $preperson);
+    }
 
     protected function initializeComponent(): void
     {
@@ -195,8 +212,16 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
      */
     public function restart(): void
     {
+        // Keep the drawer-locked encounter so restart does not dump the doctor on an empty picker.
+        $lockedEncounter = $this->embedded ? $this->encounter : null;
+
         $this->form->resetCompositionFields();
         $this->resetWizard(['acknowledgedUnidentifiedErln', 'refineFrom', 'continueFrom', 'acknowledgedMergeCheck', 'encounter']);
+
+        if ($lockedEncounter !== null) {
+            $this->encounter = $lockedEncounter;
+        }
+
         $this->initializeComponent();
     }
 

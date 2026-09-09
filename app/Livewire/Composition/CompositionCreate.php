@@ -8,6 +8,7 @@ use App\Enums\Person\CompositionType;
 use App\Livewire\Composition\Concerns\DrivesCompositionWizard;
 use App\Livewire\Composition\Forms\CompositionForm;
 use App\Livewire\Person\Records\BasePatientComponent;
+use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
@@ -46,6 +47,22 @@ class CompositionCreate extends BasePatientComponent
         'eHealth/encounter_classes',
         'eHealth/encounter_types',
     ];
+
+    public function mount(
+        LegalEntity $legalEntity,
+        ?Person $person = null,
+        ?Preperson $preperson = null,
+        bool $embedded = false,
+        ?string $encounter = null,
+    ): void {
+        $this->embedded = $embedded;
+
+        if ($encounter !== null) {
+            $this->encounter = $encounter;
+        }
+
+        parent::mount($legalEntity, $person, $preperson);
+    }
 
     protected function initializeComponent(): void
     {
@@ -201,8 +218,15 @@ class CompositionCreate extends BasePatientComponent
 
     public function restart(): void
     {
+        $lockedEncounter = $this->embedded ? $this->encounter : null;
+
         $this->form->resetCompositionFields();
-        $this->resetWizard(['counterpartQuery', 'motherFullName', 'newbornFullName']);
+        $this->resetWizard(['counterpartQuery', 'motherFullName', 'newbornFullName', 'encounter']);
+
+        if ($lockedEncounter !== null) {
+            $this->encounter = $lockedEncounter;
+        }
+
         $this->initializeComponent();
     }
 

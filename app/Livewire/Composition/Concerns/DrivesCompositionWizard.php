@@ -45,6 +45,11 @@ trait DrivesCompositionWizard
 
     public const int STEP_REVIEW = 5;
 
+    /**
+     * Nested in the encounter drawer — no patient layout, encounter is passed as a prop.
+     */
+    public bool $embedded = false;
+
     public int $step = self::STEP_ENCOUNTER;
 
     /** Episode of the chosen encounter; needed to read the conclusion back. */
@@ -197,6 +202,16 @@ trait DrivesCompositionWizard
         return route('persons.patient-data', [legalEntity(), 'person' => $person->id]);
     }
 
+    /**
+     * When the wizard opened from an encounter drawer, the encounter step is skipped and
+     * "Back" from auth closes the drawer instead of showing an empty picker.
+     */
+    #[Computed]
+    public function encounterIsLocked(): bool
+    {
+        return $this->embedded && filled($this->form->encounterUuid);
+    }
+
     public function selectEncounter(string $encounterUuid): void
     {
         $encounter = $this->availableEncounters
@@ -214,6 +229,32 @@ trait DrivesCompositionWizard
         $this->refreshExistingActiveRemote();
         $this->loadAuthMethods();
         $this->step = self::STEP_AUTH_METHOD;
+    }
+
+    /**
+     * Auth-step back control: unlock the encounter picker, or close the drawer when locked.
+     */
+    public function goBackFromAuthMethod(): void
+    {
+        if ($this->encounterIsLocked) {
+            $this->requestClose();
+
+            return;
+        }
+
+        $this->step = self::STEP_ENCOUNTER;
+    }
+
+    /**
+     * Ask the parent encounter page to close the composition drawer (no-op on full page).
+     */
+    public function requestClose(): void
+    {
+        if (!$this->embedded) {
+            return;
+        }
+
+        $this->dispatch('composition-wizard-closed');
     }
 
     public function loadAuthMethods(): void

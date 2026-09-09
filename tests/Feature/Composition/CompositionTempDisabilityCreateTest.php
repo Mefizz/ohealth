@@ -221,6 +221,35 @@ class CompositionTempDisabilityCreateTest extends TestCase
             ->assertSet('step', CompositionTempDisabilityCreate::STEP_DETAILS);
     }
 
+    /**
+     * Opening from the encounter drawer locks the encounter and starts at authentication.
+     */
+    public function test_embedded_wizard_with_preselected_encounter_skips_the_picker(): void
+    {
+        ['legalEntity' => $legalEntity, 'employee' => $employee] = $this->fixture();
+
+        $encounterUuid = (string) Str::uuid();
+        $episodeUuid = (string) Str::uuid();
+
+        $this->fakeEncounters([
+            $this->encounter($encounterUuid, 'finished', $employee->uuid, $episodeUuid),
+        ]);
+
+        Livewire::test(CompositionTempDisabilityCreate::class, [
+            'legalEntity' => $legalEntity,
+            'preperson' => $this->preperson(),
+            'embedded' => true,
+            'encounter' => $encounterUuid,
+        ])
+            ->assertSet('embedded', true)
+            ->assertSet('form.encounterUuid', $encounterUuid)
+            ->assertSet('episodeUuid', $episodeUuid)
+            ->assertSet('step', CompositionTempDisabilityCreate::STEP_AUTH_METHOD)
+            ->assertSet('encounterIsLocked', true)
+            ->call('goBackFromAuthMethod')
+            ->assertDispatched('composition-wizard-closed');
+    }
+
     public function test_create_signature_modal_opens_after_details_are_valid(): void
     {
         ['legalEntity' => $legalEntity, 'employee' => $employee] = $this->fixture();

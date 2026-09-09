@@ -135,6 +135,10 @@ class CompositionCreate extends BasePatientComponent
             return false;
         }
 
+        if ($this->existingActiveRemote !== []) {
+            return true;
+        }
+
         return Composition::query()
             ->where('subject_uuid', $this->form->prepersonUuid)
             ->ofType(CompositionType::NEWBORN)

@@ -12,23 +12,23 @@
             {{-- Progress --}}
             <ol class="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                 @foreach ([
-                                                                                    Wizard::STEP_ENCOUNTER => __('compositions.create_temp_disability.steps.encounter'),
-                                                                                    Wizard::STEP_AUTH_METHOD => __('compositions.create_temp_disability.steps.auth_method'),
-                                                                                    Wizard::STEP_DETAILS => __('compositions.create_temp_disability.steps.details'),
-                                                                                    Wizard::STEP_AWAITING_JOB => __('compositions.create_temp_disability.steps.processing'),
-                                                                                    Wizard::STEP_REVIEW => __('compositions.create_temp_disability.steps.review'),
-                                                                                ] as $stepNumber => $label)
+                                                                                                    Wizard::STEP_ENCOUNTER => __('compositions.create_temp_disability.steps.encounter'),
+                                                                                                    Wizard::STEP_AUTH_METHOD => __('compositions.create_temp_disability.steps.auth_method'),
+                                                                                                    Wizard::STEP_DETAILS => __('compositions.create_temp_disability.steps.details'),
+                                                                                                    Wizard::STEP_AWAITING_JOB => __('compositions.create_temp_disability.steps.processing'),
+                                                                                                    Wizard::STEP_REVIEW => __('compositions.create_temp_disability.steps.review'),
+                                                                                                ] as $stepNumber => $label)
                     <li @class([
-                                                                                        'flex items-center gap-2',
-                                                                                        'font-semibold text-gray-900 dark:text-gray-100' => $step === $stepNumber,
-                                                                                        'text-gray-400 dark:text-gray-500' => $step !== $stepNumber,
-                                                                                    ])>
+                                                                                                        'flex items-center gap-2',
+                                                                                                        'font-semibold text-gray-900 dark:text-gray-100' => $step === $stepNumber,
+                                                                                                        'text-gray-400 dark:text-gray-500' => $step !== $stepNumber,
+                                                                                                    ])>
                         <span
                             @class([
-                                                                                                                                            'flex h-6 w-6 items-center justify-center rounded-full text-xs',
-                                                                                                                                            'bg-primary-600 text-white' => $step >= $stepNumber,
-                                                                                                                                            'bg-gray-200 text-gray-600 dark:bg-gray-700' => $step < $stepNumber,
-                                                                                                                                        ])
+                                                                                                                                                                        'flex h-6 w-6 items-center justify-center rounded-full text-xs',
+                                                                                                                                                                        'bg-primary-600 text-white' => $step >= $stepNumber,
+                                                                                                                                                                        'bg-gray-200 text-gray-600 dark:bg-gray-700' => $step < $stepNumber,
+                                                                                                                                                                    ])
                         >{{ $stepNumber }}</span>
                         {{ $label }}
                     </li>
@@ -96,6 +96,8 @@
                 <div class="mb-4 font-semibold text-gray-900 dark:text-gray-100">
                     {{ __('compositions.create_temp_disability.auth_method_hint') }}
                 </div>
+
+                @include('livewire.composition.parts.auth-method-create')
 
                 <div class="space-y-3">
                     @foreach ($authMethods as $method)
@@ -169,6 +171,8 @@
 
             {{-- Step 3: details --}}
             @if ($step === Wizard::STEP_DETAILS)
+                @include('livewire.composition.parts.existing-remote-warning')
+
                 <div class="form-row-3 mb-6">
                     <div class="form-group group">
                         <select
@@ -243,11 +247,11 @@
 
                 <div class="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2">
                     @foreach ([
-                                                                                                        'form.isAccident' => __('compositions.detail.flags.is_accident'),
-                                                                                                        'form.isIntoxicated' => __('compositions.detail.flags.is_intoxicated'),
-                                                                                                        'form.isForeignTreatment' => __('compositions.detail.flags.is_foreign_treatment'),
-                                                                                                        'form.isForceRenew' => __('compositions.detail.flags.is_force_renew'),
-                                                                                                    ] as $model => $label)
+                                                                                                                            'form.isAccident' => __('compositions.detail.flags.is_accident'),
+                                                                                                                            'form.isIntoxicated' => __('compositions.detail.flags.is_intoxicated'),
+                                                                                                                            'form.isForeignTreatment' => __('compositions.detail.flags.is_foreign_treatment'),
+                                                                                                                            'form.isForceRenew' => __('compositions.detail.flags.is_force_renew'),
+                                                                                                                        ] as $model => $label)
                         <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                             <input type="checkbox" wire:model="{{ $model }}" class="default-checkbox h-5 w-5" />
                             {{ $label }}
@@ -324,7 +328,7 @@
                 <div class="flex flex-wrap gap-2">
                     <button
                         type="button"
-                        wire:click="reviewDetails"
+                        wire:click="openCreateSignatureModal"
                         @disabled($this->requiresUnidentifiedErlnWarning)
                         class="button-primary px-5 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -368,13 +372,53 @@
                 </div>
             @endif
 
-            {{-- Step 5: review and sign --}}
             @if ($step === Wizard::STEP_REVIEW)
                 <div class="status-alert-green mb-6">
                     <p class="text-sm font-medium">{{ __('compositions.create_temp_disability.created') }}</p>
                 </div>
 
+                @if ($refineFrom)
+                    <div class="status-alert-yellow mb-6 flex-col items-start gap-2">
+                        @if ($this->refineMergeCompleted)
+                            <p class="text-sm font-medium">{{ __('compositions.create_temp_disability.merge_ok') }}</p>
+                        @else
+                            <p class="text-sm font-medium">
+                                {{ __('compositions.create_temp_disability.merge_required') }}
+                            </p>
+                            @if ($this->refinePrepersonMergeUrl)
+                                <a
+                                    href="{{ $this->refinePrepersonMergeUrl }}"
+                                    class="button-primary-outline px-4 py-2 text-sm"
+                                    target="_blank"
+                                >
+                                    {{ __('compositions.create_temp_disability.open_merge') }}
+                                </a>
+                            @endif
+                            @if ($this->requiresMergeAcknowledgement)
+                                <button
+                                    type="button"
+                                    wire:click="acknowledgeMergeCheck"
+                                    class="button-minor px-4 py-2 text-sm"
+                                >
+                                    {{ __('compositions.create_temp_disability.acknowledge_merge') }}
+                                </button>
+                            @endif
+                        @endif
+                    </div>
+                @endif
+
                 @include('livewire.composition.parts.details-summary', ['detail' => $compositionDetail])
+
+                @if ($integrationData)
+                    @include('livewire.composition.parts.integration-data', ['items' => $integrationData])
+                @endif
+
+                @if (data_get($compositionDetail, 'relatesTo.targetIdentifier.value'))
+                    <div class="mt-4 text-sm text-gray-700 dark:text-gray-200">
+                        {{ __('compositions.create_temp_disability.related_notice') }}
+                        <span class="record-inner-id-value">{{ data_get($compositionDetail, 'relatesTo.targetIdentifier.value') }}</span>
+                    </div>
+                @endif
 
                 <div class="mt-6 flex flex-wrap gap-2">
                     <button type="button" wire:click="loadPrintForm" class="button-primary-outline px-5 py-2.5 text-sm">

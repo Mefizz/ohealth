@@ -167,6 +167,10 @@
                 </div>
             @endif
         </div>
+
+        @if (!empty($integrationData))
+            @include('livewire.composition.parts.integration-data', ['items' => $integrationData])
+        @endif
     </x-slot>
 
     <x-slot name="footer">
@@ -178,6 +182,15 @@
         >
             {{ __('compositions.actions.print') }}
         </button>
+        @if (data_get($compositionDetail, 'type.coding.0.code') === 'NEWBORN')
+            <button
+                type="button"
+                wire:click="loadPrintFormForMother('{{ $viewingCompositionUuid }}')"
+                class="button-primary-outline ml-2 px-5 py-2 text-sm"
+            >
+                {{ __('compositions.actions.print_for_mother') }}
+            </button>
+        @endif
         <button type="button" wire:click="closeDetailModal" class="button-primary-outline ml-2 px-5 py-2 text-sm">
             {{ __('forms.close') }}
         </button>

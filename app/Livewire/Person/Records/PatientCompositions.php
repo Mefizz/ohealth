@@ -245,43 +245,71 @@ class PatientCompositions extends BasePatientComponent
      */
     public function loadPrintForm(string $compositionUuid): void
     {
-        $composition = $this->findLocalComposition($compositionUuid);
+        $this->fetchPrintForm($compositionUuid);
+    }
 
-        if (!$composition?->hasReadContext) {
-            Session::flash('error', __('compositions.errors.missing_read_context'));
-
-            return;
-        }
-
-        $this->authorize('view', $composition);
-
-        try {
-            $templateId = $composition->isNewborn ? '1000' : '1001';
-            $response = EHealth::composition()->getPrintForm(
-                $composition->patientUuid,
-                $composition->uuid,
-                $composition->episodeOfCareUuid,
-                $composition->encounterUuid,
-                $templateId
-            );
-
-            $this->showDetailModal = false;
-            $this->printFormHtml = $response->body();
-            $this->showPrintModal = true;
-        } catch (EHealthConnectionException | EHealthException $exception) {
-            Session::flash('error', __('compositions.errors.print_form_failed'));
-
-            Log::error('Failed to load composition print form', [
-                'compositionUuid' => $compositionUuid,
-                'error' => $exception->getMessage(),
-            ]);
-        }
+    /**
+     * Mother-facing print of the birth conclusion informational sheet (TV 3.8.1.8.3).
+     */
+    public function loadPrintFormForMother(string $compositionUuid): void
+    {
+        $this->fetchPrintForm($compositionUuid);
     }
 
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
         $this->printFormHtml = null;
+    }
+
+    /**
+     * Poll pending cancel / ERLN async jobs on the registry page.
+     */
+    public function pollPendingJobs(): void
+    {
+        $pending = Composition::forPatient($this->patient())
+            ->where('async_job_status', self::JOB_STATUS_PENDING)
+            ->whereNotNull('async_job_id')
+            ->limit(10)
+            ->get();
+
+        foreach ($pending as $composition) {
+            try {
+                $status = $this->lifecycle()->jobStatus((string) $composition->asyncJobId);
+            } catch (Throwable $exception) {
+                Log::warning('Failed to poll composition async job', [
+                    'composition' => $composition->uuid,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            $composition->update(['async_job_status' => $status['status']]);
+
+            if ($status['status'] === CompositionLifecycleService::JOB_DONE) {
+                try {
+                    if ($composition->hasReadContext) {
+                        $detail = $this->lifecycle()->fetchDetails(
+                            $composition->patientUuid,
+                            $composition->uuid,
+                            $composition->episodeOfCareUuid,
+                            $composition->encounterUuid
+                        );
+                        $this->lifecycle()->storeLocal(
+                            $detail,
+                            $this->patient(),
+                            $composition->episodeOfCareUuid,
+                            $composition->asyncJobId
+                        );
+                    }
+
+                    $this->lifecycle()->syncIntegration($composition->fresh());
+                } catch (Throwable) {
+                    // Best-effort refresh after the remote job finishes.
+                }
+            }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -435,11 +463,15 @@ class PatientCompositions extends BasePatientComponent
                 Auth::user()->party->taxId
             );
 
-            EHealth::composition()->cancel($composition->uuid, ['data' => $signedContent]);
+            $response = EHealth::composition()->cancel($composition->uuid, ['data' => $signedContent]);
+            $job = $response->getData();
 
             // eHealth processes the cancellation asynchronously, so the conclusion is not in
             // error yet. Record the job and let the poller move the status once it is done.
-            $composition->update(['async_job_status' => self::JOB_STATUS_PENDING]);
+            $composition->update([
+                'async_job_id' => data_get($job, 'id'),
+                'async_job_status' => data_get($job, 'status', self::JOB_STATUS_PENDING),
+            ]);
 
             $this->closeCancellationModal();
             Session::flash('success', __('compositions.messages.cancellation_submitted'));
@@ -504,7 +536,15 @@ class PatientCompositions extends BasePatientComponent
         $this->authorize('resendErln', $composition);
 
         try {
-            EHealth::composition()->resendErln($composition->uuid);
+            $response = EHealth::composition()->resendErln($composition->uuid);
+            $job = $response->getData();
+
+            if (filled(data_get($job, 'id'))) {
+                $composition->update([
+                    'async_job_id' => data_get($job, 'id'),
+                    'async_job_status' => data_get($job, 'status', self::JOB_STATUS_PENDING),
+                ]);
+            }
 
             try {
                 $this->lifecycle()->syncIntegration($composition->fresh());
@@ -670,6 +710,41 @@ class PatientCompositions extends BasePatientComponent
     private function findLocalComposition(string $uuid): ?Composition
     {
         return Composition::whereUuid($uuid)->first();
+    }
+
+    private function fetchPrintForm(string $compositionUuid): void
+    {
+        $composition = $this->findLocalComposition($compositionUuid);
+
+        if (!$composition?->hasReadContext) {
+            Session::flash('error', __('compositions.errors.missing_read_context'));
+
+            return;
+        }
+
+        $this->authorize('view', $composition);
+
+        try {
+            $templateId = $composition->isNewborn ? '1000' : '1001';
+            $response = EHealth::composition()->getPrintForm(
+                $composition->patientUuid,
+                $composition->uuid,
+                $composition->episodeOfCareUuid,
+                $composition->encounterUuid,
+                $templateId
+            );
+
+            $this->showDetailModal = false;
+            $this->printFormHtml = $response->body();
+            $this->showPrintModal = true;
+        } catch (EHealthConnectionException | EHealthException $exception) {
+            Session::flash('error', __('compositions.errors.print_form_failed'));
+
+            Log::error('Failed to load composition print form', [
+                'compositionUuid' => $compositionUuid,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function lifecycle(): CompositionLifecycleService

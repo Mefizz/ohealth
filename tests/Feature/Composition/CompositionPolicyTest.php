@@ -45,7 +45,11 @@ class CompositionPolicyTest extends TestCase
 
     public function test_outpatient_specialist_with_scopes_may_create_both_conclusion_types(): void
     {
-        ['user' => $user] = $this->actingInEntity(LegalEntity::TYPE_OUTPATIENT, ['composition:create']);
+        ['user' => $user] = $this->actingInEntity(
+            LegalEntity::TYPE_OUTPATIENT,
+            ['composition:create'],
+            Role::SPECIALIST
+        );
 
         $policy = new CompositionPolicy();
 
@@ -55,7 +59,11 @@ class CompositionPolicyTest extends TestCase
 
     public function test_primary_care_may_create_a_disability_conclusion_but_not_a_birth_one(): void
     {
-        ['user' => $user] = $this->actingInEntity(LegalEntity::TYPE_PRIMARY_CARE, ['composition:create']);
+        ['user' => $user] = $this->actingInEntity(
+            LegalEntity::TYPE_PRIMARY_CARE,
+            ['composition:create'],
+            Role::DOCTOR
+        );
 
         $policy = new CompositionPolicy();
 
@@ -64,6 +72,20 @@ class CompositionPolicyTest extends TestCase
             $policy->createNewborn($user)->denied(),
             'A birth conclusion must not be issuable from a primary care entity.'
         );
+    }
+
+    public function test_outpatient_doctor_cannot_author_a_conclusion(): void
+    {
+        ['user' => $user] = $this->actingInEntity(
+            LegalEntity::TYPE_OUTPATIENT,
+            ['composition:create'],
+            Role::DOCTOR
+        );
+
+        $policy = new CompositionPolicy();
+
+        $this->assertTrue($policy->createNewborn($user)->denied());
+        $this->assertTrue($policy->createTempDisability($user)->denied());
     }
 
     public function test_pharmacy_may_not_create_or_list_conclusions_at_all(): void
@@ -95,7 +117,8 @@ class CompositionPolicyTest extends TestCase
     {
         ['user' => $user, 'employee' => $employee] = $this->actingInEntity(
             LegalEntity::TYPE_OUTPATIENT,
-            ['composition:sign']
+            ['composition:sign'],
+            Role::SPECIALIST
         );
 
         $policy = new CompositionPolicy();
@@ -111,7 +134,8 @@ class CompositionPolicyTest extends TestCase
     {
         ['user' => $user, 'employee' => $employee] = $this->actingInEntity(
             LegalEntity::TYPE_OUTPATIENT,
-            ['composition:sign']
+            ['composition:sign'],
+            Role::SPECIALIST
         );
 
         $composition = $this->composition(CompositionStatus::FINAL, $employee->uuid);
@@ -141,7 +165,8 @@ class CompositionPolicyTest extends TestCase
     {
         ['user' => $user, 'employee' => $employee] = $this->actingInEntity(
             LegalEntity::TYPE_PRIMARY_CARE,
-            ['composition:create']
+            ['composition:create'],
+            Role::DOCTOR
         );
 
         $policy = new CompositionPolicy();
@@ -198,7 +223,7 @@ class CompositionPolicyTest extends TestCase
      * @param  list<string>  $scopes
      * @return array{legalEntity: LegalEntity, user: User, employee: Employee}
      */
-    private function actingInEntity(string $type, array $scopes): array
+    private function actingInEntity(string $type, array $scopes, Role $employeeRole = Role::SPECIALIST): array
     {
         $typeId = DB::table('legal_entity_types')->where('name', $type)->value('id')
             ?? DB::table('legal_entity_types')->insertGetId(['name' => $type]);
@@ -230,7 +255,7 @@ class CompositionPolicyTest extends TestCase
         $employee = Employee::create([
             'uuid' => (string) Str::uuid(),
             'full_name' => 'Ольга Лікарівна',
-            'employee_type' => Role::DOCTOR->value,
+            'employee_type' => $employeeRole->value,
             'status' => Status::APPROVED->value,
             'legal_entity_id' => $legalEntity->id,
             'is_active' => true,

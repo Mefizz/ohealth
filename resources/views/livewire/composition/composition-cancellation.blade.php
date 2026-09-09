@@ -6,6 +6,8 @@
 --}}
 <x-signature-modal method="cancelComposition" :agreementText="__('compositions.cancel.warning_message')">
     <x-slot name="customFields">
+        <p class="mb-3 text-sm text-gray-600 dark:text-gray-300">{{ __('compositions.cancel.timeout_hint') }}</p>
+
         <div>
             <label for="cancel-reason" class="default-label"> {{ __('compositions.cancel.reason_label') }} * </label>
             <select class="input-modal" wire:model="form.reason" name="cancel-reason" id="cancel-reason">

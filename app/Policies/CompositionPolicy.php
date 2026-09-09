@@ -45,7 +45,7 @@ class CompositionPolicy
     }
 
     /**
-     * Create a birth conclusion — OUTPATIENT only (TV 3.8.1.1).
+     * Create a birth conclusion — SPECIALIST in OUTPATIENT only (TV 3.8.1.1).
      */
     public function createNewborn(User $user): Response
     {
@@ -53,13 +53,19 @@ class CompositionPolicy
             return Response::deny(__('compositions.errors.create_newborn_not_allowed'));
         }
 
-        return $this->legalEntityType() === LegalEntity::TYPE_OUTPATIENT
+        if ($this->legalEntityType() !== LegalEntity::TYPE_OUTPATIENT) {
+            return Response::deny(__('compositions.errors.create_newborn_not_allowed'));
+        }
+
+        return $user->getCompositionAuthorEmployee() !== null
             ? Response::allow()
             : Response::deny(__('compositions.errors.create_newborn_not_allowed'));
     }
 
     /**
-     * Create a temporary disability conclusion — PRIMARY_CARE or OUTPATIENT (TV 3.8.2.1).
+     * Create a temporary disability conclusion (TV 3.8.2.1).
+     *
+     * DOCTOR in PRIMARY_CARE, or SPECIALIST in OUTPATIENT.
      */
     public function createTempDisability(User $user): Response
     {
@@ -67,7 +73,11 @@ class CompositionPolicy
             return Response::deny(__('compositions.errors.create_temp_disability_not_allowed'));
         }
 
-        return $this->inConclusionIssuingEntity()
+        if (!$this->inConclusionIssuingEntity()) {
+            return Response::deny(__('compositions.errors.create_temp_disability_not_allowed'));
+        }
+
+        return $user->getCompositionAuthorEmployee() !== null
             ? Response::allow()
             : Response::deny(__('compositions.errors.create_temp_disability_not_allowed'));
     }
@@ -101,7 +111,9 @@ class CompositionPolicy
      */
     public function cancel(User $user, Composition $composition): Response
     {
-        if (!$user->can('composition:cancel')) {
+        // eHealth scopes list both composition:cancel and composition:mark_in_error for
+        // the same PATCH …/cancel operation; either grants the UI action.
+        if (!$user->can('composition:cancel') && !$user->can('composition:mark_in_error')) {
             return Response::deny(__('compositions.errors.cancel_not_allowed'));
         }
 

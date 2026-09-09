@@ -24,7 +24,7 @@
         </div>
     </x-slot>
 
-    <div class="breadcrumb-form shift-content p-4">
+    <div class="breadcrumb-form shift-content p-4" wire:poll.5s="pollPendingJobs">
         <div class="mt-6 w-full">
             <div class="mb-4 flex items-center gap-1 font-semibold text-gray-900 dark:text-gray-100">
                 @icon('search-outline', 'w-4.5 h-4.5')
@@ -77,6 +77,42 @@
                         >
                             @icon('close', 'w-4 h-4')
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row-3 mb-6">
+                <div class="form-group group">
+                    <div class="relative">
+                        <input
+                            wire:model="filterEpisodeOfCareId"
+                            type="text"
+                            name="filterEpisodeOfCareId"
+                            id="filterEpisodeOfCareId"
+                            class="input peer w-full"
+                            placeholder=" "
+                            autocomplete="off"
+                        />
+                        <label for="filterEpisodeOfCareId" class="label">
+                            {{ __('compositions.filter.episode') }}
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group group">
+                    <div class="relative">
+                        <input
+                            wire:model="filterSectionFocusUuid"
+                            type="text"
+                            name="filterSectionFocusUuid"
+                            id="filterSectionFocusUuid"
+                            class="input peer w-full"
+                            placeholder=" "
+                            autocomplete="off"
+                        />
+                        <label for="filterSectionFocusUuid" class="label">
+                            {{ __('compositions.filter.focus') }}
+                        </label>
                     </div>
                 </div>
             </div>
@@ -195,8 +231,8 @@
 
                                         @if (
                                             $composition->isTempDisability
-                                                                                                                                                                    && $composition->status->isCancellable()
-                                                                                                                                                                    && $personId
+                                                                                                                                                                                                            && $composition->status->isCancellable()
+                                                                                                                                                                                                            && $personId
 )
                                             <a
                                                 href="{{ $this->refineUrl($composition) }}"

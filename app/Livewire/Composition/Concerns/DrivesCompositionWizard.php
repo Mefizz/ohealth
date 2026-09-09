@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Livewire\Composition\Concerns;
 
 use App\Classes\eHealth\EHealth;
+use App\Enums\Person\AuthenticationMethod;
+use App\Enums\Person\CompositionStatus;
 use App\Enums\Person\CompositionType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
+use App\Exceptions\EHealth\EHealthResponseException;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
@@ -52,6 +55,17 @@ trait DrivesCompositionWizard
 
     /** Shown once the user chooses to proceed without an authentication method. */
     public bool $acknowledgedMissingAuthMethod = false;
+
+    /** Phone used when creating an OTP authentication method from the wizard. */
+    public string $newOtpPhone = '';
+
+    /** Async auth-method request id while OTP SMS confirmation is pending. */
+    public ?string $pendingAuthMethodRequestId = null;
+
+    public string $authMethodVerificationCode = '';
+
+    /** Active conclusions found via searchCompositions before create (TV 3.8.1.3 / 3.8.2.3). */
+    public array $existingActiveRemote = [];
 
     #[Locked]
     public ?string $asyncJobId = null;
@@ -152,6 +166,37 @@ trait DrivesCompositionWizard
             ->values();
     }
 
+    /**
+     * Whether OFFLINE authentication may be created here (МВН only — TV 3.8.1.4.1).
+     */
+    #[Computed]
+    public function canCreateOfflineAuthMethod(): bool
+    {
+        return $this->conclusionType() === CompositionType::NEWBORN
+            && filled($this->authenticationSubjectUuid());
+    }
+
+    /**
+     * Link to the patient card where THIRD_PERSON / full auth management lives.
+     */
+    #[Computed]
+    public function patientAuthManagementUrl(): ?string
+    {
+        $subjectUuid = $this->authenticationSubjectUuid();
+
+        if ($subjectUuid === null || $subjectUuid === '') {
+            return null;
+        }
+
+        $person = Person::query()->where('uuid', $subjectUuid)->first();
+
+        if ($person === null || legalEntity() === null) {
+            return null;
+        }
+
+        return route('persons.patient-data', [legalEntity(), 'person' => $person->id]);
+    }
+
     public function selectEncounter(string $encounterUuid): void
     {
         $encounter = $this->availableEncounters
@@ -166,6 +211,7 @@ trait DrivesCompositionWizard
         $this->form->encounterUuid = $encounterUuid;
         $this->episodeUuid = data_get($encounter, 'episode.identifier.value');
 
+        $this->refreshExistingActiveRemote();
         $this->loadAuthMethods();
         $this->step = self::STEP_AUTH_METHOD;
     }
@@ -173,6 +219,8 @@ trait DrivesCompositionWizard
     public function loadAuthMethods(): void
     {
         $this->authMethods = [];
+        $this->pendingAuthMethodRequestId = null;
+        $this->authMethodVerificationCode = '';
         $subjectUuid = $this->authenticationSubjectUuid();
 
         if ($subjectUuid === null || $subjectUuid === '') {
@@ -210,12 +258,153 @@ trait DrivesCompositionWizard
         $this->step = self::STEP_DETAILS;
     }
 
-    public function reviewDetails(): void
+    /**
+     * Create an OFFLINE authentication method for the mother (TV 3.8.1.4.1).
+     */
+    public function createOfflineAuthMethod(): void
+    {
+        if (!$this->canCreateOfflineAuthMethod) {
+            return;
+        }
+
+        $subjectUuid = $this->authenticationSubjectUuid();
+
+        try {
+            $response = EHealth::person()->insertAuthMethod($subjectUuid, AuthenticationMethod::OFFLINE);
+            $requestId = data_get($response->getData(), 'id')
+                ?? data_get($response->json(), 'data.id');
+
+            if (filled($requestId)) {
+                EHealth::person()->approveAuthMethod($subjectUuid, (string) $requestId);
+            }
+
+            $this->loadAuthMethods();
+            Session::flash('success', __('compositions.messages.offline_auth_method_added'));
+        } catch (EHealthConnectionException | EHealthException $exception) {
+            $exception->handle('Failed to create OFFLINE authentication method for a conclusion');
+        }
+    }
+
+    /**
+     * Start OTP authentication method creation (TV 3.8.1.4.1 / 3.8.2.4.1).
+     */
+    public function createOtpAuthMethod(): void
+    {
+        $subjectUuid = $this->authenticationSubjectUuid();
+
+        if ($subjectUuid === null || $subjectUuid === '') {
+            return;
+        }
+
+        try {
+            $this->validate([
+                'newOtpPhone' => ['required', 'string', 'regex:/^\+380\d{9}$/'],
+            ]);
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        try {
+            $response = EHealth::person()->insertAuthMethod(
+                $subjectUuid,
+                AuthenticationMethod::OTP,
+                $this->newOtpPhone
+            );
+
+            $this->pendingAuthMethodRequestId = data_get($response->getData(), 'id')
+                ?? data_get($response->json(), 'data.id');
+
+            Session::flash('success', __('compositions.messages.otp_auth_method_requested'));
+        } catch (EHealthConnectionException | EHealthException $exception) {
+            $exception->handle('Failed to create OTP authentication method for a conclusion');
+        }
+    }
+
+    /**
+     * Confirm the pending OTP authentication method with the SMS code.
+     */
+    public function confirmOtpAuthMethod(): void
+    {
+        $subjectUuid = $this->authenticationSubjectUuid();
+
+        if ($subjectUuid === null || !$this->pendingAuthMethodRequestId) {
+            return;
+        }
+
+        try {
+            $this->validate([
+                'authMethodVerificationCode' => ['required', 'digits:4'],
+            ]);
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        try {
+            EHealth::person()->approveAuthMethod(
+                $subjectUuid,
+                $this->pendingAuthMethodRequestId,
+                ['verification_code' => $this->authMethodVerificationCode]
+            );
+
+            $this->pendingAuthMethodRequestId = null;
+            $this->authMethodVerificationCode = '';
+            $this->newOtpPhone = '';
+            $this->loadAuthMethods();
+            Session::flash('success', __('compositions.messages.otp_auth_method_added'));
+        } catch (EHealthConnectionException | EHealthException $exception) {
+            $exception->handle('Failed to approve OTP authentication method for a conclusion');
+        }
+    }
+
+    /**
+     * Validate details and open the KEP modal for createComposition.
+     *
+     * The eHealth create endpoint only accepts a detached signature over the conclusion
+     * payload, so this step must never post the raw mapper JSON.
+     */
+    public function openCreateSignatureModal(): void
     {
         $this->authorize($this->createAbility(), Composition::class);
 
         try {
             $this->form->validate($this->detailsRules());
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->getMessageBag());
+
+            return;
+        }
+
+        if ($this->authorEmployeeUuid() === null) {
+            Session::flash('error', __('compositions.errors.author_not_found'));
+
+            return;
+        }
+
+        $this->form->resetSigningFields();
+        $this->showSignatureModal = true;
+    }
+
+    /**
+     * @deprecated Use {@see openCreateSignatureModal()} — kept so older Blade bindings keep working.
+     */
+    public function reviewDetails(): void
+    {
+        $this->openCreateSignatureModal();
+    }
+
+    /**
+     * Sign the createComposition payload and submit it to eHealth (TV 3.8.1.1.1 / 3.8.2.1.1).
+     */
+    public function submitComposition(): void
+    {
+        $this->authorize($this->createAbility(), Composition::class);
+
+        try {
+            $this->form->validate(array_merge($this->detailsRules(), $this->form->signingRules()));
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->getMessageBag());
 
@@ -232,14 +421,25 @@ trait DrivesCompositionWizard
 
         try {
             $payload = $this->mapperPayload($authorUuid);
-            Log::info('Submitting medical conclusion payload', ['payload' => $payload]);
+            Log::info('Signing medical conclusion create payload', [
+                'type' => $this->conclusionType()->value,
+            ]);
 
-            $job = $this->lifecycle()->create($payload);
+            $signedContent = app(SignatureService::class)->signData(
+                $payload,
+                $this->form->password,
+                $this->form->knedp,
+                $this->form->keyContainerUpload,
+                Auth::user()->party->taxId
+            );
+
+            $job = $this->lifecycle()->create(['data' => $signedContent]);
 
             $this->asyncJobId = $job['id'];
             $this->asyncJobStatus = (string) ($job['status'] ?? CompositionLifecycleService::JOB_PENDING);
             $this->asyncJobErrors = [];
             $this->showSignatureModal = false;
+            $this->form->resetSigningFields();
             $this->step = self::STEP_AWAITING_JOB;
         } catch (EHealthResponseException $exception) {
             $details = $exception->getDetails();
@@ -372,6 +572,14 @@ trait DrivesCompositionWizard
         }
     }
 
+    /**
+     * Same eHealth print form, exposed as the mother-facing action (TV 3.8.1.8.3).
+     */
+    public function loadPrintFormForMother(): void
+    {
+        $this->loadPrintForm();
+    }
+
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
@@ -436,6 +644,45 @@ trait DrivesCompositionWizard
     }
 
     /**
+     * Search eHealth for previously created non-error conclusions of this type (TV 3.8.1.3 / 3.8.2.3).
+     */
+    public function refreshExistingActiveRemote(): void
+    {
+        $this->existingActiveRemote = [];
+        $subjectUuid = $this->encounterSubjectUuid();
+
+        if ($subjectUuid === '') {
+            return;
+        }
+
+        try {
+            $rows = EHealth::composition()->search([
+                'subject' => $subjectUuid,
+                'type' => $this->conclusionType()->value,
+            ])->validate();
+
+            $this->existingActiveRemote = collect($rows)
+                ->filter(static function (array $row): bool {
+                    $status = CompositionStatus::fromEHealth(data_get($row, 'status'));
+
+                    return $status !== null && $status !== CompositionStatus::ENTERED_IN_ERROR;
+                })
+                ->map(static fn (array $row): array => [
+                    'uuid' => data_get($row, 'identifier.value'),
+                    'title' => data_get($row, 'title'),
+                    'status' => data_get($row, 'status'),
+                    'date' => data_get($row, 'date'),
+                ])
+                ->values()
+                ->all();
+        } catch (EHealthConnectionException | EHealthException $exception) {
+            Log::warning('Failed to search existing compositions before create', [
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * Shared wizard state that both conclusions reset. Each child then restores the
      * fields that are unique to its form.
      *
@@ -449,6 +696,10 @@ trait DrivesCompositionWizard
             'episodeUuid',
             'authMethods',
             'acknowledgedMissingAuthMethod',
+            'newOtpPhone',
+            'pendingAuthMethodRequestId',
+            'authMethodVerificationCode',
+            'existingActiveRemote',
             'asyncJobId',
             'asyncJobStatus',
             'asyncJobErrors',

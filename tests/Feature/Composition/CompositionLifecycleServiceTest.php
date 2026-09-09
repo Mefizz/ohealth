@@ -45,7 +45,7 @@ class CompositionLifecycleServiceTest extends TestCase
             'data' => ['id' => 'job-1', 'eta' => '2026-08-13T12:35:49.956Z', 'status' => 'PENDING'],
         ]);
 
-        $job = $this->service()->create(['type' => 'TEMP_DISABILITY']);
+        $job = $this->service()->create(['data' => 'base64-signed-payload']);
 
         $this->assertSame('job-1', $job['id']);
         $this->assertSame('PENDING', $job['status']);

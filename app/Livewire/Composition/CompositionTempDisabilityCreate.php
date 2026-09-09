@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Composition;
 
 use App\Classes\eHealth\EHealth;
+use App\Enums\MergeRequest\Status as MergeRequestStatus;
 use App\Enums\Person\CompositionCategory;
 use App\Enums\Person\CompositionType;
 use App\Exceptions\EHealth\EHealthConnectionException;
@@ -13,6 +14,7 @@ use App\Livewire\Composition\Concerns\DrivesCompositionWizard;
 use App\Livewire\Composition\Forms\CompositionTempDisabilityForm;
 use App\Livewire\Person\Records\BasePatientComponent;
 use App\Models\MedicalEvents\Sql\Composition;
+use App\Models\MergeRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Services\MedicalEvents\Fhir;
@@ -53,6 +55,9 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     /** Previous conclusion this one continues (TV 3.8.2.5.4). */
     #[Url]
     public ?string $continueFrom = null;
+
+    /** User confirmed merge of unidentified records before refining (TV 3.8.2.12.1). */
+    public bool $acknowledgedMergeCheck = false;
 
     public array $dictionaryNames = [
         'eHealth/encounter_classes',
@@ -182,7 +187,7 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     public function restart(): void
     {
         $this->form->resetCompositionFields();
-        $this->resetWizard(['acknowledgedUnidentifiedErln', 'refineFrom', 'continueFrom']);
+        $this->resetWizard(['acknowledgedUnidentifiedErln', 'refineFrom', 'continueFrom', 'acknowledgedMergeCheck']);
         $this->initializeComponent();
     }
 
@@ -197,9 +202,87 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
             && !$this->acknowledgedUnidentifiedErln;
     }
 
+    /**
+     * TV 3.8.2.12.1 — before signing a refining conclusion, the unidentified patient's
+     * records must already be attached to the identified patient.
+     */
+    #[Computed]
+    public function refineMergeCompleted(): bool
+    {
+        if ($this->refineFrom === null || $this->form->isUnidentified) {
+            return true;
+        }
+
+        $previous = Composition::whereUuid($this->refineFrom)->first();
+
+        if ($previous === null || $previous->prepersonId === null) {
+            return true;
+        }
+
+        $person = $this->patient();
+
+        if (!$person instanceof Person) {
+            return false;
+        }
+
+        return MergeRequest::query()
+            ->where('merge_person_id', $previous->prepersonId)
+            ->where('master_person_id', $person->id)
+            ->whereIn('status', [MergeRequestStatus::APPROVED->value, MergeRequestStatus::SIGNED->value])
+            ->exists();
+    }
+
+    #[Computed]
+    public function requiresMergeAcknowledgement(): bool
+    {
+        return $this->refineFrom !== null
+            && !$this->form->isUnidentified
+            && !$this->refineMergeCompleted
+            && !$this->acknowledgedMergeCheck;
+    }
+
+    public function acknowledgeMergeCheck(): void
+    {
+        $this->acknowledgedMergeCheck = true;
+    }
+
+    /**
+     * Preperson card where the doctor can start a merge request (TV 3.8.2.12.2).
+     */
+    #[Computed]
+    public function refinePrepersonMergeUrl(): ?string
+    {
+        if ($this->refineFrom === null) {
+            return null;
+        }
+
+        $previous = Composition::whereUuid($this->refineFrom)->first();
+
+        if ($previous?->prepersonId === null || legalEntity() === null) {
+            return null;
+        }
+
+        return route('prepersons.patient-data', [legalEntity(), 'preperson' => $previous->prepersonId]);
+    }
+
     public function acknowledgeUnidentifiedErln(): void
     {
         $this->acknowledgedUnidentifiedErln = true;
+    }
+
+    /**
+     * Block signing a refining conclusion until merge is verified or acknowledged (TV 3.8.2.12).
+     */
+    public function openSigningModal(): void
+    {
+        if ($this->requiresMergeAcknowledgement) {
+            Session::flash('error', __('compositions.errors.merge_required_before_sign'));
+
+            return;
+        }
+
+        $this->form->resetSigningFields();
+        $this->showSignatureModal = true;
     }
 
     protected function encounterSubjectUuid(): string

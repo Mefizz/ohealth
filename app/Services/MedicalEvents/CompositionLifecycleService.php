@@ -31,9 +31,9 @@ class CompositionLifecycleService
     public const string JOB_FAILED = 'FAILED';
 
     /**
-     * Submit a conclusion request payload and return the async job it scheduled.
+     * Submit a signed conclusion create request and return the async job it scheduled.
      *
-     * @param  array<string, mixed>  $payload
+     * @param  array{data: string}  $payload  Base64-encoded PKCS#7 over the mapper JSON.
      * @return array{id: string|null, eta: string|null, status: string|null}
      */
     public function create(array $payload): array

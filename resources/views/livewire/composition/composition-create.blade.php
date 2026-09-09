@@ -10,22 +10,22 @@
         <div class="mt-6 w-full">
             <ol class="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                 @foreach ([
-                                                                    Wizard::STEP_ENCOUNTER => __('compositions.create_newborn.steps.encounter'),
-                                                                    Wizard::STEP_AUTH_METHOD => __('compositions.create_newborn.steps.auth_method'),
-                                                                    Wizard::STEP_DETAILS => __('compositions.create_newborn.steps.details'),
-                                                                    Wizard::STEP_AWAITING_JOB => __('compositions.create_newborn.steps.processing'),
-                                                                    Wizard::STEP_REVIEW => __('compositions.create_newborn.steps.review'),
-                                                                ] as $stepNumber => $label)
+                                                                                    Wizard::STEP_ENCOUNTER => __('compositions.create_newborn.steps.encounter'),
+                                                                                    Wizard::STEP_AUTH_METHOD => __('compositions.create_newborn.steps.auth_method'),
+                                                                                    Wizard::STEP_DETAILS => __('compositions.create_newborn.steps.details'),
+                                                                                    Wizard::STEP_AWAITING_JOB => __('compositions.create_newborn.steps.processing'),
+                                                                                    Wizard::STEP_REVIEW => __('compositions.create_newborn.steps.review'),
+                                                                                ] as $stepNumber => $label)
                     <li @class([
-                                                                            'flex items-center gap-2',
-                                                                            'font-semibold text-gray-900 dark:text-gray-100' => $step === $stepNumber,
-                                                                            'text-gray-400 dark:text-gray-500' => $step !== $stepNumber,
-                                                                        ])>
-                        <span @class([
-                                                                                            'flex h-6 w-6 items-center justify-center rounded-full text-xs',
-                                                                                            'bg-primary-600 text-white' => $step >= $stepNumber,
-                                                                                            'bg-gray-200 text-gray-600 dark:bg-gray-700' => $step < $stepNumber,
+                                                                                            'flex items-center gap-2',
+                                                                                            'font-semibold text-gray-900 dark:text-gray-100' => $step === $stepNumber,
+                                                                                            'text-gray-400 dark:text-gray-500' => $step !== $stepNumber,
                                                                                         ])>
+                        <span @class([
+                                                                                                                'flex h-6 w-6 items-center justify-center rounded-full text-xs',
+                                                                                                                'bg-primary-600 text-white' => $step >= $stepNumber,
+                                                                                                                'bg-gray-200 text-gray-600 dark:bg-gray-700' => $step < $stepNumber,
+                                                                                                            ])>
                             {{ $stepNumber }}
                         </span>
                         {{ $label }}
@@ -196,6 +196,8 @@
                     {{ __('compositions.create_newborn.auth_method_hint') }}
                 </div>
 
+                @include('livewire.composition.parts.auth-method-create')
+
                 <div class="space-y-3">
                     @foreach ($authMethods as $method)
                         <div class="record-inner-card" wire:key="auth-{{ $method['uuid'] ?? $method['id'] }}">
@@ -266,6 +268,8 @@
                         <p class="text-sm font-medium">{{ __('compositions.create_newborn.existing_warning') }}</p>
                     </div>
                 @endif
+
+                @include('livewire.composition.parts.existing-remote-warning')
 
                 <div class="form-row-3 mb-6">
                     <div class="form-group group">
@@ -345,7 +349,11 @@
                 @endif
 
                 <div class="flex flex-wrap gap-2">
-                    <button type="button" wire:click="reviewDetails" class="button-primary px-5 py-2.5 text-sm">
+                    <button
+                        type="button"
+                        wire:click="openCreateSignatureModal"
+                        class="button-primary px-5 py-2.5 text-sm"
+                    >
                         {{ __('forms.sign_with_KEP') }}
                     </button>
                     <button
@@ -396,6 +404,13 @@
                     <button type="button" wire:click="loadPrintForm" class="button-primary-outline px-5 py-2.5 text-sm">
                         {{ __('compositions.actions.print') }}
                     </button>
+                    <button
+                        type="button"
+                        wire:click="loadPrintFormForMother"
+                        class="button-primary-outline px-5 py-2.5 text-sm"
+                    >
+                        {{ __('compositions.actions.print_for_mother') }}
+                    </button>
                     <button type="button" wire:click="openSigningModal" class="button-primary px-5 py-2.5 text-sm">
                         {{ __('forms.sign_with_KEP') }}
                     </button>
@@ -410,9 +425,9 @@
     <x-signature-modal :method="$step === Wizard::STEP_REVIEW ? 'sign' : 'submitComposition'" />
 
     @include('livewire.composition.parts.print-modal', [
-                    'modalId' => 'modal-nb-print',
-                    'iframeId' => 'nb-print-iframe',
-                ])
+                        'modalId' => 'modal-nb-print',
+                        'iframeId' => 'nb-print-iframe',
+                    ])
 
     <x-forms.loading />
 </x-layouts.patient>

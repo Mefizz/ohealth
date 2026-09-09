@@ -221,6 +221,26 @@ class CompositionTempDisabilityCreateTest extends TestCase
             ->assertSet('step', CompositionTempDisabilityCreate::STEP_DETAILS);
     }
 
+    public function test_create_signature_modal_opens_after_details_are_valid(): void
+    {
+        ['legalEntity' => $legalEntity, 'employee' => $employee] = $this->fixture();
+        $encounterUuid = (string) Str::uuid();
+        $this->fakeEncounters([
+            $this->encounter($encounterUuid, 'finished', $employee->uuid),
+        ]);
+
+        Livewire::test(CompositionTempDisabilityCreate::class, [
+            'legalEntity' => $legalEntity,
+            'preperson' => $this->preperson(),
+        ])
+            ->call('selectEncounter', $encounterUuid)
+            ->call('skipAuthMethod')
+            ->set('form.eventPeriodStart', '2026-08-01')
+            ->set('form.eventPeriodEnd', '2026-08-10')
+            ->call('openCreateSignatureModal')
+            ->assertSet('showSignatureModal', true);
+    }
+
     /**
      * @param  list<array<string, mixed>>  $encounters
      */

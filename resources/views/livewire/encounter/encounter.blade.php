@@ -384,7 +384,7 @@
 
                             <fieldset class="fieldset-card p-5">
                                 <legend class="legend">{{ __('patients.medical_reports') }}</legend>
-                                @if ($this instanceof EncounterEdit && $this->canOpenEncounterCompositionDrawer)
+                                @if ($this instanceof EncounterEdit && $this->mayOpenEncounterCompositionDrawer())
                                     <button
                                         type="button"
                                         wire:click="openEncounterCompositionDrawer"

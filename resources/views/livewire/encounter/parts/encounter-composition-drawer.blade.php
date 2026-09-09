@@ -37,14 +37,6 @@
                     :encounter="$encounterUuid"
                     :key="'enc-comp-nb-'.$encounterCompositionDrawerKey"
                 />
-            @elseif ($this->encounterCompositionPreperson)
-                <livewire:composition.composition-temp-disability-create
-                    :legal-entity="legalEntity()"
-                    :preperson="$this->encounterCompositionPreperson"
-                    :embedded="true"
-                    :encounter="$encounterUuid"
-                    :key="'enc-comp-td-pp-'.$encounterCompositionDrawerKey"
-                />
             @elseif ($this->encounterCompositionPerson)
                 <livewire:composition.composition-temp-disability-create
                     :legal-entity="legalEntity()"
@@ -52,6 +44,14 @@
                     :embedded="true"
                     :encounter="$encounterUuid"
                     :key="'enc-comp-td-p-'.$encounterCompositionDrawerKey"
+                />
+            @elseif ($this->encounterCompositionPreperson)
+                <livewire:composition.composition-temp-disability-create
+                    :legal-entity="legalEntity()"
+                    :preperson="$this->encounterCompositionPreperson"
+                    :embedded="true"
+                    :encounter="$encounterUuid"
+                    :key="'enc-comp-td-pp-'.$encounterCompositionDrawerKey"
                 />
             @endif
         </div>

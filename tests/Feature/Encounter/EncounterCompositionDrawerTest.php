@@ -46,7 +46,7 @@ class EncounterCompositionDrawerTest extends TestCase
         $harness->prepersonId = null;
         $harness->encounterUuid = (string) Str::uuid();
 
-        $this->assertTrue($harness->canOpenEncounterCompositionDrawer());
+        $this->assertTrue($harness->mayOpenEncounterCompositionDrawer());
 
         $harness->openEncounterCompositionDrawer();
 
@@ -64,7 +64,7 @@ class EncounterCompositionDrawerTest extends TestCase
         $harness->prepersonId = null;
         $harness->encounterUuid = (string) Str::uuid();
 
-        $this->assertFalse($harness->canOpenEncounterCompositionDrawer());
+        $this->assertFalse($harness->mayOpenEncounterCompositionDrawer());
 
         $harness->openEncounterCompositionDrawer();
 

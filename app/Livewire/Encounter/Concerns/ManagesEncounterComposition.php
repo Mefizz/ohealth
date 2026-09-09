@@ -36,6 +36,14 @@ trait ManagesEncounterComposition
         return $this->resolveEncounterCompositionKind() !== null;
     }
 
+    /**
+     * Plain method for Blade — avoids Computed hydration edge cases on first paint.
+     */
+    public function mayOpenEncounterCompositionDrawer(): bool
+    {
+        return $this->resolveEncounterCompositionKind() !== null;
+    }
+
     public function openEncounterCompositionDrawer(): void
     {
         $kind = $this->resolveEncounterCompositionKind();
@@ -79,12 +87,17 @@ trait ManagesEncounterComposition
 
     private function resolveEncounterCompositionKind(): ?string
     {
-        if ($this->prepersonId !== null && Gate::allows('createNewborn', Composition::class)) {
-            return 'newborn';
-        }
+        try {
+            if ($this->prepersonId !== null && Gate::allows('createNewborn', Composition::class)) {
+                return 'newborn';
+            }
 
-        if (Gate::allows('createTempDisability', Composition::class)) {
-            return 'temp_disability';
+            if (Gate::allows('createTempDisability', Composition::class)) {
+                return 'temp_disability';
+            }
+        } catch (\Throwable) {
+            // Never let authorization probing take down the encounter page.
+            return null;
         }
 
         return null;

@@ -148,10 +148,15 @@ Route::prefix('persons')->whereNumber(['person', 'personRequest', 'personId', 'e
                 ->whereNumber(['person', 'declarationRequest']);
         });
 
-        Route::middleware('can:create,' . Encounter::class)->name('encounter.')->group(function () {
-            Route::get('/{person}/encounter/create', EncounterCreate::class)->name('create');
-            Route::get('/{person}/encounter/{encounterId}', EncounterEdit::class)->name('edit');
-        });
+        // Create requires write; viewing/editing an existing encounter only needs read.
+        // Putting edit behind create made EncounterPolicy::create denyWithStatus(404) for
+        // read-only sessions and looked like a missing page.
+        Route::get('/{person}/encounter/create', EncounterCreate::class)
+            ->middleware('can:create,' . Encounter::class)
+            ->name('encounter.create');
+        Route::get('/{person}/encounter/{encounterId}', EncounterEdit::class)
+            ->middleware('can:view,' . Encounter::class)
+            ->name('encounter.edit');
 
         Route::get('/{personId}/care-plan/create', CarePlanCreate::class)
             ->can('create', CarePlan::class)

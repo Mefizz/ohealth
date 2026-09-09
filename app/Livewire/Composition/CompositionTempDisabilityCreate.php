@@ -56,6 +56,10 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     #[Url]
     public ?string $continueFrom = null;
 
+    /** Encounter UUID preselected when opening the wizard from an encounter card. */
+    #[Url]
+    public ?string $encounter = null;
+
     /** User confirmed merge of unidentified records before refining (TV 3.8.2.12.1). */
     public bool $acknowledgedMergeCheck = false;
 
@@ -76,6 +80,11 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         $this->form->category = CompositionType::TEMP_DISABILITY->defaultCategory()->value;
 
         $this->applyRelatedConclusion();
+
+        // Opening from an encounter card skips the picker when that encounter is eligible.
+        if (filled($this->encounter)) {
+            $this->selectEncounter($this->encounter);
+        }
     }
 
     /**
@@ -187,7 +196,7 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     public function restart(): void
     {
         $this->form->resetCompositionFields();
-        $this->resetWizard(['acknowledgedUnidentifiedErln', 'refineFrom', 'continueFrom', 'acknowledgedMergeCheck']);
+        $this->resetWizard(['acknowledgedUnidentifiedErln', 'refineFrom', 'continueFrom', 'acknowledgedMergeCheck', 'encounter']);
         $this->initializeComponent();
     }
 

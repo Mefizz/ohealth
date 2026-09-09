@@ -15,6 +15,7 @@ use App\Services\MedicalEvents\Fhir;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Url;
 use Livewire\WithFileUploads;
 
 /**
@@ -37,6 +38,10 @@ class CompositionCreate extends BasePatientComponent
 
     public string $newbornFullName = '';
 
+    /** Encounter UUID preselected when opening the wizard from an encounter card. */
+    #[Url]
+    public ?string $encounter = null;
+
     public array $dictionaryNames = [
         'eHealth/encounter_classes',
         'eHealth/encounter_types',
@@ -56,6 +61,10 @@ class CompositionCreate extends BasePatientComponent
         } else {
             $this->form->personUuid = $this->uuid;
             $this->motherFullName = $this->patientFullName;
+        }
+
+        if (filled($this->encounter) && !$this->needsNewborn && !$this->needsMother) {
+            $this->selectEncounter($this->encounter);
         }
     }
 
@@ -159,6 +168,10 @@ class CompositionCreate extends BasePatientComponent
         $this->counterpartQuery = '';
         unset($this->counterpartMatches, $this->needsMother);
         $this->loadAuthMethods();
+
+        if (filled($this->encounter) && !$this->needsNewborn) {
+            $this->selectEncounter($this->encounter);
+        }
     }
 
     public function selectNewborn(int $prepersonId): void
@@ -175,6 +188,10 @@ class CompositionCreate extends BasePatientComponent
         $this->form->newbornSex = (string) ($preperson->gender?->value ?? '');
         $this->counterpartQuery = '';
         unset($this->counterpartMatches, $this->needsNewborn, $this->availableEncounters, $this->hasExistingActiveBirthConclusion);
+
+        if (filled($this->encounter) && !$this->needsMother) {
+            $this->selectEncounter($this->encounter);
+        }
     }
 
     public function updatedCounterpartQuery(): void

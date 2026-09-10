@@ -9,6 +9,7 @@ use App\Enums\User\Role;
 use App\Rules\AfterOrEqualDateTime;
 use App\Rules\InDictionary;
 use App\Rules\PastDateTime;
+use App\Services\MedicalEvents\Icd10AmSpecialityConditionGate;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Support\Facades\Auth;
@@ -284,7 +285,9 @@ class ConditionForm extends Form
     }
 
     /**
-     * The asserter's officio speciality has to allow the given ICD10_AM condition code.
+     * When the ICD-10-AM code is reserved in SPECIALITY_CONDITIONS_ALLOWED charts,
+     * the asserter's officio speciality must be among those allowed for that code.
+     * Codes absent from every chart are unrestricted (eHealth Submit Encounter Package).
      *
      * @return Closure
      */
@@ -305,22 +308,19 @@ class ConditionForm extends Form
                 return;
             }
 
-            $specialities = $asserter
-                ->loadMissing('specialities')
-                ->specialities
-                ->where('speciality_officio', true);
-
             $codeCode = data_get($value, 'codeCode');
 
-            $hasAllowedSpeciality = $specialities->contains(
-                static function ($speciality) use ($codeCode): bool {
-                    $allowedCodes = config("ehealth.icd10am_speciality_conditions_allowed.$speciality->speciality");
+            if (!is_string($codeCode) || $codeCode === '') {
+                return;
+            }
 
-                    return is_array($allowedCodes) && in_array($codeCode, $allowedCodes, true);
-                }
-            );
+            $officioSpecialities = $asserter
+                ->loadMissing('specialities')
+                ->specialities
+                ->where('speciality_officio', true)
+                ->pluck('speciality');
 
-            if (!$hasAllowedSpeciality) {
+            if (!Icd10AmSpecialityConditionGate::isCodeAllowedForOfficioSpecialities($codeCode, $officioSpecialities)) {
                 $fail(__('conditions.validation.speciality_condition_code_forbidden', ['code' => $codeCode]));
             }
         };

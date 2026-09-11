@@ -73,6 +73,7 @@ class ClinicalImpressionForm extends Form
                 ];
             }),
             'clinicalImpressions.*.note' => ['nullable', 'string', 'max:3000'],
+            'clinicalImpressions.*.summary' => ['nullable', 'string'],
             'clinicalImpressions.*.previous' => ['nullable', 'array'],
             'clinicalImpressions.*.previous.*.id' => ['required_with:clinicalImpressions.*.previous', 'uuid'],
             'clinicalImpressions.*.problems' => ['nullable', 'array'],
@@ -80,6 +81,7 @@ class ClinicalImpressionForm extends Form
             'clinicalImpressions.*.findings' => ['nullable', 'array'],
             'clinicalImpressions.*.findings.*.id' => ['required_with:clinicalImpressions.*.findings', 'uuid'],
             'clinicalImpressions.*.findings.*.type' => ['required_with:clinicalImpressions.*.findings', 'string'],
+            'clinicalImpressions.*.findings.*.basis' => ['nullable', 'string', 'max:255'],
             'clinicalImpressions.*.supportingInfo' => ['nullable', 'array'],
             'clinicalImpressions.*.supportingInfo.*.uuid' => [
                 'required_with:clinicalImpressions.*.supportingInfo',

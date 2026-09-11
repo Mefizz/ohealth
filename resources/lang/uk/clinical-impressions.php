@@ -18,10 +18,12 @@ return [
     'plural' => 'Клінічні оцінки',
     'search' => 'Пошук клінічних оцінок',
     'conclusion' => 'Заключення по оцінці',
+    'summary' => 'Підсумок',
     'set_of_rule_engines' => 'Набір механізмів правил',
     'previous' => 'Попередня клінічна оцінка',
     'appropriate_patient_assessment' => 'Відповідна оцінка стану пацієнта',
     'what_was_identified' => 'Що було ідентифіковано',
+    'finding_basis' => 'Обґрунтування знахідки',
     'supporting_medical_information' => 'Підтверджуючі медичні дані',
     'employee_who_created' => 'Працівник, який створив',
     'reception_start_date_and_time' => 'Дата та час початку прийому',
@@ -45,16 +47,18 @@ return [
     // Field names for :attribute in validation messages
     'attributes' => [
         'codeCode' => 'код клінічної оцінки',
-        'description' => 'заключення клінічної оцінки',
+        'description' => 'опис клінічної оцінки',
         'effectivePeriodStartDate' => 'дата початку клінічної оцінки',
         'effectivePeriodStartTime' => 'час початку клінічної оцінки',
         'effectivePeriodEndDate' => 'дата завершення клінічної оцінки',
         'effectivePeriodEndTime' => 'час завершення клінічної оцінки',
-        'note' => 'опис клінічної оцінки',
+        'note' => 'коментар клінічної оцінки',
+        'summary' => 'підсумок клінічної оцінки',
         'previous.*.id' => 'попередня клінічна оцінка',
         'problems.*.id' => 'відповідна оцінка стану пацієнта',
         'findings.*.id' => 'що було ідентифіковано',
         'findings.*.type' => 'тип того, що було ідентифіковано',
+        'findings.*.basis' => 'обґрунтування знахідки',
         'supportingInfo.*.uuid' => 'допоміжна медична інформація',
         'supportingInfo.*.type' => 'тип допоміжної медичної інформації'
     ]

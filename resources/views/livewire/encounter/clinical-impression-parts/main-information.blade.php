@@ -98,7 +98,7 @@
                 placeholder=" "
                 autocomplete="off"
             />
-            <label for="description" class="label"> {{ __('medical-events.conclusion') }} </label>
+            <label for="description" class="label"> {{ __('forms.description') }} </label>
         </div>
     </div>
 

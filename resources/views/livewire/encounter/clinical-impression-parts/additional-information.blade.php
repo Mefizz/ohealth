@@ -101,13 +101,31 @@
 
     <div class="form-row">
         <div>
-            <label for="note" class="label-modal"> {{ __('forms.description') }} </label>
+            <label for="note" class="label-modal"> {{ __('forms.comment') }} </label>
             <div>
                 <textarea
                     rows="4"
                     x-model="modalClinicalImpression.note"
                     id="note"
                     name="note"
+                    class="textarea"
+                    placeholder="{{ __('forms.write_comment_here') }}"
+                ></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div>
+            <label for="clinicalImpressionSummary" class="label-modal">
+                {{ __('clinical-impressions.summary') }}
+            </label>
+            <div>
+                <textarea
+                    rows="4"
+                    x-model="modalClinicalImpression.summary"
+                    id="clinicalImpressionSummary"
+                    name="summary"
                     class="textarea"
                     placeholder="{{ __('forms.write_comment_here') }}"
                 ></textarea>

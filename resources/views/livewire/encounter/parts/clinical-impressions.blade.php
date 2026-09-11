@@ -260,6 +260,7 @@
             this.codeCode = '';
             this.description = '';
             this.note = '';
+            this.summary = '';
             this.previous = [];
             this.problems = [];
             this.findings = [];

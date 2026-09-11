@@ -20,6 +20,7 @@
                 <tr>
                     <th scope="col" class="th-input">{{ __('forms.date') }}</th>
                     <th scope="col" class="th-input">{{ __('medical-events.code_and_name') }}</th>
+                    <th scope="col" class="th-input">{{ __('clinical-impressions.finding_basis') }}</th>
                     <th scope="col" class="th-input">{{ __('forms.action') }}</th>
                 </tr>
             </thead>
@@ -39,6 +40,19 @@
                                 }`
                             "
                         ></td>
+                        <td class="td-input">
+                            <label :for="`findingBasis${index}`" class="sr-only">
+                                {{ __('clinical-impressions.finding_basis') }}
+                            </label>
+                            <input
+                                x-model="finding.basis"
+                                :id="`findingBasis${index}`"
+                                type="text"
+                                class="input"
+                                maxlength="255"
+                                autocomplete="off"
+                            />
+                        </td>
                         <td class="td-input">
                             {{-- That all that is needed for the dropdown --}}
                             <div
@@ -324,6 +338,7 @@
                                                     ehealthInsertedAt: detail.ehealthInsertedAt,
                                                     codeCode: detail.codeCode,
                                                     type: detail.type,
+                                                    basis: '',
                                                 }));
 
                                             modalClinicalImpression.findings =

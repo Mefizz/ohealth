@@ -467,10 +467,21 @@ class EncounterComponent extends Component
     /**
      * Fetch all in_progress referrals for the patient from eHealth.
      * Called from mount() in EncounterCreate.
+     *
+     * Prepersons are not Persons in eHealth medical-events API, so
+     * GET /api/patients/{id}/service_requests returns 404 "Person is not found".
      */
     public function loadInProgressReferrals(): void
     {
         if ($this->referralsLoaded || $this->patientUuid === null) {
+            return;
+        }
+
+        // Registered Prepersons have a UUID, but medical-events service_requests
+        // is Person-scoped and returns 404 "Person is not found" for preperson IDs.
+        if ($this->prepersonId !== null) {
+            $this->referralsLoaded = true;
+
             return;
         }
 

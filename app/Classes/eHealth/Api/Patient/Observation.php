@@ -192,6 +192,7 @@ class Observation extends PatientApiBase
                 'reference_ranges' => ['nullable', 'array'], // TODO: add validation
                 'explanatory_letter' => ['nullable', 'string', 'max:255'],
             ],
+            ValidationRuleBuilder::periodRules(),
 
             // Identifier relationships
             ValidationRuleBuilder::identifierRules('diagnostic_report'),

@@ -2,6 +2,11 @@
 <div
     class="p-4 sm:p-8"
     id="observations-section"
+    {{-- Devices are offered from the encounter division's equipment, so a new division drops the picked ones --}}
+    x-on:encounter-division-changed.window="
+        observations = observations.map((observation) => ({ ...observation, deviceId: '' }));
+        modalObservation.deviceId = '';
+    "
     x-data="{
         observations: $wire.entangle('{{ $isEncounterContext ? 'observationForm' : 'form' }}.observations'),
         @if($isEncounterContext)
@@ -442,6 +447,7 @@
         methodCode = '';
         interpretationCode = '';
         bodySiteCode = '';
+        deviceId = '';
         reactionOn = '';
         valueQuantityValue = '';
         valueQuantityComparator = '';
@@ -451,8 +457,12 @@
         comment = '';
         issuedDate = '';
         issuedTime = '';
+        effectiveType = 'date_time';
         effectiveDate = '';
         effectiveTime = '';
+        effectivePeriodRange = '';
+        effectivePeriodStartTime = '';
+        effectivePeriodEndTime = '';
         components = [
             {
                 codeCode: '',

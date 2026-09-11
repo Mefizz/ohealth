@@ -34,7 +34,7 @@ class SyncNotification extends Notification
         'encounter' => 'Синхронізація взаємодій',
         'clinical_impression' => 'Синхронізація клінічних оцінок',
         'immunization' => 'Синхронізація вакцинацій',
-        'observation' => 'Синхронізація обстежень',
+        'observation' => 'Синхронізація спостережень',
         'condition' => 'Синхронізація станів',
         'diagnostic_report' => 'Синхронізація діагностичних звітів',
         'procedure' => 'Синхронізація процедур',

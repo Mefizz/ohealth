@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter\Forms;
 
+use App\Enums\Equipment\AvailabilityStatus;
+use App\Enums\Equipment\Status as EquipmentStatus;
+use App\Models\Equipment;
+use App\Rules\AfterOrEqualDateTime;
 use App\Rules\InDictionary;
 use App\Rules\PrimarySourceRequiredForAssistant;
 use App\Rules\PastDateTime;
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Livewire\Form;
@@ -57,8 +62,58 @@ class ObservationForm extends Form
                     ['eHealth/LOINC/observation_codes', 'eHealth/custom/observation_codes', 'eHealth/ICF/classifiers']
                 )
             ],
-            'observations.*.effectiveDate' => ['nullable', 'date', 'before_or_equal:now'],
-            'observations.*.effectiveTime' => ['nullable', 'date_format:H:i'],
+            'observations.*.effectiveType' => ['nullable', 'string', Rule::in(['date_time', 'period'])],
+            'observations.*.effectiveDate' => Rule::forEach(fn (mixed $value, string $attribute) => [
+                Rule::requiredIf(
+                    ($this->observations[(int)explode('.', $attribute)[1]]['effectiveType'] ?? '') === 'date_time'
+                ),
+                'nullable',
+                'date',
+                'before_or_equal:now'
+            ]),
+            'observations.*.effectiveTime' => Rule::forEach(fn (mixed $value, string $attribute) => [
+                Rule::requiredIf(
+                    ($this->observations[(int)explode('.', $attribute)[1]]['effectiveType'] ?? '') === 'date_time'
+                ),
+                'nullable',
+                'date_format:H:i'
+            ]),
+            // Both bounds live in one range picker, the way the encounter and care plan filters keep them
+            'observations.*.effectivePeriodRange' => Rule::forEach(fn (mixed $value, string $attribute) => [
+                Rule::requiredIf(
+                    ($this->observations[(int)explode('.', $attribute)[1]]['effectiveType'] ?? '') === 'period'
+                ),
+                'nullable',
+                'string',
+                'regex:/^\d{2}\.\d{2}\.\d{4}( — \d{2}\.\d{2}\.\d{4})?$/u'
+            ]),
+            'observations.*.effectivePeriodStartTime' => Rule::forEach(function (mixed $value, string $attribute) {
+                $observation = $this->observations[(int)explode('.', $attribute)[1]];
+                $bounds = array_map('trim', explode('—', $observation['effectivePeriodRange'] ?? ''));
+
+                return [
+                    Rule::requiredIf(($observation['effectiveType'] ?? '') === 'period'),
+                    'nullable',
+                    'date_format:H:i',
+                    new PastDateTime($bounds[0] ?? '')
+                ];
+            }),
+            'observations.*.effectivePeriodEndTime' => Rule::forEach(function (mixed $value, string $attribute) {
+                $observation = $this->observations[(int)explode('.', $attribute)[1]];
+                $bounds = array_map('trim', explode('—', $observation['effectivePeriodRange'] ?? ''));
+
+                return [
+                    Rule::requiredIf(!empty($bounds[1])),
+                    'nullable',
+                    'date_format:H:i',
+                    new PastDateTime($bounds[1] ?? ''),
+                    new AfterOrEqualDateTime(
+                        $bounds[1] ?? '',
+                        $bounds[0] ?? '',
+                        $observation['effectivePeriodStartTime'] ?? ''
+                    )
+                ];
+            }),
             'observations.*.issuedDate' => ['required_with:observations', 'date', 'before_or_equal:today'],
             'observations.*.issuedTime' => Rule::forEach(fn (mixed $value, string $attribute) => [
                 'required_with:observations',
@@ -91,6 +146,34 @@ class ObservationForm extends Form
                 'nullable',
                 'string',
                 new InDictionary('eHealth/body_sites')
+            ],
+            'observations.*.deviceId' => [
+                'bail',
+                'nullable',
+                'uuid',
+                Rule::exists('equipments', 'uuid')
+                    ->where('legal_entity_id', legalEntity()->id)
+                    ->where('status', EquipmentStatus::ACTIVE->value)
+                    ->where('availability_status', AvailabilityStatus::AVAILABLE->value),
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    $encounterDivisionId = $this->component->form->encounter['divisionId'] ?? '';
+
+                    if ($encounterDivisionId === '') {
+                        return;
+                    }
+
+                    // Equipment without a division fits any encounter division
+                    $isInOtherDivision = Equipment::whereUuid($value)
+                        ->whereHas(
+                            'division',
+                            static fn (Builder $query): Builder => $query->where('uuid', '!=', $encounterDivisionId)
+                        )
+                        ->exists();
+
+                    if ($isInOtherDivision) {
+                        $fail(__('equipments.validation.not_belongs_to_division'));
+                    }
+                }
             ],
             'observations.*.methodCode' => [
                 'nullable',

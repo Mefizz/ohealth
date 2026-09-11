@@ -870,6 +870,28 @@
                                 @icon('chevron-down', 'w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none')
                             </div>
                         </div>
+
+                        <div>
+                            <label
+                                for="stageCondition"
+                                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+                            >
+                                {{ __('conditions.stage') }}
+                            </label>
+                            <div class="relative">
+                                <select
+                                    x-model="modalCondition.stageCode"
+                                    id="stageCondition"
+                                    class="input-select w-full appearance-none bg-none"
+                                >
+                                    <option value="" selected>{{ __('forms.select') }}</option>
+                                    @foreach ($this->dictionaries['eHealth/condition_stages'] as $key => $conditionStage)
+                                        <option value="{{ $key }}">{{ $conditionStage }}</option>
+                                    @endforeach
+                                </select>
+                                @icon('chevron-down', 'w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none')
+                            </div>
+                        </div>
                     </div>
                 </fieldset>
 
@@ -1230,6 +1252,7 @@
             this.assertedDate = defaultDate;
             this.assertedTime = defaultTime;
             this.severityCode = '';
+            this.stageCode = '';
             this.asserterText = '';
             this.reportOriginCode = '';
             this.evidenceCodes = [];

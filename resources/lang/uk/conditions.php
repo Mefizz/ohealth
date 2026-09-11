@@ -24,6 +24,7 @@ return [
     'entry_date' => 'Дата внесення',
     'severity' => 'Ступінь тяжкості',
     'severity_of_the_condition' => 'Ступінь тяжкості стану',
+    'stage' => 'Стадія захворювання',
     'primary_source' => 'Первинне джерело',
     'choose_coding_system' => 'Оберіть систему кодування',
     'add_icd10_code' => ' Додати код за МКХ-10',

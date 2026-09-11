@@ -8,42 +8,6 @@
     <legend class="legend">{{ __('forms.main_information') }}</legend>
 
     <div>
-        <div class="form-row-2">
-            <div class="form-group group">
-                <label for="procedureStatus" class="sr-only">{{ __('forms.status.label') }}</label>
-                <select
-                    x-model="modalProcedure.status"
-                    @change="
-                        modalProcedure.status === 'completed'
-                            ? setPerformedType(modalProcedure.performedType || 'period')
-                            : setPerformedType('')
-                    "
-                    id="procedureStatus"
-                    class="input-select peer"
-                    required
-                >
-                    <option value="">{{ __('forms.select') }} {{ mb_strtolower(__('forms.status.label')) }} *</option>
-                    <option value="completed">{{ __('procedures.status.completed') }}</option>
-
-                    @if (in_array(($context ?? null), ['encounter', 'procedure'], true))
-                        <option value="{{ ProcedureStatus::NOT_DONE->value }}">
-                            {{ __('procedures.status.not_done') }}
-                        </option>
-                    @endif
-
-                    @if (data_get($this->form, 'procedure.status') === ProcedureStatus::ENTERED_IN_ERROR->value)
-                        <option value="{{ ProcedureStatus::ENTERED_IN_ERROR->value }}">
-                            {{ __('procedures.status.entered_in_error') }}
-                        </option>
-                    @endif
-                </select>
-
-                @error($procedureErrorPath . '.status')
-                    <p class="text-error">{{ $message }}</p>
-                @enderror
-            </div>
-        </div>
-
         {{-- Is referral available, show only in encounter. For single procedure referral is neccessary. --}}
         @if ($context === 'encounter')
             <div class="form-row-2">
@@ -255,6 +219,40 @@
                 </select>
 
                 @error($procedureErrorPath . '.categoryCode')
+                    <p class="text-error">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div class="form-group group">
+                <label for="procedureStatus" class="sr-only">{{ __('forms.status.label') }}</label>
+                <select
+                    x-model="modalProcedure.status"
+                    @change="
+                        modalProcedure.status === 'completed'
+                            ? setPerformedType(modalProcedure.performedType || 'period')
+                            : setPerformedType('')
+                    "
+                    id="procedureStatus"
+                    class="input-select peer"
+                    required
+                >
+                    <option value="">{{ __('forms.select') }} {{ mb_strtolower(__('forms.status.label')) }} *</option>
+                    <option value="completed">{{ __('procedures.status.completed') }}</option>
+
+                    @if (in_array(($context ?? null), ['encounter', 'procedure'], true))
+                        <option value="{{ ProcedureStatus::NOT_DONE->value }}">
+                            {{ __('procedures.status.not_done') }}
+                        </option>
+                    @endif
+
+                    @if (data_get($this->form, 'procedure.status') === ProcedureStatus::ENTERED_IN_ERROR->value)
+                        <option value="{{ ProcedureStatus::ENTERED_IN_ERROR->value }}">
+                            {{ __('procedures.status.entered_in_error') }}
+                        </option>
+                    @endif
+                </select>
+
+                @error($procedureErrorPath . '.status')
                     <p class="text-error">{{ $message }}</p>
                 @enderror
             </div>

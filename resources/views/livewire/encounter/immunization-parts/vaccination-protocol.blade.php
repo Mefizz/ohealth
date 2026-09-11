@@ -482,13 +482,13 @@
 
                                 <div class="form-row-modal">
                                     <div class="form-group group">
-                                        <label for="description" class="label-modal">
+                                        <label for="vaccinationProtocolDescription" class="label-modal">
                                             {{ __('immunizations.protocol_description') }}
                                         </label>
                                         <textarea
                                             class="textarea"
                                             x-model="modalVaccinationProtocol.description"
-                                            id="description"
+                                            id="vaccinationProtocolDescription"
                                             name="description"
                                             rows="4"
                                             placeholder="{{ __('forms.write_comment_here') }}"

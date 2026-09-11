@@ -188,8 +188,12 @@
                             <form>
                                 <div class="form-row-modal">
                                     <div class="form-group group">
+                                        <label for="findingType" class="sr-only">
+                                            {{ mb_ucfirst(__('medical-events.medical_records_type')) }}
+                                        </label>
                                         <select
                                             x-model="selectedFindingType"
+                                            id="findingType"
                                             @change="
                                                 $wire.findingResults = [];
                                                 selectedFindingIds = [];

@@ -17,10 +17,13 @@
                 <legend class="legend">Послуга</legend>
                 <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div class="form-group group md:col-span-2">
-                        <label class="label required">{{ __('care-plan.service') }}</label>
+                        <label for="encounterReferralServiceSearch" class="label required">
+                            {{ __('care-plan.service') }}
+                        </label>
                         <div class="flex gap-2">
                             <input
                                 type="text"
+                                id="encounterReferralServiceSearch"
                                 class="input peer w-full"
                                 placeholder="Код або назва послуги"
                                 wire:model="encounterReferralServiceSearch"
@@ -60,9 +63,10 @@
                         </div>
                     @endif
                     <div class="form-group group md:col-span-2">
-                        <label class="label">Обрана послуга</label>
+                        <label for="encounterReferralSelectedService" class="label">Обрана послуга</label>
                         <input
                             type="text"
+                            id="encounterReferralSelectedService"
                             class="input peer w-full"
                             value="{{ !empty($encounterReferralSelectedService) ? (($encounterReferralSelectedService['code'] ?? '') . ' — ' . ($encounterReferralSelectedService['name'] ?? '')) : '' }}"
                             placeholder="{{ __('care-plan.select_service') }}"
@@ -70,8 +74,12 @@
                         />
                     </div>
                     <div class="form-group group">
-                        <label class="label required">Категорія</label>
-                        <select class="input-select peer w-full" wire:model="encounterReferralForm.category">
+                        <label for="encounterReferralCategory" class="label required">Категорія</label>
+                        <select
+                            id="encounterReferralCategory"
+                            class="input-select peer w-full"
+                            wire:model="encounterReferralForm.category"
+                        >
                             @foreach (__('care-plan.referral_category') as $code => $label)
                                 <option value="{{ $code }}">{{ $label }}</option>
                             @endforeach
@@ -80,8 +88,12 @@
                         </select>
                     </div>
                     <div class="form-group group">
-                        <label class="label">Програма</label>
-                        <select class="input-select peer w-full" wire:model="encounterReferralForm.program_id">
+                        <label for="encounterReferralProgram" class="label">Програма</label>
+                        <select
+                            id="encounterReferralProgram"
+                            class="input-select peer w-full"
+                            wire:model="encounterReferralForm.program_id"
+                        >
                             <option value="">Не обрано</option>
                             @foreach ($encounterReferralPrograms as $program)
                                 <option value="{{ $program['id'] }}">{{ $program['name'] }}</option>
@@ -95,27 +107,30 @@
                 <legend class="legend">Термін дії та кількість</legend>
                 <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-3">
                     <div class="form-group group">
-                        <label class="label required">Дата початку</label>
+                        <label for="encounterReferralStartedAt" class="label required">Дата початку</label>
                         <input
                             type="text"
+                            id="encounterReferralStartedAt"
                             class="input peer"
                             placeholder="dd.mm.yyyy"
                             wire:model="encounterReferralForm.started_at"
                         />
                     </div>
                     <div class="form-group group">
-                        <label class="label required">Дата закінчення</label>
+                        <label for="encounterReferralEndedAt" class="label required">Дата закінчення</label>
                         <input
                             type="text"
+                            id="encounterReferralEndedAt"
                             class="input peer"
                             placeholder="dd.mm.yyyy"
                             wire:model="encounterReferralForm.ended_at"
                         />
                     </div>
                     <div class="form-group group">
-                        <label class="label required">Кількість</label>
+                        <label for="encounterReferralQuantity" class="label required">Кількість</label>
                         <input
                             type="number"
+                            id="encounterReferralQuantity"
                             min="0.01"
                             step="any"
                             class="input peer"
@@ -125,8 +140,12 @@
                 </div>
                 <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div class="form-group group">
-                        <label class="label required">Пріоритет</label>
-                        <select class="input-select peer w-full" wire:model="encounterReferralForm.priority">
+                        <label for="encounterReferralPriority" class="label required">Пріоритет</label>
+                        <select
+                            id="encounterReferralPriority"
+                            class="input-select peer w-full"
+                            wire:model="encounterReferralForm.priority"
+                        >
                             <option value="routine">{{ __('care-plan.priority_options.routine') }}</option>
                             <option value="urgent">{{ __('care-plan.priority_options.urgent') }}</option>
                             <option value="asap">{{ __('care-plan.priority_options.asap') }}</option>
@@ -140,8 +159,12 @@
                 <legend class="legend">Додатково</legend>
                 <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div class="form-group group">
-                        <label class="label">Метод автентифікації</label>
-                        <select class="input-select peer w-full" wire:model="encounterReferralForm.inform_with">
+                        <label for="encounterReferralInformWith" class="label">Метод автентифікації</label>
+                        <select
+                            id="encounterReferralInformWith"
+                            class="input-select peer w-full"
+                            wire:model="encounterReferralForm.inform_with"
+                        >
                             <option value="">Не обрано</option>
                             @foreach ($encounterReferralAuthMethods as $method)
                                 <option value="{{ \App\Services\MedicalEvents\InformWith::formValue($method) }}">
@@ -151,13 +174,22 @@
                         </select>
                     </div>
                     <div class="form-group group">
-                        <label class="label">Інструкція пацієнту</label>
-                        <input type="text" class="input peer" wire:model="encounterReferralForm.patient_instruction" />
+                        <label for="encounterReferralPatientInstruction" class="label">Інструкція пацієнту</label>
+                        <input
+                            type="text"
+                            id="encounterReferralPatientInstruction"
+                            class="input peer"
+                            wire:model="encounterReferralForm.patient_instruction"
+                        />
                     </div>
                 </div>
                 <div class="form-group group">
-                    <label class="label">Примітки</label>
-                    <textarea class="input peer min-h-20" wire:model="encounterReferralForm.note"></textarea>
+                    <label for="encounterReferralNote" class="label">Примітки</label>
+                    <textarea
+                        id="encounterReferralNote"
+                        class="input peer min-h-20"
+                        wire:model="encounterReferralForm.note"
+                    ></textarea>
                 </div>
             </fieldset>
 

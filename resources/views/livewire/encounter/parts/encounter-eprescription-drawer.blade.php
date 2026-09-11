@@ -20,8 +20,11 @@
                 <h3 class="mb-4 text-lg font-semibold">Лікарський засіб</h3>
                 <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div class="md:col-span-2">
-                        <label class="mb-1 block text-sm font-medium">Медична програма *</label>
+                        <label for="encounterEPrescriptionProgram" class="mb-1 block text-sm font-medium">
+                            Медична програма *
+                        </label>
                         <select
+                            id="encounterEPrescriptionProgram"
                             class="input-select peer w-full"
                             wire:model.live="encounterEPrescriptionForm.program_id"
                         >
@@ -35,10 +38,13 @@
                         @enderror
                     </div>
                     <div class="md:col-span-2">
-                        <label class="mb-1 block text-sm font-medium">Пошук лікарського засобу *</label>
+                        <label for="encounterEPrescriptionSearch" class="mb-1 block text-sm font-medium">
+                            Пошук лікарського засобу *
+                        </label>
                         <div class="flex gap-2">
                             <input
                                 type="text"
+                                id="encounterEPrescriptionSearch"
                                 class="input peer w-full"
                                 placeholder="Введіть щонайменше 3 символи та натисніть Enter"
                                 wire:model="encounterEPrescriptionSearchQuery"
@@ -77,9 +83,12 @@
                         </div>
                     @endif
                     <div class="md:col-span-2">
-                        <label class="mb-1 block text-sm font-medium">Обраний лікарський засіб</label>
+                        <label for="encounterEPrescriptionMedication" class="mb-1 block text-sm font-medium">
+                            Обраний лікарський засіб
+                        </label>
                         <input
                             type="text"
+                            id="encounterEPrescriptionMedication"
                             class="input peer w-full"
                             value="{{ $encounterEPrescriptionSelectedMedication['name'] ?? '' }}"
                             placeholder="Лікарський засіб не обрано"
@@ -93,15 +102,22 @@
                         @enderror
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Категорія</label>
-                        <select class="input-select peer w-full" wire:model="encounterEPrescriptionForm.category">
+                        <label for="encounterEPrescriptionCategory" class="mb-1 block text-sm font-medium"
+                            >Категорія</label>
+                        <select
+                            id="encounterEPrescriptionCategory"
+                            class="input-select peer w-full"
+                            wire:model="encounterEPrescriptionForm.category"
+                        >
                             <option value="community">Амбулаторно</option>
                         </select>
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Кількість *</label>
+                        <label for="encounterEPrescriptionQuantity" class="mb-1 block text-sm font-medium"
+                            >Кількість *</label>
                         <input
                             type="number"
+                            id="encounterEPrescriptionQuantity"
                             min="0.01"
                             step="any"
                             class="input peer w-full"
@@ -112,9 +128,10 @@
                         @endif
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Одиниця</label>
+                        <label for="encounterEPrescriptionUnit" class="mb-1 block text-sm font-medium">Одиниця</label>
                         <input
                             type="text"
+                            id="encounterEPrescriptionUnit"
                             class="input peer w-full"
                             wire:model="encounterEPrescriptionForm.medication_unit"
                         />
@@ -126,9 +143,11 @@
                 <h3 class="mb-4 text-lg font-semibold">Дозування</h3>
                 <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div class="md:col-span-2">
-                        <label class="mb-1 block text-sm font-medium">Сигнатура *</label>
+                        <label for="encounterEPrescriptionSignature" class="mb-1 block text-sm font-medium"
+                            >Сигнатура *</label>
                         <input
                             type="text"
+                            id="encounterEPrescriptionSignature"
                             class="input peer w-full"
                             wire:model="encounterEPrescriptionForm.signature_text"
                         />
@@ -137,9 +156,15 @@
                         @enderror
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Макс. доза за прийом *</label>
+                        <label
+                            for="encounterEPrescriptionMaxDosePerAdministration"
+                            class="mb-1 block text-sm font-medium"
+                        >
+                            Макс. доза за прийом *
+                        </label>
                         <input
                             type="number"
+                            id="encounterEPrescriptionMaxDosePerAdministration"
                             min="0.01"
                             step="any"
                             class="input peer w-full"
@@ -147,9 +172,12 @@
                         />
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Макс. доза за період *</label>
+                        <label for="encounterEPrescriptionMaxDosePerPeriod" class="mb-1 block text-sm font-medium">
+                            Макс. доза за період *
+                        </label>
                         <input
                             type="number"
+                            id="encounterEPrescriptionMaxDosePerPeriod"
                             min="0.01"
                             step="any"
                             class="input peer w-full"
@@ -157,16 +185,24 @@
                         />
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Початок курсу</label>
+                        <label for="encounterEPrescriptionStartedAt" class="mb-1 block text-sm font-medium"
+                            >Початок курсу</label>
                         <input
                             type="date"
+                            id="encounterEPrescriptionStartedAt"
                             class="input peer w-full"
                             wire:model="encounterEPrescriptionForm.started_at"
                         />
                     </div>
                     <div>
-                        <label class="mb-1 block text-sm font-medium">Кінець курсу</label>
-                        <input type="date" class="input peer w-full" wire:model="encounterEPrescriptionForm.ended_at" />
+                        <label for="encounterEPrescriptionEndedAt" class="mb-1 block text-sm font-medium"
+                            >Кінець курсу</label>
+                        <input
+                            type="date"
+                            id="encounterEPrescriptionEndedAt"
+                            class="input peer w-full"
+                            wire:model="encounterEPrescriptionForm.ended_at"
+                        />
                     </div>
                 </div>
             </div>
@@ -174,8 +210,14 @@
             <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <h3 class="mb-4 text-lg font-semibold">Автентифікація</h3>
                 <div>
-                    <label class="mb-1 block text-sm font-medium">Метод автентифікації пацієнта *</label>
-                    <select class="input-select peer w-full" wire:model="encounterEPrescriptionForm.inform_with">
+                    <label for="encounterEPrescriptionInformWith" class="mb-1 block text-sm font-medium">
+                        Метод автентифікації пацієнта *
+                    </label>
+                    <select
+                        id="encounterEPrescriptionInformWith"
+                        class="input-select peer w-full"
+                        wire:model="encounterEPrescriptionForm.inform_with"
+                    >
                         <option value="">Оберіть</option>
                         @foreach ($encounterEPrescriptionAuthMethods as $method)
                             <option value="{{ $method['value'] ?? $method['uuid'] }}">{{ $method['label'] }}</option>

@@ -157,8 +157,10 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
+                        <label :for="`detectedIssueRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
                         <input
                             type="checkbox"
+                            :id="`detectedIssueRecord${index}`"
                             class="default-checkbox h-5 w-5"
                             :value="detectedIssue.uuid"
                             x-model="selectedRecords"
@@ -421,6 +423,7 @@
                             </div>
 
                             <div class="relative -ml-px w-32">
+                                <label for="detectedIssueTime" class="sr-only">{{ __('patients.time') }}</label>
                                 <input
                                     x-model="modalDetectedIssue.identifiedTime"
                                     type="time"
@@ -557,6 +560,9 @@
 
                         <div class="form-row-2" x-show="modalDetectedIssue.primarySource === false" x-cloak>
                             <div class="form-group group">
+                                <label for="detectedIssueReportOrigin" class="sr-only">
+                                    {{ __('medical-events.information_source') }}
+                                </label>
                                 <select
                                     x-model="modalDetectedIssue.reportOriginCode"
                                     id="detectedIssueReportOrigin"

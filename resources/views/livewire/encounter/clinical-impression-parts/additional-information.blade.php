@@ -41,6 +41,7 @@
         </div>
 
         <div class="form-group group !w-1/2" onclick="document.getElementById('effectivePeriodStartTime').showPicker()">
+            <label for="effectivePeriodStartTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
                 <input
@@ -80,6 +81,7 @@
         </div>
 
         <div class="form-group group !w-1/2" onclick="document.getElementById('effectivePeriodEndTime').showPicker()">
+            <label for="effectivePeriodEndTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
                 <input

@@ -17,14 +17,14 @@
                     modalProcedure.reportOriginText = '';
                 "
                 x-model.boolean="modalProcedure.primarySource"
-                id="performer"
+                id="procedureSourcePerformer"
                 type="radio"
                 value="true"
                 name="primarySource"
                 class="default-radio"
                 :checked="modalProcedure.primarySource === true"
             />
-            <label for="performer" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+            <label for="procedureSourcePerformer" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
                 {{ __('medical-events.performer') }}
             </label>
         </div>
@@ -37,14 +37,14 @@
                         modalProcedure.performerEmployeeId = '';
                     "
                     x-model.boolean="modalProcedure.primarySource"
-                    id="patient"
+                    id="procedureSourcePatient"
                     type="radio"
                     value="false"
                     name="primarySource"
                     class="default-radio"
                     :checked="modalProcedure.primarySource === false"
                 />
-                <label for="patient" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                <label for="procedureSourcePatient" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
                     {{ __('medical-events.other_source') }}
                 </label>
             @endunless
@@ -87,10 +87,11 @@
     <div x-show="modalProcedure.primarySource === false">
         <div class="form-row-modal">
             <div>
+                <label for="procedureReportOrigin" class="sr-only">{{ __('medical-events.source_link') }}</label>
                 <select
                     class="input-select peer"
                     x-model="modalProcedure.reportOriginCode"
-                    id="reportOrigin"
+                    id="procedureReportOrigin"
                     type="text"
                     required
                 >
@@ -108,6 +109,7 @@
     {{-- Performed type --}}
     <div class="form-row-2" x-show="modalProcedure.status === 'completed'" x-cloak>
         <div class="form-group group">
+            <label for="procedurePerformedType" class="sr-only">{{ __('procedures.performed_type') }}</label>
             <select
                 x-model="modalProcedure.performedType"
                 @change="setPerformedType($event.target.value)"
@@ -156,6 +158,7 @@
         </div>
 
         <div class="form-group group !w-1/2" onclick="document.getElementById('procedurePerformedTime').showPicker()">
+            <label for="procedurePerformedTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
 
@@ -209,6 +212,7 @@
                     class="form-group group !w-1/2"
                     onclick="document.getElementById('performedPeriodStartTime').showPicker()"
                 >
+                    <label for="performedPeriodStartTime" class="sr-only">{{ __('patients.time') }}</label>
                     <div class="relative flex items-center">
                         @icon('mingcute-time-fill', 'svg-input left-2.5')
                         <input
@@ -263,6 +267,7 @@
                     class="form-group group !w-1/2"
                     onclick="document.getElementById('performedPeriodEndTime').showPicker()"
                 >
+                    <label for="performedPeriodEndTime" class="sr-only">{{ __('patients.time') }}</label>
                     <div class="relative flex items-center">
                         @icon('mingcute-time-fill', 'svg-input left-2.5')
                         <input
@@ -290,12 +295,12 @@
     {{-- Note --}}
     <div class="form-row">
         <div>
-            <label for="note" class="label-modal"> {{ __('patients.notes') }} </label>
+            <label for="procedureNote" class="label-modal"> {{ __('patients.notes') }} </label>
             <div>
                 <textarea
                     rows="4"
                     x-model="modalProcedure.note"
-                    id="note"
+                    id="procedureNote"
                     name="note"
                     class="textarea"
                     placeholder="{{ __('forms.write_comment_here') }}"

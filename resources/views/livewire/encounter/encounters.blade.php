@@ -180,7 +180,15 @@
                     <div class="record-inner-card" wire:key="encounter-{{ data_get($encounter, 'uuid') }}">
                         <div class="record-inner-header">
                             <div class="record-inner-checkbox-col">
-                                <input type="checkbox" class="default-checkbox h-5 w-5" />
+                                <label
+                                    for="encounterRecord{{ $loop->index }}"
+                                    class="sr-only"
+                                >{{ __('forms.select') }}</label>
+                                <input
+                                    type="checkbox"
+                                    id="encounterRecord{{ $loop->index }}"
+                                    class="default-checkbox h-5 w-5"
+                                />
                             </div>
 
                             <div class="record-inner-column flex-1">

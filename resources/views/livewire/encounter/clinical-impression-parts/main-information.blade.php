@@ -4,6 +4,7 @@
     {{-- Code --}}
     <div class="form-row-modal" x-data="{ openModal: false }">
         <div class="form-group group">
+            <label for="code" class="sr-only">{{ __('forms.code') }}</label>
             <select x-model="modalClinicalImpression.codeCode" id="code" class="input-select peer" type="text" required>
                 <option value="" selected>{{ __('forms.select') }} {{ mb_strtolower(__('forms.code')) }} *</option>
                 @foreach ($this->dictionaries['eHealth/clinical_impression_patient_categories'] as $key => $clinicalImpressionPatientCategory)

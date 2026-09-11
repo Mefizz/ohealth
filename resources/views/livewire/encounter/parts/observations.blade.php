@@ -128,8 +128,10 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
+                        <label :for="`observationRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
                         <input
                             type="checkbox"
+                            :id="`observationRecord${index}`"
                             class="default-checkbox h-5 w-5"
                             :value="observation.uuid"
                             x-model="selectedRecords"

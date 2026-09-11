@@ -205,7 +205,13 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
-                        <input type="checkbox" class="default-checkbox h-5 w-5" disabled />
+                        <label :for="`conditionRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
+                        <input
+                            type="checkbox"
+                            :id="`conditionRecord${index}`"
+                            class="default-checkbox h-5 w-5"
+                            disabled
+                        />
                     </div>
 
                     <div class="record-inner-column flex-1">
@@ -552,12 +558,16 @@
                             </div>
 
                             <div x-show="! modalCondition.codeSystem">
-                                <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                                <label
+                                    for="conditionCodePlaceholder"
+                                    class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+                                >
                                     {{ __('forms.code') }}<span class="text-red-600"> *</span>
                                 </label>
                                 <div class="relative">
                                     <input
                                         type="text"
+                                        id="conditionCodePlaceholder"
                                         disabled
                                         class="input w-full cursor-not-allowed opacity-50"
                                         placeholder="{{ __('conditions.choose_coding_system') }}"
@@ -682,7 +692,9 @@
                         </div>
 
                         <div>
-                            <label class="mb-1 block text-xs">&nbsp;</label>
+                            <label for="onsetTime" class="mb-1 block text-xs">
+                                &nbsp;<span class="sr-only">{{ __('patients.time') }}</span>
+                            </label>
                             <div class="relative">
                                 <div class="pointer-events-none absolute inset-y-0 start-0 flex items-center pl-1">
                                     @icon('mingcute-time-fill', 'w-4 h-4 text-gray-400')
@@ -728,7 +740,9 @@
                         </div>
 
                         <div>
-                            <label class="mb-1 block text-xs">&nbsp;</label>
+                            <label for="assertedTime" class="mb-1 block text-xs">
+                                &nbsp;<span class="sr-only">{{ __('patients.time') }}</span>
+                            </label>
                             <div class="relative">
                                 <div class="pointer-events-none absolute inset-y-0 start-0 flex items-center pl-1">
                                     @icon('mingcute-time-fill', 'w-4 h-4 text-gray-400')
@@ -756,14 +770,17 @@
                             <template x-for="(bodySite, bsIndex) in modalCondition.bodySites" :key="bsIndex">
                                 <div class="grid grid-cols-1 items-end gap-x-8 gap-y-4 md:grid-cols-2">
                                     <div>
-                                        <template x-if="bsIndex === 0">
-                                            <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-                                                {{ __('patients.body_part') }}
-                                            </label>
-                                        </template>
+                                        <label
+                                            :for="`conditionBodySite${bsIndex}`"
+                                            class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+                                            :class="{ 'sr-only': bsIndex > 0 }"
+                                        >
+                                            {{ __('patients.body_part') }}
+                                        </label>
                                         <div class="relative">
                                             <select
                                                 x-model="bodySite.code"
+                                                :id="`conditionBodySite${bsIndex}`"
                                                 class="input-select w-full appearance-none bg-none"
                                             >
                                                 <option value="" selected>{{ __('forms.select') }}</option>
@@ -869,7 +886,7 @@
                                     modalCondition.primarySource = true;
                                     modalCondition.asserterText = '';
                                 "
-                                id="performer"
+                                id="conditionSourcePerformer"
                                 type="radio"
                                 value="true"
                                 name="primarySource"
@@ -877,7 +894,7 @@
                                 :checked="modalCondition.primarySource === true"
                             />
                             <label
-                                for="performer"
+                                for="conditionSourcePerformer"
                                 class="cursor-pointer text-sm font-medium text-gray-900 dark:text-gray-300"
                             >
                                 {{ __('medical-events.performer') }}
@@ -910,8 +927,13 @@
                     </div>
 
                     <div class="max-w-md flex-1">
+                        <label
+                            for="conditionAsserterText"
+                            class="sr-only"
+                        >{{ __('episodes.created_by_doctor') }}</label>
                         <input
                             type="text"
+                            id="conditionAsserterText"
                             x-model="modalCondition.asserterText"
                             :disabled="modalCondition.primarySource === true"
                             class="w-full rounded-lg border border-gray-200 bg-gray-50 p-2 px-3 text-sm text-gray-900 transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800"
@@ -924,7 +946,7 @@
                     <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                         <div>
                             <label
-                                for="reportOrigin"
+                                for="conditionReportOrigin"
                                 class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
                             >
                                 {{ __('medical-events.information_source') }}
@@ -932,7 +954,7 @@
                             <div class="relative">
                                 <select
                                     x-model="modalCondition.reportOriginCode"
-                                    id="reportOrigin"
+                                    id="conditionReportOrigin"
                                     class="input-select w-full appearance-none bg-none"
                                     required
                                 >
@@ -1216,6 +1238,11 @@
 
             if (obj) {
                 Object.assign(this, JSON.parse(JSON.stringify(obj)));
+            }
+
+            // An empty body site row keeps the field in sight, the mapper drops rows without a code
+            if (!this.bodySites?.length) {
+                this.bodySites = [{ code: '' }];
             }
         }
     }

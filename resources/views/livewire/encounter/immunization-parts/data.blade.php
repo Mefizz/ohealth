@@ -183,14 +183,17 @@
             <div class="flex items-center">
                 <input
                     x-model.boolean="modalImmunization.primarySource"
-                    id="performer"
+                    id="immunizationSourcePerformer"
                     type="radio"
                     value="true"
                     name="primarySource"
                     class="default-radio"
                     :checked="modalImmunization.primarySource === true"
                 />
-                <label for="performer" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                <label
+                    for="immunizationSourcePerformer"
+                    class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300"
+                >
                     {{ __('medical-events.performer') }}
                 </label>
             </div>
@@ -198,14 +201,17 @@
             <div class="flex items-center">
                 <input
                     x-model.boolean="modalImmunization.primarySource"
-                    id="patient"
+                    id="immunizationSourcePatient"
                     type="radio"
                     value="false"
                     name="primarySource"
                     class="default-radio"
                     :checked="modalImmunization.primarySource === false"
                 />
-                <label for="patient" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                <label
+                    for="immunizationSourcePatient"
+                    class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300"
+                >
                     {{ __('forms.patient') }}
                 </label>
             </div>
@@ -214,11 +220,13 @@
         <div x-show="modalImmunization.primarySource === false" x-transition>
             <div class="form-row-modal">
                 <div>
-                    <label for="reportOrigin" class="label-modal"> {{ __('medical-events.source_link') }} </label>
+                    <label for="immunizationReportOrigin" class="label-modal">
+                        {{ __('medical-events.source_link') }}
+                    </label>
                     <select
                         class="input-modal"
                         x-model="modalImmunization.reportOriginCode"
-                        id="reportOrigin"
+                        id="immunizationReportOrigin"
                         type="text"
                         required
                     >
@@ -232,11 +240,13 @@
 
             <div class="form-row-modal">
                 <div class="form-group group">
-                    <label for="doctorComment" class="label-modal"> {{ __('forms.additional_info') }} </label>
+                    <label for="immunizationReportOriginText" class="label-modal">
+                        {{ __('forms.additional_info') }}
+                    </label>
                     <textarea
                         class="textarea"
                         x-model="modalImmunization.reportOriginText"
-                        id="doctorComment"
+                        id="immunizationReportOriginText"
                         name="doctorComment"
                         rows="4"
                         placeholder="{{ __('forms.write_comment_here') }}"

@@ -75,7 +75,7 @@
 
     <div class="form-row-4">
         <div>
-            <label for="issuedDate" class="label-modal"> {{ __('observations.result_received_at') }} </label>
+            <label for="observationIssuedDate" class="label-modal"> {{ __('observations.result_received_at') }} </label>
             <div class="relative flex items-center">
                 @icon('calendar-week', 'w-5 h-5 svg-input absolute left-2.5 pointer-events-none')
                 <input
@@ -83,7 +83,7 @@
                     datepicker-max-date="{{ now()->format(config('app.date_format')) }}"
                     type="text"
                     name="issuedDate"
-                    id="issuedDate"
+                    id="observationIssuedDate"
                     class="datepicker-input input-modal pl-10!"
                     autocomplete="off"
                     required
@@ -95,8 +95,8 @@
             </p>
         </div>
 
-        <div class="w-3/5" onclick="document.getElementById('issuedTime').showPicker()">
-            <label for="issuedTime" class="hidden"> {{ __('patients.time') }} </label>
+        <div class="w-3/5" onclick="document.getElementById('observationIssuedTime').showPicker()">
+            <label for="observationIssuedTime" class="hidden"> {{ __('patients.time') }} </label>
 
             <div class="relative mt-7 flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
@@ -106,7 +106,7 @@
                     datepicker-max-date="{{ now()->format(config('app.date_format')) }}"
                     type="time"
                     name="issuedTime"
-                    id="issuedTime"
+                    id="observationIssuedTime"
                     class="input-modal pl-10!"
                     autocomplete="off"
                     required
@@ -207,8 +207,8 @@
             </div>
         </div>
 
-        <div class="w-3/5" onclick="document.getElementById('effectivePeriodStartTime').showPicker()">
-            <label for="effectivePeriodStartTime" class="label-modal">
+        <div class="w-3/5" onclick="document.getElementById('observationEffectivePeriodStartTime').showPicker()">
+            <label for="observationEffectivePeriodStartTime" class="label-modal">
                 {{ __('observations.effective_period_start') }}
             </label>
 
@@ -219,7 +219,7 @@
                     @input="$event.target.blur()"
                     type="time"
                     name="effectivePeriodStartTime"
-                    id="effectivePeriodStartTime"
+                    id="observationEffectivePeriodStartTime"
                     class="input-modal pl-10!"
                     autocomplete="off"
                     :required="modalObservation.effectiveType === 'period'"
@@ -227,8 +227,8 @@
             </div>
         </div>
 
-        <div class="w-3/5" onclick="document.getElementById('effectivePeriodEndTime').showPicker()">
-            <label for="effectivePeriodEndTime" class="label-modal">
+        <div class="w-3/5" onclick="document.getElementById('observationEffectivePeriodEndTime').showPicker()">
+            <label for="observationEffectivePeriodEndTime" class="label-modal">
                 {{ __('observations.effective_period_end') }}
             </label>
 
@@ -239,7 +239,7 @@
                     @input="$event.target.blur()"
                     type="time"
                     name="effectivePeriodEndTime"
-                    id="effectivePeriodEndTime"
+                    id="observationEffectivePeriodEndTime"
                     class="input-modal pl-10!"
                     autocomplete="off"
                 />

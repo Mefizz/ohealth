@@ -179,8 +179,12 @@
                             <form>
                                 <div class="form-row-modal">
                                     <div class="form-group group">
+                                        <label for="supportingInfoType" class="sr-only">
+                                            {{ __('clinical-impressions.supporting_medical_information') }}
+                                        </label>
                                         <select
                                             x-model="selectedSupportingInfoType"
+                                            id="supportingInfoType"
                                             @change="
                                                 $wire.supportingInfoResults = [];
                                                 selectedSupportingInfoIds = [];

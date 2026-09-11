@@ -22,6 +22,7 @@ return [
     'outcome_result' => 'Результат проведення',
     'performer' => 'виконавець процедури',
     'doctor_who_performed' => 'Лікар, що виконав',
+    'performed_type' => 'Час проведення процедури',
     'performed_date_time' => 'Вказати дату та час проведення',
     'performed_period' => 'Вказати період проведення',
     'start_date_and_time' => 'Дата та час початку процедури',

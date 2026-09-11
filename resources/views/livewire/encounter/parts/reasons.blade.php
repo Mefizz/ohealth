@@ -16,7 +16,8 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
-                        <input type="checkbox" class="default-checkbox h-5 w-5" disabled />
+                        <label :for="`reasonRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
+                        <input type="checkbox" :id="`reasonRecord${index}`" class="default-checkbox h-5 w-5" disabled />
                     </div>
 
                     <div class="record-inner-column flex-1">
@@ -214,6 +215,7 @@
                                     </div>
 
                                     <div>
+                                        <label for="reasonComment" class="sr-only">{{ __('forms.comment') }}</label>
                                         <textarea
                                             x-model="modalReason.text"
                                             id="reasonComment"

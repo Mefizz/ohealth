@@ -150,6 +150,22 @@ class EmployeeCreate
                     continue;
                 }
 
+                // Pending local requests may match a pre-existing APPROVED employee (edit flow).
+                // Apply revision data only after the eHealth EmployeeRequest itself is APPROVED.
+                if (
+                    $employeeRequest->status !== RequestStatus::APPROVED
+                    && !$this->isRemoteEmployeeRequestApproved($employeeRequest)
+                ) {
+                    Log::info('[EmployeeCreate] Skipping apply: EmployeeRequest not APPROVED yet.', [
+                        'user_id' => $user->id,
+                        'request_id' => $employeeRequest->id,
+                        'local_status' => $employeeRequest->status?->value,
+                        'employee_uuid' => $eHealthEmployee['uuid'] ?? null,
+                    ]);
+
+                    continue;
+                }
+
                 // If the employee type is OWNER, we need to check if the current owner is different from the one in EHealth.
                 if ($eHealthEmployee['employee_type'] === Role::OWNER->value) {
                     $currOwner = $event->legalEntity->getOwner();
@@ -162,13 +178,13 @@ class EmployeeCreate
                         if ($currentOwnerUser) {
                             Repository::legalEntity()->disableOldOwner($currentOwnerUser, $event->legalEntity);
                         } else {
-                             Log::error('[EmployeeCreate] User not found for current owner.', [
-                                'user_id' => $currOwner->userId,
-                                'legal_entity_uuid' => $event->legalEntity->uuid,
-                                'employee_uuid' => $eHealthEmployee['uuid'] ?? null,
+                            Log::error('[EmployeeCreate] User not found for current owner.', [
+                               'user_id' => $currOwner->userId,
+                               'legal_entity_uuid' => $event->legalEntity->uuid,
+                               'employee_uuid' => $eHealthEmployee['uuid'] ?? null,
                             ]);
 
-                            throw new RuntimeException( __('auth.login.error.owner_replacement.current_owner_user_not_found'));
+                            throw new RuntimeException(__('auth.login.error.owner_replacement.current_owner_user_not_found'));
                         }
                     }
                 }
@@ -269,6 +285,37 @@ class EmployeeCreate
             ->filter(fn ($taxId) => is_string($taxId) && $taxId !== '')
             ->unique()
             ->values();
+    }
+
+    /**
+     * Remote Create Employee Request must be APPROVED (email confirmed) before local apply.
+     * Matching an APPROVED Employee by tax_id alone is insufficient for edit requests.
+     */
+    private function isRemoteEmployeeRequestApproved(EmployeeRequest $request): bool
+    {
+        if (blank($request->uuid)) {
+            return false;
+        }
+
+        try {
+            $remoteData = EHealth::employeeRequest()
+                ->getDetails($request->uuid)
+                ->validate();
+
+            $remoteStatus = $remoteData['status'] instanceof \BackedEnum
+                ? $remoteData['status']->value
+                : $remoteData['status'];
+
+            return $remoteStatus === RequestStatus::APPROVED->value;
+        } catch (Throwable $e) {
+            Log::warning('[EmployeeCreate] Failed to verify remote EmployeeRequest status.', [
+                'request_id' => $request->id,
+                'request_uuid' => $request->uuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 
     /**

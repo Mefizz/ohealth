@@ -62,7 +62,11 @@ class Observation extends Model
         'issued_date',
         'issued_time',
         'effective_date',
-        'effective_time'
+        'effective_time',
+        'effective_period_start_date',
+        'effective_period_start_time',
+        'effective_period_end_date',
+        'effective_period_end_time'
     ];
 
     protected $hidden = [
@@ -111,6 +115,42 @@ class Observation extends Model
         return Attribute::make(
             get: fn (): string => $this->effectiveDateTime
                 ? CarbonImmutable::parse($this->effectiveDateTime)->format('H:i')
+                : '',
+        );
+    }
+
+    protected function effectivePeriodStartDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->effectivePeriod
+                ? CarbonImmutable::parse($this->effectivePeriod->start)->format(config('app.date_format'))
+                : '',
+        );
+    }
+
+    protected function effectivePeriodStartTime(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->effectivePeriod
+                ? CarbonImmutable::parse($this->effectivePeriod->start)->format('H:i')
+                : '',
+        );
+    }
+
+    protected function effectivePeriodEndDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->effectivePeriod?->end
+                ? CarbonImmutable::parse($this->effectivePeriod->end)->format(config('app.date_format'))
+                : '',
+        );
+    }
+
+    protected function effectivePeriodEndTime(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): string => $this->effectivePeriod?->end
+                ? CarbonImmutable::parse($this->effectivePeriod->end)->format('H:i')
                 : '',
         );
     }

@@ -2,6 +2,11 @@
 <div
     class="p-4 sm:p-8"
     id="observations-section"
+    {{-- Devices are offered from the encounter division's equipment, so a new division drops the picked ones --}}
+    x-on:encounter-division-changed.window="
+        observations = observations.map((observation) => ({ ...observation, deviceId: '' }));
+        modalObservation.deviceId = '';
+    "
     x-data="{
         observations: $wire.entangle('{{ $isEncounterContext ? 'observationForm' : 'form' }}.observations'),
         @if($isEncounterContext)
@@ -123,8 +128,10 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
+                        <label :for="`observationRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
                         <input
                             type="checkbox"
+                            :id="`observationRecord${index}`"
                             class="default-checkbox h-5 w-5"
                             :value="observation.uuid"
                             x-model="selectedRecords"
@@ -442,6 +449,7 @@
         methodCode = '';
         interpretationCode = '';
         bodySiteCode = '';
+        deviceId = '';
         reactionOn = '';
         valueQuantityValue = '';
         valueQuantityComparator = '';
@@ -451,8 +459,12 @@
         comment = '';
         issuedDate = '';
         issuedTime = '';
+        effectiveType = 'date_time';
         effectiveDate = '';
         effectiveTime = '';
+        effectivePeriodRange = '';
+        effectivePeriodStartTime = '';
+        effectivePeriodEndTime = '';
         components = [
             {
                 codeCode: '',

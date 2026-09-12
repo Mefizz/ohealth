@@ -384,6 +384,7 @@ class EncounterComponent extends Component
         'eHealth/condition_clinical_statuses',
         'eHealth/condition_verification_statuses',
         'eHealth/condition_severities',
+        'eHealth/condition_stages',
         'eHealth/report_origins',
         'eHealth/reason_explanations',
         'eHealth/reason_not_given_explanations',

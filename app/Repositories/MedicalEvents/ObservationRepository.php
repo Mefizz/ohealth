@@ -90,6 +90,12 @@ class ObservationRepository extends BaseRepository
                     Repository::codeableConcept()->attach($reactionOn, $datum['reactionOn']);
                 }
 
+                $device = null;
+                if (isset($datum['device'])) {
+                    $device = Repository::identifier()->store($datum['device']['identifier']['value']);
+                    Repository::codeableConcept()->attach($device, $datum['device']);
+                }
+
                 $observation = $this->model->updateOrCreate(
                     ['uuid' => $datum['uuid'] ?? $datum['id']],
                     [
@@ -115,6 +121,7 @@ class ObservationRepository extends BaseRepository
                             ? Repository::codeableConcept()->store($datum['method'])->id
                             : null,
                         'reaction_on_id' => $reactionOn?->id,
+                        'device_id' => $device?->id,
                         'context_id' => $context?->id
                     ]
                 );
@@ -128,6 +135,8 @@ class ObservationRepository extends BaseRepository
                         $component->delete();
                     }
                 }
+
+                Repository::period()->sync($observation, $datum['effectivePeriod'] ?? [], 'effectivePeriod');
 
                 $this->storeValue($datum, $observation);
 
@@ -251,6 +260,7 @@ class ObservationRepository extends BaseRepository
             'value.valueQuantity',
             'value.valueCodeableConcept.coding',
             'reactionOn.type.coding',
+            'device.type.coding',
             'components.code.coding',
             'components.value.valueQuantity',
             'components.value.valueCodeableConcept.coding',
@@ -377,6 +387,8 @@ class ObservationRepository extends BaseRepository
                         array_merge(['uuid' => $data['uuid']], $observationData)
                     );
                 }
+
+                Repository::period()->sync($observation, $data['effective_period'] ?? [], 'effectivePeriod');
 
                 $this->syncValue($data, $observation);
 

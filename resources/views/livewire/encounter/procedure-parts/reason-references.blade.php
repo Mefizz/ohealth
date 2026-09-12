@@ -170,7 +170,9 @@
                             <form>
                                 <div class="form-row-modal">
                                     <div class="form-group group">
+                                        <label for="reasonReferenceType" class="sr-only">{{ __('forms.type') }}</label>
                                         <select
+                                            id="reasonReferenceType"
                                             class="input-modal peer"
                                             x-model="selectedReasonReferenceType"
                                             @change="

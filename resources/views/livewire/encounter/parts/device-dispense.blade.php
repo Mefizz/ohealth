@@ -9,7 +9,8 @@
         <div class="record-inner-card">
             <div class="record-inner-header">
                 <div class="record-inner-checkbox-col">
-                    <input type="checkbox" class="default-checkbox h-5 w-5" />
+                    <label for="deviceDispenseRecord" class="sr-only">{{ __('forms.select') }}</label>
+                    <input type="checkbox" id="deviceDispenseRecord" class="default-checkbox h-5 w-5" />
                 </div>
 
                 <div class="record-inner-column flex-1">
@@ -153,35 +154,37 @@
             <fieldset @disabled($isReadonly ?? false) @class(['pointer-event-none' => $isReadonly ?? false])>
                 <div class="form-row-2">
                     <div class="form-group group">
-                        <select class="input-select peer" required>
+                        <select id="deviceDispensePrescription" class="input-select peer" required>
                             <option value="" disabled selected hidden></option>
                             <option value="1" selected>12310-1332-13123-5541</option>
                         </select>
-                        <label class="label">{{ __('device-dispenses.prescription_erequest') }}</label>
+                        <label for="deviceDispensePrescription" class="label">
+                            {{ __('device-dispenses.prescription_erequest') }}
+                        </label>
                     </div>
                     <div class="form-group group">
-                        <select class="input-select peer" required>
+                        <select id="deviceDispenseProcedure" class="input-select peer" required>
                             <option value="" disabled selected hidden></option>
                             <option value="1" selected>Процедура 12.02.2026</option>
                         </select>
-                        <label class="label">{{ __('procedures.link') }}</label>
+                        <label for="deviceDispenseProcedure" class="label">{{ __('procedures.link') }}</label>
                     </div>
                 </div>
 
                 <div class="form-row-2 mt-6">
                     <div class="form-group group">
-                        <select class="input-select peer" required>
+                        <select id="deviceDispenseEmployee" class="input-select peer" required>
                             <option value="" disabled selected hidden></option>
                             <option value="1" selected>Шевченко Т.Г.</option>
                         </select>
-                        <label class="label">{{ __('device-dispenses.employee') }}</label>
+                        <label for="deviceDispenseEmployee" class="label">{{ __('device-dispenses.employee') }}</label>
                     </div>
                     <div class="form-group group">
-                        <select class="input-select peer" required>
+                        <select id="deviceDispenseDivision" class="input-select peer" required>
                             <option value="" disabled selected hidden></option>
                             <option value="1" selected>Амбулаторія №2</option>
                         </select>
-                        <label class="label">{{ __('device-dispenses.division') }}</label>
+                        <label for="deviceDispenseDivision" class="label">{{ __('device-dispenses.division') }}</label>
                     </div>
                 </div>
 
@@ -190,46 +193,73 @@
                         <div class="datepicker-wrapper flex-1">
                             <input
                                 type="text"
+                                id="deviceDispenseDate"
                                 class="datepicker-input with-leading-icon input peer rounded-r-none border-r-0"
                                 placeholder=" "
                                 value="02.04.2025"
                             />
-                            <label class="wrapped-label">{{ __('device-dispenses.date_and_time') }}</label>
+                            <label for="deviceDispenseDate" class="wrapped-label">
+                                {{ __('device-dispenses.date_and_time') }}
+                            </label>
                         </div>
                         <div class="relative -ml-px w-32">
-                            <input type="text" class="input peer rounded-l-none pl-10" placeholder=" " value="12:00" />
+                            <label for="deviceDispenseTime" class="sr-only">{{ __('patients.time') }}</label>
+                            <input
+                                type="text"
+                                id="deviceDispenseTime"
+                                class="input peer rounded-l-none pl-10"
+                                placeholder=" "
+                                value="12:00"
+                            />
                             @icon('clock', 'svg-input left-2.5 text-gray-400')
                         </div>
                     </div>
                     <div class="form-group group relative">
-                        <input type="text" class="input peer" placeholder=" " value="1" required />
-                        <label class="label">{{ __('device-dispenses.quantity_integer') }}</label>
+                        <input
+                            type="text"
+                            id="deviceDispenseQuantity"
+                            class="input peer"
+                            placeholder=" "
+                            value="1"
+                            required
+                        />
+                        <label for="deviceDispenseQuantity" class="label">
+                            {{ __('device-dispenses.quantity_integer') }}
+                        </label>
                         @icon('close', 'svg-input right-2.5 text-gray-400 cursor-pointer')
                     </div>
                 </div>
 
                 <div class="form-row-2 mt-6">
                     <div class="form-group group">
-                        <select class="input-select peer" required>
+                        <select id="deviceDispenseTypeOrModel" class="input-select peer" required>
                             <option value="" disabled selected hidden></option>
                             <option value="1" selected>Тип виробу</option>
                         </select>
-                        <label class="label">{{ __('device-dispenses.specify_type_or_model') }}</label>
+                        <label for="deviceDispenseTypeOrModel" class="label">
+                            {{ __('device-dispenses.specify_type_or_model') }}
+                        </label>
                     </div>
                     <div class="form-group group">
-                        <select class="input-select peer" required>
+                        <select id="deviceDispenseDeviceType" class="input-select peer" required>
                             <option value="" disabled selected hidden></option>
                             <option value="1" selected>Тип виробу</option>
                         </select>
-                        <label class="label">{{ __('care-plan.medical_device_type') }}</label>
+                        <label
+                            for="deviceDispenseDeviceType"
+                            class="label"
+                        >{{ __('care-plan.medical_device_type') }}</label>
                     </div>
                 </div>
 
                 <div class="form-row-1 mt-6">
                     <div>
-                        <label class="label-modal mb-2 block"> {{ __('forms.additional_information') }} </label>
+                        <label for="deviceDispenseNote" class="label-modal mb-2 block">
+                            {{ __('forms.additional_information') }}
+                        </label>
                         <div>
                             <textarea
+                                id="deviceDispenseNote"
                                 class="textarea"
                                 rows="4"
                                 placeholder="{{ __('encounters.text_for_input') }}"

@@ -65,15 +65,25 @@ class ClinicalImpressionMapper implements FhirMapperContract
                 ->toArray();
         }
 
-        // todo: add summary
+        if (!empty($data['summary'])) {
+            $result['summary'] = $data['summary'];
+        }
 
         if (!empty($data['findings'])) {
             $result['findings'] = collect($data['findings'])
-                ->map(fn (array $finding) => [
-                    'itemReference' => FhirResource::make()
-                        ->coding('eHealth/resources', $finding['type'])
-                        ->toIdentifier($finding['id']),
-                ])
+                ->map(static function (array $finding): array {
+                    $fhirFinding = [
+                        'itemReference' => FhirResource::make()
+                            ->coding('eHealth/resources', $finding['type'])
+                            ->toIdentifier($finding['id'])
+                    ];
+
+                    if (!empty($finding['basis'])) {
+                        $fhirFinding['basis'] = $finding['basis'];
+                    }
+
+                    return $fhirFinding;
+                })
                 ->values()
                 ->toArray();
         }
@@ -132,6 +142,7 @@ class ClinicalImpressionMapper implements FhirMapperContract
             'effectivePeriodEndDate' => data_get($data, 'effectivePeriodEndDate', ''),
             'effectivePeriodEndTime' => data_get($data, 'effectivePeriodEndTime', ''),
             'note' => data_get($data, 'note', ''),
+            'summary' => data_get($data, 'summary', ''),
             'previous' => $previousId ? [
                 [
                     'id' => $previousId,
@@ -163,7 +174,8 @@ class ClinicalImpressionMapper implements FhirMapperContract
                         'type' => $type,
                         'ehealthInsertedAt' => $details['ehealthInsertedAt'] ?? null,
                         'codeCode' => $details['codeCode'] ?? null,
-                        'codeSystem' => $details['codeSystem'] ?? null
+                        'codeSystem' => $details['codeSystem'] ?? null,
+                        'basis' => data_get($finding, 'basis', '')
                     ];
                 })
                 ->toArray(),

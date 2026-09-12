@@ -20,7 +20,7 @@ return [
     'search' => 'Пошук взаємодій',
     'records_entered_in_error' => 'Позначити записи помилковими',
     'text_for_input' => 'Текст для введення',
-    'add_observations_reports_conditions' => 'Додати обстеження, звіт або стан',
+    'add_observations_reports_conditions' => 'Додати спостереження, звіт або стан',
     'interaction_class' => 'Клас взаємодії',
     'interaction_type' => 'Тип взаємодії',
     'referral_available' => 'Є направлення',

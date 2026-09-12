@@ -360,7 +360,13 @@
                                         <div>
                                             <div class="record-inner-label">Отримання показників</div>
                                             <div class="record-inner-value">
-                                                {{ data_get($observation, 'effectiveDateTime') }}
+                                                @if (data_get($observation, 'effectivePeriod.start'))
+                                                    {{ data_get($observation, 'effectivePeriod.start') }}
+                                                    &ndash;
+                                                    {{ data_get($observation, 'effectivePeriod.end') ?? '-' }}
+                                                @else
+                                                    {{ data_get($observation, 'effectiveDateTime') ?? '-' }}
+                                                @endif
                                             </div>
                                         </div>
                                         <div>

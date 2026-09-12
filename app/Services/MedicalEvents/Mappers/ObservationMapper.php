@@ -50,7 +50,25 @@ class ObservationMapper implements FhirMapperContract
                 ->toIdentifier($uuids['diagnosticReport']);
         }
 
-        if (!empty($data['effectiveDate']) && !empty($data['effectiveTime'])) {
+        $effectiveType = $data['effectiveType'] ?? 'date_time';
+        // The range picker keeps both bounds in one field
+        $periodBounds = array_map('trim', explode('—', $data['effectivePeriodRange'] ?? ''));
+
+        if ($effectiveType === 'period' && !empty($periodBounds[0])) {
+            $effectivePeriod = [
+                'start' => convertToEHealthISO8601(
+                    $periodBounds[0] . ' ' . $data['effectivePeriodStartTime']
+                )
+            ];
+
+            if (!empty($periodBounds[1]) && !empty($data['effectivePeriodEndTime'])) {
+                $effectivePeriod['end'] = convertToEHealthISO8601(
+                    $periodBounds[1] . ' ' . $data['effectivePeriodEndTime']
+                );
+            }
+
+            $result['effectivePeriod'] = $effectivePeriod;
+        } elseif ($effectiveType === 'date_time' && !empty($data['effectiveDate']) && !empty($data['effectiveTime'])) {
             $result['effectiveDateTime'] = convertToEHealthISO8601(
                 $data['effectiveDate'] . ' ' . $data['effectiveTime']
             );
@@ -121,7 +139,13 @@ class ObservationMapper implements FhirMapperContract
             $result['components'] = $fhirComponents;
         }
 
-        // todo: add device
+        if (!empty($data['deviceId'])) {
+            $result['device'] = FhirResource::make()
+                ->coding('eHealth/resources', 'equipment')
+                ->toIdentifier($data['deviceId']);
+        }
+
+        // todo: add specimen
 
         return $result;
     }
@@ -224,9 +248,17 @@ class ObservationMapper implements FhirMapperContract
             'comment' => data_get($data, 'comment', ''),
             'issuedDate' => data_get($data, 'issuedDate'),
             'issuedTime' => data_get($data, 'issuedTime'),
+            'effectiveType' => data_get($data, 'effectivePeriodStartDate') ? 'period' : 'date_time',
             'effectiveDate' => data_get($data, 'effectiveDate', ''),
             'effectiveTime' => data_get($data, 'effectiveTime', ''),
+            'effectivePeriodRange' => implode(' — ', array_filter([
+                data_get($data, 'effectivePeriodStartDate', ''),
+                data_get($data, 'effectivePeriodEndDate', '')
+            ])),
+            'effectivePeriodStartTime' => data_get($data, 'effectivePeriodStartTime', ''),
+            'effectivePeriodEndTime' => data_get($data, 'effectivePeriodEndTime', ''),
             'reactionOn' => data_get($data, 'reactionOn.identifier.value', ''),
+            'deviceId' => data_get($data, 'device.identifier.value', ''),
             'components' => $this->componentsFromFhir(data_get($data, 'components', []))
         ];
 

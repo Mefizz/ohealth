@@ -55,6 +55,7 @@ class ClinicalImpressionRepository extends BaseRepository
                     'assessor_id' => $assessor->id,
                     'previous_id' => $previous?->id,
                     'note' => $datum['note'] ?? null,
+                    'summary' => $datum['summary'] ?? null,
                 ]);
 
                 $clinicalImpression->effectivePeriod()->create([
@@ -77,7 +78,10 @@ class ClinicalImpressionRepository extends BaseRepository
                             ->store($problem['itemReference']['identifier']['value']);
                         Repository::codeableConcept()->attach($identifier, $problem['itemReference']);
 
-                        $clinicalImpression->findings()->create(['item_reference_id' => $identifier->id]);
+                        $clinicalImpression->findings()->create([
+                            'item_reference_id' => $identifier->id,
+                            'basis' => $problem['basis'] ?? null
+                        ]);
                     }
                 }
 
@@ -165,9 +169,10 @@ class ClinicalImpressionRepository extends BaseRepository
                     'assessor_id' => $assessor->id,
                     'previous_id' => $previous?->id,
                     'note' => $data['note'] ?? null,
-                    'explanatory_letter' => $datum['explanatory_letter'] ?? null,
-                    'ehealth_inserted_at' => $datum['ehealth_inserted_at'] ?? null,
-                    'ehealth_updated_at' => $datum['ehealth_updated_at'] ?? null,
+                    'summary' => $data['summary'] ?? null,
+                    'explanatory_letter' => $data['explanatory_letter'] ?? null,
+                    'ehealth_inserted_at' => $data['ehealth_inserted_at'] ?? null,
+                    'ehealth_updated_at' => $data['ehealth_updated_at'] ?? null,
                 ];
 
                 if ($existing) {

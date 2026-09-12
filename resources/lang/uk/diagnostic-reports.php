@@ -26,6 +26,7 @@ return [
     'interpreting_doctor' => 'Лікар, що інтерпретував результати',
     'division_filled_from_encounter' => 'Поле автоматично заповниться відповідно до МНП, обраного у взаємодії.',
     'do_not_specify' => 'Не зазначати',
+    'effective_type' => 'Час проведення діагностики',
     'effective_date_time' => 'Дата та час проведення діагностики',
     'effective_period' => 'Період проведення діагностики',
     'effective_period_start' => 'Дата та час початку діагностики',

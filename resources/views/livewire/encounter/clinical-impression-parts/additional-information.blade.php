@@ -41,6 +41,7 @@
         </div>
 
         <div class="form-group group !w-1/2" onclick="document.getElementById('effectivePeriodStartTime').showPicker()">
+            <label for="effectivePeriodStartTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
                 <input
@@ -80,6 +81,7 @@
         </div>
 
         <div class="form-group group !w-1/2" onclick="document.getElementById('effectivePeriodEndTime').showPicker()">
+            <label for="effectivePeriodEndTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
                 <input
@@ -99,13 +101,31 @@
 
     <div class="form-row">
         <div>
-            <label for="note" class="label-modal"> {{ __('forms.description') }} </label>
+            <label for="note" class="label-modal"> {{ __('forms.comment') }} </label>
             <div>
                 <textarea
                     rows="4"
                     x-model="modalClinicalImpression.note"
                     id="note"
                     name="note"
+                    class="textarea"
+                    placeholder="{{ __('forms.write_comment_here') }}"
+                ></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div>
+            <label for="clinicalImpressionSummary" class="label-modal">
+                {{ __('clinical-impressions.summary') }}
+            </label>
+            <div>
+                <textarea
+                    rows="4"
+                    x-model="modalClinicalImpression.summary"
+                    id="clinicalImpressionSummary"
+                    name="summary"
                     class="textarea"
                     placeholder="{{ __('forms.write_comment_here') }}"
                 ></textarea>

@@ -17,14 +17,17 @@
             <div class="flex items-center">
                 <input
                     x-model.boolean="modalDiagnosticReport.primarySource"
-                    id="performer"
+                    id="diagnosticReportSourcePerformer"
                     type="radio"
                     value="true"
                     name="primarySource"
                     class="default-radio"
                     :checked="modalDiagnosticReport.primarySource === true"
                 />
-                <label for="performer" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                <label
+                    for="diagnosticReportSourcePerformer"
+                    class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300"
+                >
                     {{ __('medical-events.performer') }}
                 </label>
             </div>
@@ -34,14 +37,17 @@
                 <div class="flex items-center">
                     <input
                         x-model.boolean="modalDiagnosticReport.primarySource"
-                        id="patient"
+                        id="diagnosticReportSourcePatient"
                         type="radio"
                         value="false"
                         name="primarySource"
                         class="default-radio"
                         :checked="modalDiagnosticReport.primarySource === false"
                     />
-                    <label for="patient" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                    <label
+                        for="diagnosticReportSourcePatient"
+                        class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300"
+                    >
                         {{ __('forms.patient') }}
                     </label>
                 </div>
@@ -52,11 +58,13 @@
         <div x-show="modalDiagnosticReport.primarySource === false" x-transition>
             <div class="form-row-3">
                 <div>
-                    <label for="reportOrigin" class="label-modal"> {{ __('medical-events.source_link') }} </label>
+                    <label for="diagnosticReportOrigin" class="label-modal">
+                        {{ __('medical-events.source_link') }}
+                    </label>
                     <select
                         x-model="modalDiagnosticReport.reportOriginCode"
                         class="input-select peer"
-                        id="reportOrigin"
+                        id="diagnosticReportOrigin"
                         type="text"
                         required
                     >
@@ -84,6 +92,7 @@
     @if ($context === 'diagnostic-report')
         <div class="form-row-2">
             <div class="form-group group">
+                <label for="divisionNames" class="sr-only">{{ __('forms.division_name') }}</label>
                 <select
                     x-model="modalDiagnosticReport.divisionId"
                     @change="modalDiagnosticReport.usedReferences = []"
@@ -170,12 +179,16 @@
     <div class="form-row-2" x-show="modalDiagnosticReport.primarySource === true" x-cloak>
         <div class="form-group group">
             <div x-show="String(modalDiagnosticReport.resultsInterpreterEmployeeId ?? '').trim()" class="mb-5">
-                <label class="mb-2 block text-sm font-medium text-gray-500 dark:text-gray-400">
+                <label
+                    for="resultsInterpreterPerformer"
+                    class="mb-2 block text-sm font-medium text-gray-500 dark:text-gray-400"
+                >
                     {{ ucfirst(__('diagnostic-reports.performer')) }}
                 </label>
 
                 <select
                     x-model="modalDiagnosticReport.resultsInterpreterEmployeeId"
+                    id="resultsInterpreterPerformer"
                     class="input-select peer !cursor-not-allowed !text-gray-500 dark:!text-gray-400"
                     disabled
                 >
@@ -191,13 +204,17 @@
 
             <template x-for="(performerEmployeeId, index) in modalDiagnosticReport.performerEmployeeIds" :key="index">
                 <div class="mb-5">
-                    <label class="mb-2 block text-sm font-medium text-gray-500 dark:text-gray-400">
+                    <label
+                        :for="`diagnosticReportPerformer${index}`"
+                        class="mb-2 block text-sm font-medium text-gray-500 dark:text-gray-400"
+                    >
                         {{ ucfirst(__('diagnostic-reports.performer')) }}
                     </label>
 
                     <div class="flex items-center gap-4">
                         <select
                             x-model="modalDiagnosticReport.performerEmployeeIds[index]"
+                            :id="`diagnosticReportPerformer${index}`"
                             class="input-select peer min-w-0 flex-1"
                         >
                             <option value="">{{ __('forms.select') }}</option>
@@ -276,6 +293,7 @@
         </div>
 
         <div class="form-group group !w-1/2" onclick="document.getElementById('issuedTime').showPicker()">
+            <label for="issuedTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon('mingcute-time-fill', 'svg-input left-2.5')
                 <input
@@ -313,6 +331,9 @@
     {{-- Effective type --}}
     <div class="form-row-2">
         <div class="form-group group">
+            <label for="diagnosticReportEffectiveType" class="sr-only">
+                {{ __('diagnostic-reports.effective_type') }}
+            </label>
             <select
                 x-model="modalDiagnosticReport.effectiveType"
                 id="diagnosticReportEffectiveType"
@@ -362,6 +383,7 @@
             class="form-group group !w-1/2"
             onclick="document.getElementById('diagnosticReportEffectiveTime').showPicker()"
         >
+            <label for="diagnosticReportEffectiveTime" class="sr-only">{{ __('patients.time') }}</label>
             <div class="relative flex items-center">
                 @icon(
                     'mingcute-time-fill',
@@ -418,6 +440,7 @@
                     class="form-group group !w-1/2"
                     onclick="document.getElementById('effectivePeriodStartTime').showPicker()"
                 >
+                    <label for="effectivePeriodStartTime" class="sr-only">{{ __('patients.time') }}</label>
                     <div class="relative flex items-center">
                         @icon('mingcute-time-fill', 'svg-input left-2.5')
 
@@ -468,6 +491,7 @@
                     class="form-group group !w-1/2"
                     onclick="document.getElementById('effectivePeriodEndTime').showPicker()"
                 >
+                    <label for="effectivePeriodEndTime" class="sr-only">{{ __('patients.time') }}</label>
                     <div class="relative flex items-center">
                         @icon('mingcute-time-fill', 'svg-input left-2.5')
 
@@ -503,9 +527,17 @@
                             <div class="flex-1">
                                 <template x-if="! modalDiagnosticReport.divisionId">
                                     <div class="form-group group">
-                                        <input type="text" class="input peer" placeholder=" " disabled />
+                                        <input
+                                            type="text"
+                                            :id="`usedReferencePlaceholder${index}`"
+                                            class="input peer"
+                                            placeholder=" "
+                                            disabled
+                                        />
 
-                                        <label class="label"> {{ __('equipments.search') }} </label>
+                                        <label :for="`usedReferencePlaceholder${index}`" class="label">
+                                            {{ __('equipments.search') }}
+                                        </label>
                                     </div>
                                 </template>
 

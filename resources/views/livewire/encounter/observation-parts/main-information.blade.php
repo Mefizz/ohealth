@@ -7,14 +7,14 @@
             <input
                 @change="modalObservation.primarySource = true"
                 x-model.boolean="modalObservation.primarySource"
-                id="performer"
+                id="observationSourcePerformer"
                 type="radio"
                 value="true"
                 name="primarySource"
                 class="default-radio"
                 :checked="modalObservation.primarySource === true"
             />
-            <label for="performer" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+            <label for="observationSourcePerformer" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
                 {{ __('medical-events.performer') }}
             </label>
         </div>
@@ -24,14 +24,14 @@
                 <input
                     @change="modalObservation.primarySource = false"
                     x-model.boolean="modalObservation.primarySource"
-                    id="patient"
+                    id="observationSourcePatient"
                     type="radio"
                     value="false"
                     name="primarySource"
                     class="default-radio"
                     :checked="modalObservation.primarySource === false"
                 />
-                <label for="patient" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                <label for="observationSourcePatient" class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
                     {{ __('medical-events.other_source') }}
                 </label>
             </div>
@@ -48,11 +48,13 @@
         <div x-show="modalObservation.primarySource === false">
             <div class="form-row-modal">
                 <div>
-                    <label for="reportOrigin" class="label-modal"> {{ __('medical-events.source_link') }} </label>
+                    <label for="observationReportOrigin" class="label-modal">
+                        {{ __('medical-events.source_link') }}
+                    </label>
                     <select
                         class="input-modal"
                         x-model="modalObservation.reportOriginCode"
-                        id="reportOrigin"
+                        id="observationReportOrigin"
                         type="text"
                         required
                     >

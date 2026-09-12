@@ -17,7 +17,8 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
-                        <input type="checkbox" class="default-checkbox h-5 w-5" disabled />
+                        <label :for="`actionRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
+                        <input type="checkbox" :id="`actionRecord${index}`" class="default-checkbox h-5 w-5" disabled />
                     </div>
 
                     <div class="record-inner-column flex-1">
@@ -192,10 +193,7 @@
 
                         {{-- Content --}}
                         <form>
-                            <fieldset
-                                @disabled($isReadonly)
-                                @class(['pointer-events-none' => $isReadonly])
-                            >
+                            <fieldset @disabled($isReadonly) @class(['pointer-events-none' => $isReadonly])>
                                 <div class="form-row-modal">
                                     <div>
                                         <label for="actionCode" class="label-modal">
@@ -216,6 +214,7 @@
                                     </div>
 
                                     <div>
+                                        <label for="actionComment" class="sr-only">{{ __('forms.comment') }}</label>
                                         <textarea
                                             x-model="modalAction.text"
                                             id="actionComment"

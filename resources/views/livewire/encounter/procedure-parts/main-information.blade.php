@@ -8,41 +8,6 @@
     <legend class="legend">{{ __('forms.main_information') }}</legend>
 
     <div>
-        <div class="form-row-2">
-            <div class="form-group group">
-                <select
-                    x-model="modalProcedure.status"
-                    @change="
-                        modalProcedure.status === 'completed'
-                            ? setPerformedType(modalProcedure.performedType || 'period')
-                            : setPerformedType('')
-                    "
-                    id="procedureStatus"
-                    class="input-select peer"
-                    required
-                >
-                    <option value="">{{ __('forms.select') }} {{ mb_strtolower(__('forms.status.label')) }} *</option>
-                    <option value="completed">{{ __('procedures.status.completed') }}</option>
-
-                    @if (in_array(($context ?? null), ['encounter', 'procedure'], true))
-                        <option value="{{ ProcedureStatus::NOT_DONE->value }}">
-                            {{ __('procedures.status.not_done') }}
-                        </option>
-                    @endif
-
-                    @if (data_get($this->form, 'procedure.status') === ProcedureStatus::ENTERED_IN_ERROR->value)
-                        <option value="{{ ProcedureStatus::ENTERED_IN_ERROR->value }}">
-                            {{ __('procedures.status.entered_in_error') }}
-                        </option>
-                    @endif
-                </select>
-
-                @error($procedureErrorPath . '.status')
-                    <p class="text-error">{{ $message }}</p>
-                @enderror
-            </div>
-        </div>
-
         {{-- Is referral available, show only in encounter. For single procedure referral is neccessary. --}}
         @if ($context === 'encounter')
             <div class="form-row-2">
@@ -52,11 +17,11 @@
                         @click="modalProcedure.isReferralAvailable = ! modalProcedure.isReferralAvailable"
                         type="checkbox"
                         name="isDiagnosticReferralAvailable"
-                        id="isDiagnosticReferralAvailable"
+                        id="procedureReferralAvailable"
                         class="default-checkbox mb-1"
                         tabindex="-1"
                     />
-                    <label class="default-p" for="isDiagnosticReferralAvailable">
+                    <label class="default-p" for="procedureReferralAvailable">
                         {{ __('encounters.referral_available') }}
                     </label>
                 </div>
@@ -68,9 +33,10 @@
             <div class="form-group group">
                 <div class="form-row-2" x-cloak>
                     <div>
+                        <label for="procedureReferralType" class="sr-only">{{ __('patients.requisition_type') }}</label>
                         <select
                             x-model="modalProcedure.referralType"
-                            id="referralType"
+                            id="procedureReferralType"
                             class="input-select peer"
                             type="text"
                             required
@@ -94,13 +60,13 @@
                                 x-model="modalProcedure.basedOnIdentifier"
                                 type="text"
                                 name="basedOnIdentifier"
-                                id="basedOnIdentifier"
+                                id="procedureBasedOnIdentifier"
                                 class="input-select peer"
                                 placeholder=" "
                                 required
                                 autocomplete="off"
                             />
-                            <label for="basedOnIdentifier" class="label"> {{ __('forms.number') }} </label>
+                            <label for="procedureBasedOnIdentifier" class="label"> {{ __('forms.number') }} </label>
                         </div>
                     </template>
                 </div>
@@ -114,12 +80,12 @@
                                     x-model="modalProcedure.paperReferralRequisition"
                                     type="text"
                                     name="requisition"
-                                    id="requisition"
+                                    id="procedureRequisition"
                                     class="input peer"
                                     placeholder=" "
                                     autocomplete="off"
                                 />
-                                <label for="requisition" class="label"> {{ __('forms.number') }} </label>
+                                <label for="procedureRequisition" class="label"> {{ __('forms.number') }} </label>
 
                                 @error($procedureErrorPath . '.paperReferralRequisition')
                                     <p class="text-error">{{ $message }}</p>
@@ -131,12 +97,14 @@
                                     x-model="modalProcedure.paperReferralRequesterEmployeeName"
                                     type="text"
                                     name="requesterEmployeeName"
-                                    id="requesterEmployeeName"
+                                    id="procedureRequesterEmployeeName"
                                     class="input peer"
                                     placeholder=" "
                                     autocomplete="off"
                                 />
-                                <label for="requesterEmployeeName" class="label"> {{ __('patients.author') }} </label>
+                                <label for="procedureRequesterEmployeeName" class="label">
+                                    {{ __('patients.author') }}
+                                </label>
 
                                 @error($procedureErrorPath . '.paperReferralRequesterEmployeeName')
                                     <p class="text-error">{{ $message }}</p>
@@ -150,14 +118,14 @@
                                     x-model="modalProcedure.paperReferralRequesterLegalEntityEdrpou"
                                     type="text"
                                     name="requesterLegalEntityEdrpou"
-                                    id="requesterLegalEntityEdrpou"
+                                    id="procedureRequesterLegalEntityEdrpou"
                                     class="input peer"
                                     placeholder=" "
                                     autocomplete="off"
                                     maxlength="10"
                                     required
                                 />
-                                <label for="requesterLegalEntityEdrpou" class="label">
+                                <label for="procedureRequesterLegalEntityEdrpou" class="label">
                                     {{ __('patients.edrpou_of_the_issuing_institution') }}
                                 </label>
 
@@ -171,12 +139,12 @@
                                     x-model="modalProcedure.paperReferralRequesterLegalEntityName"
                                     type="text"
                                     name="requesterLegalEntityName"
-                                    id="requesterLegalEntityName"
+                                    id="procedureRequesterLegalEntityName"
                                     class="input peer"
                                     placeholder=" "
                                     autocomplete="off"
                                 />
-                                <label for="requesterLegalEntityName" class="label">
+                                <label for="procedureRequesterLegalEntityName" class="label">
                                     {{ __('patients.name_of_the_institution_that_issued_it') }}
                                 </label>
 
@@ -193,13 +161,13 @@
                                         x-model="modalProcedure.paperReferralServiceRequestDate"
                                         type="text"
                                         name="serviceRequestDate"
-                                        id="serviceRequestDate"
+                                        id="procedureServiceRequestDate"
                                         class="datepicker-input with-leading-icon input peer"
                                         placeholder=" "
                                         required
                                         autocomplete="off"
                                     />
-                                    <label for="serviceRequestDate" class="wrapped-label">
+                                    <label for="procedureServiceRequestDate" class="wrapped-label">
                                         {{ __('forms.date') }}
                                     </label>
 
@@ -234,6 +202,7 @@
         {{-- Category --}}
         <div class="form-row-2">
             <div class="form-group group">
+                <label for="category" class="sr-only">{{ __('forms.category') }}</label>
                 <select
                     x-model="modalProcedure.categoryCode"
                     id="category"
@@ -250,6 +219,40 @@
                 </select>
 
                 @error($procedureErrorPath . '.categoryCode')
+                    <p class="text-error">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div class="form-group group">
+                <label for="procedureStatus" class="sr-only">{{ __('forms.status.label') }}</label>
+                <select
+                    x-model="modalProcedure.status"
+                    @change="
+                        modalProcedure.status === 'completed'
+                            ? setPerformedType(modalProcedure.performedType || 'period')
+                            : setPerformedType('')
+                    "
+                    id="procedureStatus"
+                    class="input-select peer"
+                    required
+                >
+                    <option value="">{{ __('forms.select') }} {{ mb_strtolower(__('forms.status.label')) }} *</option>
+                    <option value="completed">{{ __('procedures.status.completed') }}</option>
+
+                    @if (in_array(($context ?? null), ['encounter', 'procedure'], true))
+                        <option value="{{ ProcedureStatus::NOT_DONE->value }}">
+                            {{ __('procedures.status.not_done') }}
+                        </option>
+                    @endif
+
+                    @if (data_get($this->form, 'procedure.status') === ProcedureStatus::ENTERED_IN_ERROR->value)
+                        <option value="{{ ProcedureStatus::ENTERED_IN_ERROR->value }}">
+                            {{ __('procedures.status.entered_in_error') }}
+                        </option>
+                    @endif
+                </select>
+
+                @error($procedureErrorPath . '.status')
                     <p class="text-error">{{ $message }}</p>
                 @enderror
             </div>
@@ -277,13 +280,14 @@
         {{-- Divisions --}}
         <div class="form-row-2">
             <div class="form-group group">
+                <label for="procedureDivision" class="sr-only">{{ __('forms.division_name') }}</label>
                 <select
                     x-model="modalProcedure.divisionId"
                     @change="modalProcedure.usedReferences = []"
                     @if (count($divisions) === 1)
                         x-init="if (! modalProcedure.divisionId) modalProcedure.divisionId = '{{ $divisions[0]['uuid'] }}';"
                     @endif
-                    id="divisionNames"
+                    id="procedureDivision"
                     class="input-select peer"
                 >
                     <option selected value="">
@@ -303,6 +307,7 @@
         {{-- Outcome --}}
         <div class="form-row-modal">
             <div class="form-group group">
+                <label for="outcome" class="sr-only">{{ __('procedures.outcome_result') }}</label>
                 <select x-model="modalProcedure.outcomeCode" id="outcome" class="input-select peer" type="text">
                     <option selected value="">
                         {{ __('forms.select') }} {{ mb_strtolower(__('procedures.outcome_result')) }}

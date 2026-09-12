@@ -12,6 +12,7 @@
         {{-- Category --}}
         <div class="form-row-2">
             <div class="form-group group">
+                <label for="diagnosticCategory" class="sr-only">{{ __('forms.category') }}</label>
                 <select
                     x-model="modalDiagnosticReport.categoryCode"
                     id="diagnosticCategory"
@@ -75,8 +76,11 @@
                 <div class="form-group group">
                     <div class="form-row-2" x-cloak>
                         <div>
+                            <label for="diagnosticReportReferralType" class="sr-only">
+                                {{ __('patients.requisition_type') }}
+                            </label>
                             <select
-                                id="referralType"
+                                id="diagnosticReportReferralType"
                                 class="input-select peer"
                                 type="text"
                                 x-model="modalDiagnosticReport.referralType"
@@ -227,12 +231,14 @@
                                         x-model="modalDiagnosticReport.paperReferralNote"
                                         type="text"
                                         name="note"
-                                        id="note"
+                                        id="diagnosticReportPaperNote"
                                         class="input peer"
                                         placeholder=" "
                                         autocomplete="off"
                                     />
-                                    <label for="note" class="label"> {{ __('patients.notes') }} </label>
+                                    <label for="diagnosticReportPaperNote" class="label">
+                                        {{ __('patients.notes') }}
+                                    </label>
 
                                     @error($diagnosticReportErrorPath . '.paperReferralNote')
                                         <p class="text-error">{{ $message }}</p>

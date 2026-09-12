@@ -47,8 +47,10 @@
             <div class="record-inner-card">
                 <div class="record-inner-header">
                     <div class="record-inner-checkbox-col">
+                        <label :for="`deviceAssociationRecord${index}`" class="sr-only">{{ __('forms.select') }}</label>
                         <input
                             type="checkbox"
+                            :id="`deviceAssociationRecord${index}`"
                             class="default-checkbox h-5 w-5"
                             :value="deviceAssociation.uuid"
                             x-model="selectedRecords"

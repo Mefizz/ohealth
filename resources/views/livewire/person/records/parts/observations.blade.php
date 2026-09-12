@@ -65,7 +65,13 @@
                         <div>
                             <div class="record-inner-label">{{ __('observations.getting_indicators') }}</div>
                             <div class="record-inner-subvalue">
-                                {{ data_get($observation, 'effectiveDateTime') ? convertToAppDateFormat(data_get($observation, 'effectiveDateTime')) : '-' }}
+                                @if (data_get($observation, 'effectivePeriodStartDate'))
+                                    {{ data_get($observation, 'effectivePeriodStartDate') }}
+                                    &ndash;
+                                    {{ data_get($observation, 'effectivePeriodEndDate') ?: '-' }}
+                                @else
+                                    {{ data_get($observation, 'effectiveDateTime') ? convertToAppDateFormat(data_get($observation, 'effectiveDateTime')) : '-' }}
+                                @endif
                             </div>
                         </div>
                         <div>

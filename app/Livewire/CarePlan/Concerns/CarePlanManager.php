@@ -234,37 +234,70 @@ trait CarePlanManager
 
     private function signPlan(CarePlanRepository $repository): void
     {
-        $legalEntity = legalEntity();
+        $this->carePlan->loadMissing(['encounter.performer', 'person', 'author']);
 
-        // Build eHealth payload from model
-        $carePlanPayload = removeEmptyKeys([
-            'intent' => 'order',
-            'status' => CarePlanStatus::DRAFT->value,
-            'category' => is_array($this->carePlan->category) ? ($this->carePlan->category['coding'][0]['code'] ?? null) : $this->carePlan->category,
-            'context' => $this->carePlan->context ? ['identifier' => ['type_code' => $this->carePlan->context]] : null,
-            'title' => $this->carePlan->title,
-            'period' => array_filter([
-                'start' => $this->carePlan->period_start ? $this->carePlan->period_start->format('Y-m-d') : null,
-                'end' => $this->carePlan->period_end ? $this->carePlan->period_end->format('Y-m-d') : null,
-            ]),
-            'addresses' => $this->carePlan->addresses, // Already stored as array of diagnoses
-            'supporting_info' => array_merge(
-                array_map(fn ($e) => ['display' => $e['name']], $this->carePlan->supporting_info['episodes'] ?? []),
-                array_map(fn ($m) => ['display' => $m['name']], $this->carePlan->supporting_info['medical_records'] ?? [])
-            ),
-            'encounter' => $this->carePlan->encounter?->uuid ? ['identifier' => ['value' => $this->carePlan->encounter->uuid]] : null,
-            'care_manager' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
-                    ],
-                    'value' => Auth::user()?->activeDoctorEmployee()?->uuid
-                ]
-            ],
-            'description' => $this->carePlan->description ?: null,
-            'note' => $this->carePlan->note ?: null,
-            'inform_with' => $this->carePlan->inform_with ?: null,
-        ]);
+        $encounterUuid = $this->carePlan->encounter?->uuid;
+        $personId = (int) $this->carePlan->personId;
+        $encounterData = app(\App\Services\MedicalEvents\CarePlanEncounterContextService::class)->resolve(
+            $encounterUuid,
+            $personId,
+            $this->carePlan->person?->uuid
+        );
+
+        if (!empty($encounterData['error'])) {
+            $this->flashOutcome('error', $encounterData['error']);
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        $author = $encounterData['author'] ?? $this->carePlan->author;
+        if ($author === null || empty($author->uuid)) {
+            $this->flashOutcome('error', __('care-plan.encounter_author_missing'));
+            $this->showSignatureModal = false;
+
+            return;
+        }
+
+        // Ensure a stable local UUID exists before the eHealth create call.
+        $stableUuid = $this->carePlan->uuid ?: (string) \Illuminate\Support\Str::uuid();
+        if (!$this->carePlan->uuid) {
+            $repository->updateById($this->carePlan->id, [
+                'uuid' => $stableUuid,
+                'author_id' => $author->id,
+                'status' => CarePlanStatus::DRAFT->value,
+                'addresses' => $encounterData['addresses'],
+                'encounter_id' => $encounterData['id'],
+            ]);
+            $this->carePlan->refresh();
+        }
+
+        $supporting = is_array($this->carePlan->supportingInfo) ? $this->carePlan->supportingInfo : [];
+        $form = [
+            'category' => is_array($this->carePlan->category)
+                ? ($this->carePlan->category['coding'][0]['code'] ?? '')
+                : (string) ($this->carePlan->category ?? ''),
+            'title' => (string) ($this->carePlan->title ?? ''),
+            'periodStart' => $this->carePlan->periodStart?->format('d.m.Y') ?? now()->format('d.m.Y'),
+            'periodEnd' => $this->carePlan->periodEnd?->format('d.m.Y') ?? '',
+            'encounter' => (string) ($encounterUuid ?? ''),
+            'description' => (string) ($this->carePlan->description ?? ''),
+            'note' => (string) ($this->carePlan->note ?? ''),
+            'informWith' => (string) ($this->carePlan->informWith ?? ''),
+            'termsOfService' => is_array($this->carePlan->termsOfService)
+                ? ($this->carePlan->termsOfService['coding'][0]['code'] ?? '')
+                : (string) ($this->carePlan->termsOfService ?? ''),
+            'episodes' => $supporting['episodes'] ?? [],
+            'medicalRecords' => $supporting['medical_records'] ?? [],
+        ];
+
+        $carePlanPayload = $repository->formatCarePlanRequest(
+            $form,
+            $encounterUuid,
+            $encounterData,
+            $author->uuid,
+            $stableUuid
+        );
 
         try {
             $signedContent = signatureService()->signData(
@@ -283,10 +316,18 @@ trait CarePlanManager
                 $entity = $finalResponse;
             }
 
+            $status = $entity['status'] ?? $finalResponse['status'] ?? CarePlanStatus::PENDING->value;
+            if ($status === 'processed') {
+                $status = CarePlanStatus::PENDING->value;
+            }
+
             $repository->updateById($this->carePlan->id, [
-                'uuid' => $entity['id'] ?? $finalResponse['id'] ?? null,
-                'status' => $entity['status'] ?? $finalResponse['status'] ?? 'new',
+                'uuid' => $entity['id'] ?? $finalResponse['id'] ?? $stableUuid,
+                'status' => $status,
                 'requisition' => $entity['requisition'] ?? $finalResponse['requisition'] ?? null,
+                'author_id' => $author->id,
+                'addresses' => $encounterData['addresses'],
+                'encounter_id' => $encounterData['id'],
             ]);
 
             $this->refreshCarePlan();

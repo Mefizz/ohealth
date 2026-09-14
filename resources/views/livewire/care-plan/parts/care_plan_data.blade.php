@@ -129,10 +129,16 @@
             @error('form.periodEnd')
                 <p class="text-error mt-1 text-xs" id="error-form-period-end">{{ $message }}</p>
             @enderror
+            @if (filled($form->periodEnd))
+                <p class="mt-2 text-sm text-amber-800 dark:text-amber-300" id="period-end-warning">
+                    {{ __('care-plan.period_end_warning') }}
+                </p>
+            @endif
         </div>
     </div>
 
-    {{-- Warning message (purely frontend) --}}
+    {{-- Warning when end date is set (TV 3.10.1) — also shown next to the field above --}}
+    @if (filled($form->periodEnd))
     <div x-data="{ show: true }" x-show="show" class="relative mt-4 rounded-lg bg-red-50 p-4 dark:bg-red-900/20">
         <div class="flex items-center gap-3 pr-8">
             <div class="flex-shrink-0">
@@ -141,7 +147,7 @@
             <div>
                 <p class="font-bold text-red-700 dark:text-red-400">{{ __('care-plan.attention') }}</p>
                 <p class="mt-1 text-sm text-red-700 dark:text-red-400">
-                    {{ __('care-plan.you_specify_the_end_date') }}
+                    {{ __('care-plan.period_end_warning') }}
                 </p>
             </div>
         </div>
@@ -153,4 +159,5 @@
             @icon('close', 'w-4 h-4')
         </button>
     </div>
+    @endif
 </fieldset>

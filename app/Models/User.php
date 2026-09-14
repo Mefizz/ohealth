@@ -168,8 +168,10 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function activeDoctorEmployee(): ?Employee
     {
+        $carePlanRoles = ['DOCTOR', 'SPECIALIST', 'MED_COORDINATOR'];
+
         if (!config('permission.teams')) {
-            $doctor = $this->employees()->whereIn('employee_type', ['DOCTOR', 'SPECIALIST'])->first();
+            $doctor = $this->employees()->whereIn('employee_type', $carePlanRoles)->first();
 
             return $doctor ?: $this->employees()->first();
         }
@@ -182,7 +184,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
         $doctor = $this->employees()
             ->where('legal_entity_id', $teamId)
-            ->whereIn('employee_type', ['DOCTOR', 'SPECIALIST'])
+            ->whereIn('employee_type', $carePlanRoles)
             ->first();
 
         return $doctor ?: $this->employees()
@@ -468,7 +470,11 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function getCarePlanWriterEmployee(?string $termsOfService = null): ?Employee
     {
-        $candidates = $this->getWriterEmployeeCandidates(Role::DOCTOR, Role::SPECIALIST);
+        $candidates = $this->getWriterEmployeeCandidates(
+            Role::DOCTOR,
+            Role::SPECIALIST,
+            Role::MED_COORDINATOR
+        );
 
         if ($termsOfService === null) {
             return $candidates->first();

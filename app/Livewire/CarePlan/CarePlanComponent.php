@@ -281,6 +281,47 @@ abstract class CarePlanComponent extends Component
         $this->authorize('manage', $this->carePlan);
     }
 
+    /**
+     * Server-side gates for activity draft mutations (TV 3.10.2 + auth matrix).
+     *
+     * @return string|null Block reason, or null when allowed
+     */
+    protected function activityMutationBlockReason(?\App\Models\Employee\Employee $activityAuthor = null): ?string
+    {
+        $this->authorizeCarePlanWrite();
+
+        $current = $this->currentCarePlanEmployee();
+        if ($current === null) {
+            return __('care-plan.activity_legal_entity_mismatch');
+        }
+
+        $this->carePlan->loadMissing(['author']);
+        $planAuthor = $this->carePlan->author;
+        $authorToCheck = $activityAuthor ?? $current;
+
+        $planLegalEntityId = (int) ($planAuthor?->legalEntityId ?? $this->carePlan->legalEntityId);
+        $currentLegalEntityId = (int) $current->legalEntityId;
+        $authorLegalEntityId = (int) ($authorToCheck->legalEntityId ?? 0);
+
+        if ($planLegalEntityId > 0 && $currentLegalEntityId !== $planLegalEntityId) {
+            return __('care-plan.activity_legal_entity_mismatch');
+        }
+
+        if ($authorLegalEntityId > 0 && $planLegalEntityId > 0 && $authorLegalEntityId !== $planLegalEntityId) {
+            return __('care-plan.activity_legal_entity_mismatch');
+        }
+
+        // Synced (non-draft) plans require a granted write approval for the acting employee.
+        $status = \App\Enums\CarePlanStatus::fromStored($this->carePlan->status);
+        if (filled($this->carePlan->uuid)
+            && $status !== \App\Enums\CarePlanStatus::DRAFT
+            && !$this->carePlan->hasGrantedApprovalForEmployeeUuid($current->uuid)) {
+            return __('care-plan.activity_write_approval_required');
+        }
+
+        return null;
+    }
+
     protected function ownedActivity(int $activityId): \App\Models\CarePlanActivity
     {
         $activity = $this->carePlan->activities()->whereKey($activityId)->first();
@@ -592,6 +633,13 @@ abstract class CarePlanComponent extends Component
 
         if ($activityId) {
             $this->ownedActivity($activityId);
+        }
+
+        // Refresh local request/activity state before cancel/complete prechecks (TV 3.10.4).
+        if (in_array($actionType, ['cancel', 'complete', 'cancel_activity', 'complete_activity'], true)
+            && filled($this->carePlan->uuid)
+            && method_exists($this, 'syncPlanStatus')) {
+            $this->syncPlanStatus();
         }
 
         if (in_array($actionType, ['cancel_activity', 'complete_activity'], true) && $activityId) {

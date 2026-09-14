@@ -120,10 +120,14 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         $encounterData = $this->resolveEncounterData();
+        if (!empty($encounterData['error'])) {
+            session()->flash('error', $encounterData['error']);
 
-        // Re-resolve the author for the (possibly changed) terms_of_service, same as on create,
-        // so a draft edited to a different "умови надання послуг" keeps a matching author.
-        $author = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null);
+            return;
+        }
+
+        // Author is the encounter performer (TV 3.10.1), not the current writer employee.
+        $author = $encounterData['author'] ?? null;
 
         $repository->updateById($this->carePlan->id, [
             'author_id' => $author?->id ?? $this->carePlan->author_id,
@@ -192,17 +196,42 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         $encounterData = $this->resolveEncounterData();
+        if (!empty($encounterData['error'])) {
+            session()->flash('error', $encounterData['error']);
+            $this->showSignatureModal = false;
+
+            return;
+        }
 
         $termsOfService = $this->form->termsOfService;
-        $author = Auth::user()?->getCarePlanWriterEmployee($termsOfService);
+        /** @var \App\Models\Employee\Employee|null $author */
+        $author = $encounterData['author'] ?? null;
+        if ($author === null) {
+            session()->flash('error', __('care-plan.encounter_author_missing'));
+            $this->showSignatureModal = false;
+
+            return;
+        }
         $this->logCarePlanAuthorRoleDebug($author, $termsOfService);
+
+        // Preserve the local draft UUID so eHealth create is idempotent (TV 3.10.1).
+        $stableUuid = $this->carePlan->uuid ?: (string) \Illuminate\Support\Str::uuid();
+        if (!$this->carePlan->uuid) {
+            $repository->updateById($this->carePlan->id, [
+                'uuid' => $stableUuid,
+                'author_id' => $author->id,
+                'status' => \App\Enums\CarePlanStatus::DRAFT->value,
+            ]);
+            $this->carePlan->refresh();
+        }
 
         // Build eHealth payload via Repository
         $carePlanPayload = $repository->formatCarePlanRequest(
             $this->form->toArray(),
             $this->form->encounter ?: null,
             $encounterData,
-            $author?->uuid
+            $author->uuid,
+            $stableUuid
         );
 
         try {
@@ -248,7 +277,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'status' => $carePlanStatus,
                 'requisition' => $carePlanRequisition,
                 // Update other fields too just in case they were changed before signing
-                'author_id' => $author?->id ?? $this->carePlan->author_id,
+                'author_id' => $author->id,
                 'terms_of_service' => $termsOfService ?: null,
                 'category' => $this->form->category,
                 'title' => $this->form->title,

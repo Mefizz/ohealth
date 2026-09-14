@@ -45,7 +45,7 @@ class CarePlanForm extends Form
             'title' => 'required|string',
             'periodStart' => 'required|string',
             'periodEnd' => 'nullable|string',
-            'encounter' => 'nullable|string',
+            'encounter' => 'required|string',
             'description' => 'nullable|string',
             'note' => 'nullable|string',
             'informWith' => 'nullable|string',

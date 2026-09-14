@@ -86,7 +86,11 @@ class CarePlanApprovals extends Component
             $this->employees = \App\Models\Employee\Employee::where('legal_entity_id', $legalEntityId)
                 ->where('status', 'APPROVED')
                 ->where('is_active', true)
-                ->whereIn('employee_type', [\App\Enums\User\Role::DOCTOR->value, \App\Enums\User\Role::SPECIALIST->value])
+                ->whereIn('employee_type', [
+                    \App\Enums\User\Role::DOCTOR->value,
+                    \App\Enums\User\Role::SPECIALIST->value,
+                    \App\Enums\User\Role::MED_COORDINATOR->value,
+                ])
                 ->with('party:id,first_name,last_name,second_name')
                 ->select(['id', 'uuid', 'party_id', 'employee_type', 'position'])
                 ->get()

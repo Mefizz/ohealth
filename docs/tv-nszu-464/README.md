@@ -16,23 +16,24 @@ Application code тут **не** змінюється.
 
 ## Швидкий старт для агента
 
-1. Прочитай [CORRELATION.md](./CORRELATION.md) — статус по твоїх пунктах.
-2. Деталі аудиту — `audits/3.XX-*.md`.
-3. Промпт — `prompts/00-system-context.md` + модульний файл.
-4. Контекст останніх PR — [00-MASTER-CONTINUATION-SPEC.md](./00-MASTER-CONTINUATION-SPEC.md).
+1. **Операційна специфікація (головне):** [SPEC.md](./SPEC.md) — work packages, DoD, порядок, інваріанти.
+2. [CORRELATION.md](./CORRELATION.md) — статус зроблено / треба по пунктах.
+3. Деталі аудиту — `audits/3.XX-*.md`.
+4. Промпт — `prompts/00-system-context.md` + модульний файл.
+5. Контекст останніх PR — [00-MASTER-CONTINUATION-SPEC.md](./00-MASTER-CONTINUATION-SPEC.md).
 
 ## Структура
 
 ```
 docs/tv-nszu-464/
 ├── README.md                          ← цей файл
+├── SPEC.md                            ← операційна специфікація для підхоплення робіт
 ├── CORRELATION.md                     ← матриця зроблено / TODO
 ├── 00-MASTER-CONTINUATION-SPEC.md     ← handoff останніх робіт
 ├── 39-MIS-…464….pdf                   ← повний текст ТВ
 ├── audits/                            ← глибокі аудити (статичні зрізи)
 └── prompts/                           ← промпти для окремих чатів
 ```
-
 ## Модулі відповідальності (Mefizz)
 
 | ТВ | Модуль | Стор. у PDF (орієнтир) |

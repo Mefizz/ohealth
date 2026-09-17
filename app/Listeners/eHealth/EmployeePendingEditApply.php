@@ -47,13 +47,17 @@ class EmployeePendingEditApply
             ->whereNotNull('employee_id')
             ->whereNotNull('uuid')
             ->orderByDesc('created_at')
-            ->get();
+            ->orderByDesc('id')
+            ->get()
+            // One sync per employee: the newest pending edit only (older supersedes are ignored here).
+            ->unique(fn (EmployeeRequest $request): int => (int) $request->employeeId)
+            ->values();
 
         if ($pendingEdits->isEmpty()) {
             return;
         }
 
-        Log::info('[EmployeePendingEditApply] Syncing pending edits after login.', [
+        Log::info('[EmployeePendingEditApply] Syncing latest pending edits after login.', [
             'user_id' => $user->id,
             'request_ids' => $pendingEdits->pluck('id')->all(),
         ]);

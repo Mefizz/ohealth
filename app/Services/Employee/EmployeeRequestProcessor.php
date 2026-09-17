@@ -17,6 +17,7 @@ use App\Models\LegalEntity;
 use App\Repositories\Repository;
 use App\Traits\BatchLegalEntityQueries;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -304,6 +305,44 @@ class EmployeeRequestProcessor
     }
 
     /**
+     * Among approved local requests, keep only the newest per employee_id.
+     * Creates (no employee_id) are kept individually. Older superseded edits are returned separately.
+     *
+     * @param  Collection<int, EmployeeRequest>  $approvedRequests
+     * @return array{apply: Collection<int, EmployeeRequest>, superseded: Collection<int, EmployeeRequest>}
+     */
+    public function partitionLatestApprovedPerEmployee(Collection $approvedRequests): array
+    {
+        $sorted = $approvedRequests
+            ->sortBy(fn (EmployeeRequest $request): array => [
+                $request->created_at?->timestamp ?? 0,
+                $request->id,
+            ])
+            ->values();
+
+        $apply = collect();
+        $superseded = collect();
+
+        foreach ($sorted->groupBy(
+            fn (EmployeeRequest $request): string => filled($request->employeeId)
+                ? 'employee-'.$request->employeeId
+                : 'create-'.$request->id
+        ) as $group) {
+            /** @var Collection<int, EmployeeRequest> $group */
+            $latest = $group->last();
+            $apply->push($latest);
+            $superseded = $superseded->merge($group->filter(
+                fn (EmployeeRequest $request): bool => $request->id !== $latest->id
+            ));
+        }
+
+        return [
+            'apply' => $apply->values(),
+            'superseded' => $superseded->values(),
+        ];
+    }
+
+    /**
      * Processes a batch of remote Employee Request data from eHealth.
      */
     public function processBatch(array $eHealthData, LegalEntity $legalEntity): void
@@ -325,12 +364,14 @@ class EmployeeRequestProcessor
             ->whereNull('applied_at')
             ->whereIn('uuid', $eHealthRequests->keys())
             ->with(['revision', 'employee', 'party', 'division'])
-            ->cursor();
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
 
         $approvedCount = 0;
+        $approvedLocals = collect();
 
         foreach ($localPendingRequests as $localRequest) {
-
             $remoteRequestData = $eHealthRequests->get($localRequest->uuid);
 
             if (!$remoteRequestData) {
@@ -348,14 +389,9 @@ class EmployeeRequestProcessor
 
             try {
                 if ($remoteStatus === 'APPROVED') {
-                    // Pass the specific item data, not the whole array
-                    $this->applyApprovedRequest($localRequest, $remoteRequestData);
-                    $approvedCount++;
-                    Log::info(
-                        "[EmployeeRequestProcessor] Request APPROVED and applied successfully. Request ID: {$localRequest->id}"
-                    );
-
-                } elseif (in_array($remoteStatus, ['REJECTED', 'EXPIRED'])) {
+                    $localRequest->setAttribute('_remote_payload', $remoteRequestData);
+                    $approvedLocals->push($localRequest);
+                } elseif (in_array($remoteStatus, ['REJECTED', 'EXPIRED'], true)) {
                     $newStatus = match ($remoteStatus) {
                         'REJECTED' => LocalStatus::REJECTED,
                         'EXPIRED' => LocalStatus::EXPIRED,
@@ -363,15 +399,11 @@ class EmployeeRequestProcessor
                     };
 
                     if ($newStatus) {
-                        $localRequest->update(
-                            [
-                                'status' => $newStatus,
-                                'applied_at' => now(),
-                            ]
-                        );
-                        $localRequest->revision?->update(
-                            ['status' => RevisionStatus::OUTDATED]
-                        );
+                        $localRequest->update([
+                            'status' => $newStatus,
+                            'applied_at' => now(),
+                        ]);
+                        $localRequest->revision?->update(['status' => RevisionStatus::OUTDATED]);
 
                         Log::info(
                             "[EmployeeRequestProcessor] Request status updated to {$newStatus->value}. Request ID: {$localRequest->id}"
@@ -380,7 +412,46 @@ class EmployeeRequestProcessor
                 }
             } catch (\Throwable $e) {
                 Log::error(
-                    "[EmployeeRequestProcessor] Failed to process request ID {$localRequest->id}: " . $e->getMessage(),
+                    "[EmployeeRequestProcessor] Failed to process request ID {$localRequest->id}: ".$e->getMessage(),
+                    ['exception' => $e]
+                );
+            }
+        }
+
+        $partition = $this->partitionLatestApprovedPerEmployee($approvedLocals);
+
+        foreach ($partition['superseded'] as $supersededRequest) {
+            try {
+                // Remote APPROVED but superseded by a newer edit for the same employee — close without applying content.
+                $supersededRequest->update([
+                    'status' => LocalStatus::APPROVED,
+                    'applied_at' => now(),
+                ]);
+                $supersededRequest->revision?->update(['status' => RevisionStatus::OUTDATED]);
+
+                Log::info('[EmployeeRequestProcessor] Superseded approved request marked outdated.', [
+                    'request_id' => $supersededRequest->id,
+                    'employee_id' => $supersededRequest->employeeId,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error(
+                    "[EmployeeRequestProcessor] Failed to mark superseded request {$supersededRequest->id}: ".$e->getMessage(),
+                    ['exception' => $e]
+                );
+            }
+        }
+
+        foreach ($partition['apply'] as $localRequest) {
+            try {
+                $remoteRequestData = $localRequest->getAttribute('_remote_payload') ?? $eHealthRequests->get($localRequest->uuid);
+                $this->applyApprovedRequest($localRequest, $remoteRequestData);
+                $approvedCount++;
+                Log::info(
+                    "[EmployeeRequestProcessor] Request APPROVED and applied successfully. Request ID: {$localRequest->id}"
+                );
+            } catch (\Throwable $e) {
+                Log::error(
+                    "[EmployeeRequestProcessor] Failed to process request ID {$localRequest->id}: ".$e->getMessage(),
                     ['exception' => $e]
                 );
             }

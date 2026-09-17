@@ -123,6 +123,9 @@ class EmployeePendingEditApplyListenerTest extends TestCase
                 'outcome' => EmployeeRequestProcessor::OUTCOME_APPROVED,
                 'message' => 'ok',
             ]);
+        $processor->shouldReceive('markOlderPendingEditsSuperseded')
+            ->once()
+            ->withArgs(fn (EmployeeRequest $applied): bool => $applied->id === $request->id);
         $this->instance(EmployeeRequestProcessor::class, $processor);
 
         $event = new EHealthUserLogin(

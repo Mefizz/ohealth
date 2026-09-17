@@ -16,6 +16,12 @@ use Throwable;
  * Roles with employee_request:read still need a safe apply path after email confirmation:
  * Get Employee Request by ID via syncSinglePendingRequest for this user's pending edits only.
  *
+ * Contract (team-lead aligned):
+ * - Never call EmployeeRequest APIs from EmployeeCreate.
+ * - Apply only when remote status is APPROVED (handled inside syncSinglePendingRequest).
+ * - Only the latest pending edit per employee_id is synced; older ones are superseded after apply.
+ * - Scoped to the current legal entity (same email must not pull another LE's revisions).
+ *
  * Runs after EmployeeCreate. Does nothing without the scope (avoids 403 for receptionist/med_admin).
  */
 class EmployeePendingEditApply
@@ -42,14 +48,16 @@ class EmployeePendingEditApply
 
         $pendingEdits = EmployeeRequest::query()
             ->with(['revision', 'employee', 'party', 'division'])
+            ->where('legal_entity_id', $event->legalEntity->id)
             ->where('email', $user->email)
             ->pendingEhealth()
+            ->whereNull('applied_at')
             ->whereNotNull('employee_id')
             ->whereNotNull('uuid')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
-            // One sync per employee: the newest pending edit only (older supersedes are ignored here).
+            // One sync per employee: the newest pending edit only.
             ->unique(fn (EmployeeRequest $request): int => (int) $request->employeeId)
             ->values();
 
@@ -59,6 +67,7 @@ class EmployeePendingEditApply
 
         Log::info('[EmployeePendingEditApply] Syncing latest pending edits after login.', [
             'user_id' => $user->id,
+            'legal_entity_id' => $event->legalEntity->id,
             'request_ids' => $pendingEdits->pluck('id')->all(),
         ]);
 
@@ -70,6 +79,10 @@ class EmployeePendingEditApply
                     'request_id' => $request->id,
                     'outcome' => $result['outcome'],
                 ]);
+
+                if ($result['outcome'] === EmployeeRequestProcessor::OUTCOME_APPROVED) {
+                    $this->processor->markOlderPendingEditsSuperseded($request);
+                }
             } catch (Throwable $e) {
                 // Do not break login if one request fails; remaining edits can retry on next login/sync.
                 Log::error('[EmployeePendingEditApply] Sync failed for request.', [

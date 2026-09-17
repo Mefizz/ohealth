@@ -289,7 +289,51 @@ class EmployeeRequestProcessor
             if ($request->revision) {
                 $request->revision->update(['status' => RevisionStatus::APPLIED]);
             }
+
+            $this->markOlderPendingEditsSuperseded($request);
         });
+    }
+
+    /**
+     * After a newer edit is applied, close older still-pending edits for the same employee
+     * in this LE so login/sync cannot re-apply yesterday's phones/documents.
+     */
+    public function markOlderPendingEditsSuperseded(EmployeeRequest $applied): void
+    {
+        if (blank($applied->employeeId) || blank($applied->legalEntityId)) {
+            return;
+        }
+
+        $olderPending = EmployeeRequest::query()
+            ->with('revision')
+            ->where('legal_entity_id', $applied->legalEntityId)
+            ->where('employee_id', $applied->employeeId)
+            ->where('id', '!=', $applied->id)
+            ->pendingEhealth()
+            ->whereNull('applied_at')
+            ->whereNotNull('uuid')
+            ->where(function ($query) use ($applied): void {
+                $query->where('created_at', '<', $applied->created_at)
+                    ->orWhere(function ($inner) use ($applied): void {
+                        $inner->where('created_at', $applied->created_at)
+                            ->where('id', '<', $applied->id);
+                    });
+            })
+            ->get();
+
+        foreach ($olderPending as $oldRequest) {
+            $oldRequest->update([
+                'status' => LocalStatus::EXPIRED,
+                'applied_at' => now(),
+            ]);
+            $oldRequest->revision?->update(['status' => RevisionStatus::OUTDATED]);
+
+            Log::info('[EmployeeRequestProcessor] Older pending edit marked superseded.', [
+                'applied_request_id' => $applied->id,
+                'superseded_request_id' => $oldRequest->id,
+                'employee_id' => $applied->employeeId,
+            ]);
+        }
     }
 
     /**

@@ -37,10 +37,16 @@ class EmployeeCreate
 
         $employeeRequests = EmployeeRequest::with('revision')
             ->where('email', $user->email)
+            // Same email can exist across legal entities — never mix foreign LE revisions into this login.
+            ->where('legal_entity_id', $event->legalEntity->id)
             ->where(
                 fn (EloquentBuilder $q) => $q
                     // Pending eHealth decision: NEW + uuid (current keep-NEW) or legacy SIGNED
-                    ->where(fn (EloquentBuilder $query) => $query->pendingEhealth())
+                    ->where(
+                        fn (EloquentBuilder $query) => $query
+                            ->pendingEhealth()
+                            ->whereNull('applied_at')
+                    )
                     // Sync for requests approved through our system and synced before user's first login
                     ->orWhere(
                         fn (EloquentBuilder $query) =>

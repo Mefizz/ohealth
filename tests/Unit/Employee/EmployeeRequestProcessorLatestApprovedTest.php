@@ -48,4 +48,32 @@ class EmployeeRequestProcessorLatestApprovedTest extends TestCase
         $this->assertSame([2, 3], $partition['apply']->pluck('id')->sort()->values()->all());
         $this->assertSame([1], $partition['superseded']->pluck('id')->all());
     }
+
+    #[Test]
+    public function partition_keeps_every_create_request_without_employee_id(): void
+    {
+        $createA = new EmployeeRequest([
+            'uuid' => (string) Str::uuid(),
+            'status' => RequestStatus::NEW,
+            'employee_id' => null,
+        ]);
+        $createA->id = 10;
+        $createA->created_at = now()->subHour();
+
+        $createB = new EmployeeRequest([
+            'uuid' => (string) Str::uuid(),
+            'status' => RequestStatus::NEW,
+            'employee_id' => null,
+        ]);
+        $createB->id = 11;
+        $createB->created_at = now();
+
+        $processor = app(EmployeeRequestProcessor::class);
+        $partition = $processor->partitionLatestApprovedPerEmployee(
+            collect([$createA, $createB])
+        );
+
+        $this->assertSame([10, 11], $partition['apply']->pluck('id')->sort()->values()->all());
+        $this->assertTrue($partition['superseded']->isEmpty());
+    }
 }

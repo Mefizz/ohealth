@@ -433,7 +433,8 @@ class EmployeeRequestProcessor
 
             try {
                 if ($remoteStatus === 'APPROVED') {
-                    $localRequest->setAttribute('_remote_payload', $remoteRequestData);
+                    // Keep payload only in the batch map ($eHealthRequests). Do not setAttribute a
+                    // pseudo-column — Eloquent update() would try to persist it and abort PG.
                     $approvedLocals->push($localRequest);
                 } elseif (in_array($remoteStatus, ['REJECTED', 'EXPIRED'], true)) {
                     $newStatus = match ($remoteStatus) {
@@ -487,7 +488,7 @@ class EmployeeRequestProcessor
 
         foreach ($partition['apply'] as $localRequest) {
             try {
-                $remoteRequestData = $localRequest->getAttribute('_remote_payload') ?? $eHealthRequests->get($localRequest->uuid);
+                $remoteRequestData = $eHealthRequests->get($localRequest->uuid);
                 $this->applyApprovedRequest($localRequest, $remoteRequestData);
                 $approvedCount++;
                 Log::info(

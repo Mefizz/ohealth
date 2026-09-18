@@ -4,19 +4,19 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\MedicalEvents;
 
-use App\Enums\Contract\ContractStatus;
 use App\Classes\eHealth\Api\DeviceDefinition;
 use App\Classes\eHealth\EHealthResponse;
-use GuzzleHttp\Psr7\Response;
-use Mockery;
+use App\Enums\Contract\ContractStatus;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Contracts\Contract;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
 use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
+use Mockery;
 use Tests\TestCase;
 
 class DeviceProgramParticipationGuardTest extends TestCase
@@ -42,6 +42,29 @@ class DeviceProgramParticipationGuardTest extends TestCase
 
         $this->assertTrue(app(DeviceProgramParticipationGuard::class)
             ->isDeviceInProgramCatalog('program', 'target-device'));
+    }
+
+    public function test_incomplete_catalog_pagination_is_a_lookup_warning_not_a_missing_device(): void
+    {
+        $api = Mockery::mock(DeviceDefinition::class);
+        $api->shouldReceive('getMany')->once()->andReturn(new EHealthResponse(new Response(200, [], json_encode([
+            'data' => [['id' => 'other-device']],
+            'paging' => ['page_number' => 1],
+        ]))));
+        $this->instance(DeviceDefinition::class, $api);
+        $dictionary = Mockery::mock(\App\Services\Dictionary\DictionaryManager::class);
+        $dictionary->shouldReceive('medicalPrograms')->andReturn(collect());
+        $this->instance(\App\Services\Dictionary\DictionaryManager::class, $dictionary);
+        $guard = Mockery::mock(DeviceProgramParticipationGuard::class)->makePartial();
+        $guard->shouldReceive('resolveParticipatingProgramIds')->once()->andReturn(['program']);
+        $activity = new CarePlanActivity(['program' => 'program', 'product_reference' => 'target-device']);
+
+        $assessment = $guard->assess(new CarePlan(), $activity, new LegalEntity());
+
+        $this->assertSame([], $assessment->blockingIssues);
+        $this->assertSame([__('care-plan.device_catalog_lookup_failed', [
+            'device_id' => 'target-device', 'program_id' => 'program',
+        ])], $assessment->warnings);
     }
 
     protected function migrateDatabases(): void

@@ -114,6 +114,83 @@ class CarePlanShowActionsTest extends TestCase
             ->assertDontSee(__('care-plan.complete_care_plan'));
     }
 
+    public function test_unknown_activity_shows_session_and_livewire_error_without_opening_signature(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $message = __('care-plan.document_context_unavailable');
+
+        $component = Livewire::test(CarePlanShow::class, ['carePlan' => $plan]);
+        $component->instance()->openSignatureModal('cancel_activity', PHP_INT_MAX);
+        $this->assertSame($message, session('error'));
+        $component->call('openSignatureModal', 'cancel_activity', PHP_INT_MAX)
+            ->assertSet('showSignatureModal', false)
+            ->assertDispatched('flashMessage', ['message' => $message, 'type' => 'error']);
+        // Livewire clears new session flash on a non-redirecting AJAX response.
+        $this->assertNull(session('error'));
+        $this->assertFalse(session()->has('success'));
+
+        // The mounted toast receives the Livewire event; a fresh mount reads session flash.
+        session()->forget('error');
+        Livewire::test(\App\Livewire\Components\FlashMessage::class)
+            ->dispatch('flashMessage', ['message' => $message, 'type' => 'error'])
+            ->assertSet('type', 'error')
+            ->assertSee($message);
+        session()->flash('error', $message);
+        Livewire::test(\App\Livewire\Components\FlashMessage::class)->assertSee($message);
+    }
+
+    public function test_referral_without_based_on_shows_a_local_error_and_preserves_draft(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $draft = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id, 'status' => 'new', 'service_id' => '37003-00',
+        ]);
+
+        Livewire::test(CarePlanShow::class, ['carePlan' => $plan])
+            ->call('openSignatureModal', 'sign_servicerequest', null, $draft->uuid)
+            ->call('signReferral')
+            ->assertSet('showSignatureModal', false)
+            ->assertDispatched('flashMessage', [
+                'message' => __('care-plan.document_context_unavailable'), 'type' => 'error',
+            ]);
+        $this->assertSame('new', $draft->fresh()->status);
+        $this->assertNull($draft->fresh()->basedOnId);
+        $this->assertFalse(session()->has('success'));
+    }
+
+    public function test_referral_sync_checks_ownership_for_the_requested_resource_kind(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $uuid = (string) Str::uuid();
+        \App\Models\MedicalEvents\Sql\ServiceRequestRequest::create([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id, 'status' => 'new', 'service_id' => '37003-00',
+        ]);
+        $otherPerson = Person::create([
+            'uuid' => (string) Str::uuid(), 'birth_date' => '1990-01-01', 'gender' => 'MALE',
+            'patient_signed' => true, 'process_disclosure_data_consent' => true,
+        ]);
+        $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::create([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id,
+            'person_id' => $otherPerson->id, 'status' => 'new', 'device_id' => (string) Str::uuid(),
+        ]);
+        $lifecycle = \Mockery::mock(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class);
+        $lifecycle->shouldNotReceive('syncReferralFromRemote');
+        $this->instance(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class, $lifecycle);
+
+        Livewire::test(CarePlanShow::class, ['carePlan' => $plan])
+            ->call('syncReferralFromEHealth', $uuid, 'device_request')
+            ->assertDispatched('flashMessage', [
+                'message' => __('care-plan.document_context_unavailable'), 'type' => 'error',
+            ]);
+        $this->assertSame('new', $device->fresh()->status);
+        $this->assertSame($otherPerson->id, $device->fresh()->personId);
+    }
+
     public function test_new_plan_with_active_approval_for_current_doctor_shows_cancel_and_complete(): void
     {
         $this->actingAs($this->user);

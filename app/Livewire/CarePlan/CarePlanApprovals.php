@@ -6,20 +6,25 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Enums\CarePlanStatus;
+use App\Enums\User\Role;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\CarePlan;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Services\MedicalEvents\CarePlanApprovalService;
+use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Traits\FormTrait;
 use App\Traits\InteractsWithApprovals;
+use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
-use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\EHealth\EHealthValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use RuntimeException;
+use Throwable;
 
 class CarePlanApprovals extends Component
 {
@@ -87,7 +92,7 @@ class CarePlanApprovals extends Component
             $this->employees = Employee::where('legal_entity_id', $legalEntityId)
                 ->where('status', 'APPROVED')
                 ->where('is_active', true)
-                ->whereIn('employee_type', [\App\Enums\User\Role::DOCTOR->value, \App\Enums\User\Role::SPECIALIST->value])
+                ->whereIn('employee_type', [Role::DOCTOR->value, Role::SPECIALIST->value])
                 ->with('party:id,first_name,last_name,second_name')
                 ->select(['id', 'uuid', 'party_id', 'employee_type', 'position'])
                 ->get()
@@ -113,7 +118,7 @@ class CarePlanApprovals extends Component
                     break;
                 }
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::warning('CarePlanApprovals: failed to fetch patient auth methods: ' . $e->getMessage());
         }
     }
@@ -134,7 +139,7 @@ class CarePlanApprovals extends Component
                 ->latest()
                 ->get()
                 ->toArray();
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanApprovals: failed to fetch: ' . $e->getMessage());
             Session::flash('error', __('care-plan.approvals_fetch_error'));
         } finally {
@@ -214,7 +219,7 @@ class CarePlanApprovals extends Component
                 ? $e->getFormattedMessage()
                 : 'Помилка від ЕСОЗ: ' . $e->getMessage();
             Session::flash('error', $this->errorMessage);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanApprovals: failed to create: ' . $e->getMessage());
             $this->errorMessage = __('care-plan.approval_create_error');
             Session::flash('error', $this->errorMessage);
@@ -297,9 +302,9 @@ class CarePlanApprovals extends Component
 
         try {
             try {
-                app(\App\Services\MedicalEvents\CarePlanApprovalService::class)
+                app(CarePlanApprovalService::class)
                     ->deactivate($this->patientUuid, $oldApprovalUuid);
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 // Ignore if it's already 404 or can't be cancelled
             }
 
@@ -347,7 +352,7 @@ class CarePlanApprovals extends Component
                 : __('care-plan.approval_created'));
             $this->fetchApprovals();
             $this->dispatch('care-plan-approvals-changed');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanApprovals: failed to recreate: ' . $e->getMessage());
             $this->errorMessage = 'Помилка при перестворенні: ' . $e->getMessage();
             Session::flash('error', $this->errorMessage);
@@ -357,7 +362,7 @@ class CarePlanApprovals extends Component
     /**
      * INPATIENT same-org approvals are auto-verified in eHealth — no SMS code exists.
      */
-    private function confirmInpatientApproval(string $approvalUuid): void
+    protected function confirmInpatientApproval(string $approvalUuid): void
     {
         $this->approvalId = $approvalUuid;
 
@@ -366,7 +371,7 @@ class CarePlanApprovals extends Component
             if (!$response->successful()) {
                 throw new EHealthResponseException($response);
             }
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('CarePlanApprovals: inpatient confirmation failed', ['exception_type' => $exception::class]);
             $this->errorMessage = $exception instanceof EHealthValidationException
                 ? $exception->getTranslatedMessage()
@@ -426,7 +431,7 @@ class CarePlanApprovals extends Component
                 ? $e->getFormattedMessage()
                 : 'Помилка від ЕСОЗ: ' . $e->getMessage();
             Session::flash('error', $msg);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanApprovals: failed to verify: ' . $e->getMessage());
             Session::flash('error', __('care-plan.approval_verify_error'));
         }
@@ -439,10 +444,10 @@ class CarePlanApprovals extends Component
         }
 
         try {
-            app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->resendSms($this->patientUuid, $this->approvalId);
+            app(CarePlanApprovalService::class)->resendSms($this->patientUuid, $this->approvalId);
             $this->smsResent = true;
             Session::flash('success', __('care-plan.sms_resent'));
-        } catch (\App\Exceptions\EHealth\EHealthResponseException $e) {
+        } catch (EHealthResponseException $e) {
             Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
 
             if ($e->getCode() === 404 || str_contains($e->getMessage(), '404')) {
@@ -454,9 +459,9 @@ class CarePlanApprovals extends Component
                 return;
             }
             Session::flash('error', __('care-plan.sms_resend_error'));
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
             Session::flash('error', $e->getMessage());
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
             Session::flash('error', __('care-plan.sms_resend_error'));
         }
@@ -469,16 +474,15 @@ class CarePlanApprovals extends Component
         }
 
         $this->authorize('manage', $this->currentCarePlan());
-        app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
-            ->approvalForCarePlan($this->currentCarePlan(), $approvalUuid);
-
         try {
-            app(\App\Services\MedicalEvents\CarePlanApprovalService::class)
+            app(MedicalRequestOwnership::class)
+                ->approvalForCarePlan($this->currentCarePlan(), $approvalUuid);
+            app(CarePlanApprovalService::class)
                 ->deactivate($this->patientUuid, $approvalUuid);
             Session::flash('success', __('care-plan.approval_cancelled'));
             $this->fetchApprovals();
             $this->dispatch('care-plan-approvals-changed');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanApprovals: failed to cancel: ' . $e->getMessage());
             Session::flash('error', __('care-plan.approval_cancel_error'));
         }
@@ -489,17 +493,17 @@ class CarePlanApprovals extends Component
         return view('livewire.care-plan.care-plan-approvals');
     }
 
-    private function currentCarePlan(): CarePlan
+    protected function currentCarePlan(): CarePlan
     {
         return CarePlan::query()->findOrFail($this->carePlanId);
     }
 
-    private function approvalsOfCurrentPlan()
+    protected function approvalsOfCurrentPlan()
     {
         return $this->currentCarePlan()->approvals();
     }
 
-    private function guardReadOnlyApprovals(): bool
+    protected function guardReadOnlyApprovals(): bool
     {
         $carePlan = CarePlan::findOrFail($this->carePlanId);
         $this->isReadOnly = CarePlanStatus::fromStored($carePlan->status)->isTerminal();

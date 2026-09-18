@@ -4,13 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Person;
 
-use App\Livewire\Person\Records\PatientMedicationRequests;
 use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
 use App\Classes\eHealth\EHealthResponse;
+use App\Livewire\Person\Records\PatientMedicationRequests;
 use App\Models\CarePlanActivity;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
-use Mockery;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
@@ -19,10 +16,13 @@ use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
+use Mockery;
 use Tests\TestCase;
 
 class PatientMedicationRequestsPhase6Test extends TestCase
@@ -342,6 +342,39 @@ class PatientMedicationRequestsPhase6Test extends TestCase
         $this->expectException(CannotUpdateLockedPropertyException::class);
         Livewire::test(PatientMedicationRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null])
             ->set('eHealthResults', [['id' => (string) Str::uuid(), 'status' => 'active']]);
+    }
+
+    public function test_active_tab_cannot_be_replaced_by_the_browser(): void
+    {
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        Livewire::test(PatientMedicationRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null])
+            ->set('activeTab', 'prescriptions');
+    }
+
+    public function test_reimport_reclassifies_historical_cache_without_duplicating_uuid(): void
+    {
+        $repo = app(MedicationRequestRepository::class);
+        $uuid = (string) Str::uuid();
+        $historical = $repo->upsertFromEHealth(['id' => $uuid, 'status' => 'active'], $this->person->id);
+        $this->assertSame(MedicationRequestRequest::TYPE_PRESCRIPTION, $historical->resourceType);
+
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getData')->once()->andReturn([['id' => $uuid, 'status' => 'new']]);
+        $api = Mockery::mock(MedicationRequestApi::class);
+        $api->shouldReceive('getRequestsBySearchParams')->once()->with($this->person->uuid, [])->andReturn($response);
+        $this->instance(MedicationRequestApi::class, $api);
+
+        Livewire::test(PatientMedicationRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null])
+            ->assertSee(__('medication-requests.legacy_import_note'))
+            ->assertSee(__('medication-requests.refresh_from_ehealth'))
+            ->call('searchInEHealth')
+            ->call('saveFromEHealth', $uuid)
+            ->assertSet('medicationRequests.0.uuid', $uuid)
+            ->assertSet('prescriptions', []);
+
+        $this->assertSame(1, MedicationRequestRequest::where('uuid', $uuid)->count());
+        $this->assertSame($historical->id, $repo->findByUuid($uuid)->id);
+        $this->assertSame(MedicationRequestRequest::TYPE_REQUEST, $historical->fresh()->resourceType);
     }
 
     public function test_search_requires_the_resource_read_permission(): void

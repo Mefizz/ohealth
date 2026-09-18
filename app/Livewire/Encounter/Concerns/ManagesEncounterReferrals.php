@@ -14,6 +14,7 @@ use App\Services\Dictionary\ServiceSearch;
 use App\Services\MedicalEvents\InformWith;
 use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
@@ -220,13 +221,13 @@ trait ManagesEncounterReferrals
             return;
         }
 
-        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
-            ->serviceForEncounter(
-                (string) $this->encounterReferralRequestIdToSign,
-                $encounter
-            );
-
         try {
+            $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+                ->serviceForEncounter(
+                    (string) $this->encounterReferralRequestIdToSign,
+                    $encounter
+                );
+
             $validated = $this->form->validate($this->form->signingRules());
             $person = Person::find($encounter->person_id);
             if ($person === null || empty($person->uuid)) {
@@ -288,6 +289,10 @@ trait ManagesEncounterReferrals
 
             $referralIdentifier = $dbData['request_number'] ?? $dbData['uuid'];
             $this->flashOutcome('success', 'Електронне направлення успішно створено без плану лікування. Номер направлення: '.$referralIdentifier);
+        } catch (ModelNotFoundException) {
+            $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
+            $this->showSignatureModal = false;
+            $this->actionType = null;
         } catch (EHealthValidationException $exception) {
             $exception->report();
             $this->flashOutcome('error', $exception->getFormattedMessage());

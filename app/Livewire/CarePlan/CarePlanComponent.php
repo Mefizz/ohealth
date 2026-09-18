@@ -4,26 +4,35 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\CarePlanStatus;
 use App\Enums\MedicalProgram\Type;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\User\Role;
-use App\Models\Employee\Employee;
-use App\Traits\InteractsWithApprovals;
-use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
-use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
-use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Models\Employee\Employee;
+use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
+use App\Models\MedicalEvents\Sql\DiagnosticReport;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+use App\Models\MedicalEvents\Sql\Observation;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Services\Dictionary\DictionaryManager;
+use App\Services\MedicalEvents\CarePlanActivityValidationService;
+use App\Services\MedicalEvents\CarePlanLifecycleGateService;
+use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
+use App\Traits\InteractsWithApprovals;
+use Carbon\Carbon;
+use Exception;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -291,7 +300,7 @@ abstract class CarePlanComponent extends Component
         $activity = $this->carePlan->activities()->whereKey($activityId)->first();
 
         if ($activity === null) {
-            abort(404);
+            throw (new ModelNotFoundException())->setModel(CarePlanActivity::class);
         }
 
         return $activity;
@@ -319,34 +328,34 @@ abstract class CarePlanComponent extends Component
         $personId = $this->carePlan->personId;
 
         // Fetch patient conditions for outcomeReference selection
-        $this->availableConditions = \App\Models\MedicalEvents\Sql\Condition::where('person_id', $personId)
+        $this->availableConditions = Condition::where('person_id', $personId)
             ->with('code.coding')->get()->map(fn ($c) => [
                 'uuid' => $c->uuid,
                 'name' => ($c->code?->text ?: null) ?? ($c->code?->coding?->first()?->code ?: null) ?? 'Unknown Condition',
-                'date' => $c->onset_date ? \Carbon\Carbon::parse($c->onset_date)->format('d.m.Y') : '-',
+                'date' => $c->onset_date ? Carbon::parse($c->onset_date)->format('d.m.Y') : '-',
             ])->toArray();
 
         // Fetch patient diagnostic reports for justifications (grounds)
-        $this->availableReports = \App\Models\MedicalEvents\Sql\DiagnosticReport::where('person_id', $personId)
+        $this->availableReports = DiagnosticReport::where('person_id', $personId)
             ->get()->map(fn ($dr) => [
                 'uuid' => $dr->uuid,
                 'name' => $dr->code?->text ?: 'Diagnostic Report',
-                'date' => $dr->issued ? \Carbon\Carbon::parse($dr->issued)->format('d.m.Y') : '-',
+                'date' => $dr->issued ? Carbon::parse($dr->issued)->format('d.m.Y') : '-',
             ])->toArray();
 
         // Fetch patient observations for justifications (grounds)
-        $this->availableObservations = \App\Models\MedicalEvents\Sql\Observation::where('person_id', $personId)
+        $this->availableObservations = Observation::where('person_id', $personId)
             ->get()->map(fn ($obs) => [
                 'uuid' => $obs->uuid,
                 'name' => $obs->code?->text ?: 'Observation',
-                'date' => $obs->issued ? \Carbon\Carbon::parse($obs->issued)->format('d.m.Y') : '-',
+                'date' => $obs->issued ? Carbon::parse($obs->issued)->format('d.m.Y') : '-',
             ])->toArray();
 
         // Basic dictionaries and medical programs come from different eHealth endpoints.
         // They are loaded separately so a missing optional dictionary cannot leave the
         // programme dropdowns silently empty.
         try {
-            $basics = app(\App\Services\Dictionary\DictionaryManager::class)->basics();
+            $basics = app(DictionaryManager::class)->basics();
             $this->dictionaries['care_plan_categories'] = $basics->byName('eHealth/care_plan_categories')
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
@@ -394,7 +403,7 @@ abstract class CarePlanComponent extends Component
             $this->dictionaries['device_unit'] = $basics->byName('device_unit')
                 ?->asCodeDescription()
                 ?->toArray() ?? [];
-        } catch (\Exception $exception) {
+        } catch (Exception $exception) {
             Log::warning('CarePlanShow: failed to load basic dictionaries: ' . $exception->getMessage());
         }
 
@@ -416,7 +425,7 @@ abstract class CarePlanComponent extends Component
             $this->dictionaries['medical_programs_service'] = $this->filterServicePrograms(
                 $programs->filter(fn ($program) => strtoupper($program['type'] ?? '') === Type::SERVICE->value)
             )->pluck('name', 'id')->toArray() ?? [];
-        } catch (\Exception $exception) {
+        } catch (Exception $exception) {
             Log::warning('CarePlanShow: failed to load medical programs: ' . $exception->getMessage());
         }
 
@@ -498,8 +507,8 @@ abstract class CarePlanComponent extends Component
     }
 
     /**
-     * Livewire AJAX does not remount the layout toast, so session flash alone is invisible.
-     * Keep the session value for the next full page load and also push it to Alpine.
+     * Preserve normal session flash rendering and update the mounted Livewire toast.
+     * Livewire clears new flash data after an AJAX response without a redirect.
      */
     protected function flashOutcome(string $type, string $message): void
     {
@@ -589,15 +598,20 @@ abstract class CarePlanComponent extends Component
             return;
         }
 
-        if ($activityId) {
-            $this->ownedActivity($activityId);
+        try {
+            $activity = $activityId ? $this->ownedActivity($activityId) : null;
+        } catch (ModelNotFoundException) {
+            $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
+            $this->showSignatureModal = false;
+            $this->actionType = '';
+
+            return;
         }
 
         if (in_array($actionType, ['cancel_activity', 'complete_activity'], true) && $activityId) {
-            $activity = $this->ownedActivity($activityId);
 
             if ($activity) {
-                $blockReason = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+                $blockReason = app(CarePlanLifecycleGateService::class)
                     ->activityStatusChangeBlockReason($activity, $actionType);
 
                 if ($blockReason !== null) {
@@ -609,7 +623,7 @@ abstract class CarePlanComponent extends Component
         }
 
         if ($actionType === 'cancel') {
-            $blockReason = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+            $blockReason = app(CarePlanLifecycleGateService::class)
                 ->planCancelBlockReason($this->carePlan);
 
             if ($blockReason !== null) {
@@ -620,7 +634,7 @@ abstract class CarePlanComponent extends Component
         }
 
         if ($actionType === 'complete') {
-            $blockReason = app(\App\Services\MedicalEvents\CarePlanLifecycleGateService::class)
+            $blockReason = app(CarePlanLifecycleGateService::class)
                 ->planCompleteBlockReason($this->carePlan);
 
             if ($blockReason !== null) {
@@ -847,7 +861,7 @@ abstract class CarePlanComponent extends Component
 
         $cleaned = [];
         foreach ($payload as $key => $value) {
-            $snakeKey = \Illuminate\Support\Str::snake($key);
+            $snakeKey = Str::snake($key);
             if (in_array($snakeKey, $excludeKeys, true)) {
                 continue;
             }
@@ -872,7 +886,7 @@ abstract class CarePlanComponent extends Component
     {
         $cleaned = [];
         foreach ($payload as $key => $value) {
-            $snakeKey = \Illuminate\Support\Str::snake($key);
+            $snakeKey = Str::snake($key);
             if (in_array($snakeKey, $excludeKeys, true)) {
                 continue;
             }
@@ -940,13 +954,13 @@ abstract class CarePlanComponent extends Component
             });
         }
 
-        $activityValidation = app(\App\Services\MedicalEvents\CarePlanActivityValidationService::class);
+        $activityValidation = app(CarePlanActivityValidationService::class);
         $filtered = $filtered->filter(
             fn (array $program): bool => $activityValidation->providingConditionsBlockReason($this->carePlan, $program) === null
         );
 
         if ($this->participatingDeviceProgramIds !== []) {
-            $filtered = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
+            $filtered = app(DeviceProgramParticipationGuard::class)
                 ->filterProgramsForParticipation($filtered, $this->participatingDeviceProgramIds);
         }
 
@@ -955,7 +969,7 @@ abstract class CarePlanComponent extends Component
 
     protected function loadDeviceProgramParticipationState(): void
     {
-        $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
+        $guard = app(DeviceProgramParticipationGuard::class);
         $this->participatingDeviceProgramIds = $guard->resolveParticipatingProgramIds(legalEntity());
         $this->deviceParticipationWarning = $this->participatingDeviceProgramIds === []
             ? __('care-plan.device_program_participation_sync_hint')

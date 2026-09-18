@@ -132,7 +132,7 @@ final class MedicalRequestOwnership
             ->exists();
 
         if (!$belongs) {
-            abort(404);
+            throw (new ModelNotFoundException())->setModel(Employee::class);
         }
     }
 }

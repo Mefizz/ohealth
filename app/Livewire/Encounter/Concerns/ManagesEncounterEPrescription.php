@@ -11,6 +11,7 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -264,13 +265,13 @@ trait ManagesEncounterEPrescription
             return;
         }
 
-        $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
-            ->medicationForEncounter(
-                (string) $this->encounterEPrescriptionRequestIdToSign,
-                $encounter
-            );
-
         try {
+            $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+                ->medicationForEncounter(
+                    (string) $this->encounterEPrescriptionRequestIdToSign,
+                    $encounter
+                );
+
             $validated = $this->form->validate($this->form->signingRules());
 
             $informWith = (string) ($this->encounterEPrescriptionForm['inform_with'] ?? $requestRecord->informWith ?? '');
@@ -308,6 +309,11 @@ trait ManagesEncounterEPrescription
             $this->encounterEPrescriptionForm = [];
             $this->encounterEPrescriptionSearchResults = [];
             $this->encounterEPrescriptionSelectedMedication = null;
+        } catch (ModelNotFoundException) {
+            $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
+            $this->showSignatureModal = false;
+            $this->actionType = null;
+
         } catch (ValidationException $exception) {
             $message = $exception->validator->errors()->first() ?: 'Перевірте дані КЕП і спробуйте ще раз.';
             $this->flashOutcome('error', $message);

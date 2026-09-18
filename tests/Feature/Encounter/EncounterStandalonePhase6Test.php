@@ -130,6 +130,49 @@ class EncounterStandalonePhase6Test extends TestCase
         $this->assertSame('diagnostic_procedure', $harness->encounterReferralForm['category']);
     }
 
+    public function test_legacy_drafts_without_context_show_an_error_and_remain_unchanged(): void
+    {
+        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+            ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
+        $legalEntity = \App\Models\LegalEntity::create([
+            'uuid' => (string) Str::uuid(), 'status' => 'ACTIVE', 'sync_status' => 'COMPLETED',
+            'legal_entity_type_id' => $typeId, 'is_active' => true,
+        ]);
+        $this->instance('legalEntity', $legalEntity);
+        $employee = \App\Models\Employee\Employee::create([
+            'uuid' => (string) Str::uuid(), 'legal_entity_id' => $legalEntity->id,
+            'employee_type' => 'DOCTOR', 'status' => 'APPROVED', 'is_active' => true,
+            'position' => 'Doctor', 'start_date' => now()->toDateString(),
+        ]);
+        $encounter = $this->createEncounter(EncounterStatus::FINISHED->value);
+
+        foreach (['EPrescription', 'Referral'] as $kind) {
+            $class = $kind === 'EPrescription'
+                ? \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class
+                : \App\Models\MedicalEvents\Sql\ServiceRequestRequest::class;
+            $attributes = $kind === 'EPrescription'
+                ? ['medication_id' => 'INN-1', 'medication_qty' => 1]
+                : ['service_id' => '37003-00'];
+            $draft = $class::create(array_merge($attributes, [
+                'uuid' => (string) Str::uuid(), 'employee_id' => $employee->id,
+                'person_id' => $this->person->id, 'status' => 'new',
+            ]));
+            $harness = $this->makeHarness($encounter->id);
+            $harness->{'encounter'.$kind.'RequestIdToSign'} = $draft->uuid;
+            $harness->showSignatureModal = true;
+            $harness->{'signEncounter'.$kind}();
+
+            $this->assertSame(__('care-plan.document_context_unavailable'), session('error'));
+            $this->assertFalse($harness->showSignatureModal);
+            $this->assertSame([['flashMessage', [
+                'message' => __('care-plan.document_context_unavailable'), 'type' => 'error',
+            ]]], $harness->dispatched);
+            $this->assertSame('new', $draft->fresh()->status);
+            $this->assertNull($draft->fresh()->contextId);
+            $this->assertFalse(session()->has('success'));
+        }
+    }
+
     private function makeHarness(int $encounterId): EncounterStandaloneHarness
     {
         $harness = new EncounterStandaloneHarness();

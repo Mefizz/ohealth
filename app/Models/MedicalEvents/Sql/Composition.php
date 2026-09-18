@@ -45,6 +45,8 @@ class Composition extends Model
         'data',
         'async_job_id',
         'async_job_status',
+        'async_job_operation',
+        'async_job_error',
         'erln_status',
         'erln_record_number',
         'erln_status_message',

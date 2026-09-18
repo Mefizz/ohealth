@@ -791,11 +791,14 @@ class PatientCompositions extends BasePatientComponent
         return Composition::query()
             ->whereIn('preperson_id', $mergedPrepersonIds)
             ->ofType(CompositionType::TEMP_DISABILITY)
-            ->where('category', CompositionCategory::SICKNESS->value)
-            ->final()
+            ->whereHas(
+                'categoryCodeableConcept.coding',
+                static fn ($query) => $query->where('code', CompositionCategory::SICKNESS->value)
+            )
+            ->signed()
             // Only the newest one per merged record is offered: clarifying an already
             // superseded conclusion is not what TV 3.8.2.12 describes.
-            ->orderByDesc('event_period_start')
+            ->orderByDesc('date')
             ->get()
             ->unique('preperson_id')
             ->values();
@@ -806,41 +809,36 @@ class PatientCompositions extends BasePatientComponent
      *
      * The search response is deliberately narrow — it carries no category, author,
      * custodian, focus or validity period — so only the fields it does return are
-     * written. Anything already stored from a getComposition call must survive, which is
-     * why the payload is filtered rather than passed through wholesale.
+     * written. storeLocal filters nulls, so richer rows from getComposition survive.
      */
     private function syncLocalCompositions(array $compositions): void
     {
         $patient = $this->patient();
-        $isPreperson = $patient instanceof Preperson;
+        $lifecycle = $this->lifecycle();
 
         foreach ($compositions as $item) {
-            // Identifiers are FHIR `{type, value}` pairs, so the id lives in `identifier.value`.
-            $compositionUuid = data_get($item, 'identifier.value');
-
-            if (!$compositionUuid) {
+            if (!is_array($item) || !data_get($item, 'identifier.value')) {
                 continue;
             }
 
-            $attributes = array_filter(
-                [
-                    'person_id' => $isPreperson ? null : $patient->id,
-                    'preperson_id' => $isPreperson ? $patient->id : null,
-                    'type' => data_get($item, 'type.coding.0.code'),
-                    'status' => CompositionStatus::fromEHealth(data_get($item, 'status'))?->value,
-                    'title' => data_get($item, 'title'),
-                    'encounter_uuid' => data_get($item, 'encounter.value'),
-                    'episode_of_care_uuid' => data_get($item, 'episodeOfCare.value'),
-                    'composition_date' => data_get($item, 'date'),
-                ],
-                static fn (mixed $value) => $value !== null
+            // Search may omit subject; address read-side endpoints with this patient.
+            if (!data_get($item, 'subject.value')) {
+                $item['subject'] = [
+                    'value' => $this->uuid,
+                    'type' => [
+                        'coding' => [[
+                            'system' => 'eHealth/resources',
+                            'code' => $patient instanceof Preperson ? 'preperson' : 'person',
+                        ]],
+                    ],
+                ];
+            }
+
+            $lifecycle->storeLocal(
+                $item,
+                $patient,
+                data_get($item, 'episodeOfCare.value')
             );
-
-            // The subject is what the read-side endpoints are addressed by, and for a
-            // search scoped to this patient it is the patient themselves.
-            $attributes['subject_uuid'] = data_get($item, 'subject.value') ?? $this->uuid;
-
-            Composition::updateOrCreate(['uuid' => $compositionUuid], $attributes);
         }
     }
 

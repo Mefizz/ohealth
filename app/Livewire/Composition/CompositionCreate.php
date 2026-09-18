@@ -149,7 +149,10 @@ class CompositionCreate extends BasePatientComponent
         }
 
         return Composition::query()
-            ->where('subject_uuid', $this->form->prepersonUuid)
+            ->whereHas(
+                'subject',
+                fn ($query) => $query->where('value', $this->form->prepersonUuid)
+            )
             ->ofType(CompositionType::NEWBORN)
             ->excludingErrors()
             ->exists();

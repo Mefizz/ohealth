@@ -247,20 +247,46 @@ class PatientCompositionsTest extends TestCase
      */
     private function storedComposition(Person $person, string $authorUuid, array $overrides = []): Composition
     {
-        return Composition::create(array_merge([
+        $type = CompositionType::from($overrides['type'] ?? CompositionType::TEMP_DISABILITY->value);
+        unset($overrides['type'], $overrides['author_uuid'], $overrides['subject_uuid'], $overrides['encounter_uuid'], $overrides['episode_of_care_uuid'], $overrides['event_period_start'], $overrides['event_period_end'], $overrides['category']);
+
+        $typeConcept = \App\Models\MedicalEvents\Sql\CodeableConcept::create(['text' => null]);
+        $typeConcept->coding()->create([
+            'system' => 'COMPOSITION_TYPES',
+            'code' => $type->value,
+        ]);
+
+        $categoryConcept = \App\Models\MedicalEvents\Sql\CodeableConcept::create(['text' => null]);
+        $categoryConcept->coding()->create([
+            'system' => 'COMPOSITION_CATEGORIES',
+            'code' => CompositionCategory::SICKNESS->value,
+        ]);
+
+        $author = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $authorUuid]);
+        $subject = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $person->uuid]);
+        $encounter = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) Str::uuid()]);
+        $episode = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) Str::uuid()]);
+
+        $composition = Composition::create(array_merge([
             'uuid' => (string) Str::uuid(),
             'person_id' => $person->id,
-            'type' => CompositionType::TEMP_DISABILITY->value,
-            'category' => CompositionCategory::SICKNESS->value,
             'status' => CompositionStatus::FINAL->value,
             'title' => 'МВТН',
-            'author_uuid' => $authorUuid,
-            'subject_uuid' => $person->uuid,
-            'encounter_uuid' => (string) Str::uuid(),
-            'episode_of_care_uuid' => (string) Str::uuid(),
-            'event_period_start' => '2026-09-01',
-            'event_period_end' => '2026-09-05',
+            'type_id' => $typeConcept->id,
+            'category_id' => $categoryConcept->id,
+            'author_id' => $author->id,
+            'subject_id' => $subject->id,
+            'encounter_id' => $encounter->id,
+            'episode_of_care_id' => $episode->id,
+            'date' => '2026-09-01',
         ], $overrides));
+
+        $composition->eventPeriod()->create([
+            'start' => '2026-09-01',
+            'end' => '2026-09-05',
+        ]);
+
+        return $composition->refresh();
     }
 
     private function firstCancellationReason(): string

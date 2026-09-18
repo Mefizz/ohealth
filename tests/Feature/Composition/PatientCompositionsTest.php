@@ -201,10 +201,13 @@ class PatientCompositionsTest extends TestCase
         $this->fakeEHealth([
             '*' => Http::response($this->eHealthBody([[
                 'identifier' => ['value' => $remoteUuid],
-                'type' => ['coding' => [['code' => CompositionType::TEMP_DISABILITY->value]]],
+                'type' => ['coding' => [['system' => 'COMPOSITION_TYPES', 'code' => CompositionType::TEMP_DISABILITY->value]]],
                 'status' => 'final',
                 'title' => 'МВТН',
-                'subject' => ['value' => $person->uuid],
+                'subject' => [
+                    'value' => $person->uuid,
+                    'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'person']]],
+                ],
             ]]), 200),
         ]);
 

@@ -358,6 +358,12 @@ class CompositionLifecycleService
             return null;
         }
 
+        // Search payloads sometimes omit `system`; CodeableConceptRepository requires the key.
+        $concept['coding'][0]['system'] ??= match ((string) $concept['coding'][0]['code']) {
+            CompositionType::NEWBORN->value, CompositionType::TEMP_DISABILITY->value => 'COMPOSITION_TYPES',
+            default => 'COMPOSITION_CATEGORIES',
+        };
+
         return Repository::codeableConcept()->store($concept)->id;
     }
 

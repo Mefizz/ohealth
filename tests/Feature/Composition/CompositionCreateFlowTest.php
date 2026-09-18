@@ -338,7 +338,8 @@ class CompositionCreateFlowTest extends TestCase
         $this->assertSame($episodeUuid, $stored->episodeOfCareUuid);
 
         // Signing is only offered to the author, so the local row must carry them.
-        $stored->update(['author_uuid' => $this->authorUuid]);
+        $author = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $this->authorUuid]);
+        $stored->update(['author_id' => $author->id]);
 
         $component->call('openSigningModal')
             ->set('form.knedp', 'ca-1')

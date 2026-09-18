@@ -382,8 +382,18 @@
             @endif
 
             @if ($step === Wizard::STEP_REVIEW)
+                @php
+                    $reviewStatus = \App\Enums\Person\CompositionStatus::fromEHealth(data_get($compositionDetail, 'status'));
+                @endphp
+
                 <div class="status-alert-green mb-6">
-                    <p class="text-sm font-medium">{{ __('compositions.create_newborn.created') }}</p>
+                    <p class="text-sm font-medium">
+                        {{
+                            $reviewStatus?->isSignable()
+                            ? __('compositions.create_newborn.created')
+                            : __('compositions.create_newborn.signed')
+                        }}
+                    </p>
                 </div>
 
                 @include('livewire.composition.parts.details-summary', ['detail' => $compositionDetail])
@@ -396,9 +406,11 @@
                     <button type="button" wire:click="loadPrintForm" class="button-primary-outline px-5 py-2.5 text-sm">
                         {{ __('compositions.actions.print') }}
                     </button>
-                    <button type="button" wire:click="openSigningModal" class="button-primary px-5 py-2.5 text-sm">
-                        {{ __('forms.sign_with_KEP') }}
-                    </button>
+                    @if ($reviewStatus?->isSignable())
+                        <button type="button" wire:click="openSigningModal" class="button-primary px-5 py-2.5 text-sm">
+                            {{ __('forms.sign_with_KEP') }}
+                        </button>
+                    @endif
                     <button type="button" wire:click="restart" class="button-minor px-5 py-2.5 text-sm">
                         {{ __('compositions.create_newborn.restart') }}
                     </button>

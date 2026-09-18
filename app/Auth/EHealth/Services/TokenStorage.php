@@ -54,7 +54,10 @@ class TokenStorage
 
     /**
      * Persist permission names currently stored on the user in model_has_permissions.
-     * Call after syncPermissions() so session scopes match all assigned role capabilities.
+     *
+     * Prefer storeScopes() with the OAuth token's details.scope for eHealth API gates
+     * (bulk party verification, etc.). Spatie-merged permissions can include scopes the
+     * bearer token never received.
      */
     public function storeScopesFromUserPermissions(User $user): void
     {

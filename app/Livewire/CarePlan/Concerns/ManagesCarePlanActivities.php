@@ -9,12 +9,20 @@ use App\Enums\CarePlanStatus;
 use App\Models\CarePlanActivity;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\CarePlanRepository;
+use App\Services\Dictionary\Collections\BasicDictionaryCollection;
 use App\Services\Dictionary\ServiceSearch;
+use App\Services\MedicalEvents\CarePlanActivityValidationService;
 use App\Services\MedicalEvents\CarePlanLifecycleService;
+use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
+use Exception;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use Livewire\Attributes\Locked;
+use Throwable;
+use UnitEnum;
 
 trait ManagesCarePlanActivities
 {
@@ -159,7 +167,7 @@ trait ManagesCarePlanActivities
                         ];
                     }
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 Log::warning('CarePlanShow: failed to preload product reference: ' . $e->getMessage());
             }
         }
@@ -279,7 +287,7 @@ trait ManagesCarePlanActivities
             return;
         }
 
-        $statusVal = $activity->status instanceof \UnitEnum ? $activity->status->value : $activity->status;
+        $statusVal = $activity->status instanceof UnitEnum ? $activity->status->value : $activity->status;
         $activityStatus = strtolower(is_array($statusVal)
             ? ($statusVal['coding'][0]['code'] ?? ($statusVal['text'] ?? ''))
             : (string) $statusVal);
@@ -373,7 +381,7 @@ trait ManagesCarePlanActivities
             $rules['activityForm.quantity_code'] = 'required|string';
         }
 
-        $activityValidation = app(\App\Services\MedicalEvents\CarePlanActivityValidationService::class);
+        $activityValidation = app(CarePlanActivityValidationService::class);
         $programPayload = $this->resolveMedicalProgramPayload(is_string($programId) ? $programId : null);
 
         if ($programPayload !== null) {
@@ -386,8 +394,8 @@ trait ManagesCarePlanActivities
             }
 
             $program = $programPayload;
-            $allowedIcd10 = \Illuminate\Support\Arr::get($program, 'medical_program_settings.conditions_icd10_am_allowed', []);
-            $allowedIcpc2 = \Illuminate\Support\Arr::get($program, 'medical_program_settings.conditions_icpc2_allowed', []);
+            $allowedIcd10 = Arr::get($program, 'medical_program_settings.conditions_icd10_am_allowed', []);
+            $allowedIcpc2 = Arr::get($program, 'medical_program_settings.conditions_icpc2_allowed', []);
 
             if (!empty($allowedIcd10) || !empty($allowedIcpc2)) {
                 $addresses = $this->carePlan->addresses ?? [];
@@ -462,7 +470,7 @@ trait ManagesCarePlanActivities
                     if (!empty($data)) {
                         $product = $data[0];
                     }
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     // ignore
                 }
             }
@@ -508,7 +516,7 @@ trait ManagesCarePlanActivities
                 ?? (filled($this->selectedProgram) ? $this->selectedProgram : null);
             // Program participation constraints only apply when a medical program is chosen.
             if (filled($programForDevice)) {
-                $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
+                $guard = app(DeviceProgramParticipationGuard::class);
                 if (!$guard->deviceAllowsCarePlanActivity($this->selectedProduct, $programForDevice)) {
                     $message = __('care-plan.device_care_plan_activity_not_allowed');
                     $this->flashOutcome('error', $message);
@@ -627,7 +635,7 @@ trait ManagesCarePlanActivities
                 static fn (array $params): array => EHealth::service()->getMany($params)->getData(),
                 $this->searchPage
             );
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Failed to search services: " . $e->getMessage());
             $this->searchResults = [];
         }
@@ -653,7 +661,7 @@ trait ManagesCarePlanActivities
             $response = EHealth::drug()->getMany($filters);
 
             $this->searchResults = $response->getData();
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Failed to search medications: " . $e->getMessage());
             $this->searchResults = [];
         }
@@ -665,7 +673,7 @@ trait ManagesCarePlanActivities
         $this->loadMedicalDeviceSearchResults();
     }
 
-    private function loadMedicalDeviceSearchResults(): void
+    protected function loadMedicalDeviceSearchResults(): void
     {
         $programId = $this->resolveDeviceProgramId();
 
@@ -694,7 +702,7 @@ trait ManagesCarePlanActivities
             }
 
             $devices = $this->sortDeviceSearchResults($devices, $query);
-            $guard = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
+            $guard = app(DeviceProgramParticipationGuard::class);
             $this->deviceSearchCatalog = array_values(array_filter(
                 array_map(
                     fn (array $device): array => $this->compactDeviceForState($device),
@@ -725,7 +733,7 @@ trait ManagesCarePlanActivities
             }
 
             $this->paginateDeviceSearchResults();
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Failed to search medical devices: ' . $e->getMessage());
             $this->searchResults = [];
             $this->deviceSearchCatalog = [];
@@ -734,14 +742,14 @@ trait ManagesCarePlanActivities
         }
     }
 
-    private function paginateDeviceSearchResults(): void
+    protected function paginateDeviceSearchResults(): void
     {
         $perPage = 20;
         $offset = ($this->searchPage - 1) * $perPage;
         $this->searchResults = array_slice($this->deviceSearchCatalog, $offset, $perPage);
     }
 
-    private function fetchAllDeviceDefinitions(array $filters): array
+    protected function fetchAllDeviceDefinitions(array $filters): array
     {
         $pageSize = (int) config('ehealth.api.page_size', 300);
         $page = 1;
@@ -769,7 +777,7 @@ trait ManagesCarePlanActivities
         return array_values($indexed);
     }
 
-    private function normalizeDeviceUuidQuery(string $query): ?string
+    protected function normalizeDeviceUuidQuery(string $query): ?string
     {
         $normalized = strtolower(trim($query));
         $normalized = trim($normalized, '{}');
@@ -790,7 +798,7 @@ trait ManagesCarePlanActivities
      * @param  array<string, mixed>  $programFilters
      * @return list<array<string, mixed>>
      */
-    private function resolveDevicesByExactUuid(string $uuid, array $programFilters): array
+    protected function resolveDevicesByExactUuid(string $uuid, array $programFilters): array
     {
         $deviceById = $this->fetchDeviceDefinitionByUuid($uuid);
         if ($deviceById !== null) {
@@ -806,7 +814,7 @@ trait ManagesCarePlanActivities
     /**
      * @return list<string>
      */
-    private function extractDeviceUuids(array $device): array
+    protected function extractDeviceUuids(array $device): array
     {
         $values = [];
         foreach (['id', 'uuid', 'external_id'] as $key) {
@@ -819,7 +827,7 @@ trait ManagesCarePlanActivities
         return array_values(array_unique($values));
     }
 
-    private function deviceMatchesUuid(array $device, string $uuid): bool
+    protected function deviceMatchesUuid(array $device, string $uuid): bool
     {
         foreach ($this->extractDeviceUuids($device) as $candidate) {
             if (strcasecmp($candidate, $uuid) === 0) {
@@ -834,7 +842,7 @@ trait ManagesCarePlanActivities
      * @param  list<array<string, mixed>>  $devices
      * @return list<array<string, mixed>>
      */
-    private function filterDevicesByUuid(array $devices, string $uuid): array
+    protected function filterDevicesByUuid(array $devices, string $uuid): array
     {
         return array_values(array_filter(
             $devices,
@@ -845,7 +853,7 @@ trait ManagesCarePlanActivities
     /**
      * @return array<string, mixed>|null
      */
-    private function fetchDeviceDefinitionByUuid(string $uuid): ?array
+    protected function fetchDeviceDefinitionByUuid(string $uuid): ?array
     {
         try {
             $data = EHealth::deviceDefinition()->getById($uuid)->getData();
@@ -861,7 +869,7 @@ trait ManagesCarePlanActivities
             if (is_array($first) && $this->deviceMatchesUuid($first, $uuid)) {
                 return $first;
             }
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::debug('Care plan device UUID lookup failed: ' . $exception->getMessage(), [
                 'uuid' => $uuid,
             ]);
@@ -870,7 +878,7 @@ trait ManagesCarePlanActivities
         return null;
     }
 
-    private function filterDevicesByQuery(array $devices, string $query): array
+    protected function filterDevicesByQuery(array $devices, string $query): array
     {
         $needle = mb_strtolower($query);
 
@@ -906,7 +914,7 @@ trait ManagesCarePlanActivities
         }));
     }
 
-    private function sortDeviceSearchResults(array $devices, string $query): array
+    protected function sortDeviceSearchResults(array $devices, string $query): array
     {
         usort($devices, function (array $left, array $right) use ($query): int {
             if ($query !== '') {
@@ -927,7 +935,7 @@ trait ManagesCarePlanActivities
         return $devices;
     }
 
-    private function deviceSearchRelevanceScore(array $device, string $query): int
+    protected function deviceSearchRelevanceScore(array $device, string $query): int
     {
         $needle = mb_strtolower($query);
         $name = mb_strtolower($this->resolveDeviceDisplayName($device));
@@ -957,7 +965,7 @@ trait ManagesCarePlanActivities
         return 100;
     }
 
-    private function enrichDeviceForDisplay(array $device): array
+    protected function enrichDeviceForDisplay(array $device): array
     {
         $device['display_name'] = $this->resolveDeviceDisplayName($device);
         $device['display_packaging'] = $this->formatDevicePackaging($device);
@@ -974,7 +982,7 @@ trait ManagesCarePlanActivities
      * @param  array<string, mixed>  $device
      * @return array<string, mixed>
      */
-    private function compactDeviceForState(array $device): array
+    protected function compactDeviceForState(array $device): array
     {
         $enriched = $this->enrichDeviceForDisplay($device);
         $id = (string) ($enriched['id'] ?? $enriched['uuid'] ?? $enriched['display_uuid'] ?? '');
@@ -999,7 +1007,7 @@ trait ManagesCarePlanActivities
         ];
     }
 
-    private function resolveDeviceDisplayName(array $device): string
+    protected function resolveDeviceDisplayName(array $device): string
     {
         if (!empty($device['name']) && is_string($device['name'])) {
             return $device['name'];
@@ -1021,7 +1029,7 @@ trait ManagesCarePlanActivities
         return (string) ($device['model_number'] ?? $device['id'] ?? '');
     }
 
-    private function resolveDeviceTypeName(array $device): string
+    protected function resolveDeviceTypeName(array $device): string
     {
         if (!empty($device['type_name'])) {
             return (string) $device['type_name'];
@@ -1039,7 +1047,7 @@ trait ManagesCarePlanActivities
         return '-';
     }
 
-    private function formatDevicePackaging(array $device): string
+    protected function formatDevicePackaging(array $device): string
     {
         $packaging = $device['packaging'] ?? null;
         if (!is_array($packaging)) {
@@ -1137,7 +1145,7 @@ trait ManagesCarePlanActivities
 
             $this->applyDeviceProductFieldsFromSelection($this->selectedProduct);
 
-            $programDevice = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
+            $programDevice = app(DeviceProgramParticipationGuard::class)
                 ->resolveProgramDevice($this->selectedProduct, $this->activityForm['program'] ?: null);
             $maxDaily = isset($programDevice['max_daily_count']) ? (int) $programDevice['max_daily_count'] : null;
             $this->deviceSelectionWarning = $maxDaily !== null && $maxDaily > 0
@@ -1194,7 +1202,7 @@ trait ManagesCarePlanActivities
             ->toArray();
     }
 
-    private function validateActivityPeriodAgainstCarePlan(string $activityStart, string $activityEnd): ?string
+    protected function validateActivityPeriodAgainstCarePlan(string $activityStart, string $activityEnd): ?string
     {
         if ($activityStart > $activityEnd) {
             return __('care-plan.activity_period_end_before_start');
@@ -1231,7 +1239,7 @@ trait ManagesCarePlanActivities
         return null;
     }
 
-    private function ensureCarePlanEffectivePeriodSynced(CarePlanRepository $repository): void
+    protected function ensureCarePlanEffectivePeriodSynced(CarePlanRepository $repository): void
     {
         $this->carePlan->loadMissing('effectivePeriod');
 
@@ -1248,12 +1256,12 @@ trait ManagesCarePlanActivities
                 Auth::user()?->getCarePlanWriterEmployee($this->carePlan->terms_of_service)?->id
             );
             $this->carePlan->refresh()->load('effectivePeriod');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::warning('CarePlanShow: failed to sync effective period before activity sign: ' . $e->getMessage());
         }
     }
 
-    private function resolveMedicationDenumeratorUnit(array $product): string
+    protected function resolveMedicationDenumeratorUnit(array $product): string
     {
         $ingredients = $product['ingredients'] ?? [];
         if (is_array($ingredients)) {
@@ -1268,7 +1276,7 @@ trait ManagesCarePlanActivities
         return (string) ($product['innm_dosage_form'] ?? 'PIECE');
     }
 
-    private function syncDeviceProductReferenceFromSelection(): void
+    protected function syncDeviceProductReferenceFromSelection(): void
     {
         if (empty($this->selectedProduct)) {
             return;
@@ -1282,7 +1290,7 @@ trait ManagesCarePlanActivities
         $this->applyDeviceProductFieldsFromSelection($this->selectedProduct);
     }
 
-    private function applyDeviceProductFieldsFromSelection(array $product): void
+    protected function applyDeviceProductFieldsFromSelection(array $product): void
     {
         $programId = $this->resolveDeviceProgramId();
         $allowedTypes = $this->resolveDeviceRequestAllowedCodeTypes($programId);
@@ -1336,12 +1344,12 @@ trait ManagesCarePlanActivities
         return filled($this->selectedProgram) ? $this->selectedProgram : null;
     }
 
-    private function basicDictionaryCodes(\App\Services\Dictionary\Collections\BasicDictionaryCollection $basics, array $names): array
+    protected function basicDictionaryCodes(BasicDictionaryCollection $basics, array $names): array
     {
         foreach ($names as $name) {
             try {
                 return $basics->byName($name)->asCodeDescription()->toArray();
-            } catch (\InvalidArgumentException) {
+            } catch (InvalidArgumentException) {
                 continue;
             }
         }
@@ -1372,7 +1380,7 @@ trait ManagesCarePlanActivities
         };
     }
 
-    private function resolveDeviceClassificationCode(array $device): ?string
+    protected function resolveDeviceClassificationCode(array $device): ?string
     {
         if (!empty($device['classification_type_code'])) {
             return (string) $device['classification_type_code'];
@@ -1390,7 +1398,7 @@ trait ManagesCarePlanActivities
         return null;
     }
 
-    private function normalizeDeviceUnitCode(string $code): string
+    protected function normalizeDeviceUnitCode(string $code): string
     {
         $code = trim($code);
         if ($code === '') {
@@ -1409,7 +1417,7 @@ trait ManagesCarePlanActivities
         return strtolower($code);
     }
 
-    private function resolveDeviceRequestAllowedCodeTypes(?string $programId): array
+    protected function resolveDeviceRequestAllowedCodeTypes(?string $programId): array
     {
         if (empty($programId)) {
             return [];
@@ -1420,7 +1428,7 @@ trait ManagesCarePlanActivities
             $types = $program['medical_program_settings']['device_request_allowed_code_types'] ?? [];
 
             return is_array($types) ? $types : [];
-        } catch (\Exception) {
+        } catch (Exception) {
             return [];
         }
     }
@@ -1428,7 +1436,7 @@ trait ManagesCarePlanActivities
     /**
      * @return array<string, mixed>|null
      */
-    private function resolveMedicalProgramPayload(?string $programId): ?array
+    protected function resolveMedicalProgramPayload(?string $programId): ?array
     {
         if ($programId === null || $programId === '') {
             return null;
@@ -1450,7 +1458,7 @@ trait ManagesCarePlanActivities
             if (is_array($program) && $program !== []) {
                 return $program;
             }
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // Dictionary unavailable in some test contexts.
         }
 
@@ -1463,7 +1471,7 @@ trait ManagesCarePlanActivities
             return null;
         }
 
-        $assessment = app(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class)
+        $assessment = app(DeviceProgramParticipationGuard::class)
             ->assess($this->carePlan, $activity, legalEntity());
 
         if ($assessment->warnings !== []) {

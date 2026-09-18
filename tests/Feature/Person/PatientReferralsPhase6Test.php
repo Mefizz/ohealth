@@ -109,6 +109,34 @@ class PatientReferralsPhase6Test extends TestCase
         $this->actingAs($this->user);
     }
 
+    public function test_upstream_procedure_and_encounter_lookups_work_with_fhir_request_references(): void
+    {
+        $repo = app(ServiceRequestRequestRepository::class);
+        $uuid = (string) Str::uuid();
+        $id = $repo->store([
+            'uuid' => $uuid,
+            'employee_id' => $this->employee->id,
+            'status' => 'active',
+            'request_number' => '0000-TEST-FHIR-PROCEDURE',
+            'service_id' => '37003-00',
+            'context_uuid' => $this->encounter->uuid,
+            'category' => 'diagnostic_procedure',
+        ], $this->person->id);
+
+        $record = ServiceRequestRequest::findOrFail($id);
+        $this->assertSame($this->encounter->uuid, $record->context->value);
+        $this->assertSame([$uuid], $repo->getByPersonIdAndStatus($this->person->id, 'active', ['uuid'])->pluck('uuid')->all());
+        $this->assertTrue($repo->getByPersonIdAndStatus($this->person->id, 'draft')->isEmpty());
+        $this->assertTrue($repo->getByPersonIdAndStatus($this->person->id + 1000, 'active')->isEmpty());
+
+        $procedure = ['basedOn' => [['identifier' => ['value' => $uuid]]]];
+        $encounter = ['incomingReferral' => ['identifier' => ['value' => $uuid]]];
+        $this->assertSame('0000-TEST-FHIR-PROCEDURE', $repo->procedureReferralLabel($procedure));
+        $numbers = $repo->requestNumbersForEncounters([$encounter]);
+        $this->assertSame([$uuid => '0000-TEST-FHIR-PROCEDURE'], $numbers);
+        $this->assertSame('0000-TEST-FHIR-PROCEDURE', $repo->encounterReferralLabel($encounter, $numbers));
+    }
+
     public function test_repository_filters_by_status_and_period(): void
     {
         ServiceRequestRequest::create([

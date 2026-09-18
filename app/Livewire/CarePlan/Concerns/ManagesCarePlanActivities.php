@@ -319,7 +319,7 @@ trait ManagesCarePlanActivities
     /**
      * @return void
      */
-    private function persistActivityDraft(CarePlanActivityRepository $repository, bool $andSign): void
+    protected function persistActivityDraft(CarePlanActivityRepository $repository, bool $andSign): void
     {
         $kindLower = strtolower((string) ($this->activityForm['kind'] ?? ''));
         if (str_contains($kindLower, 'medication')) {

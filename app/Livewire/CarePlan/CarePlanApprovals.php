@@ -7,6 +7,7 @@ namespace App\Livewire\CarePlan;
 use App\Classes\eHealth\EHealth;
 use App\Enums\CarePlanStatus;
 use App\Models\CarePlan;
+use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Traits\FormTrait;
@@ -83,7 +84,7 @@ class CarePlanApprovals extends Component
         // that the granted employee belongs to the requesting clinic.
         $legalEntityId = legalEntity()?->id ?? $legalEntity->id;
         if ($legalEntityId) {
-            $this->employees = \App\Models\Employee\Employee::where('legal_entity_id', $legalEntityId)
+            $this->employees = Employee::where('legal_entity_id', $legalEntityId)
                 ->where('status', 'APPROVED')
                 ->where('is_active', true)
                 ->whereIn('employee_type', [\App\Enums\User\Role::DOCTOR->value, \App\Enums\User\Role::SPECIALIST->value])
@@ -328,7 +329,7 @@ class CarePlanApprovals extends Component
                 $this->pollingLinkId = $result->pollingLinkId;
                 $this->approvalId = $result->approvalId;
                 $this->isPolling = true;
-                \Illuminate\Support\Facades\Session::flash('info', __('care-plan.approval_processing'));
+                Session::flash('info', __('care-plan.approval_processing'));
 
                 return;
             }
@@ -341,7 +342,7 @@ class CarePlanApprovals extends Component
                 return;
             }
 
-            \Illuminate\Support\Facades\Session::flash('success', $this->skipsPatientOtp
+            Session::flash('success', $this->skipsPatientOtp
                 ? __('care-plan.approval_inpatient_granted')
                 : __('care-plan.approval_created'));
             $this->fetchApprovals();
@@ -361,9 +362,18 @@ class CarePlanApprovals extends Component
         $this->approvalId = $approvalUuid;
 
         try {
-            app(CarePlanApprovalService::class)->confirmWithoutOtp($this->patientUuid, $approvalUuid);
+            $response = app(CarePlanApprovalService::class)->confirmWithoutOtp($this->patientUuid, $approvalUuid);
+            if (!$response->successful()) {
+                throw new EHealthResponseException($response);
+            }
         } catch (\Throwable $exception) {
-            Log::info('CarePlanApprovals: inpatient confirm without OTP: '.$exception->getMessage());
+            Log::warning('CarePlanApprovals: inpatient confirmation failed', ['exception_type' => $exception::class]);
+            $this->errorMessage = $exception instanceof EHealthValidationException
+                ? $exception->getTranslatedMessage()
+                : __('care-plan.approval_verify_error');
+            Session::flash('error', $this->errorMessage);
+
+            return;
         }
 
         $this->fetchApprovals();
@@ -401,11 +411,11 @@ class CarePlanApprovals extends Component
                 $this->dispatch('care-plan-approvals-changed');
             }
         } catch (EHealthValidationException|EHealthResponseException $e) {
-            \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to verify: ' . $e->getMessage());
+            Log::error('CarePlanApprovals: failed to verify: ' . $e->getMessage());
 
             if ($e->getCode() === 404 || str_contains($e->getMessage(), '404')) {
                 $this->approvalsOfCurrentPlan()->where('uuid', $this->approvalId)->delete();
-                \Illuminate\Support\Facades\Session::flash('error', __('care-plan.approval_expired_404') ?? 'Цей запит на дозвіл прострочено або не знайдено в ЕСОЗ. Його скасовано. Будь ласка, використайте кнопку "Запросити новий".');
+                Session::flash('error', __('care-plan.approval_expired_404') ?? 'Цей запит на дозвіл прострочено або не знайдено в ЕСОЗ. Його скасовано. Будь ласка, використайте кнопку "Запросити новий".');
                 $this->closeAuthModal();
                 $this->fetchApprovals();
 
@@ -415,10 +425,10 @@ class CarePlanApprovals extends Component
             $msg = $e instanceof EHealthValidationException
                 ? $e->getFormattedMessage()
                 : 'Помилка від ЕСОЗ: ' . $e->getMessage();
-            \Illuminate\Support\Facades\Session::flash('error', $msg);
+            Session::flash('error', $msg);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to verify: ' . $e->getMessage());
-            \Illuminate\Support\Facades\Session::flash('error', __('care-plan.approval_verify_error'));
+            Log::error('CarePlanApprovals: failed to verify: ' . $e->getMessage());
+            Session::flash('error', __('care-plan.approval_verify_error'));
         }
     }
 
@@ -431,24 +441,24 @@ class CarePlanApprovals extends Component
         try {
             app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->resendSms($this->patientUuid, $this->approvalId);
             $this->smsResent = true;
-            \Illuminate\Support\Facades\Session::flash('success', __('care-plan.sms_resent'));
+            Session::flash('success', __('care-plan.sms_resent'));
         } catch (\App\Exceptions\EHealth\EHealthResponseException $e) {
-            \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
+            Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
 
             if ($e->getCode() === 404 || str_contains($e->getMessage(), '404')) {
                 $this->approvalsOfCurrentPlan()->where('uuid', $this->approvalId)->delete();
-                \Illuminate\Support\Facades\Session::flash('error', __('care-plan.approval_expired_404') ?? 'Цей запит на дозвіл прострочено або не знайдено в ЕСОЗ. Його скасовано. Будь ласка, використайте кнопку "Запросити новий".');
+                Session::flash('error', __('care-plan.approval_expired_404') ?? 'Цей запит на дозвіл прострочено або не знайдено в ЕСОЗ. Його скасовано. Будь ласка, використайте кнопку "Запросити новий".');
                 $this->closeAuthModal();
                 $this->fetchApprovals();
 
                 return;
             }
-            \Illuminate\Support\Facades\Session::flash('error', __('care-plan.sms_resend_error'));
+            Session::flash('error', __('care-plan.sms_resend_error'));
         } catch (\RuntimeException $e) {
-            \Illuminate\Support\Facades\Session::flash('error', $e->getMessage());
+            Session::flash('error', $e->getMessage());
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
-            \Illuminate\Support\Facades\Session::flash('error', __('care-plan.sms_resend_error'));
+            Log::error('CarePlanApprovals: failed to resend SMS: ' . $e->getMessage());
+            Session::flash('error', __('care-plan.sms_resend_error'));
         }
     }
 

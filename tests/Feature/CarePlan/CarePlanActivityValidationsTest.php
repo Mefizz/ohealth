@@ -34,6 +34,9 @@ class CarePlanActivityValidationsTest extends TestCase
     {
         parent::setUp();
 
+        config(['cipher.api.domain' => 'https://cipher.invalid']);
+        \Illuminate\Support\Facades\Cache::put('knedp_certificate_authority', [], 60);
+
         $this->person = Person::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Phase5',

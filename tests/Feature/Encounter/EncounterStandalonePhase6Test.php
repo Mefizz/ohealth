@@ -53,6 +53,10 @@ class EncounterStandalonePhase6Test extends TestCase
 
     public function test_eprescription_drawer_opens_for_finished_encounter(): void
     {
+        $manager = \Mockery::mock(\App\Services\Dictionary\DictionaryManager::class);
+        $manager->shouldReceive('medicalPrograms')->andReturn(collect());
+        $this->instance(\App\Services\Dictionary\DictionaryManager::class, $manager);
+
         $encounter = $this->createEncounter(EncounterStatus::FINISHED->value);
         $harness = $this->makeHarness($encounter->id);
 

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
+use App\Models\CarePlanActivity;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+
 use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Repositories\CarePlanActivityRepository;
@@ -113,7 +116,7 @@ trait ManagesCarePlanEPrescription
             return;
         }
 
-        $issuedQty = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::whereHas('basedOn', fn ($q) => $q->where('value', $activity->uuid))
+        $issuedQty = MedicationRequestRequest::whereHas('basedOn', fn ($q) => $q->where('value', $activity->uuid))
             ->whereNotIn('status', \App\Repositories\MedicalEvents\MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM)
             ->sum('medication_qty');
 
@@ -362,7 +365,7 @@ trait ManagesCarePlanEPrescription
         }
 
         if (!$this->ePrescriptionSkipTreatmentPeriod) {
-            $lastActivePrescription = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::where('person_id', $this->carePlan->person_id)
+            $lastActivePrescription = MedicationRequestRequest::where('person_id', $this->carePlan->person_id)
                 ->where('medication_id', $this->ePrescriptionForm['medication_id'])
                 ->whereIn('status', ['active', 'signed'])
                 ->orderBy('ended_at', 'desc')
@@ -471,7 +474,7 @@ trait ManagesCarePlanEPrescription
             }
 
             $activityUuids = $this->carePlan->activities->pluck('uuid')->toArray();
-            $localRequests = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))->get();
+            $localRequests = MedicationRequestRequest::whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))->get();
 
             if ($localRequests->isEmpty()) {
                 $this->flashOutcome('info', 'Немає виписаних рецептів для синхронізації у цьому плані лікування');
@@ -731,7 +734,7 @@ trait ManagesCarePlanEPrescription
     /**
      * @return array<string, mixed>|null
      */
-    protected function resolveDrugForActivity(\App\Models\CarePlanActivity $activity): ?array
+    protected function resolveDrugForActivity(CarePlanActivity $activity): ?array
     {
         if (empty($activity->productReference)) {
             return null;

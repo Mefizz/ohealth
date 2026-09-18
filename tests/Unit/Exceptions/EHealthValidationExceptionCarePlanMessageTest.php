@@ -9,6 +9,13 @@ use Tests\TestCase;
 
 class EHealthValidationExceptionCarePlanMessageTest extends TestCase
 {
+    public function test_unknown_error_type_keeps_the_existing_message_fallback(): void
+    {
+        $exception = new EHealthValidationException(['error' => ['type' => 'future_type', 'message' => 'Future API message']]);
+
+        $this->assertStringContainsString('Future API message', $exception->getFormattedMessage());
+    }
+
     public function test_already_cancelled_message_is_translated(): void
     {
         $exception = new EHealthValidationException([

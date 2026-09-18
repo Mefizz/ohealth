@@ -7,6 +7,8 @@ namespace Tests\Feature\Person;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
@@ -121,7 +123,7 @@ class PatientReferralsPhase6Test extends TestCase
             'ended_at' => '2026-02-10',
             'intent' => 'order',
             'category' => 'procedure',
-            'context_id' => $this->encounter->id,
+            'context_id' => Identifier::create(['value' => $this->encounter->uuid])->id,
         ]);
 
         ServiceRequestRequest::create([
@@ -134,8 +136,8 @@ class PatientReferralsPhase6Test extends TestCase
             'started_at' => '2026-03-01',
             'ended_at' => '2026-03-20',
             'intent' => 'order',
-            'category' => 'diagnostic_procedure',
-            'context_id' => $this->encounter->id,
+            'category_id' => CodeableConcept::create(['text' => 'diagnostic_procedure'])->id,
+            'context_id' => Identifier::create(['value' => $this->encounter->uuid])->id,
         ]);
 
         $repo = app(ServiceRequestRequestRepository::class);
@@ -169,8 +171,8 @@ class PatientReferralsPhase6Test extends TestCase
             'started_at' => '2026-08-12',
             'ended_at' => '2026-11-12',
             'intent' => 'order',
-            'category' => 'diagnostic_procedure',
-            'context_id' => $this->encounter->id,
+            'category_id' => CodeableConcept::create(['text' => 'diagnostic_procedure'])->id,
+            'context_id' => Identifier::create(['value' => $this->encounter->uuid])->id,
             'priority' => 'routine',
             'note' => 'обстеження',
         ]);
@@ -204,8 +206,8 @@ class PatientReferralsPhase6Test extends TestCase
             'started_at' => '2026-09-01',
             'ended_at' => '2026-12-01',
             'intent' => 'order',
-            'category' => 'diagnostic_procedure',
-            'context_id' => $this->encounter->id,
+            'category_id' => CodeableConcept::create(['text' => 'diagnostic_procedure'])->id,
+            'context_id' => Identifier::create(['value' => $this->encounter->uuid])->id,
         ]);
 
         $rows = app(ServiceRequestRequestRepository::class)->searchByPersonId($this->person->id);

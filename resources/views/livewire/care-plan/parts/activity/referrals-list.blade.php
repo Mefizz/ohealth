@@ -1,5 +1,7 @@
 @php
-    $linkedReferrals = collect($activeReferrals)->where('based_on_id', $activity->id);
+    $linkedReferrals = collect($activeReferrals)->filter(
+        fn ($item) => $activity->uuid && ($item['based_on_uuid'] ?? null) === $activity->uuid
+    );
 @endphp
 
 <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">

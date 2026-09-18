@@ -9,22 +9,23 @@ use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
+use Throwable;
 
 class PatientMedicationRequests extends BasePatientComponent
 {
-    // ── Tabs ──────────────────────────────────────────────────────────────────
     /** 'requests' = MedicationRequestRequests (drafts/signed by us); 'prescriptions' = MedicationRequests from eHealth */
+    #[Locked]
     public string $activeTab = 'requests';
 
-    // ── Local data (from our DB) ───────────────────────────────────────────────
     /** @var list<array<string, mixed>> */
     public array $medicationRequests = [];
 
     /** @var list<array<string, mixed>> */
     public array $prescriptions = [];
 
-    // ── eHealth search ────────────────────────────────────────────────────────
     /** @var list<array<string, mixed>> */
+    #[Locked]
     public array $eHealthResults = [];
 
     public bool $isSearchMode = false;
@@ -34,14 +35,12 @@ class PatientMedicationRequests extends BasePatientComponent
     public bool $searchLoading = false;
     public ?string $searchError = null;
 
-    // ── Shared filters for local view ─────────────────────────────────────────
     public string $filterStatus = '';
     public string $filterStartedAtFrom = '';
     public string $filterStartedAtTo = '';
     public string $filterEndedAtFrom = '';
     public string $filterEndedAtTo = '';
 
-    // ── Expanded row UUID (for request details) ───────────────────────────────
     public ?string $expandedUuid = null;
 
     protected function initializeComponent(): void
@@ -49,28 +48,27 @@ class PatientMedicationRequests extends BasePatientComponent
         $this->loadLocalData();
     }
 
-    // ── Data loading ──────────────────────────────────────────────────────────
-
     public function loadLocalData(): void
     {
         if ($this->personId === null) {
             $this->medicationRequests = [];
             $this->prescriptions = [];
+
             return;
         }
 
         $repo = app(MedicationRequestRepository::class);
 
-        // eRx-requests (drafted here) – exclude ehealth-sourced prescriptions
+        // Resource kind, rather than origin, determines the registry tab.
         $this->medicationRequests = $repo->searchByPersonId(
             $this->personId,
             [
-                'status'           => $this->filterStatus !== '' ? $this->filterStatus : null,
-                'started_at_from'  => $this->filterStartedAtFrom !== '' ? $this->filterStartedAtFrom : null,
-                'started_at_to'    => $this->filterStartedAtTo !== '' ? $this->filterStartedAtTo : null,
-                'ended_at_from'    => $this->filterEndedAtFrom !== '' ? $this->filterEndedAtFrom : null,
-                'ended_at_to'      => $this->filterEndedAtTo !== '' ? $this->filterEndedAtTo : null,
-                'source'           => MedicationRequestRequest::SOURCE_LOCAL,
+                'status' => $this->filterStatus !== '' ? $this->filterStatus : null,
+                'started_at_from' => $this->filterStartedAtFrom !== '' ? $this->filterStartedAtFrom : null,
+                'started_at_to' => $this->filterStartedAtTo !== '' ? $this->filterStartedAtTo : null,
+                'ended_at_from' => $this->filterEndedAtFrom !== '' ? $this->filterEndedAtFrom : null,
+                'ended_at_to' => $this->filterEndedAtTo !== '' ? $this->filterEndedAtTo : null,
+                'resource_type' => MedicationRequestRequest::TYPE_REQUEST,
             ]
         );
 
@@ -78,7 +76,7 @@ class PatientMedicationRequests extends BasePatientComponent
         $this->prescriptions = $repo->searchEHealthPrescriptionsByPersonId(
             $this->personId,
             [
-                'status'         => $this->filterStatus !== '' ? $this->filterStatus : null,
+                'status' => $this->filterStatus !== '' ? $this->filterStatus : null,
                 'request_number' => $this->searchRequestNumber !== '' ? $this->searchRequestNumber : null,
             ]
         );
@@ -89,15 +87,15 @@ class PatientMedicationRequests extends BasePatientComponent
         $this->loadLocalData();
     }
 
-    // ── Tab switching ─────────────────────────────────────────────────────────
-
     public function switchTab(string $tab): void
     {
+        if (!in_array($tab, ['requests', 'prescriptions'], true)) {
+            return;
+        }
+
         $this->activeTab = $tab;
         $this->resetSearch();
     }
-
-    // ── Local filters ─────────────────────────────────────────────────────────
 
     public function applyFilters(): void
     {
@@ -116,14 +114,14 @@ class PatientMedicationRequests extends BasePatientComponent
         $this->loadLocalData();
     }
 
-    // ── eHealth search ────────────────────────────────────────────────────────
-
     /**
      * Search eHealth for MedicationRequests (signed prescriptions) by request_number / status.
      * Results are shown inline; the user then selects individual records to upsert locally.
      */
     public function searchInEHealth(): void
     {
+        $this->authorizeSearch();
+
         if ($this->personId === null) {
             return;
         }
@@ -135,7 +133,7 @@ class PatientMedicationRequests extends BasePatientComponent
         try {
             $params = array_filter([
                 'request_number' => $this->searchRequestNumber !== '' ? $this->searchRequestNumber : null,
-                'status'         => $this->searchStatus !== '' ? strtolower($this->searchStatus) : null,
+                'status' => $this->searchStatus !== '' ? strtolower($this->searchStatus) : null,
             ]);
 
             if ($this->activeTab === 'requests') {
@@ -150,11 +148,11 @@ class PatientMedicationRequests extends BasePatientComponent
             $this->isSearchMode = true;
 
             if (empty($this->eHealthResults)) {
-                $this->searchError = 'Нічого не знайдено в ЄСОЗ за вказаними параметрами.';
+                $this->searchError = __('medication-requests.search_empty');
             }
-        } catch (\Throwable $e) {
-            Log::error('PatientMedicationRequests eHealth search failed: ' . $e->getMessage());
-            $this->searchError = 'Помилка пошуку в ЄСОЗ: ' . $e->getMessage();
+        } catch (Throwable $e) {
+            Log::error('PatientMedicationRequests eHealth search failed', ['exception_type' => $e::class]);
+            $this->searchError = __('medication-requests.search_failed');
         } finally {
             $this->searchLoading = false;
         }
@@ -166,6 +164,8 @@ class PatientMedicationRequests extends BasePatientComponent
      */
     public function saveFromEHealth(string $uuid): void
     {
+        $this->authorizeSearch();
+
         if ($this->personId === null) {
             return;
         }
@@ -174,19 +174,33 @@ class PatientMedicationRequests extends BasePatientComponent
             ?? collect($this->eHealthResults)->firstWhere('uuid', $uuid);
 
         if ($record === null) {
-            $this->searchError = 'Запис не знайдено в результатах пошуку.';
+            $this->searchError = __('medication-requests.search_record_missing');
+
             return;
         }
 
         try {
-            app(MedicationRequestRepository::class)->upsertFromEHealth((array) $record, $this->personId);
-            session()->flash('success', 'Рецепт збережено до картки пацієнта.');
-        } catch (\Throwable $e) {
-            Log::error('PatientMedicationRequests upsertFromEHealth failed: ' . $e->getMessage());
-            session()->flash('error', 'Не вдалося зберегти запис: ' . $e->getMessage());
+            app(MedicationRequestRepository::class)->upsertFromEHealth(
+                (array) $record,
+                $this->personId,
+                $this->activeTab === 'requests'
+                    ? MedicationRequestRequest::TYPE_REQUEST
+                    : MedicationRequestRequest::TYPE_PRESCRIPTION
+            );
+            session()->flash('success', __('medication-requests.import_saved'));
+        } catch (Throwable $e) {
+            Log::error('PatientMedicationRequests import failed', ['exception_type' => $e::class]);
+            $this->searchError = __('medication-requests.import_failed');
+
+            return;
         }
 
         $this->resetSearch();
+    }
+
+    protected function authorizeSearch(): void
+    {
+        $this->authorize($this->activeTab === 'requests' ? 'medication_request_request:read' : 'medication_request:read');
     }
 
     public function resetSearch(): void

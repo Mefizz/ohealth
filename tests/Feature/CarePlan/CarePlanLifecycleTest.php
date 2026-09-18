@@ -36,6 +36,9 @@ class CarePlanLifecycleTest extends TestCase
     {
         parent::setUp();
 
+        config(['cipher.api.domain' => 'https://cipher.invalid']);
+        \Illuminate\Support\Facades\Cache::put('knedp_certificate_authority', [], 60);
+
         // Setup initial data
         $this->person = Person::create([
             'uuid' => (string) Str::uuid(),

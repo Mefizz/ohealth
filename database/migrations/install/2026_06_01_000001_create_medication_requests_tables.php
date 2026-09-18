@@ -38,8 +38,8 @@ return new class extends Migration
                 $table->string('request_number')->nullable();
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('ended_at')->nullable();
-                $table->string('medication_id'); // INN-based or product code
-                $table->decimal('medication_qty', 15, 2);
+                $table->string('medication_id')->nullable(); // External search results may omit medication details.
+                $table->decimal('medication_qty', 15, 2)->nullable();
                 $table->string('medication_program_id')->nullable();
                 $table->foreignId('intent_id')->nullable()->constrained('codings');
                 $table->foreignId('category_id')->nullable()->constrained('codeable_concepts');
@@ -52,6 +52,7 @@ return new class extends Migration
                 $table->string('inform_with')->nullable();
                 $table->json('ehealth_payload')->nullable();
                 $table->string('source')->default('local'); // 'local' = drafted here, 'ehealth' = synced from ЄСОЗ
+                $table->string('resource_type')->default('medication_request_request');
                 $table->timestamps();
             });
         }

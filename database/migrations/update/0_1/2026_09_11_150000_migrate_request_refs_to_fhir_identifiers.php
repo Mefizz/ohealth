@@ -23,14 +23,51 @@ return new class extends Migration
 
     public function up(): void
     {
-        $this->migrateRequestTable('medication_request_requests', isMedication: true);
-        $this->migrateRequestTable('service_request_requests');
-        $this->migrateRequestTable('device_request_requests');
+        if (!DB::connection()->getSchemaGrammar()->supportsSchemaTransactions()) {
+            throw new RuntimeException('FHIR reference conversion requires transactional DDL. Run on the supported PostgreSQL database.');
+        }
+
+        DB::transaction(function () {
+            foreach (['medication_request_requests', 'service_request_requests', 'device_request_requests'] as $table) {
+                $this->assertConvertible($table);
+            }
+            $this->migrateRequestTable('medication_request_requests', isMedication: true);
+            $this->migrateRequestTable('service_request_requests');
+            $this->migrateRequestTable('device_request_requests');
+        });
     }
 
     public function down(): void
     {
-        // Irreversible data reshape (identifier substitution + dropped strings).
+        throw new RuntimeException('FHIR reference conversion cannot be rolled back automatically. Restore a pre-migration database backup.');
+    }
+
+    private function assertConvertible(string $table): void
+    {
+        if (!Schema::hasTable($table)) {
+            return;
+        }
+
+        $legacy = Schema::hasColumn($table, 'intent');
+        if ($legacy === Schema::hasColumn($table, 'intent_id')) {
+            throw new RuntimeException("Ambiguous migration state in {$table}; restore or repair it before retrying.");
+        }
+
+        foreach (['based_on_id' => 'care_plan_activities', 'context_id' => 'encounters'] as $column => $target) {
+            $foreign = collect(Schema::getForeignKeys($table))
+                ->first(static fn (array $fk): bool => $fk['columns'] === [$column]);
+            if (($foreign['foreign_table'] ?? null) !== ($legacy ? $target : 'identifiers')) {
+                throw new RuntimeException("Unexpected reference constraint on {$table}.{$column}; automatic conversion stopped.");
+            }
+
+            if ($legacy && DB::table("{$table} as requests")
+                ->leftJoin("{$target} as target", 'target.id', '=', "requests.{$column}")
+                ->whereNotNull("requests.{$column}")
+                ->whereNull('target.uuid')
+                ->exists()) {
+                throw new RuntimeException("Unresolvable UUID in {$table}.{$column}; no references have been changed.");
+            }
+        }
     }
 
     private function migrateRequestTable(string $table, bool $isMedication = false): void
@@ -45,7 +82,7 @@ return new class extends Migration
 
         $needsFhirShape = Schema::hasColumn($table, 'intent') && !Schema::hasColumn($table, 'intent_id');
         if (!$needsFhirShape) {
-            // Ensure based_on/context point at identifiers when columns already look FHIR-shaped.
+            // assertConvertible verified the identifier constraints before accepting this shape.
             return;
         }
 
@@ -59,51 +96,52 @@ return new class extends Migration
         $this->dropForeignIfExists($table, 'based_on_id');
         $this->dropForeignIfExists($table, 'context_id');
 
-        $rows = DB::table($table)->select(['id', 'intent', 'category', 'priority', 'based_on_id', 'context_id'])->get();
+        DB::table($table)->select(['id', 'intent', 'category', 'priority', 'based_on_id', 'context_id'])
+            ->orderBy('id')->chunkById(500, function ($rows) use ($table) {
+                foreach ($rows as $row) {
+                    $intentId = null;
+                    if (!empty($row->intent)) {
+                        $intentId = Coding::firstOrCreate([
+                            'code' => (string) $row->intent,
+                            'system' => self::INTENT_SYSTEM,
+                        ])->id;
+                    }
 
-        foreach ($rows as $row) {
-            $intentId = null;
-            if (!empty($row->intent)) {
-                $intentId = Coding::firstOrCreate([
-                    'code' => (string) $row->intent,
-                    'system' => self::INTENT_SYSTEM,
-                ])->id;
-            }
+                    $categoryId = null;
+                    if (!empty($row->category)) {
+                        $categoryId = CodeableConcept::create(['text' => (string) $row->category])->id;
+                    }
 
-            $categoryId = null;
-            if (!empty($row->category)) {
-                $categoryId = CodeableConcept::create(['text' => (string) $row->category])->id;
-            }
+                    $priorityId = null;
+                    if (!empty($row->priority)) {
+                        $priorityId = CodeableConcept::create(['text' => (string) $row->priority])->id;
+                    }
 
-            $priorityId = null;
-            if (!empty($row->priority)) {
-                $priorityId = CodeableConcept::create(['text' => (string) $row->priority])->id;
-            }
+                    $basedOnId = null;
+                    if (!empty($row->based_on_id)) {
+                        $activityUuid = DB::table('care_plan_activities')->where('id', $row->based_on_id)->value('uuid');
+                        if ($activityUuid) {
+                            $basedOnId = Repository::identifier()->store((string) $activityUuid)->id;
+                        }
+                    }
 
-            $basedOnId = null;
-            if (!empty($row->based_on_id)) {
-                $activityUuid = DB::table('care_plan_activities')->where('id', $row->based_on_id)->value('uuid');
-                if ($activityUuid) {
-                    $basedOnId = Repository::identifier()->store((string) $activityUuid)->id;
+                    $contextId = null;
+                    if (!empty($row->context_id)) {
+                        $encounterUuid = DB::table('encounters')->where('id', $row->context_id)->value('uuid');
+                        if ($encounterUuid) {
+                            $contextId = Repository::identifier()->store((string) $encounterUuid)->id;
+                        }
+                    }
+
+                    DB::table($table)->where('id', $row->id)->update([
+                        'intent_id' => $intentId,
+                        'category_id' => $categoryId,
+                        'priority_id' => $priorityId,
+                        'based_on_id' => $basedOnId,
+                        'context_id' => $contextId,
+                    ]);
                 }
-            }
-
-            $contextId = null;
-            if (!empty($row->context_id)) {
-                $encounterUuid = DB::table('encounters')->where('id', $row->context_id)->value('uuid');
-                if ($encounterUuid) {
-                    $contextId = Repository::identifier()->store((string) $encounterUuid)->id;
-                }
-            }
-
-            DB::table($table)->where('id', $row->id)->update([
-                'intent_id' => $intentId,
-                'category_id' => $categoryId,
-                'priority_id' => $priorityId,
-                'based_on_id' => $basedOnId,
-                'context_id' => $contextId,
-            ]);
-        }
+            });
 
         Schema::table($table, static function (Blueprint $blueprint) {
             $blueprint->dropColumn(['intent', 'category', 'priority']);

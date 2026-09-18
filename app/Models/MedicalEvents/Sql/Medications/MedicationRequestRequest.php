@@ -22,6 +22,10 @@ class MedicationRequestRequest extends Model
 
     public const SOURCE_EHEALTH = 'ehealth';
 
+    public const TYPE_REQUEST = 'medication_request_request';
+
+    public const TYPE_PRESCRIPTION = 'medication_request';
+
     /**
      * Add real attributes you allow for mass assignment.
      */
@@ -48,6 +52,7 @@ class MedicationRequestRequest extends Model
         'inform_with',
         'ehealth_payload',
         'source',
+        'resource_type',
     ];
 
     protected $casts = [

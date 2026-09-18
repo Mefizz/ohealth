@@ -13,6 +13,11 @@ use App\Models\Employee\Employee;
 use App\Traits\InteractsWithApprovals;
 use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
+use App\Models\CarePlanActivity;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use App\Services\Dictionary\DictionaryManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -281,7 +286,7 @@ abstract class CarePlanComponent extends Component
         $this->authorize('manage', $this->carePlan);
     }
 
-    protected function ownedActivity(int $activityId): \App\Models\CarePlanActivity
+    protected function ownedActivity(int $activityId): CarePlanActivity
     {
         $activity = $this->carePlan->activities()->whereKey($activityId)->first();
 
@@ -295,19 +300,13 @@ abstract class CarePlanComponent extends Component
     /**
      * Resolve a care-plan activity from a request's basedOn Identifier UUID.
      */
-    protected function ownedActivityByBasedOnUuid(?string $activityUuid): \App\Models\CarePlanActivity
+    protected function ownedActivityByBasedOnUuid(?string $activityUuid): CarePlanActivity
     {
         if ($activityUuid === null || $activityUuid === '') {
-            abort(404);
+            throw (new ModelNotFoundException())->setModel(CarePlanActivity::class);
         }
 
-        $activity = $this->carePlan->activities()->where('uuid', $activityUuid)->first();
-
-        if ($activity === null) {
-            abort(404);
-        }
-
-        return $activity;
+        return $this->carePlan->activities()->where('uuid', $activityUuid)->firstOrFail();
     }
 
     protected function bootCarePlan(CarePlan $carePlan): void
@@ -425,7 +424,7 @@ abstract class CarePlanComponent extends Component
         $this->patientId = $this->carePlan->person->uuid;
         $this->loadDeviceProgramParticipationState();
 
-        $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
+        $medicationRequestClass = MedicationRequestRequest::class;
         $this->activePrescriptions = class_exists($medicationRequestClass)
             ? $medicationRequestClass::with('basedOn')
                 ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
@@ -694,11 +693,11 @@ abstract class CarePlanComponent extends Component
         $this->carePlan->unsetRelation('approvals');
         $this->carePlan->load(['person', 'author.party', 'categoryConcept', 'activities.kindConcept.coding']);
 
-        if (property_exists($this, 'activity') && $this->activity instanceof \App\Models\CarePlanActivity) {
+        if (property_exists($this, 'activity') && $this->activity instanceof CarePlanActivity) {
             $this->activity->refresh()->load(['kindConcept.coding', 'reasonReferences', 'author.party']);
         }
 
-        $medicationRequestClass = \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class;
+        $medicationRequestClass = MedicationRequestRequest::class;
         $this->activePrescriptions = class_exists($medicationRequestClass)
             ? $medicationRequestClass::with('basedOn')
                 ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
@@ -721,8 +720,8 @@ abstract class CarePlanComponent extends Component
         $deviceReferrals = [];
         $activityUuids = $this->carePlan->activities->pluck('uuid')->toArray();
 
-        $serviceRequestClass = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::class;
-        $deviceRequestClass = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
+        $serviceRequestClass = ServiceRequestRequest::class;
+        $deviceRequestClass = DeviceRequestRequest::class;
 
         if (class_exists($serviceRequestClass)) {
             $serviceReferrals = $serviceRequestClass::query()

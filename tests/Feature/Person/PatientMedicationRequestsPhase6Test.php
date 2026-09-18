@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\Person;
 
 use App\Livewire\Person\Records\PatientMedicationRequests;
+use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
+use App\Classes\eHealth\EHealthResponse;
+use App\Models\CarePlanActivity;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
+use Mockery;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
@@ -89,6 +95,7 @@ class PatientMedicationRequestsPhase6Test extends TestCase
         ]);
 
         $this->actingAs($this->user);
+        $this->grantMedicalEventAbilities($this->user, ['medication_request_request:read']);
     }
 
     public function test_repository_filters_by_status_period_and_source(): void
@@ -223,7 +230,7 @@ class PatientMedicationRequestsPhase6Test extends TestCase
         $fromPlan->setRelation('basedOn', $basedOn);
         $fromPlan->setRelation('context', $context);
 
-        $activityRow = (object) ['id' => 42, 'uuid' => $activityUuid, 'care_plan_id' => 7];
+        $activityRow = (new CarePlanActivity())->forceFill(['id' => 42, 'uuid' => $activityUuid, 'care_plan_id' => 7]);
         $planMapped = app(MedicationRequestRepository::class)->toPatientRegistryRow(
             $fromPlan,
             [$activityUuid => $activityRow],
@@ -240,11 +247,107 @@ class PatientMedicationRequestsPhase6Test extends TestCase
         Livewire::test(PatientMedicationRequests::class, [
             'legalEntity' => $this->legalEntity,
             'person' => $this->person,
+            'preperson' => null,
         ])
             ->set('isSearchMode', true)
-            ->set('activeTab', 'requests')
             ->call('switchTab', 'prescriptions')
             ->assertSet('activeTab', 'prescriptions')
             ->assertSet('isSearchMode', false);
+    }
+
+    public function test_imported_request_stays_in_requests_tab_and_preserves_local_details(): void
+    {
+        $uuid = (string) Str::uuid();
+        $repo = app(MedicationRequestRepository::class);
+        $repo->store([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id,
+            'status' => 'new', 'medication_id' => 'INN-1', 'medication_qty' => 7,
+            'ehealth_payload' => ['medication_name' => 'Existing name'],
+        ], $this->person->id);
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getData')->once()->andReturn([['id' => $uuid, 'status' => 'active']]);
+        $api = Mockery::mock(MedicationRequestApi::class);
+        $api->shouldReceive('getRequestsBySearchParams')->once()->with($this->person->uuid, [])->andReturn($response);
+        $this->instance(MedicationRequestApi::class, $api);
+
+        Livewire::test(PatientMedicationRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null])
+            ->call('searchInEHealth')
+            ->call('saveFromEHealth', $uuid)
+            ->assertSet('medicationRequests.0.uuid', $uuid)
+            ->assertSet('prescriptions', [])
+            ->assertSet('isSearchMode', false);
+
+        $request = $repo->findByUuid($uuid);
+        $this->assertSame($this->employee->id, $request->employeeId);
+        $this->assertSame('7.00', $request->medicationQty);
+        $this->assertSame('INN-1', $request->medicationId);
+        $this->assertSame('Existing name', $request->ehealthPayload['medication_name']);
+        $this->assertSame(MedicationRequestRequest::SOURCE_LOCAL, $request->source);
+    }
+
+    public function test_partial_external_summary_does_not_invent_a_medication_quantity(): void
+    {
+        $request = app(MedicationRequestRepository::class)->upsertFromEHealth([
+            'id' => (string) Str::uuid(), 'status' => 'active',
+        ], $this->person->id);
+
+        $this->assertNull($request->medicationQty);
+        $this->assertNull($request->medicationId);
+        $this->assertSame(MedicationRequestRequest::TYPE_PRESCRIPTION, $request->resourceType);
+    }
+
+    public function test_external_request_is_not_classified_as_a_signed_prescription(): void
+    {
+        $repo = app(MedicationRequestRepository::class);
+        $request = $repo->upsertFromEHealth([
+            'id' => (string) Str::uuid(), 'status' => 'new',
+        ], $this->person->id, MedicationRequestRequest::TYPE_REQUEST);
+
+        $this->assertSame(MedicationRequestRequest::SOURCE_EHEALTH, $request->source);
+        $this->assertCount(1, $repo->searchByPersonId($this->person->id, ['resource_type' => MedicationRequestRequest::TYPE_REQUEST]));
+        $this->assertSame([], $repo->searchEHealthPrescriptionsByPersonId($this->person->id));
+    }
+
+    public function test_refresh_replaces_supplied_dosage_arrays_without_retaining_removed_entries(): void
+    {
+        $repo = app(MedicationRequestRepository::class);
+        $uuid = (string) Str::uuid();
+        $repo->upsertFromEHealth([
+            'id' => $uuid, 'status' => 'active', 'medication_name' => 'Existing name',
+            'dosage_instructions' => [['text' => 'Old morning'], ['text' => 'Old evening']],
+        ], $this->person->id);
+        $request = $repo->upsertFromEHealth([
+            'id' => $uuid, 'dosage_instructions' => [['text' => 'New instruction']],
+        ], $this->person->id);
+
+        $this->assertSame([['text' => 'New instruction']], $request->ehealthPayload['dosage_instructions']);
+        $this->assertSame('Existing name', $request->ehealthPayload['medication_name']);
+    }
+
+    public function test_import_cannot_reassign_a_record_to_another_patient(): void
+    {
+        $repo = app(MedicationRequestRepository::class);
+        $request = $repo->upsertFromEHealth(['id' => (string) Str::uuid(), 'status' => 'active'], $this->person->id);
+        try {
+            $repo->upsertFromEHealth(['id' => $request->uuid, 'status' => 'cancelled'], $this->person->id + 100);
+            $this->fail('A cross-patient import must be rejected.');
+        } catch (ModelNotFoundException) {
+            $this->assertSame($this->person->id, $request->fresh()->personId);
+            $this->assertSame('active', $request->fresh()->status);
+        }
+    }
+
+    public function test_search_payload_cannot_be_replaced_by_the_browser(): void
+    {
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        Livewire::test(PatientMedicationRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null])
+            ->set('eHealthResults', [['id' => (string) Str::uuid(), 'status' => 'active']]);
+    }
+
+    public function test_search_requires_the_resource_read_permission(): void
+    {
+        $this->user->revokePermissionTo('medication_request_request:read');
+        Livewire::test(PatientMedicationRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null])
+            ->call('searchInEHealth')->assertForbidden();
     }
 }

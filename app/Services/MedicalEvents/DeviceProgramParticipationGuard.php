@@ -236,37 +236,47 @@ class DeviceProgramParticipationGuard
     private function lookupDeviceInProgramCatalog(string $programId, string $deviceDefinitionId): ?string
     {
         try {
-            $response = EHealth::deviceDefinition()->getMany([
-                'medical_program_id' => $programId,
-                'page_size' => 300,
-            ]);
-            $devices = $response->getData();
+            $page = 1;
+            do {
+                $response = EHealth::deviceDefinition()->getMany([
+                    'medical_program_id' => $programId,
+                    'page_size' => 300,
+                    'page' => $page,
+                ]);
+                $devices = $response->getData();
 
-            if (!is_array($devices)) {
-                return null;
-            }
-
-            foreach ($devices as $device) {
-                if (!is_array($device)) {
-                    continue;
+                if (!is_array($devices)) {
+                    return null;
                 }
 
-                $id = (string) ($device['id'] ?? $device['uuid'] ?? '');
-                if ($id !== $deviceDefinitionId) {
-                    continue;
+                foreach ($devices as $device) {
+                    if (!is_array($device)) {
+                        continue;
+                    }
+
+                    $id = (string) ($device['id'] ?? $device['uuid'] ?? '');
+                    if ($id !== $deviceDefinitionId) {
+                        continue;
+                    }
+
+                    $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
+                    if (!filter_var($isActive, FILTER_VALIDATE_BOOLEAN)) {
+                        return 'inactive';
+                    }
+
+                    if (!$this->deviceAllowsCarePlanActivity($device, $programId)) {
+                        return 'inactive';
+                    }
+
+                    return 'active';
                 }
 
-                $isActive = $device['is_active'] ?? $device['isActive'] ?? true;
-                if (!filter_var($isActive, FILTER_VALIDATE_BOOLEAN)) {
-                    return 'inactive';
+                $paging = $response->getPaging();
+                if (!isset($paging['page_number'], $paging['total_pages']) || (int) $paging['page_number'] !== $page) {
+                    return null;
                 }
-
-                if (!$this->deviceAllowsCarePlanActivity($device, $programId)) {
-                    return 'inactive';
-                }
-
-                return 'active';
-            }
+                $page++;
+            } while ($page <= (int) ($paging['total_pages'] ?? 1));
 
             return 'missing';
         } catch (\Throwable $exception) {

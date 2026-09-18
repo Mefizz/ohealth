@@ -409,8 +409,8 @@ class PatientCompositions extends BasePatientComponent
             : null;
 
         return $composition?->isNewborn
-            ? __('patients.composition.cancel.warning_message_newborn')
-            : __('patients.composition.cancel.warning_message');
+            ? __('compositions.cancel.warning_message_newborn')
+            : __('compositions.cancel.warning_message');
     }
 
     /**
@@ -445,7 +445,7 @@ class PatientCompositions extends BasePatientComponent
         // may well have started in between.
         if ($composition->isNewborn && $this->lifecycle()->hasIntegrationProcesses($composition)) {
             $this->closeCancellationModal();
-            Session::flash('error', __('patients.composition.errors.cancel_has_integration'));
+            Session::flash('error', __('compositions.errors.cancel_has_integration'));
 
             return;
         }
@@ -544,7 +544,7 @@ class PatientCompositions extends BasePatientComponent
             $composition->update([
                 'async_job_status' => CompositionLifecycleService::JOB_FAILED,
                 'async_job_error' => implode(' ', $status['errors'])
-                    ?: __('patients.composition.errors.async_job_failed'),
+                    ?: __('compositions.errors.async_job_failed'),
             ]);
 
             return;

@@ -287,7 +287,7 @@ class EHealthValidationException extends EHealthException
 
     private function translateTopLevelMessage(string $message): string
     {
-        $translated = EHealthErrorTranslator::translate($message);
+        $translated = EHealthException::translate($message);
 
         if ($translated !== $message) {
             return $translated;

@@ -49,7 +49,7 @@ class CompositionPregnancyPeriodService
             ]);
 
             throw new CompositionGuardException(
-                __('patients.composition.errors.pregnancy_periods_unavailable')
+                __('compositions.errors.pregnancy_periods_unavailable')
             );
         }
 
@@ -70,7 +70,7 @@ class CompositionPregnancyPeriodService
             Log::error('Pregnancy period configuration is missing or empty', ['configuration' => $name]);
 
             throw new CompositionGuardException(
-                __('patients.composition.errors.pregnancy_periods_unavailable')
+                __('compositions.errors.pregnancy_periods_unavailable')
             );
         }
 
@@ -113,7 +113,7 @@ class CompositionPregnancyPeriodService
 
         if (!in_array($candidate, $allowed, true)) {
             throw new CompositionGuardException(
-                __('patients.composition.errors.pregnancy_period_not_allowed', [
+                __('compositions.errors.pregnancy_period_not_allowed', [
                     'periods' => implode(', ', $allowed),
                 ])
             );

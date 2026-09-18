@@ -258,7 +258,7 @@ class CompositionCreate extends BasePatientComponent
     protected function assertSubmissionAllowed(): void
     {
         if ($this->hasExistingActiveBirthConclusion) {
-            throw new CompositionGuardException(__('patients.composition.errors.newborn_duplicate'));
+            throw new CompositionGuardException(__('compositions.errors.newborn_duplicate'));
         }
 
         try {
@@ -269,11 +269,11 @@ class CompositionCreate extends BasePatientComponent
                 'error' => $exception->getMessage(),
             ]);
 
-            throw new CompositionGuardException(__('patients.composition.errors.newborn_duplicate_unverifiable'));
+            throw new CompositionGuardException(__('compositions.errors.newborn_duplicate_unverifiable'));
         }
 
         if ($existsRemotely) {
-            throw new CompositionGuardException(__('patients.composition.errors.newborn_duplicate'));
+            throw new CompositionGuardException(__('compositions.errors.newborn_duplicate'));
         }
     }
 

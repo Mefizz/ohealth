@@ -273,19 +273,19 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         $category = $this->selectedCategory();
 
         if ($category === null) {
-            throw new CompositionGuardException(__('patients.composition.errors.category_not_allowed'));
+            throw new CompositionGuardException(__('compositions.errors.category_not_allowed'));
         }
 
         // TV 3.8.2.6 — an unidentified patient may only be issued these two categories.
         if ($this->form->isUnidentified && !$category->isAllowedForPreperson()) {
-            throw new CompositionGuardException(__('patients.composition.errors.category_not_allowed_preperson'));
+            throw new CompositionGuardException(__('compositions.errors.category_not_allowed_preperson'));
         }
 
         // TV 3.8.2.6.1 — the no-ERLN consequences must be acknowledged, not merely shown.
         if ($this->form->isUnidentified
             && $category === CompositionCategory::SICKNESS
             && !$this->acknowledgedUnidentifiedErln) {
-            throw new CompositionGuardException(__('patients.composition.errors.unidentified_erln_not_acknowledged'));
+            throw new CompositionGuardException(__('compositions.errors.unidentified_erln_not_acknowledged'));
         }
 
         // TV 3.8.2.5.4 — a pregnancy period must be one eHealth publishes as allowed.
@@ -321,35 +321,35 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         $previous = Composition::whereUuid($previousUuid)->first();
 
         if (!$previous?->isTempDisability) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_not_found'));
+            throw new CompositionGuardException(__('compositions.errors.related_not_found'));
         }
 
         $authorUuid = $this->authorEmployeeUuid();
 
         if ($authorUuid === null || $previous->authorUuid !== $authorUuid) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_not_author'));
+            throw new CompositionGuardException(__('compositions.errors.related_not_author'));
         }
 
         $fresh = $this->lifecycle()->fetchDetailsFor($previous);
 
         if ($fresh === []) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_unreadable'));
+            throw new CompositionGuardException(__('compositions.errors.related_unreadable'));
         }
 
         $status = CompositionStatus::fromEHealth(data_get($fresh, 'status'));
 
         if ($status !== CompositionStatus::FINAL) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_not_final'));
+            throw new CompositionGuardException(__('compositions.errors.related_not_final'));
         }
 
         if (data_get($fresh, 'type.coding.0.code') !== CompositionType::TEMP_DISABILITY->value) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_wrong_type'));
+            throw new CompositionGuardException(__('compositions.errors.related_wrong_type'));
         }
 
         $previousCategory = (string) data_get($fresh, 'category.coding.0.code');
 
         if ($previousCategory !== $this->form->category) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_category_mismatch'));
+            throw new CompositionGuardException(__('compositions.errors.related_category_mismatch'));
         }
 
         if ($isContinuation) {
@@ -357,7 +357,7 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
             // extends; a clarification deliberately crosses from a preperson to the
             // identified person, so the subject is allowed to differ there.
             if (data_get($fresh, 'subject.value') !== $this->form->subjectUuid) {
-                throw new CompositionGuardException(__('patients.composition.errors.related_other_patient'));
+                throw new CompositionGuardException(__('compositions.errors.related_other_patient'));
             }
 
             $previousEnd = data_get($fresh, 'event.0.period.end');
@@ -365,10 +365,10 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
             if ($previousEnd !== null
                 && CarbonImmutable::parse($this->form->eventPeriodStart)
                     ->lessThanOrEqualTo(CarbonImmutable::parse($previousEnd)->startOfDay())) {
-                throw new CompositionGuardException(__('patients.composition.errors.related_period_overlap'));
+                throw new CompositionGuardException(__('compositions.errors.related_period_overlap'));
             }
         } elseif (!$this->mayClarify($previous)) {
-            throw new CompositionGuardException(__('patients.composition.errors.related_not_clarifiable'));
+            throw new CompositionGuardException(__('compositions.errors.related_not_clarifiable'));
         }
 
         return $previous;

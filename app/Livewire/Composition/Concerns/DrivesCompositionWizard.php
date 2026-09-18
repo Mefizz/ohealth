@@ -8,7 +8,6 @@ use App\Classes\eHealth\EHealth;
 use App\Enums\Person\CompositionType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
-use App\Exceptions\EHealth\EHealthErrorTranslator;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
@@ -210,9 +209,9 @@ trait DrivesCompositionWizard
         }
 
         if (!$this->isKnownAuthMethod($methodUuid)) {
-            $this->addError('form.informWithUuid', __('patients.composition.errors.auth_method_not_offered'));
+            $this->addError('form.informWithUuid', __('compositions.errors.auth_method_not_offered'));
 
-            Session::flash('error', __('patients.composition.errors.auth_method_not_offered'));
+            Session::flash('error', __('compositions.errors.auth_method_not_offered'));
 
             return;
         }
@@ -281,7 +280,7 @@ trait DrivesCompositionWizard
         }
 
         if ($this->authorEmployeeUuid() === null) {
-            Session::flash('error', __('patients.composition.errors.author_not_found'));
+            Session::flash('error', __('compositions.errors.author_not_found'));
 
             return;
         }
@@ -349,7 +348,7 @@ trait DrivesCompositionWizard
 
             $exception->handle(
                 'Failed to submit a medical conclusion',
-                EHealthErrorTranslator::translate((string) $errText)
+                EHealthException::translate((string) $errText)
             );
         } catch (EHealthConnectionException | EHealthException $exception) {
             $exception->handle('Failed to submit a medical conclusion');

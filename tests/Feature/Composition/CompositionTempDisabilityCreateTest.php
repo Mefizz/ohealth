@@ -95,7 +95,7 @@ class CompositionTempDisabilityCreateTest extends TestCase
             ->set('step', CompositionTempDisabilityCreate::STEP_REVIEW)
             ->assertOk()
             ->assertSee('ТН-0001')
-            ->assertSee(__('patients.composition.create_temp_disability.created'))
+            ->assertSee(__('compositions.create_temp_disability.created'))
             ->assertSee(__('forms.sign_with_KEP'))
             ->assertSee(compositionTreatmentViolationLabel('reject_hospitalization'))
             ->assertDontSee('reject_hospitalization (');
@@ -121,8 +121,8 @@ class CompositionTempDisabilityCreateTest extends TestCase
             ])
             ->set('step', CompositionTempDisabilityCreate::STEP_REVIEW)
             ->assertOk()
-            ->assertSee(__('patients.composition.create_temp_disability.signed'))
-            ->assertDontSee(__('patients.composition.create_temp_disability.created'))
+            ->assertSee(__('compositions.create_temp_disability.signed'))
+            ->assertDontSee(__('compositions.create_temp_disability.created'))
             ->assertDontSeeHtml('wire:click="openSigningModal"');
     }
 

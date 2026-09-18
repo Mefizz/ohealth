@@ -7,7 +7,7 @@ namespace App\Services\MedicalEvents;
 use App\Classes\eHealth\EHealth;
 use App\Enums\Person\CompositionStatus;
 use App\Enums\Person\CompositionType;
-use App\Exceptions\EHealth\EHealthErrorTranslator;
+use App\Exceptions\EHealth\EHealthException;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
@@ -449,7 +449,7 @@ class CompositionLifecycleService
         );
 
         return array_values(array_unique(array_map(
-            static fn (string $error): string => EHealthErrorTranslator::translate($error),
+            static fn (string $error): string => EHealthException::translate($error),
             $allErrors
         )));
     }

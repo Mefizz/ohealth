@@ -397,7 +397,7 @@
                                 @else
                                     <span
                                         class="flex cursor-not-allowed items-center gap-1.5 text-sm font-medium text-gray-400 opacity-60"
-                                        title="{{ __('patients.composition.errors.create_temp_disability_not_allowed') }}"
+                                        title="{{ __('compositions.errors.create_temp_disability_not_allowed') }}"
                                     >
                                         @icon('plus', 'w-4 h-4')
                                         <span>{{ __('patients.add_medical_report') }}</span>

@@ -250,11 +250,11 @@ class EmployeeRequestAcceptedRevisionScenariosTest extends TestCase
         $response->shouldReceive('validate')->once()->andReturn([
             'uuid' => $request->uuid,
             'status' => 'APPROVED',
-            'employee_id' => $employeeUuid,
             'legal_entity_id' => $legalEntity->uuid,
             'position' => 'P1',
             'employee_type' => Role::DOCTOR->value,
             'start_date' => '2024-01-10',
+            'updated_at' => '2024-06-15T12:00:00Z',
         ]);
 
         $api = Mockery::mock(EmployeeRequestApi::class);
@@ -262,7 +262,10 @@ class EmployeeRequestAcceptedRevisionScenariosTest extends TestCase
         $this->instance(EmployeeRequestApi::class, $api);
 
         $matcher = Mockery::mock(EmployeeRequestMatcher::class);
-        $matcher->shouldReceive('findApprovedForRequest')->once()->andReturn(null);
+        $matcher->shouldReceive('findApprovedForRequest')->once()->andReturn([
+            'uuid' => $employeeUuid,
+            'status' => 'APPROVED',
+        ]);
         $this->instance(EmployeeRequestMatcher::class, $matcher);
 
         $processor = Mockery::mock(EmployeeRequestProcessor::class, [$matcher])->makePartial();

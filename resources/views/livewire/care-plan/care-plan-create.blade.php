@@ -1,4 +1,4 @@
-<x-layouts.patient
+<x-layouts.patient :showLegacyMessages="false"
     :personId="$personId"
     :uuid="$uuid"
     :patientFullName="$patientFullName"

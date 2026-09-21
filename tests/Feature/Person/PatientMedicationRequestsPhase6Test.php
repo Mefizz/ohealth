@@ -6,6 +6,9 @@ namespace Tests\Feature\Person;
 
 use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
 use App\Classes\eHealth\EHealthResponse;
+use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Person\Records\PatientMedicationRequests;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
@@ -16,6 +19,7 @@ use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
@@ -28,6 +32,35 @@ use Tests\TestCase;
 class PatientMedicationRequestsPhase6Test extends TestCase
 {
     use DatabaseTransactions;
+
+    public function test_search_failures_clear_loading_and_show_the_appropriate_message(): void
+    {
+        $validation = new EHealthValidationException([
+            'error' => ['type' => 'access_denied', 'message' => 'Patient is not verified'],
+        ]);
+        $failures = [
+            [$validation, $validation->getTranslatedMessage()],
+            [new EHealthConnectionException('Internal connection details'), __('errors.ehealth.messages.no_connection')],
+            [new EHealthResponseException(new EHealthResponse(new Response(503, [], json_encode([
+                'error' => ['message' => 'Internal upstream details'],
+            ])))), __('medication-requests.search_failed')],
+        ];
+
+        foreach ($failures as [$exception, $message]) {
+            $api = Mockery::mock(MedicationRequestApi::class);
+            $api->shouldReceive('getRequestsBySearchParams')->once()->andThrow($exception);
+            $this->instance(MedicationRequestApi::class, $api);
+
+            Livewire::test(PatientMedicationRequests::class, [
+                'legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null,
+            ])->call('searchInEHealth')
+                ->assertSet('searchLoading', false)
+                ->assertSet('eHealthResults', [])
+                ->assertSet('searchError', $message)
+                ->assertDontSee('Internal connection details')
+                ->assertDontSee('Internal upstream details');
+        }
+    }
 
     protected User $user;
 

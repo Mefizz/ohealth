@@ -129,5 +129,4 @@
         @include('livewire.care-plan.parts.modals.referral-form-drawer')
     </div>
 
-    <livewire:components.x-message :listen-async="true" :key="time()" />
 </section>

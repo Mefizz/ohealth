@@ -9,7 +9,7 @@ use App\Core\BaseForm as Form;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use Illuminate\Validation\ValidationException;
+use App\Livewire\Concerns\InteractsWithFlashMessages;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -23,10 +23,13 @@ use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Livewire\WithFileUploads;
 
 class PatientReferrals extends BasePatientComponent
 {
+    use InteractsWithFlashMessages;
+
     use WithFileUploads;
 
     public Form $form;
@@ -455,12 +458,6 @@ class PatientReferrals extends BasePatientComponent
     public function render(): View
     {
         return view('livewire.person.records.referrals');
-    }
-
-    protected function flashOutcome(string $type, string $message): void
-    {
-        session()->flash($type, $message);
-        $this->dispatch('flashMessage', ['message' => $message, 'type' => $type]);
     }
 
     /**

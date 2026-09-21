@@ -281,7 +281,7 @@ trait ManagesCarePlanActivities
     {
         $activity = $repository->findById($activityId);
         if (!$activity || $activity->carePlanId !== $this->carePlan->id) {
-            session()->flash('error', __('care-plan.activity_not_found'));
+            $this->flashOutcome('error', __('care-plan.activity_not_found'));
             $this->cancelDeleteActivity();
 
             return;
@@ -295,21 +295,21 @@ trait ManagesCarePlanActivities
             : (string) $statusVal);
 
         if (!in_array($activityStatus, ['draft', 'new'], true)) {
-            session()->flash('error', __('care-plan.activity_delete_only_draft'));
+            $this->flashOutcome('error', __('care-plan.activity_delete_only_draft'));
             $this->cancelDeleteActivity();
 
             return;
         }
 
         if (!$repository->deleteById($activityId)) {
-            session()->flash('error', __('care-plan.activity_delete_has_referrals'));
+            $this->flashOutcome('error', __('care-plan.activity_delete_has_referrals'));
             $this->cancelDeleteActivity();
 
             return;
         }
 
         $this->cancelDeleteActivity();
-        session()->flash('success', __('care-plan.activity_deleted'));
+        $this->flashOutcome('success', __('care-plan.activity_deleted'));
         $this->refreshCarePlan();
     }
 
@@ -504,7 +504,7 @@ trait ManagesCarePlanActivities
                     }
                 }
             } elseif (!empty($this->activityForm['product_reference'])) {
-                $message = 'Не вдалося перевірити одиниці виміру препарату. Будь ласка, знайдіть і оберіть препарат зі списку ще раз.';
+                $message = __('Не вдалося перевірити одиниці виміру препарату. Будь ласка, знайдіть і оберіть препарат зі списку ще раз.');
                 $this->flashOutcome('error', $message);
                 $this->addError('activityForm.quantity_code', $message);
 
@@ -1091,7 +1091,7 @@ trait ManagesCarePlanActivities
         }
 
         if (!is_array($product)) {
-            session()->flash('error', __('care-plan.device_search_no_results', ['query' => $deviceId]));
+            $this->flashOutcome('error', __('care-plan.device_search_no_results', ['query' => $deviceId]));
 
             return;
         }

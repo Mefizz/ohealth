@@ -195,7 +195,7 @@ trait CarePlanManager
 
             $this->refreshCarePlan();
 
-            $this->flashOutcome('success', __('care-plan.care_plan_cancelled'));
+            session()->flash('success', __('care-plan.care_plan_cancelled'));
             $this->showSignatureModal = false;
             $this->redirectAfterCarePlanClosed();
 
@@ -376,7 +376,7 @@ trait CarePlanManager
 
             $this->refreshCarePlan();
 
-            $this->flashOutcome('success', __('care-plan.care_plan_completed'));
+            session()->flash('success', __('care-plan.care_plan_completed'));
             $this->showSignatureModal = false;
             $this->redirectAfterCarePlanClosed();
 
@@ -738,7 +738,7 @@ trait CarePlanManager
         }
 
         if (empty($this->carePlan->uuid)) {
-            $this->flashOutcome('error', 'План лікування ще не синхронізовано з ЕСОЗ.');
+            $this->flashOutcome('error', __('План лікування ще не синхронізовано з ЕСОЗ.'));
 
             return;
         }
@@ -755,7 +755,7 @@ trait CarePlanManager
             $this->showMethodSelectionModal = true;
         } catch (Exception $e) {
             Log::error('CarePlanShow: failed to load auth methods: ' . $e->getMessage());
-            $this->flashOutcome('error', 'Не вдалося завантажити методи аутентифікації');
+            $this->flashOutcome('error', __('Не вдалося завантажити методи аутентифікації'));
         }
     }
 
@@ -811,7 +811,7 @@ trait CarePlanManager
             $employeeUuid = Auth::user()?->getCarePlanWriterEmployee($this->carePlan->termsOfService)?->uuid;
 
             if (!$employeeUuid) {
-                $this->flashOutcome('error', 'Не вдалося визначити лікаря для створення дозволу.');
+                $this->flashOutcome('error', __('Не вдалося визначити лікаря для створення дозволу.'));
 
                 return;
             }
@@ -849,11 +849,11 @@ trait CarePlanManager
                 'success',
                 $service->skipsPatientOtp($this->carePlan)
                     ? __('care-plan.approval_inpatient_granted')
-                    : 'План лікування успішно активовано.'
+                    : __('План лікування успішно активовано.')
             );
         } catch (Exception $e) {
             Log::error('CarePlanShow: failed to create approval: ' . $e->getMessage());
-            $this->flashOutcome('error', 'Не вдалося створити запит на дозвіл: ' . $e->getMessage());
+            $this->flashOutcome('error', __('Не вдалося створити запит на дозвіл: ') . $e->getMessage());
         }
     }
 
@@ -873,7 +873,7 @@ trait CarePlanManager
         $this->pollingLinkId = null;
 
         if ($status->isFailed()) {
-            $this->flashOutcome('error', $status->errorMessage ?: 'Не вдалося обробити запит на дозвіл.');
+            $this->flashOutcome('error', $status->errorMessage ?: __('Не вдалося обробити запит на дозвіл.'));
 
             return;
         }
@@ -895,7 +895,7 @@ trait CarePlanManager
             'success',
             $service->skipsPatientOtp($this->carePlan)
                 ? __('care-plan.approval_inpatient_granted')
-                : 'План лікування успішно активовано.'
+                : __('План лікування успішно активовано.')
         );
     }
 
@@ -907,7 +907,7 @@ trait CarePlanManager
             Log::info('CarePlanManager: offline document verification confirmed for approval ID: ' . $this->approvalId);
             $this->closeAuthModal();
             $this->syncPlanStatus();
-            $this->flashOutcome('success', 'План лікування успішно активовано (за документами пацієнта).');
+            $this->flashOutcome('success', __('План лікування успішно активовано (за документами пацієнта).'));
 
             return;
         }
@@ -922,11 +922,11 @@ trait CarePlanManager
             if ($response->successful()) {
                 $this->closeAuthModal();
                 $this->syncPlanStatus();
-                $this->flashOutcome('success', 'План лікування успішно активовано.');
+                $this->flashOutcome('success', __('План лікування успішно активовано.'));
             }
         } catch (Exception $e) {
             Log::error('CarePlanLifecycle: failed to verify approval: ' . $e->getMessage());
-            $this->addError('verificationCode', 'Невірний код підтвердження або помилка сервісу');
+            $this->addError('verificationCode', __('Невірний код підтвердження або помилка сервісу'));
         }
     }
 
@@ -938,7 +938,7 @@ trait CarePlanManager
         try {
             app(CarePlanApprovalService::class)->resendSms($this->carePlan->person->uuid, $this->approvalId);
             $this->smsResent = true;
-            $this->flashOutcome('success', 'SMS надіслано повторно');
+            $this->flashOutcome('success', __('SMS надіслано повторно'));
         } catch (Exception $e) {
             Log::error('CarePlanLifecycle: failed to resend SMS: ' . $e->getMessage());
             $message = str_contains($e->getMessage(), 'ACL')
@@ -977,7 +977,7 @@ trait CarePlanManager
         }
 
         if (!$planData || !is_array($planData)) {
-            throw new Exception('Не вдалося отримати актуальний стан плану лікування з ЕСОЗ.');
+            throw new Exception(__('Не вдалося отримати актуальний стан плану лікування з ЕСОЗ.'));
         }
 
         $payloadForSign = $planData;

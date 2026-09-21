@@ -12,6 +12,7 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportEvents\Event;
 use Tests\TestCase;
 
 class EncounterStandalonePhase6Test extends TestCase
@@ -41,7 +42,7 @@ class EncounterStandalonePhase6Test extends TestCase
         $harness->openEncounterReferralDrawer();
 
         $this->assertFalse($harness->showEncounterReferralDrawer);
-        $this->assertTrue(session()->has('error'));
+        $this->assertFalse(session()->has('error'));
         $this->assertNotEmpty(
             array_filter(
                 $harness->dispatched,
@@ -162,7 +163,7 @@ class EncounterStandalonePhase6Test extends TestCase
             $harness->showSignatureModal = true;
             $harness->{'signEncounter'.$kind}();
 
-            $this->assertSame(__('care-plan.document_context_unavailable'), session('error'));
+            $this->assertFalse(session()->has('error'));
             $this->assertFalse($harness->showSignatureModal);
             $this->assertSame([['flashMessage', [
                 'message' => __('care-plan.document_context_unavailable'), 'type' => 'error',
@@ -220,10 +221,10 @@ class EncounterStandaloneHarness
     /** @var list<array{0: string, 1: mixed}> */
     public array $dispatched = [];
 
-    public function dispatch(string $event, mixed ...$params): static
+    public function dispatch(string $event, mixed ...$params): Event
     {
         $this->dispatched[] = [$event, $params[0] ?? null];
 
-        return $this;
+        return new Event($event, $params);
     }
 }

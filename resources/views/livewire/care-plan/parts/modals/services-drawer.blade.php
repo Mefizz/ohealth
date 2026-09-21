@@ -50,7 +50,7 @@
                     >
                         <div class="flex items-center gap-2">
                             @icon('alert-circle', 'w-5 h-5 text-red-500')
-                            <span class="font-bold">Увага!</span>
+                            <span class="font-bold">{{ __('Увага!') }}</span>
                         </div>
                         <div class="mt-2">{{ session('error') }}</div>
                     </div>
@@ -64,7 +64,7 @@
                     >
                         <div class="flex items-center gap-2">
                             @icon('alert-circle', 'w-5 h-5 text-red-500')
-                            <span class="font-bold">Будь ласка, виправте помилки:</span>
+                            <span class="font-bold">{{ __('Будь ласка, виправте помилки:') }}</span>
                         </div>
                         <ul class="mt-2 list-inside list-disc">
                             @foreach ($errors->all() as $error)
@@ -242,7 +242,7 @@
 
                     <div class="mb-6 flex items-end gap-4">
                         <div class="flex-1">
-                            <label class="label">Оберіть клінічний запис пацієнта</label>
+                            <label class="label">{{ __('Оберіть клінічний запис пацієнта') }}</label>
                             <select
                                 x-model="selectedGround"
                                 @change="
@@ -254,30 +254,30 @@
                                 "
                                 class="input-select peer w-full"
                             >
-                                <option value="">-- Оберіть запис --</option>
+                                <option value="">{{ __('-- Оберіть запис --') }}</option>
                                 @if (!empty($availableConditions))
-                                    <optgroup label="Діагнози (Стани)">
+                                    <optgroup label="{{ __('Діагнози (Стани)') }}">
                                         @foreach ($availableConditions as $cond)
                                             <option value="Condition|{{ $cond['uuid'] }}">
-                                                {{ $cond['name'] }} (від {{ $cond['date'] }})
+                                                {{ __(':name (від :date)', ['name' => $cond['name'], 'date' => $cond['date']]) }}
                                             </option>
                                         @endforeach
                                     </optgroup>
                                 @endif
                                 @if (!empty($availableReports))
-                                    <optgroup label="Діагностичні звіти">
+                                    <optgroup label="{{ __('Діагностичні звіти') }}">
                                         @foreach ($availableReports as $report)
                                             <option value="DiagnosticReport|{{ $report['uuid'] }}">
-                                                {{ $report['name'] }} (від {{ $report['date'] }})
+                                                {{ __(':name (від :date)', ['name' => $report['name'], 'date' => $report['date']]) }}
                                             </option>
                                         @endforeach
                                     </optgroup>
                                 @endif
                                 @if (!empty($availableObservations))
-                                    <optgroup label="Спостереження">
+                                    <optgroup label="{{ __('Спостереження') }}">
                                         @foreach ($availableObservations as $obs)
                                             <option value="Observation|{{ $obs['uuid'] }}">
-                                                {{ $obs['name'] }} (від {{ $obs['date'] }})
+                                                {{ __(':name (від :date)', ['name' => $obs['name'], 'date' => $obs['date']]) }}
                                             </option>
                                         @endforeach
                                     </optgroup>
@@ -297,7 +297,7 @@
                                     <tr>
                                         <th scope="col" class="px-4 py-3 font-medium">{{ __('care-plan.date') }}</th>
                                         <th scope="col" class="px-4 py-3 font-medium">{{ __('care-plan.name') }}</th>
-                                        <th scope="col" class="px-4 py-3 text-right font-medium">Дія</th>
+                                        <th scope="col" class="px-4 py-3 text-right font-medium">{{ __('Дія') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
@@ -308,7 +308,7 @@
                                             </td>
                                             <td class="px-4 py-3 text-gray-900 dark:text-white">
                                                 <span class="mr-2 inline-flex items-center rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                                    {{ $ground['type'] === 'Condition' ? 'Діагноз' : ($ground['type'] === 'DiagnosticReport' ? 'Діагн. звіт' : 'Спостереження') }}
+                                                    {{ $ground['type'] === 'Condition' ? __('Діагноз') : ($ground['type'] === 'DiagnosticReport' ? __('Діагн. звіт') : __('Спостереження')) }}
                                                 </span>
                                                 {{ $ground['name'] }}
                                             </td>
@@ -325,7 +325,7 @@
                                     @empty
                                         <tr>
                                             <td colspan="3" class="px-4 py-8 text-center text-gray-400 italic">
-                                                Немає доданих обґрунтувань
+                                                {{ __('Немає доданих обґрунтувань') }}
                                             </td>
                                         </tr>
                                     @endforelse

@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace App\Livewire\Person\Records;
 
 use App\Classes\eHealth\Api\MedicationRequest as MedicationRequestApi;
+use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
+use App\Livewire\Concerns\InteractsWithFlashMessages;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
 use Illuminate\Contracts\View\View;
@@ -14,6 +18,8 @@ use Throwable;
 
 class PatientMedicationRequests extends BasePatientComponent
 {
+    use InteractsWithFlashMessages;
+
     /** 'requests' = MedicationRequestRequests (drafts/signed by us); 'prescriptions' = MedicationRequests from eHealth */
     #[Locked]
     public string $activeTab = 'requests';
@@ -150,6 +156,13 @@ class PatientMedicationRequests extends BasePatientComponent
             if (empty($this->eHealthResults)) {
                 $this->searchError = __('medication-requests.search_empty');
             }
+        } catch (EHealthValidationException $e) {
+            $this->searchError = $e->getTranslatedMessage();
+        } catch (EHealthResponseException $e) {
+            Log::warning('PatientMedicationRequests eHealth search rejected', ['status' => $e->getCode()]);
+            $this->searchError = __('medication-requests.search_failed');
+        } catch (EHealthConnectionException $e) {
+            $this->searchError = __('errors.ehealth.messages.no_connection');
         } catch (Throwable $e) {
             Log::error('PatientMedicationRequests eHealth search failed', ['exception_type' => $e::class]);
             $this->searchError = __('medication-requests.search_failed');
@@ -187,7 +200,7 @@ class PatientMedicationRequests extends BasePatientComponent
                     ? MedicationRequestRequest::TYPE_REQUEST
                     : MedicationRequestRequest::TYPE_PRESCRIPTION
             );
-            session()->flash('success', __('medication-requests.import_saved'));
+            $this->flashOutcome('success', __('medication-requests.import_saved'));
         } catch (Throwable $e) {
             Log::error('PatientMedicationRequests import failed', ['exception_type' => $e::class]);
             $this->searchError = __('medication-requests.import_failed');

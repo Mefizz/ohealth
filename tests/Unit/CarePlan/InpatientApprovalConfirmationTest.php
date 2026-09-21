@@ -22,22 +22,16 @@ class InpatientApprovalConfirmationTest extends TestCase
         $service->shouldReceive('confirmWithoutOtp')->once()->with('patient', 'approval')
             ->andThrow(new RuntimeException('API unavailable'));
         $this->instance(CarePlanApprovalService::class, $service);
-        $component = new class extends CarePlanApprovals
-        {
-            public bool $refreshed = false;
-
-            public function fetchApprovals(): void
-            {
-                $this->refreshed = true;
-            }
-        };
+        $component = new InpatientApprovalHarness();
         $component->patientUuid = 'patient';
 
         (new ReflectionMethod(CarePlanApprovals::class, 'confirmInpatientApproval'))->invoke($component, 'approval');
 
-        $this->assertSame(__('care-plan.approval_verify_error'), Session::get('error'));
+        $this->assertSame(__('care-plan.approval_verify_error'), $component->errorMessage);
+        $this->assertFalse(Session::has('error'));
         $this->assertFalse(Session::has('success'));
         $this->assertFalse($component->refreshed);
+        $this->assertSame([['error', __('care-plan.approval_verify_error')]], $component->outcomes);
     }
 
     public function test_unsuccessful_response_does_not_flash_success(): void
@@ -46,12 +40,31 @@ class InpatientApprovalConfirmationTest extends TestCase
         $service->shouldReceive('confirmWithoutOtp')->once()
             ->andReturn(new EHealthResponse(new Response(403, [], '{"error":{"message":"Forbidden"}}')));
         $this->instance(CarePlanApprovalService::class, $service);
-        $component = new CarePlanApprovals();
+        $component = new InpatientApprovalHarness();
         $component->patientUuid = 'patient';
 
         (new ReflectionMethod(CarePlanApprovals::class, 'confirmInpatientApproval'))->invoke($component, 'approval');
 
         $this->assertFalse(Session::has('success'));
         $this->assertNotNull($component->errorMessage);
+        $this->assertFalse($component->refreshed);
+        $this->assertSame([['error', __('care-plan.approval_verify_error')]], $component->outcomes);
+    }
+}
+
+class InpatientApprovalHarness extends CarePlanApprovals
+{
+    public bool $refreshed = false;
+
+    public array $outcomes = [];
+
+    public function fetchApprovals(): void
+    {
+        $this->refreshed = true;
+    }
+
+    protected function flashOutcome(string $type, string $message): void
+    {
+        $this->outcomes[] = [$type, $message];
     }
 }

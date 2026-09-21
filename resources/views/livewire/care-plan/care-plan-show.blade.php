@@ -5,7 +5,7 @@
     <script src="{{ asset('js/print-sandboxed.js') }}"></script>
 @endassets
 
-<x-layouts.patient
+<x-layouts.patient :showLegacyMessages="false"
     :personId="$carePlan->person_id"
     :uuid="$carePlan->person?->uuid ?? null"
     :patientFullName="$carePlan->person?->full_name ?? ''"
@@ -48,7 +48,7 @@
         "
         wire:key="care-plan-show-container"
     >
-        <livewire:components.x-message :listen-async="true" :key="'care-plan-show-flash-'.time()" />
+
 
         <div class="w-full max-w-screen-xl">
             @php

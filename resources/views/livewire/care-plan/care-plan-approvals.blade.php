@@ -1,5 +1,5 @@
 <div>
-    <livewire:components.x-message :listen-async="true" :key="time()" />
+
 
     @if ($isPolling)
         <div wire:poll.2s="checkApprovalJobStatus" class="hidden"></div>

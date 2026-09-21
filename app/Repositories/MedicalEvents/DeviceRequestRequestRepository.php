@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
-use App\Models\MedicalEvents\Sql\Encounter;
-
 use App\Enums\Person\ServiceRequestStatus;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
+use App\Models\MedicalEvents\Sql\Encounter;
 use App\Repositories\MedicalEvents\Concerns\ResolvesRequestFhirRefs;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;

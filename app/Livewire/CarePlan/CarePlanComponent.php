@@ -10,6 +10,7 @@ use App\Enums\CarePlanStatus;
 use App\Enums\MedicalProgram\Type;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\User\Role;
+use App\Livewire\Concerns\InteractsWithFlashMessages;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
@@ -40,6 +41,8 @@ use Livewire\WithFileUploads;
 
 abstract class CarePlanComponent extends Component
 {
+    use InteractsWithFlashMessages;
+
     use WithFileUploads;
     use InteractsWithApprovals;
 
@@ -238,9 +241,9 @@ abstract class CarePlanComponent extends Component
     public function getSelectedOutcomeReferencesDetailsProperty(): array
     {
         $catalog = collect($this->availableConditions)
-            ->map(fn (array $item): array => $item + ['type' => 'Діагноз/Стан'])
-            ->concat(collect($this->availableObservations)->map(fn (array $item): array => $item + ['type' => 'Спостереження']))
-            ->concat(collect($this->availableReports)->map(fn (array $item): array => $item + ['type' => 'Діагностичний звіт']))
+            ->map(fn (array $item): array => $item + ['type' => __('Діагноз/Стан')])
+            ->concat(collect($this->availableObservations)->map(fn (array $item): array => $item + ['type' => __('Спостереження')]))
+            ->concat(collect($this->availableReports)->map(fn (array $item): array => $item + ['type' => __('Діагностичний звіт')]))
             ->keyBy('uuid');
 
         return collect($this->outcomeReferences)
@@ -433,19 +436,16 @@ abstract class CarePlanComponent extends Component
         $this->patientId = $this->carePlan->person->uuid;
         $this->loadDeviceProgramParticipationState();
 
-        $medicationRequestClass = MedicationRequestRequest::class;
-        $this->activePrescriptions = class_exists($medicationRequestClass)
-            ? $medicationRequestClass::with('basedOn')
-                ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
-                ->get()
-                ->map(function ($record): array {
-                    $row = $record->toArray();
-                    $row['based_on_uuid'] = $record->basedOn?->value;
+        $this->activePrescriptions = MedicationRequestRequest::with('basedOn')
+            ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
+            ->get()
+            ->map(function ($record): array {
+                $row = $record->toArray();
+                $row['based_on_uuid'] = $record->basedOn?->value;
 
-                    return $row;
-                })
-                ->all()
-            : [];
+                return $row;
+            })
+            ->all();
         $this->loadActiveReferrals();
 
         $action = request()->query('action');
@@ -502,18 +502,7 @@ abstract class CarePlanComponent extends Component
     #[On('care-plan-approvals-changed')]
     public function onCarePlanApprovalsChanged(): void
     {
-        $this->carePlan->unsetRelation('approvals');
         $this->refreshCarePlan();
-    }
-
-    /**
-     * Preserve normal session flash rendering and update the mounted Livewire toast.
-     * Livewire clears new flash data after an AJAX response without a redirect.
-     */
-    protected function flashOutcome(string $type, string $message): void
-    {
-        session()->flash($type, $message);
-        $this->dispatch('flashMessage', ['message' => $message, 'type' => $type]);
     }
 
     protected function rulesForSigning(): array
@@ -711,49 +700,36 @@ abstract class CarePlanComponent extends Component
             $this->activity->refresh()->load(['kindConcept.coding', 'reasonReferences', 'author.party']);
         }
 
-        $medicationRequestClass = MedicationRequestRequest::class;
-        $this->activePrescriptions = class_exists($medicationRequestClass)
-            ? $medicationRequestClass::with('basedOn')
-                ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
-                ->get()
-                ->map(function ($record): array {
-                    $row = $record->toArray();
-                    $row['based_on_uuid'] = $record->basedOn?->value;
+        $this->activePrescriptions = MedicationRequestRequest::with('basedOn')
+            ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
+            ->get()
+            ->map(function ($record): array {
+                $row = $record->toArray();
+                $row['based_on_uuid'] = $record->basedOn?->value;
 
-                    return $row;
-                })
-                ->all()
-            : [];
+                return $row;
+            })
+            ->all();
 
         $this->loadActiveReferrals();
     }
 
     protected function loadActiveReferrals(): void
     {
-        $serviceReferrals = [];
-        $deviceReferrals = [];
         $activityUuids = $this->carePlan->activities->pluck('uuid')->toArray();
 
-        $serviceRequestClass = ServiceRequestRequest::class;
-        $deviceRequestClass = DeviceRequestRequest::class;
-
-        if (class_exists($serviceRequestClass)) {
-            $serviceReferrals = $serviceRequestClass::query()
-                ->with(['employee', 'basedOn', 'category', 'priority'])
-                ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))
-                ->get()
-                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'service_request'))
-                ->all();
-        }
-
-        if (class_exists($deviceRequestClass)) {
-            $deviceReferrals = $deviceRequestClass::query()
-                ->with(['employee', 'basedOn', 'category', 'priority'])
-                ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))
-                ->get()
-                ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'device_request'))
-                ->all();
-        }
+        $serviceReferrals = ServiceRequestRequest::query()
+            ->with(['employee', 'basedOn', 'category', 'priority'])
+            ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))
+            ->get()
+            ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'service_request'))
+            ->all();
+        $deviceReferrals = DeviceRequestRequest::query()
+            ->with(['employee', 'basedOn', 'category', 'priority'])
+            ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))
+            ->get()
+            ->map(fn (Model $record): array => $this->normalizeReferralForView($record, 'device_request'))
+            ->all();
 
         $this->activeReferrals = array_values(array_merge($serviceReferrals, $deviceReferrals));
     }

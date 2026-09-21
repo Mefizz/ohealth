@@ -4,32 +4,31 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
-use InvalidArgumentException;
-use App\Models\Division;
-use App\Models\Person\Person;
-use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
-use RuntimeException;
-use Throwable;
-use App\Models\Employee\Employee;
-use Carbon\Carbon;
-use App\Classes\eHealth\EHealthResponse;
-use App\Classes\eHealth\EHealth;
-use Exception;
-
 use App\Classes\eHealth\Api\MedicationRequest;
+use App\Classes\eHealth\EHealth;
+use App\Classes\eHealth\EHealthResponse;
 use App\Contracts\EHealthRequestLifecycleContract;
-use App\Exceptions\EHealth\EHealthResponseException;
 use App\Enums\Person\EncounterStatus;
 use App\Enums\Person\MedicationRequestStatus;
+use App\Exceptions\EHealth\EHealthResponseException;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
+use App\Models\Division;
+use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
 use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
+use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
+use Carbon\Carbon;
+use Exception;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
+use RuntimeException;
+use Throwable;
 
 class MedicationRequestLifecycleService extends EHealthRequestLifecycleService implements EHealthRequestLifecycleContract
 {

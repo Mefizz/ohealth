@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Classes\eHealth\Api\Patient;
 
 use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
-use Illuminate\Validation\ValidationException;
-
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -14,6 +12,7 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class ServiceRequest extends PatientApiBase
 {

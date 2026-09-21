@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CarePlan;
 
+use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
+use App\Classes\eHealth\EHealthResponse;
+use App\Livewire\Components\FlashMessage;
+use App\Models\CarePlanActivity;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+use GuzzleHttp\Psr7\Response;
+use Mockery;
+
 use App\Enums\Person\ApprovalStatus;
 use App\Livewire\CarePlan\CarePlanShow;
 use App\Models\CarePlan;
@@ -114,30 +122,63 @@ class CarePlanShowActionsTest extends TestCase
             ->assertDontSee(__('care-plan.complete_care_plan'));
     }
 
-    public function test_unknown_activity_shows_session_and_livewire_error_without_opening_signature(): void
+    public function test_unknown_activity_shows_one_livewire_error_without_session_flash_or_signature(): void
     {
         $this->actingAs($this->user);
         $plan = $this->makeSignedNewPlan();
         $message = __('care-plan.document_context_unavailable');
 
         $component = Livewire::test(CarePlanShow::class, ['carePlan' => $plan]);
-        $component->instance()->openSignatureModal('cancel_activity', PHP_INT_MAX);
-        $this->assertSame($message, session('error'));
         $component->call('openSignatureModal', 'cancel_activity', PHP_INT_MAX)
             ->assertSet('showSignatureModal', false)
-            ->assertDispatched('flashMessage', ['message' => $message, 'type' => 'error']);
-        // Livewire clears new session flash on a non-redirecting AJAX response.
+            ->assertDispatchedTo(FlashMessage::class, 'flashMessage', ['message' => $message, 'type' => 'error']);
         $this->assertNull(session('error'));
         $this->assertFalse(session()->has('success'));
 
         // The mounted toast receives the Livewire event; a fresh mount reads session flash.
         session()->forget('error');
-        Livewire::test(\App\Livewire\Components\FlashMessage::class)
+        Livewire::test(FlashMessage::class)
             ->dispatch('flashMessage', ['message' => $message, 'type' => 'error'])
             ->assertSet('type', 'error')
             ->assertSee($message);
         session()->flash('error', $message);
-        Livewire::test(\App\Livewire\Components\FlashMessage::class)->assertSee($message);
+        Livewire::test(FlashMessage::class)->assertSee($message);
+    }
+
+    public function test_prescription_sync_consumes_full_lists_and_does_not_downgrade_active_requests(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $activity = CarePlanActivity::create([
+            'care_plan_id' => $plan->id, 'author_id' => $this->employee->id,
+            'uuid' => (string) Str::uuid(), 'kind' => 'medication_request', 'status' => 'draft',
+        ]);
+        $basedOn = Identifier::create(['value' => $activity->uuid]);
+        $records = collect(range(1, 3))->map(fn ($i) => MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'person_id' => $this->person->id,
+            'employee_id' => $this->employee->id, 'based_on_id' => $basedOn->id,
+            'status' => 'new', 'request_number' => 'SYNC-'.$i,
+        ]));
+        $activeId = (string) Str::uuid();
+        $api = Mockery::mock(MedicationRequestApi::class);
+        $response = static fn (array $data) => new EHealthResponse(new Response(200, [], json_encode(['data' => $data])));
+        $api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, [])->andReturn($response([
+            ['id' => $activeId, 'request_number' => 'SYNC-1', 'status' => 'ACTIVE'],
+            ['id' => $records[1]->uuid, 'status' => 'COMPLETED'],
+        ]));
+        $api->shouldReceive('getRequestsBySearchParams')->once()->with($this->person->uuid, [])->andReturn($response([
+            ['id' => $records[0]->uuid, 'status' => 'REJECTED'],
+            ['id' => $records[2]->uuid, 'status' => 'REJECTED'],
+        ]));
+        $this->instance(MedicationRequestApi::class, $api);
+
+        Livewire::test(CarePlanShow::class, ['carePlan' => $plan])->call('syncEPrescriptions');
+
+        $this->assertSame('active', $records[0]->fresh()->status);
+        $this->assertSame($activeId, $records[0]->fresh()->ehealthPayload['active_id']);
+        $this->assertSame('completed', $records[1]->fresh()->status);
+        $this->assertSame('rejected', $records[2]->fresh()->status);
+        $this->assertSame($this->person->id, $records[0]->fresh()->personId);
     }
 
     public function test_referral_without_based_on_shows_a_local_error_and_preserves_draft(): void
@@ -178,7 +219,7 @@ class CarePlanShowActionsTest extends TestCase
             'uuid' => $uuid, 'employee_id' => $this->employee->id,
             'person_id' => $otherPerson->id, 'status' => 'new', 'device_id' => (string) Str::uuid(),
         ]);
-        $lifecycle = \Mockery::mock(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class);
+        $lifecycle = Mockery::mock(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class);
         $lifecycle->shouldNotReceive('syncReferralFromRemote');
         $this->instance(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class, $lifecycle);
 
@@ -264,18 +305,18 @@ class CarePlanShowActionsTest extends TestCase
         $carePlan = $this->makeSignedNewPlan();
         $carePlan->update(['terms_of_service' => 'INPATIENT']);
 
-        $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getStatusCode')->andReturn(201);
         $response->shouldReceive('getData')->andReturn([
             'id' => (string) Str::uuid(),
         ]);
 
-        $api = \Mockery::mock(\App\Classes\eHealth\Api\Approval::class);
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Approval::class);
         $api->shouldReceive('createApproval')
             ->once()
             ->with(
                 $this->person->uuid,
-                \Mockery::on(static fn (array $payload): bool => !array_key_exists('authorize_with', $payload))
+                Mockery::on(static fn (array $payload): bool => !array_key_exists('authorize_with', $payload))
             )
             ->andReturn($response);
         $this->instance(\App\Classes\eHealth\Api\Approval::class, $api);
@@ -294,12 +335,12 @@ class CarePlanShowActionsTest extends TestCase
         $carePlan = $this->makeSignedNewPlan();
         $carePlan->update(['terms_of_service' => 'OUTPATIENT']);
 
-        $authResponse = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $authResponse = Mockery::mock(EHealthResponse::class);
         $authResponse->shouldReceive('getData')->andReturn([
             ['id' => (string) Str::uuid(), 'type' => 'OTP', 'phone_number' => '+380000000000'],
         ]);
 
-        $personApi = \Mockery::mock(\App\Classes\eHealth\Api\Person::class);
+        $personApi = Mockery::mock(\App\Classes\eHealth\Api\Person::class);
         $personApi->shouldReceive('getAuthMethods')
             ->andReturn($authResponse);
         $this->instance(\App\Classes\eHealth\Api\Person::class, $personApi);

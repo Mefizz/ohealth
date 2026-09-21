@@ -4,16 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter;
 
-use App\Traits\SubmitsEHealthEncounter;
-use Exception;
-use RuntimeException;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use App\Enums\Person\ServiceRequestStatus;
-
 use App\Classes\Cipher\Api\CipherRequest;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\Episode\Status;
+use App\Enums\Person\EncounterStatus;
+use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\Cipher\CipherConnectionException;
 use App\Exceptions\Cipher\CipherException;
 use App\Exceptions\EHealth\EHealthConnectionException;
@@ -22,16 +18,19 @@ use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Models\Preperson;
-use App\Enums\Person\EncounterStatus;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\EncounterPackageBuilder;
+use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use App\Traits\EnsuresEntityExists;
+use App\Traits\SubmitsEHealthEncounter;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Str;
+use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Throwable;
 
 class EncounterCreate extends EncounterComponent
@@ -301,7 +300,7 @@ class EncounterCreate extends EncounterComponent
                 $this->patient()
             );
 
-            Session::flash('success', 'Взаємодію успішно створено та надіслано до ЕСОЗ.');
+            Session::flash('success', __('Взаємодію успішно створено та надіслано до ЕСОЗ.'));
             $this->showSignatureModal = false;
 
             if (($this->form->encounter['referralType'] ?? '') === 'electronic' && !empty($this->form->encounter['referralNumber'])) {
@@ -468,7 +467,7 @@ class EncounterCreate extends EncounterComponent
                 // eHealth complete requires the referral to be in progress (use) first.
                 if ($needsTakeIntoWork) {
                     if ($employee === null) {
-                        throw new RuntimeException('Не знайдено співробітника для погашення направлення.');
+                        throw new RuntimeException(__('Не знайдено співробітника для погашення направлення.'));
                     }
 
                     $service->takeIntoWork(
@@ -482,10 +481,10 @@ class EncounterCreate extends EncounterComponent
                 }
 
                 $service->completeReferral($this->referralToRedeemUuid, $this->createdEncounterUuidForRedeem);
-                Session::flash('success', 'Направлення успішно погашено!');
+                Session::flash('success', __('Направлення успішно погашено!'));
             }
         } catch (Exception $e) {
-            Session::flash('error', 'Не вдалося погасити направлення: ' . $e->getMessage());
+            Session::flash('error', __('Не вдалося погасити направлення: ') . $e->getMessage());
         }
 
         $this->showReferralRedeemModal = false;

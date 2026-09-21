@@ -1,21 +1,21 @@
-﻿<x-layouts.patient :personId="$personId" :patientFullName="$patientFullName">
+﻿<x-layouts.patient :showLegacyMessages="false" :personId="$personId" :patientFullName="$patientFullName">
     <x-slot name="headerActions">
         {{-- eHealth search bar --}}
         <div class="flex items-center gap-2">
             <input
                 type="text"
                 wire:model.defer="searchRequestNumber"
-                placeholder="Номер рецепту / запиту"
+                placeholder="{{ __('Номер рецепту / запиту') }}"
                 class="input h-9 w-48 text-sm"
             />
             <select wire:model.defer="searchStatus" class="input-select h-9 w-36 text-sm">
-                <option value="">Будь-який статус</option>
-                <option value="NEW">Новий</option>
-                <option value="draft">Чернетка</option>
-                <option value="active">Активний</option>
-                <option value="completed">Завершений</option>
-                <option value="rejected">Відхилений</option>
-                <option value="entered-in-error">Помилково введено</option>
+                <option value="">{{ __('Будь-який статус') }}</option>
+                <option value="NEW">{{ __('Новий') }}</option>
+                <option value="draft">{{ __('Чернетка') }}</option>
+                <option value="active">{{ __('Активний') }}</option>
+                <option value="completed">{{ __('Завершений') }}</option>
+                <option value="rejected">{{ __('Відхилений') }}</option>
+                <option value="entered-in-error">{{ __('Помилково введено') }}</option>
             </select>
             <button
                 wire:click.prevent="searchInEHealth"
@@ -25,11 +25,11 @@
             >
                 <span wire:loading.remove wire:target="searchInEHealth">
                     @icon('search-outline', 'w-4 h-4')
-                    Шукати в ЄСОЗ
+                    {{ __('Шукати в ЕСОЗ') }}
                 </span>
                 <span wire:loading wire:target="searchInEHealth">
                     @icon('loader-outline', 'w-4 h-4 animate-spin')
-                    Пошук...
+                    {{ __('Пошук...') }}
                 </span>
             </button>
             @if ($isSearchMode)
@@ -38,7 +38,7 @@
                     type="button"
                     class="button-primary-outline px-4 py-2 text-sm whitespace-nowrap"
                 >
-                    ← Локальні дані
+                    {{ __('← Локальні дані') }}
                 </button>
             @endif
         </div>
@@ -51,7 +51,7 @@
             @if ($isSearchMode)
                 <div class="mb-4 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
                     @icon('globe-outline', 'w-4 h-4 shrink-0')
-                    <span>Результати пошуку в ЄСОЗ — натисніть «Зберегти до картки», щоб зберегти запис локально</span>
+                    <span>{{ __('Результати пошуку в ЕСОЗ — натисніть «Зберегти до картки», щоб зберегти запис локально') }}</span>
                 </div>
             @endif
 
@@ -91,7 +91,7 @@
                     class="mr-1 rounded-t-lg border-b-2 px-5 py-2 text-sm font-medium transition-colors {{ $activeTab === 'requests' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400' }}"
                 >
                     @icon('document-text-outline', 'mr-1 inline w-4 h-4')
-                    Е-рецепт запити ({{ count($medicationRequests) }})
+                    {{ __('Е-рецепт запити') }} ({{ count($medicationRequests) }})
                 </button>
                 <button
                     wire:click="switchTab('prescriptions')"
@@ -99,7 +99,7 @@
                     class="rounded-t-lg border-b-2 px-5 py-2 text-sm font-medium transition-colors {{ $activeTab === 'prescriptions' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400' }}"
                 >
                     @icon('medical-outline', 'mr-1 inline w-4 h-4')
-                    Рецепти (МР) ({{ count($prescriptions) }})
+                    {{ __('Рецепти (МР)') }} ({{ count($prescriptions) }})
                 </button>
             </div>
 
@@ -111,35 +111,35 @@
                     {{-- Local filters --}}
                     <div class="mb-6 flex flex-wrap items-end gap-3">
                         <div class="form-group group min-w-[10rem]">
-                            <label class="label" for="filterStatus">Статус</label>
+                            <label class="label" for="filterStatus">{{ __('Статус') }}</label>
                             <select id="filterStatus" wire:model="filterStatus" class="input-select peer w-full">
-                                <option value="">Всі</option>
-                                <option value="NEW">Новий</option>
-                                <option value="draft">Чернетка</option>
-                                <option value="active">Активний</option>
-                                <option value="completed">Завершений</option>
-                                <option value="rejected">Відхилений</option>
-                                <option value="entered-in-error">Помилково введено</option>
+                                <option value="">{{ __('Всі') }}</option>
+                                <option value="NEW">{{ __('Новий') }}</option>
+                                <option value="draft">{{ __('Чернетка') }}</option>
+                                <option value="active">{{ __('Активний') }}</option>
+                                <option value="completed">{{ __('Завершений') }}</option>
+                                <option value="rejected">{{ __('Відхилений') }}</option>
+                                <option value="entered-in-error">{{ __('Помилково введено') }}</option>
                             </select>
                         </div>
                         <div class="form-group group">
-                            <label class="label" for="filterStartedAtFrom">Початок з</label>
+                            <label class="label" for="filterStartedAtFrom">{{ __('Початок з') }}</label>
                             <input id="filterStartedAtFrom" type="date" class="input peer" wire:model="filterStartedAtFrom" />
                         </div>
                         <div class="form-group group">
-                            <label class="label" for="filterStartedAtTo">Початок до</label>
+                            <label class="label" for="filterStartedAtTo">{{ __('Початок до') }}</label>
                             <input id="filterStartedAtTo" type="date" class="input peer" wire:model="filterStartedAtTo" />
                         </div>
                         <div class="form-group group">
-                            <label class="label" for="filterEndedAtFrom">Закінчення з</label>
+                            <label class="label" for="filterEndedAtFrom">{{ __('Закінчення з') }}</label>
                             <input id="filterEndedAtFrom" type="date" class="input peer" wire:model="filterEndedAtFrom" />
                         </div>
                         <div class="form-group group">
-                            <label class="label" for="filterEndedAtTo">Закінчення до</label>
+                            <label class="label" for="filterEndedAtTo">{{ __('Закінчення до') }}</label>
                             <input id="filterEndedAtTo" type="date" class="input peer" wire:model="filterEndedAtTo" />
                         </div>
-                        <button wire:click.prevent="applyFilters" type="button" class="button-primary px-4 py-2 text-sm">Фільтрувати</button>
-                        <button wire:click.prevent="resetFilters" type="button" class="button-primary-outline px-4 py-2 text-sm">Скинути</button>
+                        <button wire:click.prevent="applyFilters" type="button" class="button-primary px-4 py-2 text-sm">{{ __('Фільтрувати') }}</button>
+                        <button wire:click.prevent="resetFilters" type="button" class="button-primary-outline px-4 py-2 text-sm">{{ __('Скинути') }}</button>
                     </div>
                 @endif
 
@@ -148,15 +148,15 @@
                     <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
                         <thead class="bg-gray-50 dark:bg-gray-900/40">
                             <tr>
-                                <th class="px-4 py-3 text-left font-medium">Номер</th>
-                                <th class="px-4 py-3 text-left font-medium">Статус</th>
-                                <th class="px-4 py-3 text-left font-medium">Медикамент</th>
-                                <th class="px-4 py-3 text-left font-medium">Кількість</th>
-                                <th class="px-4 py-3 text-left font-medium">Період</th>
-                                <th class="px-4 py-3 text-left font-medium">Програма</th>
-                                <th class="px-4 py-3 text-left font-medium">Підстава</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Номер') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Статус') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Медикамент') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Кількість') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Період') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Програма') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Підстава') }}</th>
                                 @if ($isSearchMode)
-                                    <th class="px-4 py-3 text-left font-medium">Дія</th>
+                                    <th class="px-4 py-3 text-left font-medium">{{ __('Дія') }}</th>
                                 @endif
                             </tr>
                         </thead>
@@ -187,7 +187,7 @@
                                                 type="button"
                                                 class="button-primary-outline px-3 py-1 text-xs"
                                             >
-                                                Зберегти до картки
+                                                {{ __('Зберегти до картки') }}
                                             </button>
                                         </td>
                                     @endif
@@ -195,7 +195,7 @@
                             @empty
                                 <tr>
                                     <td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                                        {{ $isSearchMode ? 'Нічого не знайдено за параметрами пошуку.' : 'Рецепт-запити не знайдено у локальній базі даних.' }}
+                                        {{ $isSearchMode ? __('Нічого не знайдено за параметрами пошуку.') : __('Рецепт-запити не знайдено у локальній базі даних.') }}
                                     </td>
                                 </tr>
                             @endforelse
@@ -210,8 +210,7 @@
             @if ($activeTab === 'prescriptions')
                 @if (!$isSearchMode)
                     <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        Відображаються рецепти, які раніше були завантажені з ЄСОЗ.
-                        Для пошуку нових — скористайтесь полем пошуку вгорі та натисніть «Шукати в ЄСОЗ».
+                        {{ __('Відображаються рецепти, які раніше були завантажені з ЕСОЗ. Для пошуку нових — скористайтесь полем пошуку вгорі та натисніть «Шукати в ЕСОЗ».') }}
                     </p>
                 @endif
 
@@ -219,14 +218,14 @@
                     <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
                         <thead class="bg-gray-50 dark:bg-gray-900/40">
                             <tr>
-                                <th class="px-4 py-3 text-left font-medium">Номер</th>
-                                <th class="px-4 py-3 text-left font-medium">Статус</th>
-                                <th class="px-4 py-3 text-left font-medium">Медикамент</th>
-                                <th class="px-4 py-3 text-left font-medium">Кількість</th>
-                                <th class="px-4 py-3 text-left font-medium">Період</th>
-                                <th class="px-4 py-3 text-left font-medium">Програма</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Номер') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Статус') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Медикамент') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Кількість') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Період') }}</th>
+                                <th class="px-4 py-3 text-left font-medium">{{ __('Програма') }}</th>
                                 @if ($isSearchMode)
-                                    <th class="px-4 py-3 text-left font-medium">Дія</th>
+                                    <th class="px-4 py-3 text-left font-medium">{{ __('Дія') }}</th>
                                 @endif
                             </tr>
                         </thead>
@@ -257,7 +256,7 @@
                                                 type="button"
                                                 class="button-primary-outline px-3 py-1 text-xs"
                                             >
-                                                Зберегти до картки
+                                                {{ __('Зберегти до картки') }}
                                             </button>
                                         </td>
                                     @endif
@@ -265,7 +264,7 @@
                             @empty
                                 <tr>
                                     <td colspan="7" class="px-4 py-8 text-center text-gray-500">
-                                        {{ $isSearchMode ? 'Нічого не знайдено за параметрами пошуку.' : 'Рецепти з ЄСОЗ ще не завантажені до картки пацієнта. Скористайтесь пошуком вгорі.' }}
+                                        {{ $isSearchMode ? __('Нічого не знайдено за параметрами пошуку.') : __('Рецепти з ЕСОЗ ще не завантажені до картки пацієнта. Скористайтесь пошуком вгорі.') }}
                                     </td>
                                 </tr>
                             @endforelse

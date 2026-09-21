@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
+use RuntimeException;
+use Illuminate\Support\Facades\Cache;
+
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\Person\ApprovalStatus;
@@ -136,7 +139,7 @@ class CarePlanApprovalService
         }
 
         if (!in_array($statusCode, [200, 201], true)) {
-            throw new \RuntimeException('Unexpected eHealth approval create status: '.$statusCode);
+            throw new RuntimeException('Unexpected eHealth approval create status: '.$statusCode);
         }
 
         $approvalId = $this->extractApprovalId($responseData);
@@ -191,8 +194,8 @@ class CarePlanApprovalService
     {
         $key = 'care-plan-otp-resend:'.$patientUuid.':'.$approvalId;
 
-        if (!\Illuminate\Support\Facades\Cache::add($key, true, now()->addMinutes(10))) {
-            throw new \RuntimeException(__('validation.sms_already_resent'));
+        if (!Cache::add($key, true, now()->addMinutes(10))) {
+            throw new RuntimeException(__('validation.sms_already_resent'));
         }
 
         return EHealth::approval()->resendSms($patientUuid, $approvalId);
@@ -311,19 +314,19 @@ class CarePlanApprovalService
         $href = $responseData['links'][0]['href'] ?? null;
 
         if (!$href) {
-            throw new \RuntimeException('Async approval response missing job link href');
+            throw new RuntimeException('Async approval response missing job link href');
         }
 
         if (!$legalEntity) {
-            throw new \RuntimeException('Legal entity is required for async approval processing');
+            throw new RuntimeException('Legal entity is required for async approval processing');
         }
 
         if (!$user) {
-            throw new \RuntimeException('User is required for async approval processing');
+            throw new RuntimeException('User is required for async approval processing');
         }
 
         if ($bearerToken === null || $bearerToken === '') {
-            throw new \RuntimeException('Bearer token is required for async approval processing');
+            throw new RuntimeException('Bearer token is required for async approval processing');
         }
 
         $approvalUuid = $responseData['id'] ?? (string) Str::uuid();

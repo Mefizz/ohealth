@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter\Concerns;
 
+use Throwable;
+use App\Services\MedicalEvents\MedicalRequestOwnership;
+use RuntimeException;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+
 use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
@@ -117,7 +122,7 @@ trait ManagesEncounterReferrals
                 static fn (array $params): array => EHealth::service()->getMany($params)->getData()
             );
             $this->encounterReferralWarningMessage = '';
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('EncounterEdit: service search failed for standalone referral: '.$exception->getMessage());
             $this->encounterReferralServiceResults = [];
             $this->encounterReferralWarningMessage = 'Не вдалося виконати пошук послуг. Спробуйте ще раз.';
@@ -196,7 +201,7 @@ trait ManagesEncounterReferrals
             $exception->report();
             $this->encounterReferralWarningMessage = $exception->getFormattedMessage();
             $this->flashOutcome('error', $this->encounterReferralWarningMessage);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('EncounterEdit: failed to create encounter referral: '.$exception->getMessage());
             $this->encounterReferralWarningMessage = 'Не вдалося створити направлення: '.$exception->getMessage();
             $this->flashOutcome('error', $this->encounterReferralWarningMessage);
@@ -222,7 +227,7 @@ trait ManagesEncounterReferrals
         }
 
         try {
-            $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            $requestRecord = app(MedicalRequestOwnership::class)
                 ->serviceForEncounter(
                     (string) $this->encounterReferralRequestIdToSign,
                     $encounter
@@ -231,7 +236,7 @@ trait ManagesEncounterReferrals
             $validated = $this->form->validate($this->form->signingRules());
             $person = Person::find($encounter->person_id);
             if ($person === null || empty($person->uuid)) {
-                throw new \RuntimeException('Пацієнта не знайдено');
+                throw new RuntimeException('Пацієнта не знайдено');
             }
 
             $lifecycle = app(ReferralRequestLifecycleService::class);
@@ -274,10 +279,10 @@ trait ManagesEncounterReferrals
                     $remote = $lifecycle->fetchRemoteReferral($person->uuid, $dbData['uuid'], 'service_request');
                     $dbData['request_number'] = $remote['requisition'] ?? $remote['request_number'] ?? $dbData['request_number'];
                     if (!empty($dbData['request_number'])) {
-                        \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $dbData['uuid'])
+                        ServiceRequestRequest::where('uuid', $dbData['uuid'])
                             ->update(['request_number' => $dbData['request_number']]);
                     }
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     Log::warning('EncounterEdit: failed to fetch remote referral for number: '.$e->getMessage());
                 }
             }
@@ -298,7 +303,7 @@ trait ManagesEncounterReferrals
             $this->flashOutcome('error', $exception->getFormattedMessage());
             $this->showSignatureModal = false;
             $this->actionType = null;
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('EncounterEdit: failed to sign encounter referral: '.$exception->getMessage());
             $this->flashOutcome('error', 'Не вдалося підписати направлення: '.$exception->getMessage());
             $this->showSignatureModal = false;
@@ -332,7 +337,7 @@ trait ManagesEncounterReferrals
                     'raw' => $uuid !== '' ? "{$uuid}|{$type}|{$phone}" : '',
                 ];
             })->filter(static fn (array $m): bool => $m['uuid'] !== '')->values()->all();
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('EncounterEdit: failed to load auth methods for referral: '.$exception->getMessage());
         }
     }
@@ -350,7 +355,7 @@ trait ManagesEncounterReferrals
                 ->filter(static fn (array $program): bool => $program['id'] !== '' && $program['name'] !== '')
                 ->values()
                 ->all();
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('EncounterEdit: failed to load service programs for standalone referral: '.$exception->getMessage());
             $this->encounterReferralPrograms = [];
         }

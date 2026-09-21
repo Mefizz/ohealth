@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Models\MedicalEvents\Sql\Encounter;
+
 use App\Enums\Person\ServiceRequestStatus;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -134,7 +136,7 @@ class DeviceRequestRequestRepository extends BaseRepository
 
         $encounterIdsByUuid = $encounterUuids === []
             ? []
-            : \App\Models\MedicalEvents\Sql\Encounter::query()
+            : Encounter::query()
                 ->whereIn('uuid', $encounterUuids)
                 ->pluck('id', 'uuid')
                 ->all();

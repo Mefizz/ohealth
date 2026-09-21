@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
+use Throwable;
+use Carbon\Carbon;
+
 use App\Classes\eHealth\EHealth;
 use App\Enums\Contract\ContractStatus;
 use App\Models\CarePlan;
@@ -41,7 +44,7 @@ class DeviceProgramParticipationGuard
                     Repository::contract()->saveFromEHealth($item);
                 }
             }
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('DeviceProgramParticipationGuard: contract sync failed', [
                 'legal_entity_uuid' => $legalEntity->uuid,
                 'message' => $exception->getMessage(),
@@ -73,7 +76,7 @@ class DeviceProgramParticipationGuard
 
         try {
             $programPayload = dictionary()->medicalPrograms()->firstWhere('id', $programId);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             $programPayload = null;
         }
 
@@ -199,9 +202,8 @@ class DeviceProgramParticipationGuard
 
             if ($programId !== null && $programId !== '') {
                 $rowProgramId = (string) ($programDevice['medical_program_id']
-                    ?? $programDevice['program_id']
-                    ?? $programDevice['medicalProgramId']
-                    ?? '');
+                    ?? ($programDevice['program_id']
+                        ?? ($programDevice['medicalProgramId'] ?? '')));
                 // Rows returned under medical_program_id filter often omit program id on the nested object.
                 if ($rowProgramId !== '' && $rowProgramId !== $programId) {
                     continue;
@@ -215,12 +217,12 @@ class DeviceProgramParticipationGuard
             }
 
             $startDate = $programDevice['start_date'] ?? null;
-            if (is_string($startDate) && $startDate !== '' && $today->lt(\Carbon\Carbon::parse($startDate)->startOfDay())) {
+            if (is_string($startDate) && $startDate !== '' && $today->lt(Carbon::parse($startDate)->startOfDay())) {
                 continue;
             }
 
             $endDate = $programDevice['end_date'] ?? null;
-            if (is_string($endDate) && $endDate !== '' && $today->gt(\Carbon\Carbon::parse($endDate)->endOfDay())) {
+            if (is_string($endDate) && $endDate !== '' && $today->gt(Carbon::parse($endDate)->endOfDay())) {
                 continue;
             }
 
@@ -279,7 +281,7 @@ class DeviceProgramParticipationGuard
             } while ($page <= (int) ($paging['total_pages'] ?? 1));
 
             return 'missing';
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('DeviceProgramParticipationGuard: device catalog lookup failed', [
                 'program_id' => $programId,
                 'device_id' => $deviceDefinitionId,
@@ -341,7 +343,7 @@ class DeviceProgramParticipationGuard
             $program = dictionary()->medicalPrograms()->firstWhere('id', $programId);
 
             return is_array($program) ? (string) ($program['name'] ?? $programId) : $programId;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return $programId;
         }
     }

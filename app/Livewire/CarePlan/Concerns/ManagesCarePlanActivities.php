@@ -26,7 +26,7 @@ use UnitEnum;
 
 trait ManagesCarePlanActivities
 {
-    private const DEFAULT_MEDICATION_PROGRAM_ID = '1318eabc-1a1a-42f6-8450-61e11c19eede';
+    protected const DEFAULT_MEDICATION_PROGRAM_ID = '1318eabc-1a1a-42f6-8450-61e11c19eede';
 
     public bool $confirmingActivityDeletion = false;
 
@@ -287,7 +287,9 @@ trait ManagesCarePlanActivities
             return;
         }
 
-        $statusVal = $activity->status instanceof UnitEnum ? $activity->status->value : $activity->status;
+        $statusVal = $activity->status instanceof UnitEnum
+            ? $activity->status->value
+            : $activity->status;
         $activityStatus = strtolower(is_array($statusVal)
             ? ($statusVal['coding'][0]['code'] ?? ($statusVal['text'] ?? ''))
             : (string) $statusVal);
@@ -512,8 +514,8 @@ trait ManagesCarePlanActivities
 
         if (str_contains($kindLower, 'device') && !empty($this->selectedProduct)) {
             $programForDevice = $validated['activityForm']['program']
-                ?? $this->activityForm['program']
-                ?? (filled($this->selectedProgram) ? $this->selectedProgram : null);
+                ?? ($this->activityForm['program']
+                    ?? (filled($this->selectedProgram) ? $this->selectedProgram : null));
             // Program participation constraints only apply when a medical program is chosen.
             if (filled($programForDevice)) {
                 $guard = app(DeviceProgramParticipationGuard::class);

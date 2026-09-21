@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter\Concerns;
 
+use Throwable;
+use App\Services\MedicalEvents\MedicalRequestOwnership;
+
 use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
@@ -144,7 +147,7 @@ trait ManagesEncounterEPrescription
                 ->values()
                 ->all();
             $this->encounterEPrescriptionWarningMessage = '';
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('EncounterEdit: medication search failed for standalone eRx: '.$exception->getMessage());
             $this->encounterEPrescriptionSearchResults = [];
             $this->encounterEPrescriptionWarningMessage = 'Не вдалося виконати пошук лікарських засобів. Спробуйте ще раз.';
@@ -240,7 +243,7 @@ trait ManagesEncounterEPrescription
             $exception->report();
             $this->encounterEPrescriptionWarningMessage = $exception->getTranslatedMessage();
             $this->flashOutcome('error', $this->encounterEPrescriptionWarningMessage);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('EncounterEdit: failed to create encounter eRx: '.$exception->getMessage());
             $this->encounterEPrescriptionWarningMessage = 'Не вдалося створити заявку на рецепт: '.$exception->getMessage();
             $this->flashOutcome('error', $this->encounterEPrescriptionWarningMessage);
@@ -266,7 +269,7 @@ trait ManagesEncounterEPrescription
         }
 
         try {
-            $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            $requestRecord = app(MedicalRequestOwnership::class)
                 ->medicationForEncounter(
                     (string) $this->encounterEPrescriptionRequestIdToSign,
                     $encounter
@@ -324,7 +327,7 @@ trait ManagesEncounterEPrescription
             $this->flashOutcome('error', $message);
             $this->showSignatureModal = false;
             $this->actionType = null;
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('EncounterEdit: failed to sign encounter eRx: '.$exception->getMessage());
             $message = 'Не вдалося підписати рецепт: '.$exception->getMessage();
             $this->flashOutcome('error', $message);
@@ -363,7 +366,7 @@ trait ManagesEncounterEPrescription
                     'value' => $value,
                 ];
             })->filter(static fn (array $m): bool => $m['uuid'] !== '')->values()->all();
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('EncounterEdit: failed to load auth methods for eRx: '.$exception->getMessage());
         }
     }

@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter;
 
+use App\Traits\SubmitsEHealthEncounter;
+use Exception;
+use RuntimeException;
+use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use App\Enums\Person\ServiceRequestStatus;
+
 use App\Classes\Cipher\Api\CipherRequest;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
@@ -31,7 +37,7 @@ use Throwable;
 class EncounterCreate extends EncounterComponent
 {
     use EnsuresEntityExists;
-    use \App\Traits\SubmitsEHealthEncounter;
+    use SubmitsEHealthEncounter;
 
     private EncounterPackageBuilder $packageBuilder;
 
@@ -133,7 +139,7 @@ class EncounterCreate extends EncounterComponent
             $validated = $this->validate();
             try {
                 $this->resolveAllReferrals($validated);
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->dispatch('scroll-to-error');
 
                 return;
@@ -198,7 +204,7 @@ class EncounterCreate extends EncounterComponent
             $validatedData = $this->validate();
             try {
                 $this->resolveAllReferrals($validatedData);
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->dispatch('scroll-to-error');
 
                 return;
@@ -313,11 +319,11 @@ class EncounterCreate extends EncounterComponent
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error while submitting encounter');
             $this->showSignatureModal = false;
-        } catch (\RuntimeException $exception) {
+        } catch (RuntimeException $exception) {
             logger()->error('Encounter submission runtime error: ' . $exception->getMessage());
             Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             logger()->error('Encounter submission unexpected error: ' . $exception->getMessage(), [
                 'trace' => $exception->getTraceAsString(),
             ]);
@@ -436,7 +442,7 @@ class EncounterCreate extends EncounterComponent
     public function closeRedeemModal(): void
     {
         $this->showReferralRedeemModal = false;
-        $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
+        $encounter = Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
         if ($encounter) {
             $this->redirectAfterCreate($encounter->id);
         } else {
@@ -444,11 +450,11 @@ class EncounterCreate extends EncounterComponent
         }
     }
 
-    public function redeemReferral(\App\Services\MedicalEvents\ReferralRequestLifecycleService $service): void
+    public function redeemReferral(ReferralRequestLifecycleService $service): void
     {
         try {
             if ($this->referralToRedeemUuid && $this->createdEncounterUuidForRedeem) {
-                $employee = Auth::user()?->employees()
+                $employee = Auth::user()->employees()
                     ->where('legal_entity_id', legalEntity()->id)
                     ->first();
 
@@ -456,13 +462,13 @@ class EncounterCreate extends EncounterComponent
                 $status = strtolower((string) ($local?->status ?? ''));
                 $needsTakeIntoWork = $local === null
                     || $status === ''
-                    || $status === \App\Enums\Person\ServiceRequestStatus::ACTIVE->value
+                    || $status === ServiceRequestStatus::ACTIVE->value
                     || $status === 'active';
 
                 // eHealth complete requires the referral to be in progress (use) first.
                 if ($needsTakeIntoWork) {
                     if ($employee === null) {
-                        throw new \RuntimeException('Не знайдено співробітника для погашення направлення.');
+                        throw new RuntimeException('Не знайдено співробітника для погашення направлення.');
                     }
 
                     $service->takeIntoWork(
@@ -478,14 +484,14 @@ class EncounterCreate extends EncounterComponent
                 $service->completeReferral($this->referralToRedeemUuid, $this->createdEncounterUuidForRedeem);
                 Session::flash('success', 'Направлення успішно погашено!');
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Session::flash('error', 'Не вдалося погасити направлення: ' . $e->getMessage());
         }
 
         $this->showReferralRedeemModal = false;
 
         // Find local encounter ID by UUID to redirect properly
-        $encounter = \App\Models\MedicalEvents\Sql\Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
+        $encounter = Encounter::where('uuid', $this->createdEncounterUuidForRedeem)->first();
         if ($encounter) {
             $this->redirectAfterCreate($encounter->id);
         } else {

@@ -4,6 +4,21 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
+use App\Enums\CarePlanStatus;
+use RuntimeException;
+use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Throwable;
+use Exception;
+use App\Services\MedicalEvents\MedicalRequestOwnership;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
+use App\Enums\Person\ServiceRequestStatus;
+use Carbon\Carbon;
+use App\Models\CarePlanActivity;
+use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
+use App\Repositories\MedicalEvents\Repository;
+
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -40,7 +55,7 @@ trait ManagesCarePlanReferrals
 
         if ($this->isTerminalCarePlan) {
             $this->flashOutcome('error', __('care-plan.cannot_mutate_terminal_care_plan', [
-                'status' => \App\Enums\CarePlanStatus::labelFor($this->carePlan->status),
+                'status' => CarePlanStatus::labelFor($this->carePlan->status),
             ]));
 
             return;
@@ -61,15 +76,15 @@ trait ManagesCarePlanReferrals
 
         try {
             app(CarePlanActivityEHealthGuard::class)->assertRegisteredInEHealth($this->carePlan, $activity);
-        } catch (\RuntimeException $exception) {
+        } catch (RuntimeException $exception) {
             session()->flash('error', $exception->getMessage());
 
             return;
         }
 
-        $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+        $existingDraft = app(ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
         if ($existingDraft) {
-            if (app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
+            if (app(ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
                 if ($activity->status === 'scheduled') {
                     $activity->update(['status' => 'in-progress']);
                 }
@@ -100,7 +115,7 @@ trait ManagesCarePlanReferrals
 
         // Calculate remaining quantity
         $activityQty = (float) ($activity->quantity ?? 0);
-        $issuedQty = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->sumIssuedQuantity($activity);
+        $issuedQty = app(ReferralRequestLifecycleService::class)->sumIssuedQuantity($activity);
         $this->referralRemainingQty = $activity->quantity === null
             ? 1.0
             : max(0.0, $activityQty - $issuedQty);
@@ -167,7 +182,7 @@ trait ManagesCarePlanReferrals
                     $informWith = $this->referralAuthMethods[0]['raw'];
                 }
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('CarePlanShow: failed to load auth methods for referral: '.$e->getMessage());
         }
 
@@ -267,7 +282,7 @@ trait ManagesCarePlanReferrals
             return;
         }
         if ($activity) {
-            $existingDraft = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+            $existingDraft = app(ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
             if ($existingDraft) {
                 $this->referralRequestIdToSign = $existingDraft->uuid;
                 $signAction = $this->referralForm['kind'] === 'service_request'
@@ -282,13 +297,13 @@ trait ManagesCarePlanReferrals
         try {
             $this->carePlan->loadMissing(['encounter', 'person']);
 
-            $employeeContext = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
+            $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
                 $this->carePlan,
                 $activity,
                 Auth::user()?->activeDoctorEmployee()?->id
             );
 
-            $this->referralRequestIdToSign = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createCarePlanDraft(
+            $this->referralRequestIdToSign = app(ReferralRequestLifecycleService::class)->createCarePlanDraft(
                 $this->carePlan,
                 $this->referralForm,
                 $qty,
@@ -302,7 +317,7 @@ trait ManagesCarePlanReferrals
             $exception->report();
             $this->showReferralDrawer = true;
             $this->flashUserError($exception->getTranslatedMessage());
-        } catch (\Exception $exception) {
+        } catch (Exception $exception) {
             $this->showReferralDrawer = true;
             Log::error('CarePlanShow: failed to create referral request: ' . $exception->getMessage());
             $kindLabel = ($this->referralForm['kind'] ?? '') === 'device_request'
@@ -316,7 +331,7 @@ trait ManagesCarePlanReferrals
     {
         $this->authorizeCarePlanWrite();
         try {
-            app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            app(MedicalRequestOwnership::class)
                 ->referralForPerson($requestId, (int) $this->carePlan->personId);
         } catch (ModelNotFoundException) {
             $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
@@ -327,7 +342,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $response = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
+            $response = app(ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
 
             if ($response->successful()) {
                 $this->flashOutcome('success', __('care-plan.referral_sms_resent'));
@@ -352,7 +367,7 @@ trait ManagesCarePlanReferrals
 
             Log::error('CarePlanShow: failed to resend referral SMS response: ' . $exception->getMessage());
             $this->flashOutcome('error', 'Помилка надсилання СМС: ' . $exception->getMessage());
-        } catch (\Exception $exception) {
+        } catch (Exception $exception) {
             Log::error('CarePlanShow: failed to resend referral SMS: ' . $exception->getMessage());
             $this->flashOutcome('error', 'Помилка надсилання СМС: ' . $exception->getMessage());
         }
@@ -370,7 +385,7 @@ trait ManagesCarePlanReferrals
         $this->carePlan->loadMissing(['encounter', 'person']);
 
         try {
-            $requestRecord = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            $requestRecord = app(MedicalRequestOwnership::class)
                 ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
         } catch (ModelNotFoundException) {
             $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
@@ -380,7 +395,7 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $kind = $requestRecord instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest
+        $kind = $requestRecord instanceof ServiceRequestRequest
             ? 'service_request'
             : 'device_request';
 
@@ -400,8 +415,8 @@ trait ManagesCarePlanReferrals
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
 
             $mapper = $kind === 'service_request'
-                ? new \App\Services\MedicalEvents\Mappers\ServiceRequestMapper()
-                : new \App\Services\MedicalEvents\Mappers\DeviceRequestMapper();
+                ? new ServiceRequestMapper()
+                : new DeviceRequestMapper();
 
             $signPayload = $mapper->toCreateSignedContent(
                 $dbData,
@@ -418,10 +433,10 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)
+            $finalResponse = app(ReferralRequestLifecycleService::class)
                 ->submitSignedCreate($kind, $this->carePlan->person->uuid, $signedContent);
 
-            $dbData = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->persistAfterSignedCreate(
+            $dbData = app(ReferralRequestLifecycleService::class)->persistAfterSignedCreate(
                 $dbData,
                 $finalResponse,
                 $kind,
@@ -441,7 +456,7 @@ trait ManagesCarePlanReferrals
                     $activity = $this->ownedActivityByBasedOnUuid($requestRecord->basedOn?->value);
 
                     $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
-                    $dbData = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+                    $dbData = app(ReferralRequestLifecycleService::class)->syncReferralFromRemote(
                         $this->carePlan,
                         $activity,
                         $requestRecord,
@@ -449,7 +464,7 @@ trait ManagesCarePlanReferrals
                         $dbData
                     );
                     $this->finalizeSignedReferral($dbData, $kind, $activity, true);
-                } catch (\Exception $syncException) {
+                } catch (Exception $syncException) {
                     Log::error('CarePlanShow: failed to sync referral after duplicate eHealth id: ' . $syncException->getMessage());
                     $this->flashUserError('Документ вже існує в ЕСОЗ, але не вдалося синхронізувати локальні дані: ' . $syncException->getMessage());
                     $this->showSignatureModal = false;
@@ -462,7 +477,7 @@ trait ManagesCarePlanReferrals
             Log::error('CarePlanShow: failed to sign referral validation: ' . $translatedMsg);
             $this->flashUserError($translatedMsg);
             $this->showSignatureModal = false;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanShow: failed to sign referral: ' . $e->getMessage());
             $this->flashUserError('Не вдалося підписати документ: ' . $e->getMessage());
             $this->showSignatureModal = false;
@@ -497,7 +512,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $record = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            $record = app(MedicalRequestOwnership::class)
                 ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
         } catch (ModelNotFoundException) {
             $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
@@ -506,7 +521,7 @@ trait ManagesCarePlanReferrals
 
             return;
         }
-        $service = $record instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest ? $record : null;
+        $service = $record instanceof ServiceRequestRequest ? $record : null;
         $device = $service ? null : $record;
 
         $record = $service ?: $device;
@@ -531,7 +546,7 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)
+            $finalResponse = app(ReferralRequestLifecycleService::class)
                 ->submitSignedRecall($this->carePlan->person->uuid, $record->uuid, [
                     'signed_data' => $signedContent,
                     'signed_data_encoding' => 'base64',
@@ -541,7 +556,7 @@ trait ManagesCarePlanReferrals
             $this->persistReferralStatusFromJob(
                 $finalResponse,
                 $record,
-                \App\Enums\Person\ServiceRequestStatus::RECALLED
+                ServiceRequestStatus::RECALLED
             );
             $this->showSignatureModal = false;
             $this->referralExplanatoryLetter = '';
@@ -552,7 +567,7 @@ trait ManagesCarePlanReferrals
             Log::error('CarePlanShow: failed to recall referral validation: '.$translatedMsg);
             $this->flashOutcome('error', $translatedMsg);
             $this->showSignatureModal = false;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanShow: failed to recall referral: '.$e->getMessage());
             $this->flashOutcome('error', 'Не вдалося відкликати направлення: '.$e->getMessage());
             $this->showSignatureModal = false;
@@ -569,7 +584,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $record = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class)
+            $record = app(MedicalRequestOwnership::class)
                 ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
         } catch (ModelNotFoundException) {
             $this->flashOutcome('error', __('care-plan.document_context_unavailable'));
@@ -578,7 +593,7 @@ trait ManagesCarePlanReferrals
 
             return;
         }
-        $service = $record instanceof \App\Models\MedicalEvents\Sql\ServiceRequestRequest ? $record : null;
+        $service = $record instanceof ServiceRequestRequest ? $record : null;
         $device = $service ? null : $record;
 
         $record = $service ?: $device;
@@ -598,7 +613,7 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)
+            $finalResponse = app(ReferralRequestLifecycleService::class)
                 ->submitSignedCancel($kind, $this->carePlan->person->uuid, $record->uuid, [
                     'signed_data' => $signedContent,
                     'signed_data_encoding' => 'base64',
@@ -608,7 +623,7 @@ trait ManagesCarePlanReferrals
             $this->persistReferralStatusFromJob(
                 $finalResponse,
                 $record,
-                \App\Enums\Person\ServiceRequestStatus::ENTERED_IN_ERROR
+                ServiceRequestStatus::ENTERED_IN_ERROR
             );
             $this->showSignatureModal = false;
             $this->refreshCarePlan();
@@ -618,7 +633,7 @@ trait ManagesCarePlanReferrals
             Log::error('CarePlanShow: failed to cancel referral validation: ' . $translatedMsg);
             $this->flashOutcome('error', $translatedMsg);
             $this->showSignatureModal = false;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanShow: failed to cancel referral: ' . $e->getMessage());
             $this->flashOutcome('error', 'Не вдалося скасувати направлення: ' . $e->getMessage());
             $this->showSignatureModal = false;
@@ -628,15 +643,15 @@ trait ManagesCarePlanReferrals
     public function loadReferralPrintoutForm(string $requestId): string
     {
         try {
-            $html = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->buildPrintoutHtml($this->carePlan, $requestId);
+            $html = app(ReferralRequestLifecycleService::class)->buildPrintoutHtml($this->carePlan, $requestId);
             $this->printableContent = $html;
 
             return $html;
-        } catch (\RuntimeException $exception) {
+        } catch (RuntimeException $exception) {
             $this->flashOutcome('error', $exception->getMessage());
 
             return '';
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('CarePlanShow: failed to load referral printout: ' . $e->getMessage());
             $this->flashOutcome('error', 'Не вдалося завантажити друковану форму.');
 
@@ -649,7 +664,7 @@ trait ManagesCarePlanReferrals
         $this->authorizeCarePlanWrite();
 
         try {
-            $ownership = app(\App\Services\MedicalEvents\MedicalRequestOwnership::class);
+            $ownership = app(MedicalRequestOwnership::class);
             $requestRecord = match ($kind) {
                 'service_request' => $ownership->serviceForPerson($requestUuid, (int) $this->carePlan->personId),
                 'device_request' => $ownership->deviceForPerson($requestUuid, (int) $this->carePlan->personId),
@@ -675,7 +690,7 @@ trait ManagesCarePlanReferrals
             ];
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
-            app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+            app(ReferralRequestLifecycleService::class)->syncReferralFromRemote(
                 $this->carePlan,
                 $activity,
                 $requestRecord,
@@ -727,7 +742,7 @@ trait ManagesCarePlanReferrals
             $this->showSignatureModal = false;
             $this->actionType = '';
 
-        } catch (\Exception $exception) {
+        } catch (Exception $exception) {
             Log::error('CarePlanShow: failed to sync referral from eHealth: ' . $exception->getMessage());
             $this->flashOutcome('error', 'Не вдалося оновити направлення з ЕСОЗ: ' . $exception->getMessage());
         }
@@ -746,7 +761,7 @@ trait ManagesCarePlanReferrals
             $category = $this->findServiceCategoryInCatalog($catalog, $serviceId);
 
             return $category !== null ? (string) $category : null;
-        } catch (\Exception $exception) {
+        } catch (Exception $exception) {
             Log::warning('CarePlanShow: failed to resolve service category: ' . $exception->getMessage());
         }
 
@@ -783,7 +798,7 @@ trait ManagesCarePlanReferrals
     /**
      * @return array{started_at: string, ended_at: string}
      */
-    protected function resolveReferralOccurrenceDates(?\Carbon\Carbon $scheduledStart, ?\Carbon\Carbon $scheduledEnd): array
+    protected function resolveReferralOccurrenceDates(?Carbon $scheduledStart, ?Carbon $scheduledEnd): array
     {
         $minStart = now();
         $start = $scheduledStart && $scheduledStart->greaterThan($minStart)
@@ -803,7 +818,7 @@ trait ManagesCarePlanReferrals
     /**
      * Resolve device packaging_count from eHealth device definition (package step for eRx).
      */
-    protected function resolveDevicePackageQuantity(\App\Models\CarePlanActivity $activity): int
+    protected function resolveDevicePackageQuantity(CarePlanActivity $activity): int
     {
         $reference = (string) ($activity->productReference ?? '');
         if ($reference === '') {
@@ -823,7 +838,7 @@ trait ManagesCarePlanReferrals
                 : 0;
 
             return max(0, $count);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('CarePlanShow: failed to resolve device package quantity: '.$exception->getMessage());
 
             return 0;
@@ -843,7 +858,7 @@ trait ManagesCarePlanReferrals
             if (isset($data[0]) && is_array($data[0])) {
                 return $data[0];
             }
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::debug('CarePlanShow: device definition getById failed: '.$exception->getMessage(), [
                 'uuid' => $reference,
             ]);
@@ -891,13 +906,13 @@ trait ManagesCarePlanReferrals
      */
     protected function persistReferralStatusFromJob(
         array $finalResponse,
-        \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $record,
-        \App\Enums\Person\ServiceRequestStatus $fallback
+        ServiceRequestRequest|DeviceRequestRequest $record,
+        ServiceRequestStatus $fallback
     ): void {
         $result = $finalResponse['result'] ?? null;
         $entity = is_array($result) ? ($result[0] ?? $result) : $finalResponse;
         $raw = is_array($entity) ? ($entity['status'] ?? null) : null;
-        $resolved = is_string($raw) ? \App\Enums\Person\ServiceRequestStatus::resolve($raw) : null;
+        $resolved = is_string($raw) ? ServiceRequestStatus::resolve($raw) : null;
 
         $record->update([
             'status' => ($resolved ?? $fallback)->value,
@@ -913,10 +928,10 @@ trait ManagesCarePlanReferrals
      * }
      */
     protected function resolveReferralEmployeeContext(
-        \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $requestRecord,
-        \App\Models\CarePlanActivity $activity
+        ServiceRequestRequest|DeviceRequestRequest $requestRecord,
+        CarePlanActivity $activity
     ): array {
-        $context = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->resolveEmployeeContext(
+        $context = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
             $this->carePlan,
             $activity,
             $requestRecord->employeeId
@@ -934,12 +949,12 @@ trait ManagesCarePlanReferrals
      * @return array<string, mixed>
      */
     protected function buildReferralSignDbData(
-        \App\Models\MedicalEvents\Sql\ServiceRequestRequest|\App\Models\MedicalEvents\Sql\DeviceRequestRequest $requestRecord,
-        \App\Models\CarePlanActivity $activity
+        ServiceRequestRequest|DeviceRequestRequest $requestRecord,
+        CarePlanActivity $activity
     ): array {
         $employeeContext = $this->resolveReferralEmployeeContext($requestRecord, $activity);
 
-        return app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->buildSignDbData(
+        return app(ReferralRequestLifecycleService::class)->buildSignDbData(
             $requestRecord,
             $activity,
             $this->carePlan,
@@ -950,13 +965,13 @@ trait ManagesCarePlanReferrals
     /**
      * @param  array<string, mixed>  $dbData
      */
-    protected function finalizeSignedReferral(array $dbData, string $kind, \App\Models\CarePlanActivity $activity, bool $alreadyPersisted = false): void
+    protected function finalizeSignedReferral(array $dbData, string $kind, CarePlanActivity $activity, bool $alreadyPersisted = false): void
     {
         if (!$alreadyPersisted) {
             if ($kind === 'service_request') {
-                \App\Repositories\MedicalEvents\Repository::serviceRequest()->store($dbData, $this->carePlan->person_id);
+                Repository::serviceRequest()->store($dbData, $this->carePlan->person_id);
             } else {
-                \App\Repositories\MedicalEvents\Repository::deviceRequest()->store($dbData, $this->carePlan->person_id);
+                Repository::deviceRequest()->store($dbData, $this->carePlan->person_id);
             }
         }
 

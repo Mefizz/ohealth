@@ -193,7 +193,7 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionSelectedActivity = $activity->toArray();
 
         $employeeContext = app(MedicationRequestLifecycleService::class)
-            ->resolveEmployeeContext($this->carePlan, null, Auth::user()?->activeDoctorEmployee()?->id);
+            ->resolveEmployeeContext($this->carePlan, null, Auth::user()->activeDoctorEmployee()?->id);
         $eligibleEncounters = app(MedicationRequestLifecycleService::class)
             ->findEligibleEncountersForEPrescription(
                 (int) $this->carePlan->person_id,
@@ -448,7 +448,7 @@ trait ManagesCarePlanEPrescription
     {
         try {
             $employeeContext = app(MedicationRequestLifecycleService::class)
-                ->resolveEmployeeContext($this->carePlan, null, Auth::user()?->activeDoctorEmployee()?->id);
+                ->resolveEmployeeContext($this->carePlan, null, Auth::user()->activeDoctorEmployee()?->id);
             $activity = $this->ownedActivity((int) $this->ePrescriptionForm['activity_id']);
 
             $uuid = app(MedicationRequestLifecycleService::class)->createCarePlanDraft(

@@ -10,7 +10,7 @@ use App\Repositories\MedicalEvents\Repository;
 
 trait ResolvesRequestFhirRefs
 {
-    private const REQUEST_INTENT_SYSTEM = 'http://hl7.org/fhir/request-intent';
+    protected const REQUEST_INTENT_SYSTEM = 'http://hl7.org/fhir/request-intent';
 
     /**
      * Resolve FHIR intent/category/priority and basedOn/context Identifier FKs.

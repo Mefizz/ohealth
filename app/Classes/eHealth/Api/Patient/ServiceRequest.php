@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api\Patient;
 
+use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
+use Illuminate\Validation\ValidationException;
+
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -123,9 +126,9 @@ class ServiceRequest extends PatientApiBase
         return $this->executorApi()->cancelUsage($id, $patientId, $payload);
     }
 
-    private function executorApi(): \App\Classes\eHealth\Api\ServiceRequest
+    private function executorApi(): ServiceRequestExecutorApi
     {
-        return app(\App\Classes\eHealth\Api\ServiceRequest::class);
+        return app(ServiceRequestExecutorApi::class);
     }
 
     protected function validateDetails(EHealthResponse $response): array
@@ -143,7 +146,7 @@ class ServiceRequest extends PatientApiBase
             Log::channel('e_health_errors')->error(
                 'ServiceRequest details validation failed: ' . implode(', ', $validator->errors()->all())
             );
-            throw new \Illuminate\Validation\ValidationException($validator);
+            throw new ValidationException($validator);
         }
 
         return $data;
@@ -175,7 +178,7 @@ class ServiceRequest extends PatientApiBase
             Log::channel('e_health_errors')->error(
                 'ServiceRequest many validation failed: ' . implode(', ', $validator->errors()->all())
             );
-            throw new \Illuminate\Validation\ValidationException($validator);
+            throw new ValidationException($validator);
         }
 
         return $response->getData();

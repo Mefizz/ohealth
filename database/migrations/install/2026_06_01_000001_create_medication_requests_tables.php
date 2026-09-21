@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Enums\Medication\RequestResourceType;
+use App\Enums\Medication\RequestSource;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -51,8 +53,8 @@ return new class extends Migration
                 $table->text('note')->nullable();
                 $table->string('inform_with')->nullable();
                 $table->json('ehealth_payload')->nullable();
-                $table->string('source')->default('local'); // 'local' = drafted here, 'ehealth' = synced from ЄСОЗ
-                $table->string('resource_type')->default('medication_request_request');
+                $table->string('source')->default(RequestSource::LOCAL->value); // 'local' = drafted here, 'ehealth' = synced from ЄСОЗ
+                $table->string('resource_type')->default(RequestResourceType::REQUEST->value);
                 $table->timestamps();
             });
         }

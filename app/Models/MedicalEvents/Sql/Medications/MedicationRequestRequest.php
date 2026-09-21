@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql\Medications;
 
+use App\Enums\Medication\RequestResourceType;
+use App\Enums\Medication\RequestSource;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Coding;
 use App\Models\MedicalEvents\Sql\Identifier;
@@ -18,13 +20,13 @@ class MedicationRequestRequest extends Model
 
     protected $table = 'medication_request_requests';
 
-    public const SOURCE_LOCAL = 'local';
+    public const SOURCE_LOCAL = RequestSource::LOCAL->value;
 
-    public const SOURCE_EHEALTH = 'ehealth';
+    public const SOURCE_EHEALTH = RequestSource::EHEALTH->value;
 
-    public const TYPE_REQUEST = 'medication_request_request';
+    public const TYPE_REQUEST = RequestResourceType::REQUEST->value;
 
-    public const TYPE_PRESCRIPTION = 'medication_request';
+    public const TYPE_PRESCRIPTION = RequestResourceType::PRESCRIPTION->value;
 
     /**
      * Add real attributes you allow for mass assignment.

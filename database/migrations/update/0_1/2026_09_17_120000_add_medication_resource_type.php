@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Enums\Medication\RequestResourceType;
+use App\Enums\Medication\RequestSource;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -13,12 +15,12 @@ return new class extends Migration
     {
         if (!Schema::hasColumn('medication_request_requests', 'resource_type')) {
             Schema::table('medication_request_requests', static function (Blueprint $table) {
-                $table->string('resource_type')->default('medication_request_request');
+                $table->string('resource_type')->default(RequestResourceType::REQUEST->value);
             });
 
             // Keep previously cached records in their existing tab until refreshed from their API endpoint.
-            DB::table('medication_request_requests')->where('source', 'ehealth')
-                ->update(['resource_type' => 'medication_request']);
+            DB::table('medication_request_requests')->where('source', RequestSource::EHEALTH->value)
+                ->update(['resource_type' => RequestResourceType::PRESCRIPTION->value]);
         }
 
         Schema::table('medication_request_requests', static function (Blueprint $table) {

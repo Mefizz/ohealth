@@ -18,12 +18,11 @@ use Tests\TestCase;
  */
 class ApprovalResendSmsTest extends TestCase
 {
-    public function test_get_many_with_patient_id_uses_the_patient_scoped_endpoint(): void
+    public function test_explicit_patient_search_uses_the_patient_scoped_endpoint(): void
     {
         Http::fake(['*' => Http::response(['data' => []], 200)]);
 
-        $this->makeApi()->getMany([
-            'patient_id' => 'patient-1',
+        $this->makeApi()->getPatientApprovals('patient-1', [
             'status' => 'NEW',
         ]);
 

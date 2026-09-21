@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
-use RuntimeException;
-use Illuminate\Support\Facades\Cache;
-
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
+use App\Enums\CarePlanTermsOfService;
 use App\Enums\Person\ApprovalStatus;
+use App\Exceptions\EHealth\EHealthResponseException;
 use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Models\CarePlan;
 use App\Models\EhealthLink;
@@ -18,9 +17,11 @@ use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\User;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Care Plan adapter over shared MedicalEvents ApprovalRepository + eHealth Approval API.
@@ -88,7 +89,7 @@ class CarePlanApprovalService
             $terms = $terms['coding'][0]['code'] ?? $terms['code'] ?? '';
         }
 
-        if (strtoupper(trim((string) $terms)) !== 'INPATIENT') {
+        if (strtoupper(trim((string) $terms)) !== CarePlanTermsOfService::INPATIENT->value) {
             return false;
         }
 
@@ -180,14 +181,24 @@ class CarePlanApprovalService
      */
     public function confirmWithoutOtp(string $patientUuid, string $approvalId): EHealthResponse
     {
-        return EHealth::approval()->verify($patientUuid, $approvalId, []);
+        return $this->requireSuccessfulResponse(EHealth::approval()->verify($patientUuid, $approvalId, []));
     }
 
     public function deactivate(string $patientUuid, string $approvalId): EHealthResponse
     {
-        return EHealth::approval()->verify($patientUuid, $approvalId, [
+        return $this->requireSuccessfulResponse(EHealth::approval()->verify($patientUuid, $approvalId, [
             'status' => 'inactive',
-        ]);
+        ]));
+    }
+
+    /** Transport exceptions propagate to the UI; a non-success response cannot grant access. */
+    protected function requireSuccessfulResponse(EHealthResponse $response): EHealthResponse
+    {
+        if (!$response->successful()) {
+            throw new EHealthResponseException($response);
+        }
+
+        return $response;
     }
 
     public function resendSms(string $patientUuid, string $approvalId): EHealthResponse

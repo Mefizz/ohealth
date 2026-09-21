@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Classes\eHealth\Request as LegacyRequest;
-
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
+use App\Classes\eHealth\Request as LegacyRequest;
+use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
-use App\Exceptions\EHealth\EHealthConnectionException;
 
 class Approval extends Request
 {
@@ -22,22 +21,14 @@ class Approval extends Request
     /**
      * Get Approvals by search parameters.
      *
-     * eHealth WAF rejects GET /api/approvals. When a patient id is known, route to the
-     * documented patient-scoped list instead.
+     * Call getPatientApprovals directly whenever the patient UUID is known.
      *
-     * @param  array  $query  query params: patient_id, granted_resource_type=care_plan, status, etc.
+     * @param  array  $query  query params: granted_resource_type=care_plan, status, etc.
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
     public function getMany(array $query = []): PromiseInterface|EHealthResponse
     {
-        $patientId = $query['patient_id'] ?? ($query['person_id'] ?? null);
-        if (is_string($patientId) && $patientId !== '') {
-            unset($query['patient_id'], $query['person_id']);
-
-            return $this->getPatientApprovals($patientId, $query);
-        }
-
         return $this->get(self::URL, $query);
     }
 
@@ -51,7 +42,7 @@ class Approval extends Request
      */
     public function getPatientApprovals(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
-        return $this->get("/api/patients/{$patientId}/approvals", $query);
+        return $this->get(self::APPROVAL_URL . "/{$patientId}/approvals", $query);
     }
 
     /**
@@ -64,7 +55,7 @@ class Approval extends Request
      */
     public function getApprovalDetails(string $patientId, string $approvalUuid, array $query = []): PromiseInterface|EHealthResponse
     {
-        return $this->get("/api/patients/{$patientId}/approvals/{$approvalUuid}", $query);
+        return $this->get(self::APPROVAL_URL . "/{$patientId}/approvals/{$approvalUuid}", $query);
     }
 
     /**
@@ -77,7 +68,7 @@ class Approval extends Request
      */
     public function createApproval(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        return $this->post("/api/patients/{$patientId}/approvals", $payload);
+        return $this->post(self::APPROVAL_URL . "/{$patientId}/approvals", $payload);
     }
 
     /**
@@ -105,7 +96,7 @@ class Approval extends Request
      */
     public function verify(string $patientId, string $approvalId, array $payload): PromiseInterface|EHealthResponse
     {
-        return $this->patch("/api/patients/{$patientId}/approvals/{$approvalId}", $payload);
+        return $this->patch(self::APPROVAL_URL . "/{$patientId}/approvals/{$approvalId}", $payload);
     }
 
     /**
@@ -123,7 +114,7 @@ class Approval extends Request
      */
     public function resendSms(string $patientId, string $approvalId): PromiseInterface|EHealthResponse
     {
-        return $this->patch("/api/patients/{$patientId}/approvals/{$approvalId}/actions/resend", []);
+        return $this->patch(self::APPROVAL_URL . "/{$patientId}/approvals/{$approvalId}/actions/resend", []);
     }
 
     /**

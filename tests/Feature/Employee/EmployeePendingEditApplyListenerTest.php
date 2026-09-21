@@ -16,6 +16,7 @@ use App\Models\LegalEntity;
 use App\Models\Relations\Party;
 use App\Models\User;
 use App\Providers\EventServiceProvider;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Services\Employee\EmployeeRequestProcessor;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,7 @@ class EmployeePendingEditApplyListenerTest extends TestCase
         $listen = (new EventServiceProvider($this->app))->listens()[EHealthUserLogin::class] ?? [];
 
         $this->assertContains(EmployeePendingEditApply::class, $listen);
+        $this->assertContains(ShouldQueue::class, class_implements(EmployeePendingEditApply::class));
 
         $createIndex = array_search(EmployeeCreate::class, $listen, true);
         $applyIndex = array_search(EmployeePendingEditApply::class, $listen, true);
@@ -128,6 +130,7 @@ class EmployeePendingEditApplyListenerTest extends TestCase
             ->withArgs(fn (EmployeeRequest $applied): bool => $applied->id === $request->id);
         $this->instance(EmployeeRequestProcessor::class, $processor);
 
+        session()->put(config('ehealth.api.oauth.bearer_token'), 'test-token');
         $event = new EHealthUserLogin(
             $user,
             $legalEntity,
@@ -207,6 +210,7 @@ class EmployeePendingEditApplyListenerTest extends TestCase
         $processor->shouldReceive('markOlderPendingEditsSuperseded')->once();
         $this->instance(EmployeeRequestProcessor::class, $processor);
 
+        session()->put(config('ehealth.api.oauth.bearer_token'), 'test-token');
         app(EmployeePendingEditApply::class)->handle(new EHealthUserLogin(
             $user,
             $legalEntity,

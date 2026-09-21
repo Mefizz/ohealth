@@ -537,6 +537,7 @@ class EmployeeRequestAcceptedRevisionScenariosTest extends TestCase
             ->withArgs(fn (EmployeeRequest $applied): bool => $applied->id === $latestSameLe->id);
         $this->instance(EmployeeRequestProcessor::class, $processor);
 
+        session()->put(config('ehealth.api.oauth.bearer_token'), 'test-token');
         app(EmployeePendingEditApply::class)->handle(new EHealthUserLogin(
             $user,
             $legalEntity,

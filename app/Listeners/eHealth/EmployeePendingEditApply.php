@@ -7,7 +7,10 @@ namespace App\Listeners\eHealth;
 use App\Events\EHealthUserLogin;
 use App\Models\Employee\EmployeeRequest;
 use App\Services\Employee\EmployeeRequestProcessor;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -23,12 +26,27 @@ use Throwable;
  * - Scoped to the current legal entity (same email must not pull another LE's revisions).
  * - Do not gate on applied_at: Owner/party submit may set it while status stays NEW.
  *
- * Runs after EmployeeCreate. Does nothing without the scope (avoids 403 for receptionist/med_admin).
- * Sync stays synchronous so the dashboard sees applied party data, but only one getDetails
- * per employee (latest pending). Failures are swallowed so a slow/failed eHealth call cannot 504 login.
+ * Queued (#842): eHealth HTTP must not block the login HTTP request (504 risk).
+ * Runs after EmployeeCreate is registered; the job executes asynchronously on the sync queue.
  */
-class EmployeePendingEditApply
+class EmployeePendingEditApply implements ShouldQueue
 {
+    use InteractsWithQueue;
+
+    /**
+     * Same queue as other eHealth login sync listeners.
+     *
+     * @var string|null
+     */
+    public $queue = 'sync';
+
+    /**
+     * Budget for a small number of getDetails / employee-list calls.
+     */
+    public int $timeout = 90;
+
+    public int $tries = 2;
+
     public function __construct(private EmployeeRequestProcessor $processor)
     {
     }
@@ -45,6 +63,15 @@ class EmployeePendingEditApply
             return;
         }
 
+        if (!$this->restoreBearerToken($event)) {
+            Log::error('[EmployeePendingEditApply] Missing or invalid eHealth token on queued apply.', [
+                'user_id' => $user->id,
+                'legal_entity_id' => $event->legalEntity->id,
+            ]);
+
+            return;
+        }
+
         $pendingEdits = EmployeeRequest::query()
             ->with(['revision', 'employee', 'party', 'division'])
             ->filterByLegalEntityId($event->legalEntity->id)
@@ -55,7 +82,7 @@ class EmployeePendingEditApply
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
-            // One sync per employee: the newest pending edit only (limits login latency).
+            // One sync per employee: the newest pending edit only.
             ->unique(fn (EmployeeRequest $request): int => (int) $request->employeeId)
             ->values();
 
@@ -71,12 +98,45 @@ class EmployeePendingEditApply
                     $this->processor->markOlderPendingEditsSuperseded($request);
                 }
             } catch (Throwable $e) {
-                // Do not break login if one request fails; remaining edits can retry on next login/sync.
+                // Do not fail the whole job if one request fails; remaining edits can retry on next login/sync.
                 Log::error('[EmployeePendingEditApply] Sync failed for request.', [
                     'request_id' => $request->id,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
+    }
+
+    public function failed(EHealthUserLogin $event, Throwable $exception): void
+    {
+        Log::error('[EmployeePendingEditApply] Queued listener failed.', [
+            'user_id' => $event->user->id,
+            'legal_entity_id' => $event->legalEntity->id,
+            'error' => $exception->getMessage(),
+        ]);
+    }
+
+    /**
+     * Queue workers have no login session — restore the bearer token captured on EHealthUserLogin.
+     */
+    private function restoreBearerToken(EHealthUserLogin $event): bool
+    {
+        if ($event->token === '') {
+            return filled(session()->get(config('ehealth.api.oauth.bearer_token')));
+        }
+
+        try {
+            $plainToken = Crypt::decryptString($event->token);
+        } catch (Throwable) {
+            return false;
+        }
+
+        if ($plainToken === '') {
+            return false;
+        }
+
+        session()->put(config('ehealth.api.oauth.bearer_token'), $plainToken);
+
+        return true;
     }
 }

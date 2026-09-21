@@ -141,8 +141,6 @@ class EmployeeCreate
         // confirmation, so matching remote employees is not proof that EmployeeRequest is APPROVED.
         // Do not call EmployeeRequest APIs here — some roles lack employee_request:read (403).
         // Apply after confirmation via EmployeeRequestActualize / manual sync under a scoped role.
-        // No Session::flash here: login lands on dashboard FlashMessage (success/error only), and
-        // flashing from listeners is not a reliable UX channel in this app.
 
         $matched = 0;
 

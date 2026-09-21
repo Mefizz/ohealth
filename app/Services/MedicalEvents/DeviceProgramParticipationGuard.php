@@ -4,25 +4,24 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
-use Throwable;
-use Carbon\Carbon;
-
 use App\Classes\eHealth\EHealth;
+use App\Dto\MedicalEvents\DeviceActivityReadinessAssessment;
 use App\Enums\Contract\ContractStatus;
+use App\Enums\JobStatus;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Contracts\Contract;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
+use Throwable;
 
 class DeviceProgramParticipationGuard
 {
-    private const ACTIVE_CONTRACT_STATUSES = [
-        ContractStatus::ACTIVE->value,
-    ];
-
     /**
      * @return list<string>
      */
@@ -30,20 +29,36 @@ class DeviceProgramParticipationGuard
     {
         $local = $this->loadProgramIdsFromDatabase($legalEntity);
 
-        if ($local !== [] || !$attemptRemoteSync) {
+        if (!$attemptRemoteSync || ($local !== [] && $legalEntity->getEntityStatus(LegalEntity::ENTITY_CONTRACT) === JobStatus::COMPLETED)) {
             return $local;
         }
 
         try {
-            $response = EHealth::contract()->getMany([
-                'contractor_legal_entity_id' => $legalEntity->uuid,
-            ]);
+            $page = 1;
+            $contracts = [];
+            do {
+                $response = EHealth::contract()->getMany([
+                    'contractor_legal_entity_id' => $legalEntity->uuid,
+                    'page' => $page,
+                ]);
+                $contracts = array_merge($contracts, $response->validate());
+                $paging = $response->getPaging();
+                if (!isset($paging['page_number'], $paging['total_pages'])
+                    || (int) $paging['page_number'] !== $page
+                    || (int) $paging['total_pages'] < $page
+                ) {
+                    throw new RuntimeException('Incomplete contract pagination.');
+                }
+                $page++;
+            } while ($page <= (int) $paging['total_pages']);
 
-            foreach ($response->getData() as $item) {
-                if (is_array($item)) {
+            // A partial sync must not become an authoritative list on the next request.
+            DB::transaction(function () use ($contracts, $legalEntity): void {
+                foreach ($contracts as $item) {
                     Repository::contract()->saveFromEHealth($item);
                 }
-            }
+                $legalEntity->setEntityStatus(JobStatus::COMPLETED, LegalEntity::ENTITY_CONTRACT);
+            });
         } catch (Throwable $exception) {
             Log::warning('DeviceProgramParticipationGuard: contract sync failed', [
                 'legal_entity_uuid' => $legalEntity->uuid,
@@ -107,23 +122,22 @@ class DeviceProgramParticipationGuard
             $blockingIssues[] = __('care-plan.device_product_reselect_required');
         } elseif ($deviceId !== '') {
             $catalogResult = $this->lookupDeviceInProgramCatalog($programId, $deviceId);
-            if ($catalogResult === 'missing') {
-                $blockingIssues[] = __('care-plan.device_not_in_program_catalog', [
-                    'device_id' => $deviceId,
-                    'program' => $programName,
-                    'program_id' => $programId,
-                ]);
-            } elseif ($catalogResult === 'inactive') {
-                $blockingIssues[] = __('care-plan.device_definition_not_active', [
-                    'device_id' => $deviceId,
-                    'program' => $programName,
-                    'program_id' => $programId,
-                ]);
-            } elseif ($catalogResult === null) {
-                $warnings[] = __('care-plan.device_catalog_lookup_failed', [
-                    'device_id' => $deviceId,
-                    'program_id' => $programId,
-                ]);
+            switch ($catalogResult) {
+                case 'missing':
+                    $blockingIssues[] = __('care-plan.device_not_in_program_catalog', [
+                        'device_id' => $deviceId, 'program' => $programName, 'program_id' => $programId,
+                    ]);
+                    break;
+                case 'inactive':
+                    $blockingIssues[] = __('care-plan.device_definition_not_active', [
+                        'device_id' => $deviceId, 'program' => $programName, 'program_id' => $programId,
+                    ]);
+                    break;
+                case null:
+                    $warnings[] = __('care-plan.device_catalog_lookup_failed', [
+                        'device_id' => $deviceId, 'program_id' => $programId,
+                    ]);
+                    break;
             }
         }
 
@@ -314,7 +328,7 @@ class DeviceProgramParticipationGuard
 
         foreach ($contracts as $contract) {
             $status = strtoupper((string) ($contract->status?->value ?? $contract->status ?? ''));
-            if (!in_array($status, self::ACTIVE_CONTRACT_STATUSES, true)) {
+            if (!in_array($status, ContractStatus::expandFilterValues([ContractStatus::VERIFIED->value]), true)) {
                 continue;
             }
 

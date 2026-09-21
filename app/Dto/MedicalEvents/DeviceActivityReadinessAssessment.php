@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\MedicalEvents;
+namespace App\Dto\MedicalEvents;
 
 final class DeviceActivityReadinessAssessment
 {

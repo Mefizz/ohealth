@@ -2,8 +2,10 @@
 
 Issue: https://github.com/openhealths/nationHealth/issues/841
 
+Full staged plan: [ehealth-object-mapper-plan.md](ehealth-object-mapper-plan.md).
+
 Branch: `Mefizz/ohealth:i841_object_mapper_service_request`.
-Base: PR #792 head `4b1f0e732700f860a3f1a0ad402bc8ae79b874db`.
+Base: PR #792 head `d91299f72ffa115de7a441d7cb6a8d3475f6fe94` (updated 2026-09-22).
 This is an independent branch. Rebase onto upstream main after #792 is merged;
 never push these commits to the #792 head branch.
 
@@ -14,12 +16,37 @@ never push these commits to the #792 head branch.
 - Separate prequalify envelope and flat signed-create targets, with shared body fields.
 - Explicit mapping of object collections and pure FHIR value transforms.
 - Symfony Serializer normalization; stable legacy field order at the KEP boundary.
-- The encounter signing caller uses the new payload contracts directly.
-- Other ServiceRequest callers use temporary compatibility methods that delegate to the same implementation.
+- Encounter/care-plan prequalify and encounter/care-plan/patient-registry signing use the new contracts directly.
+- Legacy public mapper methods remain compatibility delegates; their outbound construction is removed.
 - Eight synthetic baseline cases captured from the unmodified #792 mapper, using `Europe/Kyiv` and a fixed clock.
 
 No changes to HTTP endpoints, database schema, job verdicts, ownership, quantity gates or signature handling.
 The raw-document eRx signing path is not involved in this increment.
+
+## Updated base and next increments
+
+The six new #792 commits preserve the outbound ServiceRequest mapper unchanged; golden fixtures still
+record their original `4b1f0e7` capture. They were checked against `d91299f` without regeneration.
+The rebase retained the localized toast behavior and the explicit ownership imports in the signing UI.
+Upstream main `186ecd08` additionally changes personal-data sync in `PatientData.php`; it is outside this
+branch's base until #792 is merged and the final rebase is performed.
+
+Preserve these newer contracts in subsequent stages:
+
+- `DeviceActivityReadinessAssessment` already lives in `App\Dto\MedicalEvents`.
+- Medication source/resource type and care-plan terms already have enums under `app/Enums`.
+- Contract sync validates all pages before a transaction and COMPLETED status; partial lists are not authoritative.
+- Approval confirm/deactivate require successful responses before the UI grants access or reports success.
+- Care-plan eRx sync handles multiple prescriptions; failed UI requests clear loading state.
+- AJAX emits one localized toast, while redirects use session flash. Both public activity handlers remain in use.
+
+Finish #841 in two reviewable increments: outbound mapping/callers, then inbound Write with a captured
+baseline for partial updates and Identifier relationships. Only after the complete flow passes should
+DeviceRequest, eRx and care-plan mapping adopt this pattern. Do not rename whole lifecycle services into Actions.
+
+Regression preparation also corrected old referral fixtures that used activity/encounter primary keys
+as Identifier foreign keys, updated the readiness DTO namespace, and isolated certificate-authority lookup.
+A separate fix removes the repeated `#[Locked]` on the standalone eRx form; one lock remains in place.
 
 ## Integration findings
 
@@ -53,7 +80,6 @@ mapping base class. The field-order list only preserves signed bytes; it does no
 ## Remaining scope of #841
 
 - Consolidate inbound ServiceRequest mapping into a Write contract without losing partial-field semantics.
-- Move the remaining direct ServiceRequest callers to the typed entrypoints where appropriate.
 - Exercise the complete create/sign/sync flow, then assess whether this pattern reduces maintenance work.
 - Preserve legacy `toFhir`/`fromFhir` until their separate contracts and callers are migrated.
 
@@ -62,6 +88,16 @@ Follow-up stages are DeviceRequest, eRx, care plan, activities, and then lifecyc
 Approvals/OTP, dispense, other encounter mappers and Composition remain separate changes.
 
 ## Validation
+
+2026-09-22, on the rebased branch in isolated Sail PHP 8.5.3/PostgreSQL:
+
+- 124 tests / 608 assertions, no failures or errors. One existing PHP 8.5 PDO deprecation remains.
+- Coverage: mapping/KEP bytes, referral create/sign/sync/registry, FHIR references, standalone signing,
+  contract pagination, approval response contracts/resend/inpatient confirmation, care-plan actions/toasts,
+  medication registry sync and encounter standalone flows.
+- PHP Pint: all 22 changed PHP mapping/caller/test/config files pass, using the project's rules with only
+  the Blade formatter disabled (its npm plugins are absent from the isolated runtime; no Blade files changed).
+- `composer validate --no-check-publish`, `composer check-platform-reqs` and `git diff --check` pass.
 
 Run in the project's Sail PHP environment with an isolated `testing` database:
 

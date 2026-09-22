@@ -32,13 +32,14 @@ final readonly class ServiceRequestInput
         public ?string $patientInstruction = null,
         public ?string $authMethodId = null,
         public ?string $programId = null,
-    ) {}
+    ) {
+    }
 
     /**
      * Adapt validated legacy form/record values without loading context or generating identifiers.
      *
-     * @param array<string, mixed> $data
-     * @param array<string, string|null> $uuids
+     * @param  array<string, mixed>  $data
+     * @param  array<string, string|null>  $uuids
      */
     public static function fromArray(array $data, array $uuids, CarbonImmutable $mappedAt, ?string $carePlanUuid = null, ?string $activityUuid = null): self
     {

@@ -118,7 +118,11 @@ class ServiceRequestMapper implements FhirMapperContract
     public function toPrequalifyPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         return app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
-            $data, $uuids, CarbonImmutable::now(), $carePlanUuid, $activityUuid,
+            $data,
+            $uuids,
+            CarbonImmutable::now(),
+            $carePlanUuid,
+            $activityUuid,
         ));
     }
 
@@ -140,7 +144,11 @@ class ServiceRequestMapper implements FhirMapperContract
     public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
     {
         return app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
-            $data, $uuids, CarbonImmutable::now(), $carePlanUuid, $activityUuid,
+            $data,
+            $uuids,
+            CarbonImmutable::now(),
+            $carePlanUuid,
+            $activityUuid,
         ));
     }
     /**

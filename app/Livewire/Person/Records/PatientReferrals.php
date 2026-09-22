@@ -10,6 +10,8 @@ use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Concerns\InteractsWithFlashMessages;
+use App\Mapping\EHealth\Referral\ServiceRequestInput;
+use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -18,8 +20,8 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\DeviceRequestRequestRepository;
 use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;
 use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -345,15 +347,20 @@ class PatientReferrals extends BasePatientComponent
             ];
 
             $kind = $this->requestKindToSign === 'device_request' ? 'device_request' : 'service_request';
-            $mapper = $kind === 'service_request'
-                ? new ServiceRequestMapper()
-                : new DeviceRequestMapper();
-            $signPayload = $mapper->toCreateSignedContent(
-                $dbData,
-                $uuids,
-                $carePlan !== null ? (string) $carePlan->uuid : null,
-                $activity !== null ? (string) $activity->uuid : null
-            );
+            $signPayload = $kind === 'service_request'
+                ? app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
+                    $dbData,
+                    $uuids,
+                    CarbonImmutable::now(),
+                    $carePlan !== null ? (string) $carePlan->uuid : null,
+                    $activity !== null ? (string) $activity->uuid : null
+                ))
+                : (new DeviceRequestMapper())->toCreateSignedContent(
+                    $dbData,
+                    $uuids,
+                    $carePlan !== null ? (string) $carePlan->uuid : null,
+                    $activity !== null ? (string) $activity->uuid : null
+                );
 
             $signedContent = signatureService()->signData(
                 $signPayload,

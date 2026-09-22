@@ -10,6 +10,8 @@ use App\Enums\CarePlanStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Mapping\EHealth\Referral\ServiceRequestInput;
+use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
@@ -17,10 +19,10 @@ use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
 use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
@@ -412,16 +414,20 @@ trait ManagesCarePlanReferrals
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
 
-            $mapper = $kind === 'service_request'
-                ? new ServiceRequestMapper()
-                : new DeviceRequestMapper();
-
-            $signPayload = $mapper->toCreateSignedContent(
-                $dbData,
-                $uuids,
-                (string) $this->carePlan->uuid,
-                (string) $activity->uuid
-            );
+            $signPayload = $kind === 'service_request'
+                ? app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
+                    $dbData,
+                    $uuids,
+                    CarbonImmutable::now(),
+                    (string) $this->carePlan->uuid,
+                    (string) $activity->uuid
+                ))
+                : (new DeviceRequestMapper())->toCreateSignedContent(
+                    $dbData,
+                    $uuids,
+                    (string) $this->carePlan->uuid,
+                    (string) $activity->uuid
+                );
 
             $signedContent = signatureService()->signData(
                 $signPayload,

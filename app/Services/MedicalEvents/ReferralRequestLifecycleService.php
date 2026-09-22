@@ -10,6 +10,8 @@ use App\Enums\Person\DeviceRequestStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Mapping\EHealth\Referral\ServiceRequestInput;
+use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
@@ -18,6 +20,7 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -123,15 +126,14 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                 $dbData['program_id'] = null;
             }
 
-            $mapper = Fhir::serviceRequest();
-
             if (!empty($dbData['program_id'])) {
-                $prequalifyPayload = $mapper->toPrequalifyPayload(
+                $prequalifyPayload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
                     $dbData,
                     $uuids,
+                    CarbonImmutable::now(),
                     $carePlan->uuid,
                     (string) $activity->uuid
-                );
+                ));
                 $this->runPrequalify(
                     EHealth::serviceRequest()->prequalify($carePlan->person->uuid, $prequalifyPayload)
                 );
@@ -209,15 +211,13 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         if ($kind === 'service_request') {
             $dbData['service_id'] = $formData['service_id'] ?? null;
-            $mapper = Fhir::serviceRequest();
 
             if (!empty($dbData['program_id']) && $personUuid) {
-                $prequalifyPayload = $mapper->toPrequalifyPayload(
+                $prequalifyPayload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
                     $dbData,
                     $uuids,
-                    null,
-                    null
-                );
+                    CarbonImmutable::now()
+                ));
                 $this->runPrequalify(
                     EHealth::serviceRequest()->prequalify((string) $personUuid, $prequalifyPayload)
                 );

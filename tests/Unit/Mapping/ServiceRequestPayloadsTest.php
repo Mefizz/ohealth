@@ -75,7 +75,11 @@ class ServiceRequestPayloadsTest extends TestCase
         [$input, $expected, $now] = iterator_to_array(self::contracts())['care_plan_all_fields'];
         $cipher = Mockery::mock(CipherApi::class);
         $cipher->shouldReceive('sendSession')->once()->with(
-            $expected['signedJson'], 'test-password', base64_encode('synthetic-key'), 'test-knedp', '0000000000'
+            $expected['signedJson'],
+            'test-password',
+            base64_encode('synthetic-key'),
+            'test-knedp',
+            '0000000000'
         )->andReturn('synthetic-signed-content');
 
         $keyFile = UploadedFile::fake()->createWithContent('test.dat', 'synthetic-key');
@@ -106,7 +110,8 @@ class ServiceRequestPayloadsTest extends TestCase
 
     public function test_nested_collections_use_the_laravel_transform_locator(): void
     {
-        $this->app->instance(FhirIdentifier::class, new class implements TransformCallableInterface {
+        $this->app->instance(FhirIdentifier::class, new class implements TransformCallableInterface
+        {
             public function __invoke(mixed $value, object $source, ?object $target): array
             {
                 return ['value' => $value, 'system' => 'test-locator'];
@@ -123,8 +128,11 @@ class ServiceRequestPayloadsTest extends TestCase
     private function source(array $input, string $now): ServiceRequestInput
     {
         return ServiceRequestInput::fromArray(
-            $input['data'], $input['uuids'], CarbonImmutable::parse($now)->setTimezone(config('app.timezone')),
-            $input['carePlanUuid'] ?? null, $input['activityUuid'] ?? null,
+            $input['data'],
+            $input['uuids'],
+            CarbonImmutable::parse($now)->setTimezone(config('app.timezone')),
+            $input['carePlanUuid'] ?? null,
+            $input['activityUuid'] ?? null,
         );
     }
 }

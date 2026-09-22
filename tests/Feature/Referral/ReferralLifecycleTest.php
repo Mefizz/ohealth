@@ -48,6 +48,10 @@ class ReferralLifecycleTest extends TestCase
     {
         parent::setUp();
 
+        \Illuminate\Support\Facades\Http::preventStrayRequests();
+        \Illuminate\Support\Facades\Http::fake();
+        \Illuminate\Support\Facades\Cache::put('knedp_certificate_authority', [], 60);
+
         // 1. Create Patient
         $this->person = Person::create([
             'uuid' => (string) Str::uuid(),
@@ -168,6 +172,11 @@ class ReferralLifecycleTest extends TestCase
         $this->instance(\App\Classes\eHealth\Api\CarePlanActivity::class, $mockActivityApi);
     }
 
+    private function identifierId(string $uuid): int
+    {
+        return (int) \App\Models\MedicalEvents\Sql\Identifier::firstOrCreate(['value' => $uuid])->id;
+    }
+
     private function mockReferralMissingInEHealth(ServiceRequestApi $mockServiceApi, string $personUuid, string $requestUuid): void
     {
         $missingResponse = Mockery::mock(EHealthResponse::class);
@@ -193,8 +202,8 @@ class ReferralLifecycleTest extends TestCase
             'quantity' => 2.0,
             'intent' => 'order',
             'category' => 'procedure',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_uuid' => $this->serviceActivity->uuid,
+            'context_uuid' => $this->encounter->uuid,
             'priority' => 'routine',
             'note' => 'Please perform procedure ASAP',
         ];
@@ -206,8 +215,8 @@ class ReferralLifecycleTest extends TestCase
             'device_id' => 'D-707',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->deviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_uuid' => $this->deviceActivity->uuid,
+            'context_uuid' => $this->encounter->uuid,
             'priority' => 'urgent',
             'note' => 'Patient needs wheelchair',
         ];
@@ -223,7 +232,7 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $serviceUuid,
             'service_id' => '59300-00',
             'person_id' => $this->person->id,
-            'based_on_id' => $this->serviceActivity->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
         ]);
 
         $this->assertDatabaseHas('device_request_requests', [
@@ -231,7 +240,7 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $deviceUuid,
             'device_id' => 'D-707',
             'person_id' => $this->person->id,
-            'based_on_id' => $this->deviceActivity->id,
+            'based_on_id' => $this->identifierId($this->deviceActivity->uuid),
         ]);
     }
 
@@ -585,7 +594,7 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $draftUuid,
             'status' => 'draft',
             'quantity' => 3.0,
-            'based_on_id' => $this->serviceActivity->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
         ]);
     }
 
@@ -614,7 +623,7 @@ class ReferralLifecycleTest extends TestCase
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $draftUuid,
             'status' => 'draft',
-            'based_on_id' => $this->serviceActivity->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
         ]);
     }
 
@@ -735,8 +744,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'request_number' => 'SR-888888',
         ]);
@@ -773,8 +782,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'request_number' => 'SR-999999'
         ]);
@@ -833,8 +842,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -853,7 +862,19 @@ class ReferralLifecycleTest extends TestCase
 
         $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);
         $this->instance(\App\Services\SignatureService::class, $mockSignatureService);
-        $mockSignatureService->shouldReceive('signData')->andReturn('mock-base64-signature');
+        $mockSignatureService->shouldReceive('signData')
+            ->once()
+            ->withArgs(function (array $payload) use ($draftUuid, $carePlan): bool {
+                $this->assertSame($draftUuid, $payload['id']);
+                $this->assertSame($carePlan->uuid, $payload['based_on'][0]['identifier']['value']);
+                $this->assertSame($this->serviceActivity->uuid, $payload['based_on'][1]['identifier']['value']);
+                $this->assertSame('59300-00', $payload['code']['identifier']['value']);
+                $this->assertSame(1.0, $payload['quantity']['value']);
+                $this->assertArrayNotHasKey('service_request', $payload);
+
+                return true;
+            })
+            ->andReturn('mock-base64-signature');
         $mockSignatureService->shouldReceive('getCertificateAuthorities')->andReturn([]);
 
         Livewire::test(CarePlanActivityShow::class, [
@@ -873,11 +894,13 @@ class ReferralLifecycleTest extends TestCase
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $signedUuid,
             'employee_id' => $this->employee->id,
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
             'status' => 'active',
             'request_number' => 'SR-12345678',
         ]);
+
+        $signed = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $signedUuid)->firstOrFail();
+        $this->assertSame($this->serviceActivity->uuid, $signed->basedOn->value);
+        $this->assertSame($this->encounter->uuid, $signed->context->value);
     }
 
     public function test_sign_referral_syncs_when_ehealth_reports_already_exists(): void
@@ -895,8 +918,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -978,8 +1001,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -1028,8 +1051,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'category' => 'procedure',
             'started_at' => '2026-06-01',
@@ -1042,7 +1065,7 @@ class ReferralLifecycleTest extends TestCase
         ]);
 
         $linkedReferrals = collect($component->get('activeReferrals'))
-            ->where('based_on_id', $this->serviceActivity->id);
+            ->where('uuid', $referralUuid);
 
         $this->assertCount(1, $linkedReferrals);
         $referral = $linkedReferrals->first();
@@ -1068,8 +1091,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->serviceActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -1159,7 +1182,7 @@ class ReferralLifecycleTest extends TestCase
 
         $mockGuard = Mockery::mock(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
         $mockGuard->shouldReceive('resolveParticipatingProgramIds')->andReturn([$programId]);
-        $mockGuard->shouldReceive('assess')->andReturn(new \App\Services\MedicalEvents\DeviceActivityReadinessAssessment([], []));
+        $mockGuard->shouldReceive('assess')->andReturn(new \App\Dto\MedicalEvents\DeviceActivityReadinessAssessment([], []));
         $this->instance(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class, $mockGuard);
 
         $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);

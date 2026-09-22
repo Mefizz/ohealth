@@ -8,14 +8,16 @@ use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Mapping\EHealth\Referral\ServiceRequestInput;
+use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Services\Dictionary\ServiceSearch;
 use App\Services\MedicalEvents\InformWith;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -254,7 +256,9 @@ trait ManagesEncounterReferrals
                 'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
             ];
 
-            $signPayload = (new ServiceRequestMapper())->toCreateSignedContent($dbData, $uuids, null, null);
+            $signPayload = app(ServiceRequestPayloads::class)->signedCreate(
+                ServiceRequestInput::fromArray($dbData, $uuids, CarbonImmutable::now())
+            );
 
             $signedContent = signatureService()->signData(
                 $signPayload,

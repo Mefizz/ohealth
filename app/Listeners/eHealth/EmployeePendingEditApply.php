@@ -9,7 +9,6 @@ use App\Models\Employee\EmployeeRequest;
 use App\Services\Employee\EmployeeRequestProcessor;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -28,10 +27,15 @@ use Throwable;
  *
  * Queued (#842): eHealth HTTP must not block the login HTTP request (504 risk).
  * Runs after EmployeeCreate is registered; the job executes asynchronously on the sync queue.
+ *
+ * Gate uses $event->scopes (same login-resolved list as syncPermissions), not Spatie can()/Auth::shouldUse —
+ * queue workers have no login HTTP context and must not depend on the default guard.
  */
 class EmployeePendingEditApply implements ShouldQueue
 {
     use InteractsWithQueue;
+
+    private const string REQUIRED_SCOPE = 'employee_request:read';
 
     /**
      * Same queue as other eHealth login sync listeners.
@@ -53,15 +57,12 @@ class EmployeePendingEditApply implements ShouldQueue
 
     public function handle(EHealthUserLogin $event): void
     {
-        // Spatie team + guard must match the login context before can()/cannot() on scopes.
-        setPermissionsTeamId($event->legalEntity->id);
-        Auth::shouldUse($event->guard);
-
-        $user = $event->user->loadMissing('roles', 'permissions');
-
-        if ($user->cannot('employee_request:read')) {
+        // Login already merged OAuth + LE role scopes into $event->scopes — no Auth/Spatie team needed.
+        if (!in_array(self::REQUIRED_SCOPE, $event->scopes, true)) {
             return;
         }
+
+        $user = $event->user;
 
         if (!$this->restoreBearerToken($event)) {
             Log::error('[EmployeePendingEditApply] Missing or invalid eHealth token on queued apply.', [

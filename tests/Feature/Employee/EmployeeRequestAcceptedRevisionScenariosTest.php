@@ -23,7 +23,6 @@ use App\Services\Employee\EmployeeRequestMatcher;
 use App\Services\Employee\EmployeeRequestProcessor;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Mockery;
@@ -518,8 +517,6 @@ class EmployeeRequestAcceptedRevisionScenariosTest extends TestCase
             requestOverrides: ['employee_id' => $otherEmployee->id, 'email' => $user->email],
             createdAt: now()->toDateTimeString(),
         );
-
-        Gate::before(static fn (): bool => true);
 
         $processor = Mockery::mock(EmployeeRequestProcessor::class);
         $processor->shouldReceive('syncSinglePendingRequest')

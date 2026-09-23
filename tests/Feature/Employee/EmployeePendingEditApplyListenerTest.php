@@ -20,7 +20,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Services\Employee\EmployeeRequestProcessor;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Mockery;
@@ -113,8 +112,6 @@ class EmployeePendingEditApplyListenerTest extends TestCase
             'employee_id' => $employee->id,
         ]);
 
-        Gate::before(static fn (): bool => true);
-
         $processor = Mockery::mock(EmployeeRequestProcessor::class);
         $processor->shouldReceive('syncSinglePendingRequest')
             ->once()
@@ -196,8 +193,6 @@ class EmployeePendingEditApplyListenerTest extends TestCase
             'employee_id' => $employee->id,
             'applied_at' => now(),
         ]);
-
-        Gate::before(static fn (): bool => true);
 
         $processor = Mockery::mock(EmployeeRequestProcessor::class);
         $processor->shouldReceive('syncSinglePendingRequest')

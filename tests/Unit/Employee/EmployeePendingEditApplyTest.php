@@ -17,7 +17,7 @@ use Tests\TestCase;
 class EmployeePendingEditApplyTest extends TestCase
 {
     #[Test]
-    public function skips_processor_when_user_lacks_employee_request_read(): void
+    public function skips_processor_when_login_scopes_lack_employee_request_read(): void
     {
         $processor = Mockery::mock(EmployeeRequestProcessor::class);
         $processor->shouldNotReceive('syncSinglePendingRequest');
@@ -25,8 +25,6 @@ class EmployeePendingEditApplyTest extends TestCase
         $user = Mockery::mock(User::class)->makePartial();
         $user->id = 10;
         $user->email = 'owner@example.com';
-        $user->shouldReceive('loadMissing')->andReturnSelf();
-        $user->shouldReceive('can')->with('employee_request:read')->andReturn(false);
 
         $legalEntity = new LegalEntity();
         $legalEntity->id = 1;

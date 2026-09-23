@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Enums\Person;
+namespace App\Enums\Composition;
 
 /**
  * Which set of pregnancy validity periods applies to a conclusion (TV 3.8.2.5.4).

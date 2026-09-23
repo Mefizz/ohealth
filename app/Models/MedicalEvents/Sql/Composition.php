@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthTimestampCast;
-use App\Enums\Person\CompositionAsyncOperation;
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionAsyncOperation;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Models\Person\Person;
 use App\Models\Preperson;
-use App\Services\MedicalEvents\CompositionLifecycleService;
+use App\Repositories\MedicalEvents\CompositionRepository;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
@@ -85,12 +85,12 @@ class Composition extends Model
         return $this->belongsTo(Preperson::class);
     }
 
-    public function typeCodeableConcept(): BelongsTo
+    public function typeConcept(): BelongsTo
     {
         return $this->belongsTo(CodeableConcept::class, 'type_id');
     }
 
-    public function categoryCodeableConcept(): BelongsTo
+    public function categoryConcept(): BelongsTo
     {
         return $this->belongsTo(CodeableConcept::class, 'category_id');
     }
@@ -138,14 +138,14 @@ class Composition extends Model
     protected function type(): Attribute
     {
         return Attribute::get(
-            fn (): ?CompositionType => CompositionType::tryFrom((string) $this->typeCodeableConcept?->coding->first()?->code)
+            fn (): ?CompositionType => CompositionType::tryFrom((string) $this->typeConcept?->coding->first()?->code)
         );
     }
 
     protected function category(): Attribute
     {
         return Attribute::get(
-            fn (): ?CompositionCategory => CompositionCategory::tryFrom((string) $this->categoryCodeableConcept?->coding->first()?->code)
+            fn (): ?CompositionCategory => CompositionCategory::tryFrom((string) $this->categoryConcept?->coding->first()?->code)
         );
     }
 
@@ -305,7 +305,7 @@ class Composition extends Model
     protected function ofType(Builder $query, CompositionType $type): Builder
     {
         return $query->whereHas(
-            'typeCodeableConcept.coding',
+            'typeConcept.coding',
             static fn (Builder $coding) => $coding->where('code', $type->value)
         );
     }
@@ -349,7 +349,7 @@ class Composition extends Model
         return $query
             ->whereNotNull('async_job_id')
             ->whereNotNull('async_job_operation')
-            ->where('async_job_status', CompositionLifecycleService::JOB_PENDING);
+            ->where('async_job_status', CompositionRepository::JOB_PENDING);
     }
 
     #[Scope]

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Enums\Person;
+namespace App\Enums\Composition;
 
 use App\Enums\User\Role;
 use App\Models\LegalEntity;
@@ -20,6 +20,9 @@ use App\Traits\EnumUtils;
 enum CompositionType: string
 {
     use EnumUtils;
+
+    /** Dictionary of print form templates published by eHealth. */
+    public const string TEMPLATE_DICTIONARY = 'COMPOSITION_TEMPLATE_ID';
 
     /** Медичний висновок про народження (МВН). */
     case NEWBORN = 'NEWBORN';
@@ -80,11 +83,6 @@ enum CompositionType: string
             },
         };
     }
-
-    /**
-     * Dictionary of print form templates published by eHealth.
-     */
-    public const string TEMPLATE_DICTIONARY = 'COMPOSITION_TEMPLATE_ID';
 
     /**
      * Print form template used for this conclusion type (TV 3.8.1.8.2, 3.8.2.8.3).

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionType;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\User;
@@ -33,13 +33,13 @@ class CompositionPolicy
     {
         return $user->can('composition:search') && $this->inConclusionIssuingEntity()
             ? Response::allow()
-            : Response::deny(__('compositions.errors.view_not_allowed'));
+            : Response::denyAsNotFound();
     }
 
     public function view(User $user, Composition $composition): Response
     {
         if (!$user->can('composition:read') || !$this->inConclusionIssuingEntity()) {
-            return Response::deny(__('compositions.errors.view_not_allowed'));
+            return Response::denyAsNotFound();
         }
 
         return Response::allow();

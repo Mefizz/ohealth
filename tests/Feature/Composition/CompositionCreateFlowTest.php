@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Composition;
 
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Livewire\Composition\CompositionTempDisabilityCreate;
 use App\Models\MedicalEvents\Sql\Composition;
-use App\Services\MedicalEvents\CompositionLifecycleService;
+use App\Repositories\MedicalEvents\CompositionRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -65,7 +65,7 @@ class CompositionCreateFlowTest extends TestCase
 
         $component->call('reviewDetails')
             ->assertSet('asyncJobId', 'job-1')
-            ->assertSet('asyncJobStatus', CompositionLifecycleService::JOB_PENDING)
+            ->assertSet('asyncJobStatus', CompositionRepository::JOB_PENDING)
             ->assertSet('showSignatureModal', false)
             ->assertSet('step', CompositionTempDisabilityCreate::STEP_AWAITING_JOB);
 
@@ -100,7 +100,7 @@ class CompositionCreateFlowTest extends TestCase
 
         $component->call('submitComposition')
             ->assertSet('asyncJobId', 'job-1')
-            ->assertSet('asyncJobStatus', CompositionLifecycleService::JOB_PENDING)
+            ->assertSet('asyncJobStatus', CompositionRepository::JOB_PENDING)
             ->assertSet('showSignatureModal', false)
             ->assertSet('step', CompositionTempDisabilityCreate::STEP_AWAITING_JOB);
 

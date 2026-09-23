@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Services\MedicalEvents;
+namespace App\Livewire\Composition;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionPregnancyPeriodMode;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionPregnancyPeriodMode;
+use App\Enums\Composition\CompositionType;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
@@ -18,13 +18,13 @@ use Illuminate\Support\Facades\Log;
  * Validity periods a pregnancy conclusion may be issued for (TV 3.8.2.5.4).
  *
  * The allowed lengths are not a MIS decision: eHealth publishes them as composition
- * configurations and rejects anything else. This service is therefore the only place
- * that answers "how long may this conclusion last", and it fails closed — an
- * unreachable or empty configuration blocks the conclusion instead of silently falling
- * back to a free-text date, which would let the doctor build a payload eHealth is
- * guaranteed to refuse (and, worse, look like MIS approved it).
+ * configurations and rejects anything else. This is therefore the only place that
+ * answers "how long may this conclusion last", and it fails closed — an unreachable
+ * or empty configuration blocks the conclusion instead of silently falling back to a
+ * free-text date, which would let the doctor build a payload eHealth is guaranteed
+ * to refuse (and, worse, look like MIS approved it).
  */
-class CompositionPregnancyPeriodService
+class PregnancyPeriods
 {
     /**
      * Lengths, in days, the given mode allows.

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Enums;
 
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 

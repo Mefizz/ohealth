@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Composition;
 
 use App\Classes\eHealth\Api\Patient\Encounter as EncounterApi;
-use App\Enums\Person\CompositionCategory;
+use App\Enums\Composition\CompositionCategory;
 use App\Enums\Status;
 use App\Enums\User\Role;
 use App\Livewire\Composition\CompositionTempDisabilityCreate;
@@ -97,7 +97,7 @@ class CompositionTempDisabilityCreateTest extends TestCase
             ->assertSee('ТН-0001')
             ->assertSee(__('compositions.create_temp_disability.created'))
             ->assertSee(__('forms.sign_with_KEP'))
-            ->assertSee(compositionTreatmentViolationLabel('reject_hospitalization'))
+            ->assertSee(\App\Enums\Composition\TreatmentViolation::label('reject_hospitalization'))
             ->assertDontSee('reject_hospitalization (');
     }
 

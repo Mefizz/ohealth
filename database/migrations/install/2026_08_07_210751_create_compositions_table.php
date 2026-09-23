@@ -48,6 +48,8 @@ return new class extends Migration
             $table->json('extension')->nullable();
             $table->json('data')->nullable();
 
+            // eHealth create/sign/cancel/ERLN-retry return a job, not the finished
+            // conclusion. These columns track that job until poll marks it DONE or FAILED.
             $table->string('async_job_id')->nullable();
             $table->string('async_job_status')->nullable();
             $table->string('async_job_operation')->nullable()

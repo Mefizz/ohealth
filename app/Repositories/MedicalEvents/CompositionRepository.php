@@ -2,16 +2,15 @@
 
 declare(strict_types=1);
 
-namespace App\Services\MedicalEvents;
+namespace App\Repositories\MedicalEvents;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Exceptions\EHealth\EHealthException;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
-use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 
@@ -23,7 +22,7 @@ use Illuminate\Support\Facades\Log;
  * time and hoping to correct it later leaves the two permanently out of step whenever the
  * async job fails or the browser goes away mid-flight.
  */
-class CompositionLifecycleService
+class CompositionRepository
 {
     public const string JOB_PENDING = 'PENDING';
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Enums\Person;
+namespace App\Enums\Composition;
 
 use App\Traits\EnumUtils;
 

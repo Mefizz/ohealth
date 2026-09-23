@@ -28,7 +28,6 @@ use App\Livewire\Encounter\Concerns\ManagesEncounterEPrescription;
 use App\Livewire\Encounter\Concerns\ManagesEncounterReferrals;
 use App\Livewire\Encounter\Concerns\ResolvesEncounterStandaloneContext;
 use App\Models\MedicalEvents\Sql\Composition;
-use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Throwable;
@@ -68,21 +67,21 @@ class EncounterEdit extends EncounterComponent
     #[Computed]
     public function createCompositionFromEncounterUrl(): ?string
     {
-        if (legalEntity() === null || blank($this->encounterUuid)) {
+        if (blank($this->encounterUuid)) {
             return null;
         }
 
         $query = http_build_query(['encounter' => $this->encounterId]);
 
         if ($this->prepersonId !== null) {
-            if (Gate::allows('createNewborn', Composition::class)) {
+            if (Auth::user()->can('createNewborn', Composition::class)) {
                 return route('prepersons.compositions.newborn.create', [
                     legalEntity(),
                     'preperson' => $this->prepersonId,
                 ]).'?'.$query;
             }
 
-            if (Gate::allows('createTempDisability', Composition::class)) {
+            if (Auth::user()->can('createTempDisability', Composition::class)) {
                 return route('prepersons.compositions.temp-disability.create', [
                     legalEntity(),
                     'preperson' => $this->prepersonId,
@@ -92,7 +91,7 @@ class EncounterEdit extends EncounterComponent
             return null;
         }
 
-        if (!Gate::allows('createTempDisability', Composition::class)) {
+        if (!Auth::user()->can('createTempDisability', Composition::class)) {
             return null;
         }
 

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Composition\Concerns;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
@@ -14,7 +14,8 @@ use App\Exceptions\MedicalEvents\CompositionGuardException;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
-use App\Services\MedicalEvents\CompositionLifecycleService;
+use App\Repositories\MedicalEvents\CompositionRepository;
+use App\Repositories\MedicalEvents\Repository;
 use App\Services\SignatureService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -345,7 +346,7 @@ trait DrivesCompositionWizard
             $job = $this->lifecycle()->create($this->mapperPayload($authorUuid));
 
             $this->asyncJobId = $job['id'];
-            $this->asyncJobStatus = (string) ($job['status'] ?? CompositionLifecycleService::JOB_PENDING);
+            $this->asyncJobStatus = (string) ($job['status'] ?? CompositionRepository::JOB_PENDING);
             $this->asyncJobErrors = [];
             $this->showSignatureModal = false;
             $this->step = self::STEP_AWAITING_JOB;
@@ -401,7 +402,7 @@ trait DrivesCompositionWizard
      */
     public function pollAsyncJob(): void
     {
-        if (!$this->asyncJobId || $this->asyncJobStatus === CompositionLifecycleService::JOB_DONE) {
+        if (!$this->asyncJobId || $this->asyncJobStatus === CompositionRepository::JOB_DONE) {
             return;
         }
 
@@ -415,13 +416,13 @@ trait DrivesCompositionWizard
 
         $this->asyncJobStatus = $status['status'];
 
-        if ($status['status'] === CompositionLifecycleService::JOB_FAILED) {
+        if ($status['status'] === CompositionRepository::JOB_FAILED) {
             $this->asyncJobErrors = $status['errors'];
 
             return;
         }
 
-        if ($status['status'] !== CompositionLifecycleService::JOB_DONE) {
+        if ($status['status'] !== CompositionRepository::JOB_DONE) {
             return;
         }
 
@@ -554,7 +555,7 @@ trait DrivesCompositionWizard
             $this->showSignatureModal = false;
             $this->form->resetSigningFields();
             $this->asyncJobId = $job['id'];
-            $this->asyncJobStatus = (string) ($job['status'] ?? CompositionLifecycleService::JOB_PENDING);
+            $this->asyncJobStatus = (string) ($job['status'] ?? CompositionRepository::JOB_PENDING);
             $this->asyncJobErrors = [];
             $this->step = self::STEP_AWAITING_JOB;
 
@@ -606,8 +607,8 @@ trait DrivesCompositionWizard
         return Auth::user()?->getCompositionAuthorEmployee($this->conclusionType())?->uuid;
     }
 
-    protected function lifecycle(): CompositionLifecycleService
+    protected function lifecycle(): CompositionRepository
     {
-        return app(CompositionLifecycleService::class);
+        return Repository::composition();
     }
 }

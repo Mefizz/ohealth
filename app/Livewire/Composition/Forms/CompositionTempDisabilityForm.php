@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\Composition\Forms;
 
 use App\Core\BaseForm;
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionType;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\Rule;
 

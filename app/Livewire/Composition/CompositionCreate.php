@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\Composition;
 
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionType;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
@@ -65,7 +65,11 @@ class CompositionCreate extends BasePatientComponent
         if ($this->patient() instanceof Preperson) {
             $this->form->prepersonUuid = $this->uuid;
             $this->newbornFullName = $this->patientFullName;
-            $this->form->newbornBirthDate = $this->toIsoDate($this->patient()->birthDate);
+            $this->form->newbornBirthDate = convertToAppDateFormat(
+                $this->patient()->birthDate instanceof \DateTimeInterface
+                    ? $this->patient()->birthDate->format('Y-m-d')
+                    : (string) $this->patient()->birthDate
+            );
             $this->form->newbornSex = (string) ($this->patient()->gender?->value ?? '');
         } else {
             $this->form->personUuid = $this->uuid;
@@ -118,8 +122,8 @@ class CompositionCreate extends BasePatientComponent
                     $query->whereHas(
                         'names',
                         static fn ($names) => $names
-                            ->where('last_name', 'ilike', "%{$term}%")
-                            ->orWhere('first_name', 'ilike', "%{$term}%")
+                            ->whereLike('last_name', "%{$term}%")
+                            ->orWhereLike('first_name', "%{$term}%")
                     )->orWhere('uuid', $term);
                 })
                 ->limit(10)
@@ -128,8 +132,8 @@ class CompositionCreate extends BasePatientComponent
 
         return Preperson::query()
             ->where(static fn ($query) => $query
-                ->where('last_name', 'ilike', "%{$term}%")
-                ->orWhere('first_name', 'ilike', "%{$term}%")
+                ->whereLike('last_name', "%{$term}%")
+                ->orWhereLike('first_name', "%{$term}%")
                 ->orWhere('uuid', $term))
             ->limit(10)
             ->get();
@@ -218,7 +222,11 @@ class CompositionCreate extends BasePatientComponent
 
         $this->form->prepersonUuid = $preperson->uuid;
         $this->newbornFullName = $preperson->fullName;
-        $this->form->newbornBirthDate = $this->toIsoDate($preperson->birthDate);
+        $this->form->newbornBirthDate = convertToAppDateFormat(
+            $preperson->birthDate instanceof \DateTimeInterface
+                ? $preperson->birthDate->format('Y-m-d')
+                : (string) $preperson->birthDate
+        );
         $this->form->newbornSex = (string) ($preperson->gender?->value ?? '');
         $this->counterpartQuery = '';
         $this->counterpartSearchTerm = '';
@@ -343,19 +351,6 @@ class CompositionCreate extends BasePatientComponent
         if ($existsRemotely) {
             throw new CompositionGuardException(__('compositions.errors.newborn_duplicate'));
         }
-    }
-
-    private function toIsoDate(mixed $value): string
-    {
-        if (!$value) {
-            return '';
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return $value->format(config('app.date_format'));
-        }
-
-        return convertToAppDateFormat((string) $value);
     }
 
     public function render(): View

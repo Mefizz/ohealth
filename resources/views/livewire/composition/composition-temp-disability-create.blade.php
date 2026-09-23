@@ -1,5 +1,5 @@
 @use('App\Livewire\Composition\CompositionTempDisabilityCreate', 'Wizard')
-@use('App\Enums\Person\CompositionCategory')
+@use('App\Enums\Composition\CompositionCategory')
 
 <x-layouts.patient
     :personId="$personId"
@@ -179,7 +179,7 @@
                             id="form.category"
                             class="input-select peer w-full"
                         >
-                            @foreach ($this->categoryOptions as $code => $description)
+                            @foreach ($this->categoryOptions() as $code => $description)
                                 <option value="{{ $code }}">{{ $description }}</option>
                             @endforeach
                         </select>
@@ -272,7 +272,7 @@
                             class="input-select peer w-full"
                         >
                             <option value="">{{ __('forms.select') }} ...</option>
-                            @foreach ($this->treatmentViolationOptions as $code => $description)
+                            @foreach ($this->dictionaries[\App\Enums\Composition\TreatmentViolation::DICTIONARY] ?? [] as $code => $description)
                                 <option value="{{ $code }}">{{ $description }}</option>
                             @endforeach
                         </select>
@@ -383,7 +383,7 @@
             {{-- Step 5: review and sign --}}
             @if ($step === Wizard::STEP_REVIEW)
                 @php
-                    $reviewStatus = \App\Enums\Person\CompositionStatus::fromEHealth(data_get($compositionDetail, 'status'));
+                    $reviewStatus = \App\Enums\Composition\CompositionStatus::fromEHealth(data_get($compositionDetail, 'status'));
                 @endphp
 
                 <div class="status-alert-green mb-6">

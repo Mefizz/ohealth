@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Composition;
 
-use App\Enums\Person\CompositionAsyncOperation;
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionAsyncOperation;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Livewire\Person\Records\PatientCompositions;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
@@ -242,7 +242,7 @@ class PatientCompositionsTest extends TestCase
             'personId' => $person->id,
         ])
             ->call('search')
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     /**

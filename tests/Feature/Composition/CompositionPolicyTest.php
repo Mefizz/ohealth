@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Composition;
 
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Enums\Status;
 use App\Enums\User\Role;
 use App\Models\Employee\Employee;

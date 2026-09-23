@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Composition;
 
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Enums\User\Role;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
 use App\Livewire\Composition\CompositionCreate;
@@ -14,7 +14,7 @@ use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Preperson;
-use App\Services\MedicalEvents\CompositionLifecycleService;
+use App\Repositories\MedicalEvents\CompositionRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -114,7 +114,7 @@ class CompositionCreateNewbornTest extends TestCase
         $compositionUuid = (string) Str::uuid();
         $encounterUuid = (string) Str::uuid();
 
-        $stored = app(CompositionLifecycleService::class)->storeLocal(
+        $stored = app(CompositionRepository::class)->storeLocal(
             [
                 'identifier' => ['value' => $compositionUuid],
                 'status' => 'final',

@@ -5,18 +5,18 @@ declare(strict_types=1);
 namespace Tests\Feature\Composition;
 
 use App\Classes\eHealth\Api\Patient\Composition as CompositionApi;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
-use App\Services\MedicalEvents\CompositionLifecycleService;
+use App\Repositories\MedicalEvents\CompositionRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
-class CompositionLifecycleServiceTest extends TestCase
+class CompositionRepositoryTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -280,9 +280,9 @@ class CompositionLifecycleServiceTest extends TestCase
         ]);
     }
 
-    private function service(): CompositionLifecycleService
+    private function service(): CompositionRepository
     {
-        return new CompositionLifecycleService();
+        return new CompositionRepository();
     }
 
     /**

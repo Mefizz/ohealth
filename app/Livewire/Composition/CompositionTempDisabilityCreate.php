@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace App\Livewire\Composition;
 
 use App\Enums\MergeRequest\Status as MergeRequestStatus;
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionPregnancyPeriodMode;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionPregnancyPeriodMode;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
+use App\Enums\Composition\TreatmentViolation;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
 use App\Livewire\Composition\Concerns\DrivesCompositionWizard;
 use App\Livewire\Composition\Forms\CompositionTempDisabilityForm;
@@ -17,7 +18,6 @@ use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MergeRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
-use App\Services\MedicalEvents\CompositionPregnancyPeriodService;
 use App\Services\MedicalEvents\Fhir;
 use App\Services\MedicalEvents\Mappers\CompositionMapper;
 use Carbon\CarbonImmutable;
@@ -64,6 +64,7 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     public array $dictionaryNames = [
         'eHealth/encounter_classes',
         'eHealth/encounter_types',
+        TreatmentViolation::DICTIONARY,
     ];
 
     protected function initializeComponent(): void
@@ -88,7 +89,6 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     /**
      * @return array<string, string>
      */
-    #[Computed]
     public function categoryOptions(): array
     {
         $options = Fhir::composition()->categoryOptions(CompositionType::TEMP_DISABILITY);
@@ -103,18 +103,6 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         }
 
         return $options;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    #[Computed]
-    public function treatmentViolationOptions(): array
-    {
-        return dictionary()->basics()
-            ->byName('COMPOSITION_TREATMENT_VIOLATION')
-            ->asCodeDescription()
-            ->all();
     }
 
     /**
@@ -157,9 +145,9 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
         );
     }
 
-    private function pregnancyPeriods(): CompositionPregnancyPeriodService
+    private function pregnancyPeriods(): PregnancyPeriods
     {
-        return app(CompositionPregnancyPeriodService::class);
+        return app(PregnancyPeriods::class);
     }
 
     /**
@@ -258,8 +246,8 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
     protected function detailsRules(): array
     {
         return $this->form->compositionRules(
-            $this->categoryOptions,
-            array_keys($this->treatmentViolationOptions)
+            $this->categoryOptions(),
+            array_keys($this->dictionaries[TreatmentViolation::DICTIONARY] ?? [])
         );
     }
 

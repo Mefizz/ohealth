@@ -454,7 +454,7 @@
 
             @if ($step === Wizard::STEP_REVIEW)
                 @php
-                    $reviewStatus = \App\Enums\Person\CompositionStatus::fromEHealth(data_get($compositionDetail, 'status'));
+                    $reviewStatus = \App\Enums\Composition\CompositionStatus::fromEHealth(data_get($compositionDetail, 'status'));
                 @endphp
 
                 <div class="status-alert-green mb-6">

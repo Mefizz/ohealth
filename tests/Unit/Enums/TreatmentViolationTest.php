@@ -2,17 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Helpers;
+namespace Tests\Unit\Enums;
 
+use App\Enums\Composition\TreatmentViolation;
 use Tests\TestCase;
 
-class CompositionTreatmentViolationLabelTest extends TestCase
+class TreatmentViolationTest extends TestCase
 {
     public function test_resolves_known_codes_to_ukrainian_descriptions(): void
     {
         $this->assertSame(
             'відмова від госпіталізації',
-            compositionTreatmentViolationLabel('reject_hospitalization')
+            TreatmentViolation::label('reject_hospitalization')
         );
     }
 
@@ -20,13 +21,13 @@ class CompositionTreatmentViolationLabelTest extends TestCase
     {
         $this->assertSame(
             'unknown_violation_code',
-            compositionTreatmentViolationLabel('unknown_violation_code')
+            TreatmentViolation::label('unknown_violation_code')
         );
     }
 
     public function test_blank_codes_render_as_a_dash(): void
     {
-        $this->assertSame('-', compositionTreatmentViolationLabel(null));
-        $this->assertSame('-', compositionTreatmentViolationLabel(''));
+        $this->assertSame('-', TreatmentViolation::label(null));
+        $this->assertSame('-', TreatmentViolation::label(''));
     }
 }

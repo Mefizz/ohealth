@@ -8,9 +8,9 @@
 --}}
 @php
     $detail ??= [];
-    $status = \App\Enums\Person\CompositionStatus::fromEHealth(data_get($detail, 'status'));
-    $type = \App\Enums\Person\CompositionType::tryFrom((string) data_get($detail, 'type.coding.0.code'));
-    $category = \App\Enums\Person\CompositionCategory::tryFrom((string) data_get($detail, 'category.coding.0.code'));
+    $status = \App\Enums\Composition\CompositionStatus::fromEHealth(data_get($detail, 'status'));
+    $type = \App\Enums\Composition\CompositionType::tryFrom((string) data_get($detail, 'type.coding.0.code'));
+    $category = \App\Enums\Composition\CompositionCategory::tryFrom((string) data_get($detail, 'category.coding.0.code'));
 
     $extensions = collect(data_get($detail, 'extension', []))
         ->filter(static fn ($extension) => is_array($extension) && isset($extension['valueCode']))
@@ -80,7 +80,7 @@
                             {{ __('compositions.detail.treatment_violation') }}
                         </div>
                         <div class="record-inner-value text-[14px] font-semibold break-words">
-                            {{ compositionTreatmentViolationLabel((string) $extensions->get('TREATMENT_VIOLATION')) }}
+                            {{ \App\Enums\Composition\TreatmentViolation::label((string) $extensions->get('TREATMENT_VIOLATION')) }}
                             @if ($extensions->has('TREATMENT_VIOLATION_DATE'))
                                 ({{ $asDate($extensions->get('TREATMENT_VIOLATION_DATE')) }})
                             @endif

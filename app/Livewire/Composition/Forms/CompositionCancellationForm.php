@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\Composition\Forms;
 
 use App\Core\BaseForm;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionType;
+use App\Services\MedicalEvents\FhirResource;
 
 /**
  * Marking a Composition (МВН / МВТН) as entered in error.
@@ -45,26 +46,10 @@ class CompositionCancellationForm extends BaseForm
     public function toCancellationPayload(string $compositionUuid, CompositionType $type): array
     {
         return [
-            'identifier' => [
-                'type' => [
-                    'coding' => [
-                        [
-                            'system' => 'eHealth/resources',
-                            'code' => 'composition',
-                        ],
-                    ],
-                ],
-                'value' => $compositionUuid,
-            ],
-            'reason' => [
-                'coding' => [
-                    [
-                        'system' => 'eHealth/' . $type->cancellationReasonDictionary(),
-                        'code' => $this->reason,
-                    ],
-                ],
-                'text' => $this->reasonText,
-            ],
+            'id' => $compositionUuid,
+            'reason' => FhirResource::make()
+                ->coding('eHealth/'.$type->cancellationReasonDictionary(), $this->reason)
+                ->toCodeableConcept($this->reasonText),
         ];
     }
 

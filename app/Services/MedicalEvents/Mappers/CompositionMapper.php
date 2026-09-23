@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents\Mappers;
 
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionType;
 use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
 
@@ -69,18 +69,21 @@ class CompositionMapper
      */
     public function tempDisability(array $data, string $authorEmployeeUuid): array
     {
-        $payload = $this->base(
-            type: CompositionType::TEMP_DISABILITY,
-            category: $data['category'],
-            subjectUuid: $data['subjectUuid'],
-            subjectResource: ($data['isUnidentified'] ?? false) ? 'preperson' : 'person',
-            encounterUuid: $data['encounterUuid'],
-            authorEmployeeUuid: $authorEmployeeUuid,
-            focusUuid: $data['sectionFocusUuid'],
-            focusResource: ($data['isUnidentified'] ?? false) ? 'preperson' : 'person',
-            periodStart: $this->startOfDay($data['eventPeriodStart']),
-            periodEnd: $this->endOfDay($data['eventPeriodEnd']),
-        );
+        $isUnidentified = (bool) ($data['isUnidentified'] ?? false);
+        $subjectResource = $isUnidentified ? 'preperson' : 'person';
+
+        $payload = $this->base([
+            'type' => CompositionType::TEMP_DISABILITY,
+            'category' => $data['category'],
+            'subjectUuid' => $data['subjectUuid'],
+            'subjectResource' => $subjectResource,
+            'encounterUuid' => $data['encounterUuid'],
+            'authorEmployeeUuid' => $authorEmployeeUuid,
+            'focusUuid' => $data['sectionFocusUuid'],
+            'focusResource' => $subjectResource,
+            'periodStart' => $this->startOfDay($data['eventPeriodStart']),
+            'periodEnd' => $this->endOfDay($data['eventPeriodEnd']),
+        ]);
 
         $extensions = $this->informWith($data['informWithUuid'] ?? null);
 
@@ -141,19 +144,19 @@ class CompositionMapper
      */
     public function newborn(array $data, string $authorEmployeeUuid): array
     {
-        $payload = $this->base(
-            type: CompositionType::NEWBORN,
-            category: $data['category'],
-            subjectUuid: $data['prepersonUuid'],
-            subjectResource: 'preperson',
-            encounterUuid: $data['encounterUuid'],
-            authorEmployeeUuid: $authorEmployeeUuid,
-            focusUuid: $data['personUuid'],
-            focusResource: 'person',
-            periodStart: $this->startOfDay($data['newbornBirthDate']),
-            periodEnd: null,
-            includeNullPeriodEnd: true,
-        );
+        $payload = $this->base([
+            'type' => CompositionType::NEWBORN,
+            'category' => $data['category'],
+            'subjectUuid' => $data['prepersonUuid'],
+            'subjectResource' => 'preperson',
+            'encounterUuid' => $data['encounterUuid'],
+            'authorEmployeeUuid' => $authorEmployeeUuid,
+            'focusUuid' => $data['personUuid'],
+            'focusResource' => 'person',
+            'periodStart' => $this->startOfDay($data['newbornBirthDate']),
+            'periodEnd' => null,
+            'includeNullPeriodEnd' => true,
+        ]);
 
         $payload['extension'] = array_merge($this->informWith($data['informWithUuid'] ?? null), [
             ['valueCode' => 'NEWBORN_BIRTH_DATE', 'valueDate' => $this->date($data['newbornBirthDate'])],
@@ -166,31 +169,33 @@ class CompositionMapper
     /**
      * Parts shared by both conclusion types.
      *
+     * @param  array{
+     *     type: CompositionType,
+     *     category: string,
+     *     subjectUuid: string,
+     *     subjectResource: string,
+     *     encounterUuid: string,
+     *     authorEmployeeUuid: string,
+     *     focusUuid: string,
+     *     focusResource: string,
+     *     periodStart: string,
+     *     periodEnd: string|null,
+     *     includeNullPeriodEnd?: bool
+     * }  $parts
      * @return array<string, mixed>
      */
-    private function base(
-        CompositionType $type,
-        string $category,
-        string $subjectUuid,
-        string $subjectResource,
-        string $encounterUuid,
-        string $authorEmployeeUuid,
-        string $focusUuid,
-        string $focusResource,
-        string $periodStart,
-        ?string $periodEnd,
-        bool $includeNullPeriodEnd = false,
-    ): array {
-        $period = ['start' => $periodStart];
+    private function base(array $parts): array
+    {
+        $period = ['start' => $parts['periodStart']];
 
         // МВН Confluence examples send `"end": null`; МВТН always has a concrete end.
-        if ($periodEnd !== null || $includeNullPeriodEnd) {
-            $period['end'] = $periodEnd;
+        if (($parts['periodEnd'] ?? null) !== null || ($parts['includeNullPeriodEnd'] ?? false)) {
+            $period['end'] = $parts['periodEnd'] ?? null;
         }
 
         return [
-            'type' => $this->codeableConcept(self::SYSTEM_TYPES, $type->value),
-            'category' => $this->codeableConcept(self::SYSTEM_CATEGORIES, $category),
+            'type' => $this->codeableConcept(self::SYSTEM_TYPES, $parts['type']->value),
+            'category' => $this->codeableConcept(self::SYSTEM_CATEGORIES, $parts['category']),
             // `event` is a list even though only the validity period is ever sent.
             'event' => [
                 [
@@ -198,11 +203,11 @@ class CompositionMapper
                     'period' => $period,
                 ],
             ],
-            'subject' => $this->resourceIdentifier($subjectResource, $subjectUuid),
-            'encounter' => $this->resourceIdentifier('encounter', $encounterUuid),
-            'author' => $this->resourceIdentifier('employee', $authorEmployeeUuid),
+            'subject' => $this->resourceIdentifier($parts['subjectResource'], $parts['subjectUuid']),
+            'encounter' => $this->resourceIdentifier('encounter', $parts['encounterUuid']),
+            'author' => $this->resourceIdentifier('employee', $parts['authorEmployeeUuid']),
             'section' => [
-                'focus' => $this->resourceIdentifier($focusResource, $focusUuid),
+                'focus' => $this->resourceIdentifier($parts['focusResource'], $parts['focusUuid']),
             ],
         ];
     }

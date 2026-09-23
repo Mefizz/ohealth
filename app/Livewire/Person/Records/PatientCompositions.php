@@ -6,17 +6,18 @@ namespace App\Livewire\Person\Records;
 
 use App\Classes\eHealth\EHealth;
 use App\Enums\MergeRequest\Status as MergeRequestStatus;
-use App\Enums\Person\CompositionAsyncOperation;
-use App\Enums\Person\CompositionCategory;
-use App\Enums\Person\CompositionStatus;
-use App\Enums\Person\CompositionType;
+use App\Enums\Composition\CompositionAsyncOperation;
+use App\Enums\Composition\CompositionCategory;
+use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionType;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Livewire\Composition\Forms\CompositionCancellationForm;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MergeRequest;
 use App\Models\Preperson;
-use App\Services\MedicalEvents\CompositionLifecycleService;
+use App\Repositories\MedicalEvents\CompositionRepository;
+use App\Repositories\MedicalEvents\Repository;
 use App\Services\SignatureService;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -188,8 +189,7 @@ class PatientCompositions extends BasePatientComponent
     // ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * Load composition detail from eHealth API (getComposition).
-     * ТЗ 3.8.1.6.1 / 3.8.2.8.1
+     * Show the locally stored composition payload (TV 3.8.1.6.1 / 3.8.2.8.1).
      */
     public function viewComposition(string $compositionUuid): void
     {
@@ -206,25 +206,11 @@ class PatientCompositions extends BasePatientComponent
             return;
         }
 
-        $this->authorize('view', $composition);
+        abort_unless(Auth::user()->can('view', $composition), 404);
 
-        try {
-            $this->compositionDetail = EHealth::composition()->getById(
-                $composition->patientUuid,
-                $composition->uuid,
-                $composition->episodeOfCareUuid,
-                $composition->encounterUuid
-            )->validate();
-            $this->showDetailModal = true;
-
-            try {
-                $this->integrationData = $this->lifecycle()->syncIntegration($composition);
-            } catch (EHealthConnectionException | EHealthException) {
-                $this->integrationData = data_get($composition->data, '_integration', []);
-            }
-        } catch (EHealthConnectionException | EHealthException $exception) {
-            $exception->handle('Error fetching composition detail');
-        }
+        $this->compositionDetail = is_array($composition->data) ? $composition->data : [];
+        $this->showDetailModal = true;
+        $this->integrationData = data_get($composition->data, '_integration', []);
     }
 
     public function closeDetailModal(): void
@@ -252,7 +238,7 @@ class PatientCompositions extends BasePatientComponent
             return;
         }
 
-        $this->authorize('view', $composition);
+        abort_unless(Auth::user()->can('view', $composition), 404);
 
         try {
             $templateId = $composition->type->printTemplateId();
@@ -469,7 +455,7 @@ class PatientCompositions extends BasePatientComponent
             // discarding it would leave the row permanently claiming to be pending.
             $composition->update([
                 'async_job_id' => $job['id'],
-                'async_job_status' => $job['status'] ?? CompositionLifecycleService::JOB_PENDING,
+                'async_job_status' => $job['status'] ?? CompositionRepository::JOB_PENDING,
                 'async_job_operation' => CompositionAsyncOperation::CANCEL->value,
                 'async_job_error' => null,
             ]);
@@ -540,9 +526,9 @@ class PatientCompositions extends BasePatientComponent
             return;
         }
 
-        if ($status['status'] === CompositionLifecycleService::JOB_FAILED) {
+        if ($status['status'] === CompositionRepository::JOB_FAILED) {
             $composition->update([
-                'async_job_status' => CompositionLifecycleService::JOB_FAILED,
+                'async_job_status' => CompositionRepository::JOB_FAILED,
                 'async_job_error' => implode(' ', $status['errors'])
                     ?: __('compositions.errors.async_job_failed'),
             ]);
@@ -550,14 +536,14 @@ class PatientCompositions extends BasePatientComponent
             return;
         }
 
-        if ($status['status'] !== CompositionLifecycleService::JOB_DONE) {
+        if ($status['status'] !== CompositionRepository::JOB_DONE) {
             return;
         }
 
         $operation = $composition->asyncJobOperation;
 
         $composition->update([
-            'async_job_status' => CompositionLifecycleService::JOB_DONE,
+            'async_job_status' => CompositionRepository::JOB_DONE,
             'async_job_error' => null,
         ]);
 
@@ -637,7 +623,7 @@ class PatientCompositions extends BasePatientComponent
             // instead of an immediate refresh that can only show the stale status.
             $composition->update([
                 'async_job_id' => $job['id'],
-                'async_job_status' => $job['status'] ?? CompositionLifecycleService::JOB_PENDING,
+                'async_job_status' => $job['status'] ?? CompositionRepository::JOB_PENDING,
                 'async_job_operation' => CompositionAsyncOperation::ERLN_RETRY->value,
                 'async_job_error' => null,
             ]);
@@ -671,7 +657,7 @@ class PatientCompositions extends BasePatientComponent
             return;
         }
 
-        $this->authorize('view', $composition);
+        abort_unless(Auth::user()->can('view', $composition), 404);
 
         try {
             $this->lifecycle()->syncIntegration($composition);
@@ -688,8 +674,8 @@ class PatientCompositions extends BasePatientComponent
     {
         $query = Composition::forPatient($this->patient())
             ->with([
-                'typeCodeableConcept.coding',
-                'categoryCodeableConcept.coding',
+                'typeConcept.coding',
+                'categoryConcept.coding',
                 'encounter',
                 'episodeOfCare',
                 'eventPeriod',
@@ -697,7 +683,7 @@ class PatientCompositions extends BasePatientComponent
             ->recentlyUpdatedFirst();
 
         if ($this->filterType) {
-            $query->ofType(\App\Enums\Person\CompositionType::from($this->filterType));
+            $query->ofType(CompositionType::from($this->filterType));
         }
 
         if ($this->filterStatus) {
@@ -730,7 +716,7 @@ class PatientCompositions extends BasePatientComponent
     {
         // TV 3.8.1.9 / 3.8.2.11 — searching is its own capability, and a user who may not
         // see conclusions here must not be able to pull them into the local table either.
-        $this->authorize('viewAny', Composition::class);
+        abort_unless(Auth::user()->can('viewAny', Composition::class), 404);
 
         try {
             // `subject` and `focus` are mutually exclusive, so searching by an explicit
@@ -792,7 +778,7 @@ class PatientCompositions extends BasePatientComponent
             ->whereIn('preperson_id', $mergedPrepersonIds)
             ->ofType(CompositionType::TEMP_DISABILITY)
             ->whereHas(
-                'categoryCodeableConcept.coding',
+                'categoryConcept.coding',
                 static fn ($query) => $query->where('code', CompositionCategory::SICKNESS->value)
             )
             ->signed()
@@ -850,9 +836,9 @@ class PatientCompositions extends BasePatientComponent
         return Composition::whereUuid($uuid)->first();
     }
 
-    private function lifecycle(): CompositionLifecycleService
+    private function lifecycle(): CompositionRepository
     {
-        return app(CompositionLifecycleService::class);
+        return Repository::composition();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

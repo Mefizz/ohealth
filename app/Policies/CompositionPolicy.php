@@ -87,9 +87,18 @@ class CompositionPolicy
             return Response::deny($denial);
         }
 
-        return $user->getCompositionAuthorEmployee($type) !== null
-            ? Response::allow()
-            : Response::deny($denial);
+        if ($user->getCompositionAuthorEmployee($type) !== null) {
+            return Response::allow();
+        }
+
+        // SPECIALIST/DOCTOR is present, but none of their positions may issue this
+        // category (e.g. endocrinologist P56 vs LIVE_BIRTH). Surface that, not a
+        // generic "create not allowed".
+        if ($type === CompositionType::NEWBORN && $user->getCompositionAuthorEmployee() !== null) {
+            return Response::deny(__('errors.ehealth.messages.illegal_author_position'));
+        }
+
+        return Response::deny($denial);
     }
 
     /**

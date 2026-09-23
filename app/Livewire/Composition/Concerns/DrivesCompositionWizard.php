@@ -596,8 +596,10 @@ trait DrivesCompositionWizard
     }
 
     /**
-     * Employee the conclusion is authored as, restricted to the role TV 3.8 allows for
-     * this conclusion type in the current legal entity.
+     * Employee UUID sent as composition.author.
+     *
+     * Not the first SPECIALIST on the party: login may carry every role's scopes, and
+     * eHealth validates the author's position. Birth conclusions pick P5/P6/P8/P34/P103.
      */
     protected function authorEmployeeUuid(): ?string
     {

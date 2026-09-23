@@ -126,6 +126,16 @@ class CompositionEnumsTest extends TestCase
     }
 
     #[Test]
+    public function a_live_birth_conclusion_requires_obstetric_or_paediatric_positions(): void
+    {
+        $this->assertSame(
+            ['P5', 'P6', 'P8', 'P34', 'P103'],
+            CompositionCategory::LIVE_BIRTH->allowedAuthorPositions()
+        );
+        $this->assertSame([], CompositionCategory::SICKNESS->allowedAuthorPositions());
+    }
+
+    #[Test]
     public function a_birth_conclusion_is_filed_against_a_preperson(): void
     {
         $this->assertSame('preperson', CompositionType::NEWBORN->subjectResource());

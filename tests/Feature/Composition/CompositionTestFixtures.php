@@ -78,7 +78,7 @@ trait CompositionTestFixtures
             'status' => Status::APPROVED->value,
             'legal_entity_id' => $legalEntity->id,
             'is_active' => true,
-            'position' => 'P1',
+            'position' => $role === Role::SPECIALIST ? 'P8' : 'P10',
             'start_date' => now()->format('Y-m-d'),
             'user_id' => $user->id,
             'party_id' => $party->id,

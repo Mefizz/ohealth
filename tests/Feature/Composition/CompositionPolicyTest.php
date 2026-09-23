@@ -254,14 +254,109 @@ class CompositionPolicyTest extends TestCase
         ], $overrides));
     }
 
+    public function test_birth_conclusion_author_is_the_specialist_with_an_allowed_position(): void
+    {
+        ['user' => $user, 'legalEntity' => $legalEntity, 'employee' => $endocrinologist] = $this->actingInEntity(
+            LegalEntity::TYPE_OUTPATIENT,
+            ['composition:create'],
+            Role::SPECIALIST,
+            'P56'
+        );
+
+        $pediatrician = Employee::create([
+            'uuid' => (string) Str::uuid(),
+            'full_name' => 'Ольга Лікарівна',
+            'employee_type' => Role::SPECIALIST->value,
+            'status' => Status::APPROVED->value,
+            'legal_entity_id' => $legalEntity->id,
+            'is_active' => true,
+            'position' => 'P8',
+            'start_date' => now()->format('Y-m-d'),
+            'user_id' => $user->id,
+            'party_id' => $user->partyId,
+        ]);
+        $user->employees()->attach($pediatrician->id);
+        $user->unsetRelation('party');
+
+        $author = $user->getCompositionAuthorEmployee(CompositionType::NEWBORN);
+
+        $this->assertSame($pediatrician->uuid, $author?->uuid);
+        $this->assertNotSame($endocrinologist->uuid, $author?->uuid);
+        $this->assertTrue((new CompositionPolicy())->createNewborn($user)->allowed());
+    }
+
+    public function test_birth_conclusion_is_denied_when_the_only_specialist_position_is_forbidden(): void
+    {
+        ['user' => $user] = $this->actingInEntity(
+            LegalEntity::TYPE_OUTPATIENT,
+            ['composition:create'],
+            Role::SPECIALIST,
+            'P56'
+        );
+
+        $response = (new CompositionPolicy())->createNewborn($user);
+
+        $this->assertTrue($response->denied());
+        $this->assertSame(
+            __('errors.ehealth.messages.illegal_author_position'),
+            $response->message()
+        );
+    }
+
+    public function test_single_role_pediatrician_is_not_overwritten_by_a_sibling_endocrinologist(): void
+    {
+        ['user' => $pediatricianUser, 'legalEntity' => $legalEntity] = $this->actingInEntity(
+            LegalEntity::TYPE_OUTPATIENT,
+            ['composition:create'],
+            Role::SPECIALIST,
+            'P8'
+        );
+
+        Employee::create([
+            'uuid' => (string) Str::uuid(),
+            'full_name' => 'Ольга Лікарівна',
+            'employee_type' => Role::SPECIALIST->value,
+            'status' => Status::APPROVED->value,
+            'legal_entity_id' => $legalEntity->id,
+            'is_active' => true,
+            'position' => 'P56',
+            'start_date' => now()->format('Y-m-d'),
+            'user_id' => null,
+            'party_id' => $pediatricianUser->partyId,
+        ]);
+
+        $pediatricianUser->unsetRelation('party');
+
+        $author = $pediatricianUser->getCompositionAuthorEmployee(CompositionType::NEWBORN);
+
+        $this->assertSame('P8', $author?->position);
+        $this->assertTrue((new CompositionPolicy())->createNewborn($pediatricianUser)->allowed());
+    }
+
+    public function test_disability_conclusion_still_accepts_a_non_obstetric_specialist(): void
+    {
+        ['user' => $user] = $this->actingInEntity(
+            LegalEntity::TYPE_OUTPATIENT,
+            ['composition:create'],
+            Role::SPECIALIST,
+            'P56'
+        );
+
+        $this->assertTrue((new CompositionPolicy())->createTempDisability($user)->allowed());
+    }
+
     /**
      * Put the user inside a legal entity of the given type, holding the given scopes.
      *
      * @param  list<string>  $scopes
      * @return array{legalEntity: LegalEntity, user: User, employee: Employee}
      */
-    private function actingInEntity(string $type, array $scopes, Role $role = Role::DOCTOR): array
-    {
+    private function actingInEntity(
+        string $type,
+        array $scopes,
+        Role $role = Role::DOCTOR,
+        string $position = 'P10',
+    ): array {
         $typeId = DB::table('legal_entity_types')->where('name', $type)->value('id')
             ?? DB::table('legal_entity_types')->insertGetId(['name' => $type]);
 
@@ -297,7 +392,7 @@ class CompositionPolicyTest extends TestCase
             'status' => Status::APPROVED->value,
             'legal_entity_id' => $legalEntity->id,
             'is_active' => true,
-            'position' => 'P1',
+            'position' => $role === Role::SPECIALIST && $position === 'P10' ? 'P8' : $position,
             'start_date' => now()->format('Y-m-d'),
             'user_id' => $user->id,
             'party_id' => $party->id,

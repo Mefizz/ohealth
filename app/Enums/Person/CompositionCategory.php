@@ -108,6 +108,22 @@ enum CompositionCategory: string
     }
 
     /**
+     * Employee.position codes eHealth accepts as author of this category.
+     *
+     * Mirrors EMAL_VALIDATION_AUTHOR_CATEGORIES_BY_POSITION. Empty means any
+     * position of an allowed author role is fine.
+     *
+     * @return list<string>
+     */
+    public function allowedAuthorPositions(): array
+    {
+        return match ($this) {
+            self::LIVE_BIRTH => ['P5', 'P6', 'P8', 'P34', 'P103'],
+            default => [],
+        };
+    }
+
+    /**
      * Label from the eHealth dictionary, falling back to the raw code.
      */
     public function label(): string

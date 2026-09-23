@@ -74,12 +74,31 @@ mapping base class. The field-order list only preserves signed bytes; it does no
 - Api: `app/Classes/eHealth/Api`; request execution remains there.
 - Repository: persistence, scoped lookup, Identifier links and transactions.
 - Enums: `app/Enums`.
-- Livewire/Blade: user interaction, signature modal and presentation.
-- Future Actions: multi-step operations shared by multiple callers, not replacement service buckets.
+- Livewire/Blade: explicit workflow, user interaction, signature modal and presentation; narrowly scoped concerns share repeated steps.
+- No new Actions/Rules/Managers layer. Medical service classes are removed as each flow migrates to Livewire concerns, Api and Repository.
+
+## Architecture amendment — 2026-09-23
+
+The team lead's ModelData/EHealthData/FormData approach is the default for subsequent mapping:
+reuse one destination contract across multiple source classes with SourceClass/TargetClass conditions.
+Do not create one DTO for each source-to-target pair. Distinct wire contracts may still require separate
+envelopes or targets, especially prequalify versus the document signed with KEP.
+
+The current code is an outbound spike, not yet this complete design: it normalizes sources into
+ServiceRequestInput and does not implement multi-source ModelData or FormData. Before adding more
+resource-specific DTOs, validate the Data-to-existing-Eloquent-model path, including HasCamelCasing,
+casts, mutators, editable-field boundaries and partial updates. The planned Write contract has the
+ModelData role; do not keep duplicate Write and ModelData representations of the same data.
+
+ObjectMapper accepts and returns objects. An Eloquent constructor takes an attributes array, so
+`new Division($mapper->map($source, Division::class))` is not a working direct integration.
+Also, attributes on DivisionModelData are not automatically used when neither mapping endpoint is
+that class. The intended short caller needs explicit metadata routing or a mapping step through Data.
+These amendments update the plan only; the recorded test results below apply to the existing implementation.
 
 ## Remaining scope of #841
 
-- Consolidate inbound ServiceRequest mapping into a Write contract without losing partial-field semantics.
+- Consolidate form/API-to-model mapping in ServiceRequestModelData without losing partial-field semantics.
 - Exercise the complete create/sign/sync flow, then assess whether this pattern reduces maintenance work.
 - Preserve legacy `toFhir`/`fromFhir` until their separate contracts and callers are migrated.
 

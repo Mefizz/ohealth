@@ -225,18 +225,17 @@ class ObservationRepository extends BaseRepository
      */
     public function getDetailsMapByUuids(array $uuids): array
     {
-        return collect(
-            $this->model->whereIn('uuid', $uuids)
-                ->with('code.coding')
-                ->get()
-                ->toArray()
-        )
-            ->mapWithKeys(fn (array $observation) => [
-                $observation['uuid'] => [
-                    'ehealthInsertedAt' => $observation['ehealthInsertedAt'] ?? null,
-                    'codeCode' => data_get($observation, 'code.coding.0.code'),
-                    'type' => 'observation'
-                ]
+        // Map from models directly — Observation::$appends touch effectivePeriod, so toArray()
+        // would lazy-load it when that relation is not eager-loaded (strict mode in local).
+        return $this->model->whereIn('uuid', $uuids)
+            ->with('code.coding')
+            ->get()
+            ->mapWithKeys(fn (Observation $observation) => [
+                $observation->uuid => [
+                    'ehealthInsertedAt' => $observation->ehealthInsertedAt,
+                    'codeCode' => $observation->code?->coding->first()?->code,
+                    'type' => 'observation',
+                ],
             ])
             ->toArray();
     }
@@ -249,31 +248,12 @@ class ObservationRepository extends BaseRepository
      */
     public function get(string $encounterUuid): ?array
     {
-        return $this->model::with([
-            'categories.coding',
-            'code.coding',
-            'performer.type.coding',
-            'reportOrigin.coding',
-            'interpretation.coding',
-            'bodySite.coding',
-            'method.coding',
-            'value.valueQuantity',
-            'value.valueCodeableConcept.coding',
-            'reactionOn.type.coding',
-            'device.type.coding',
-            'components.code.coding',
-            'components.value.valueQuantity',
-            'components.value.valueCodeableConcept.coding',
-            'components.value.valueRange.low',
-            'components.value.valueRange.high',
-            'components.value.valueRatio.numerator',
-            'components.value.valueRatio.denominator',
-            'components.value.valueSampledData',
-            'components.interpretation.coding'
-        ])
+        // withAllRelations includes effectivePeriod required by Observation::$appends on toArray().
+        return $this->model
+            ->withAllRelations()
             ->whereHas('context', fn (Builder $query) => $query->where('value', $encounterUuid))
             ->get()
-            ?->toArray();
+            ->toArray();
     }
 
     /**

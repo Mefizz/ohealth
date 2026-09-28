@@ -26,8 +26,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use App\Classes\Cipher\Api\CipherRequest;
-use App\Exceptions\Cipher\CipherException;
-use App\Exceptions\Cipher\CipherConnectionException;
 use Illuminate\Support\Facades\Cache;
 use App\Repositories\PhoneRepository;
 use Illuminate\Http\RedirectResponse;
@@ -297,7 +295,7 @@ abstract class LegalEntity extends Component
                 $data['edrpou']
             )->getBase64Data();
         } catch (Throwable $exception) {
-            $this->dispatchErrorMessage($exception->getMessage());
+            $this->dispatchErrorMessage('Сайфер: ' . $exception->getMessage());
 
             throw new Exception();
         } finally {
@@ -311,7 +309,7 @@ abstract class LegalEntity extends Component
                 'signed_content_encoding' => 'base64',
             ]);
         } catch (Throwable $exception) {
-            $this->dispatchErrorMessage($exception->getMessage());
+            $this->dispatchErrorMessage('ЕСОЗ: ' . $exception->getMessage());
 
             throw new Exception();
         }

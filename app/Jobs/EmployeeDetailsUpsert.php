@@ -13,6 +13,7 @@ use App\Models\Division;
 use App\Core\EHealthJob;
 use App\Enums\JobStatus;
 use App\Models\LegalEntity;
+use App\Models\Relations\Party;
 use App\Repositories\Repository;
 use App\Classes\eHealth\EHealth;
 use App\Models\Employee\Employee;
@@ -72,6 +73,11 @@ class EmployeeDetailsUpsert extends EHealthJob
 
         $this->employee->save();
 
+        // Relink before updateDetails(): the repository still writes the remote UUID
+        // onto the currently linked Party and hits parties_uuid_unique when another
+        // row already owns it.
+        $this->associateExistingPartyByUuid($validatedData['party'] ?? []);
+
         Repository::employee()->updateDetails(
             $this->employee,
             $validatedData['party'],
@@ -120,6 +126,28 @@ class EmployeeDetailsUpsert extends EHealthJob
         ]);
 
         Repository::party()->syncUserEmployeesAndRoles($this->employee->party, $this->legalEntity);
+    }
+
+    /**
+     * Point this employee at the Party that already owns the eHealth UUID.
+     * Leaves a local draft Party untouched when the UUID is still free.
+     */
+    private function associateExistingPartyByUuid(array $party): void
+    {
+        $partyUuid = $party['uuid'] ?? null;
+
+        if (!is_string($partyUuid) || $partyUuid === '') {
+            return;
+        }
+
+        $existingParty = Party::where('uuid', $partyUuid)->first();
+
+        if ($existingParty === null || $this->employee->partyId === $existingParty->id) {
+            return;
+        }
+
+        $this->employee->party()->associate($existingParty);
+        $this->employee->save();
     }
 
     /**

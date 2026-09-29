@@ -138,8 +138,8 @@ class EHealthLoginController extends Controller
             trim(data_get($validatedEHealthTokenData, 'details.scope'))
         );
 
-        // OAuth may return scopes for a single selected role; merge with permissions
-        // from all roles assigned to the user in this legal entity (team).
+        // Single-role login (session first_login_role): keep OAuth scopes only.
+        // Otherwise merge with all Spatie role permissions in this LE.
         $loginScopes = $this->resolveLoginScopes($user, $ehealthScopes);
 
         $user->syncPermissions($loginScopes);
@@ -297,20 +297,31 @@ class EHealthLoginController extends Controller
     }
 
     /**
-     * Build login scopes from the OAuth token plus permissions of all roles
-     * already assigned to the user in the current legal entity (team).
+     * Resolve Spatie/session login scopes after eHealth OAuth.
      *
-     * OAuth may return only the selected role's scopes; role permissions keep
-     * the session/model_has_permissions set complete across all user roles.
+     * - Single-role / first-role OAuth (`session('first_login_role')`): use the
+     *   bearer scopes only — do not inflate from other roles on the user.
+     * - Normal multi-role login: merge OAuth with permissions of all roles in
+     *   the current legal entity (team) so MIS ACL stays complete.
      *
      * @param  list<string>  $oauthScopes
      * @return list<string>
      */
     protected function resolveLoginScopes(User $user, array $oauthScopes): array
     {
+        $normalizedOauth = collect($oauthScopes)
+            ->filter(static fn ($scope) => is_string($scope) && $scope !== '')
+            ->unique()
+            ->values();
+
+        // Single-role / first-role OAuth sets this session key in Login::buildFirstEHealthLoginUrl.
+        if (Session::has('first_login_role')) {
+            return $normalizedOauth->all();
+        }
+
         $user->unsetRelation('roles')->unsetRelation('permissions');
 
-        return collect($oauthScopes)
+        return $normalizedOauth
             ->merge($user->getPermissionsViaRoles()->pluck('name'))
             ->filter(static fn ($scope) => is_string($scope) && $scope !== '')
             ->unique()

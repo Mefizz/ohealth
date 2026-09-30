@@ -124,6 +124,8 @@ readonly class EmployeeRepository
      * 2. If user already has a party, update it.
      * 3. If user does not have a party, but there is a party with the same UUID, update it and establish the relation.
      * 4. If neither of the above, create a new party and establish the relation.
+     * 5. If the model is linked to a different Party than the one that already owns this UUID,
+     *    relink to that Party and update it. Never copy the UUID onto the currently linked row.
      */
     protected function updatePartyByUuid(Employee|EmployeeRequest $model, array $party): void
     {
@@ -150,16 +152,23 @@ readonly class EmployeeRepository
         } elseif ($partyByUuid && $model->party) {
 
             // uuid is the same, just update
-            if ($partyByUuid->uuid === $model->party->uuid) {
+            if ($partyByUuid->id === $model->party->id) {
                 $model->party()->update($party);
             } else {
-                // Different uuid, need to merge the results, prioritizing the eHealth data
-                $model->party()->update($party);
+                // party()->update() is a mass update constrained to the current party_id
+                // at the moment party() is called. Writing this payload there copies the
+                // eHealth UUID onto the draft row and hits parties_uuid_unique.
+                // Relink first, then update the row that already owns the UUID.
+                $previousPartyUuid = $model->party->uuid;
+
+                $model->party()->associate($partyByUuid)->save();
+                $partyByUuid->update($party);
 
                 Log::warning('Potential party merge scenario detected', [
-                    'model_party_uuid' => $model->party->uuid,
+                    'model_party_uuid' => $previousPartyUuid,
                     'ehealth_party_uuid' => $partyByUuid->uuid,
-                    'updated_with_ehealth_data' => true
+                    'updated_with_ehealth_data' => true,
+                    'relinked_to_existing_party' => true,
                 ]);
             }
         }

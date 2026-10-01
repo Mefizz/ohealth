@@ -81,9 +81,9 @@ class CompositionRepositoryTest extends TestCase
         $this->assertSame(CompositionStatus::FINAL, $composition->status);
         $this->assertSame('ТН-0001', $composition->title, 'Title must survive a narrower refresh.');
         $this->assertSame(self::ENCOUNTER_ID, $composition->encounterUuid);
-        $this->assertSame($this->details()['section'], $composition->data['section']);
-        $this->assertSame($this->details()['event'], $composition->data['event']);
-        $this->assertSame('FINAL', $composition->data['status']);
+        $this->assertSame(self::PATIENT_ID, data_get($composition->toDetail(), 'section.focus.value'));
+        $this->assertSame($this->details()['event'], $composition->toDetail()['event']);
+        $this->assertSame('FINAL', $composition->toDetail()['status']);
     }
 
     public function test_repeated_synchronization_reuses_fhir_records(): void
@@ -109,9 +109,27 @@ class CompositionRepositoryTest extends TestCase
         $repository->store($this->details(['extension' => [['valueCode' => 'IS_ACCIDENT', 'valueBoolean' => true]]]), $person);
         $updated = $repository->store($this->details(['extension' => []]), $person);
 
-        $this->assertSame([], $updated->extension);
-        $this->assertSame([], $updated->data['extension']);
-        $this->assertNull($updated->isAccident);
+        $this->assertSame([], $updated->toDetail()['extension']);
+        $this->assertFalse($updated->isAccident);
+    }
+
+    public function test_normalized_integrations_replace_the_previous_snapshot_atomically(): void
+    {
+        $composition = $this->repository()->store($this->details(), $this->person());
+        $this->repository()->storeIntegration($composition, [
+            ['component' => 'ERLN', 'type' => 'CREATE_ERLN_RECORD', 'integrationStatus' => 'ERROR'],
+            ['component' => 'DRACS', 'type' => 'CHECK_DRACS', 'taskStatus' => 'PENDING'],
+        ]);
+        $this->assertSame('ERROR', $composition->erlnStatus);
+        $this->repository()->storeIntegration($composition, [
+            ['component' => 'ERLN', 'type' => 'CREATE_ERLN_RECORD', 'integrationStatus' => 'SUCCESS',
+                'details' => ['SL_NUM' => '1234'], 'updatedAt' => '2026-10-01T10:00:00Z'],
+        ]);
+        $this->assertCount(1, $composition->integrationDetails());
+        $this->assertSame('SUCCESS', $composition->erlnStatus);
+        $this->assertSame('1234', $composition->erlnRecordNumber);
+        $this->repository()->storeIntegration($composition, []);
+        $this->assertNull($composition->erlnStatus);
     }
 
     public function test_failed_storage_rolls_back_fhir_records(): void

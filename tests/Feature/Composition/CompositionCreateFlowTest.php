@@ -345,6 +345,8 @@ class CompositionCreateFlowTest extends TestCase
         $this->assertNotNull($stored, 'The conclusion is mirrored locally once eHealth returns it.');
         $this->assertSame(CompositionStatus::PRELIMINARY, $stored->status);
         $this->assertSame($episodeUuid, $stored->episodeOfCareUuid);
+        $this->assertSame('job-1', $stored->latestOperation->remoteJobId);
+        $this->assertSame('DONE', $stored->latestOperation->status);
 
         // Signing is only offered to the author, so the local row must carry them.
         $author = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $this->authorUuid]);
@@ -391,6 +393,10 @@ class CompositionCreateFlowTest extends TestCase
             CompositionStatus::FINAL,
             Composition::whereUuid($compositionUuid)->first()->status
         );
+        $stored->refresh();
+        $this->assertSame(2, $stored->operations()->count());
+        $this->assertSame('job-2', $stored->latestOperation->remoteJobId);
+        $this->assertSame('DONE', $stored->latestOperation->status);
     }
 
     /**

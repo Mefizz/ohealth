@@ -23,6 +23,7 @@ use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Enums\Composition\CompositionRelation;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\View\View;
 use Livewire\Attributes\Computed;
@@ -400,15 +401,15 @@ class CompositionTempDisabilityCreate extends BasePatientComponent
 
         $previous = Composition::whereUuid($previousUuid)->first();
 
-        if (!$previous?->isTempDisability || empty($previous->data)
-            || !$this->mayClarify($previous) || $previous->authorUuid !== $this->authorEmployeeUuid()) {
+        if (!$previous?->isTempDisability
+            || !$this->mayClarify($previous) || !in_array($previous->authorUuid, Auth::user()->getCompositionEmployeeUuids(), true)) {
             Session::flash('error', __('compositions.errors.related_not_found'));
 
             return;
         }
 
         // Prefill locally; submission re-reads and validates the current eHealth record.
-        $source = $previous->data;
+        $source = $previous->toDetail();
 
         if ($this->continueFrom) {
             $this->form->prefillForContinuation($source);

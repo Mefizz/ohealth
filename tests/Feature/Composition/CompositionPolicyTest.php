@@ -223,6 +223,8 @@ class CompositionPolicyTest extends TestCase
         string $authorUuid,
         array $overrides = []
     ): Composition {
+        $erlnStatus = $overrides['erln_status'] ?? null;
+        unset($overrides['erln_status']);
         $type = CompositionType::from($overrides['type'] ?? CompositionType::TEMP_DISABILITY->value);
         unset($overrides['type'], $overrides['author_uuid']);
 
@@ -234,12 +236,19 @@ class CompositionPolicyTest extends TestCase
 
         $author = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $authorUuid]);
 
-        return Composition::create(array_merge([
+        $composition = Composition::create(array_merge([
             'uuid' => (string) Str::uuid(),
             'status' => $status->value,
             'type_id' => $typeConcept->id,
             'author_id' => $author->id,
         ], $overrides));
+        if ($erlnStatus !== null) {
+            $composition->integrations()->create([
+                'component' => 'ERLN', 'type' => 'CREATE_ERLN_RECORD', 'integration_status' => $erlnStatus,
+            ]);
+        }
+
+        return $composition;
     }
 
     public function test_birth_conclusion_author_is_the_specialist_with_an_allowed_position(): void

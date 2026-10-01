@@ -18,7 +18,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (Schema::hasColumn('compositions', 'async_job_operation')) {
+        if (!Schema::hasColumn('compositions', 'async_job_id') || Schema::hasColumn('compositions', 'async_job_operation')) {
             return;
         }
 

@@ -13,6 +13,8 @@ use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
 use App\Models\MedicalEvents\Sql\Composition;
+use App\Models\MedicalEvents\Sql\CompositionOperation;
+use App\Repositories\MedicalEvents\CompositionOperationRepository;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Enums\Composition\CompositionJobStatus;
@@ -367,6 +369,12 @@ trait DrivesCompositionWizard
             // Do not log the payload: it is the patient's medical record.
             $job = EHealth::composition()->create($this->form->toPayload($authorUuid))->validate();
 
+            app(CompositionOperationRepository::class)->store($job, CompositionAsyncOperation::CREATE, $this->storagePatient(), [
+                'composition_type' => $this->conclusionType(),
+                'encounter_uuid' => $this->form->encounterUuid,
+                'episode_uuid' => $this->episodeUuid,
+                'author_uuid' => $authorUuid,
+            ]);
             $this->asyncJobId = $job['id'];
             $this->asyncJobStatus = (string) ($job['status'] ?? CompositionJobStatus::PENDING->value);
             $this->asyncJobErrors = [];
@@ -441,6 +449,10 @@ trait DrivesCompositionWizard
 
         if ($status['status'] === CompositionJobStatus::FAILED->value) {
             $this->asyncJobErrors = $status['errors'] ?: [__('compositions.errors.async_job_failed')];
+            $operation = $this->currentOperation();
+            if ($operation !== null) {
+                app(CompositionOperationRepository::class)->fail($operation, array_replace($status, ['errors' => $this->asyncJobErrors]));
+            }
 
             return;
         }
@@ -465,9 +477,10 @@ trait DrivesCompositionWizard
         }
 
         if ($this->loadCompositionDetail()) {
-            Composition::whereUuid($this->compositionUuid)
-                ->where('async_job_id', $this->asyncJobId)
-                ->update(['async_job_status' => CompositionJobStatus::DONE->value]);
+            $operation = $this->currentOperation();
+            if ($operation !== null) {
+                app(CompositionOperationRepository::class)->complete($operation, Composition::whereUuid($this->compositionUuid)->firstOrFail());
+            }
             $this->asyncJobErrors = [];
             $this->step = self::STEP_REVIEW;
         }
@@ -497,7 +510,7 @@ trait DrivesCompositionWizard
                 try {
                     $this->integrationData = $this->syncIntegration($composition);
                 } catch (EHealthConnectionException | EHealthException) {
-                    $this->integrationData = data_get($composition->data, '_integration');
+                    $this->integrationData = $composition->integrationDetails();
                 }
             }
         } catch (EHealthConnectionException | EHealthException $exception) {
@@ -586,11 +599,12 @@ trait DrivesCompositionWizard
 
             $job = EHealth::composition()->sign($composition->uuid, ['data' => $signedContent])->validate();
 
-            $composition->update([
-                'async_job_id' => $job['id'],
-                'async_job_status' => CompositionJobStatus::PENDING->value,
-                'async_job_operation' => CompositionAsyncOperation::SIGN->value,
-                'async_job_error' => null,
+            app(CompositionOperationRepository::class)->store($job, CompositionAsyncOperation::SIGN, $this->storagePatient(), [
+                'composition_id' => $composition->id,
+                'composition_type' => $composition->type,
+                'encounter_uuid' => $composition->encounterUuid,
+                'episode_uuid' => $composition->episodeOfCareUuid,
+                'author_uuid' => $composition->authorUuid,
             ]);
 
             $this->showSignatureModal = false;
@@ -651,6 +665,12 @@ trait DrivesCompositionWizard
 
         return Auth::user()->getCompositionAuthorEmployees($this->conclusionType())
             ->firstWhere('uuid', $this->selectedEncounter['authorUuid'])?->uuid;
+    }
+
+    private function currentOperation(): ?CompositionOperation
+    {
+        return CompositionOperation::forPatient($this->storagePatient())
+            ->where('remote_job_id', $this->asyncJobId)->first();
     }
 
     protected function resolveCreatedComposition(

@@ -267,6 +267,40 @@ class CompositionCreateNewbornTest extends TestCase
             && data_get($request->data(), 'type.coding.0.code') === 'NEWBORN');
     }
 
+    public function test_birth_job_stores_the_newborn_fields_and_selected_author_without_a_raw_snapshot(): void
+    {
+        [$component, $author, $encounterUuid] = $this->birthConclusionWithSecondAuthor();
+        $component->call('submitComposition')->assertHasNoErrors();
+        $compositionUuid = (string) Str::uuid();
+        $newbornUuid = $component->get('form.prepersonUuid');
+        $this->fakeEHealth([
+            '*/composition/job/*' => Http::response(['data' => ['status' => 'DONE',
+                'links' => [['href' => "/composition/$compositionUuid"]]]]),
+            '*integrationData*' => Http::response(['data' => []]),
+            '*' => Http::response(['data' => [
+                'identifier' => ['value' => $compositionUuid], 'status' => 'PRELIMINARY', 'title' => 'МВН',
+                'type' => ['coding' => [['system' => 'COMPOSITION_TYPES', 'code' => 'NEWBORN']]],
+                'category' => ['coding' => [['system' => 'COMPOSITION_CATEGORIES', 'code' => 'LIVE_BIRTH']]],
+                'author' => ['value' => $author->uuid], 'encounter' => ['value' => $encounterUuid],
+                'subject' => ['value' => $newbornUuid],
+                'extension' => [
+                    ['valueCode' => 'NEWBORN_BIRTH_DATE', 'valueDate' => now()->format('Y-m-d')],
+                    ['valueCode' => 'NEWBORN_SEX', 'valueString' => 'MALE'],
+                ],
+            ]]),
+        ]);
+        $component->call('pollAsyncJob')->assertSet('step', CompositionCreate::STEP_REVIEW);
+        $composition = Composition::whereUuid($compositionUuid)->firstOrFail();
+        $this->assertSame(CompositionType::NEWBORN, $composition->type);
+        $this->assertSame($author->uuid, $composition->authorUuid);
+        $this->assertSame($newbornUuid, $composition->preperson->uuid);
+        $this->assertNull($composition->personId);
+        $this->assertSame(now()->format('Y-m-d'), $composition->newbornBirthDate->format('Y-m-d'));
+        $this->assertSame('MALE', $composition->newbornSex);
+        $this->assertSame('DONE', $composition->latestOperation->status);
+        $this->assertArrayNotHasKey('data', $composition->getAttributes());
+    }
+
     public function test_birth_conclusion_rejects_a_changed_encounter_after_selection(): void
     {
         [$component] = $this->birthConclusionWithSecondAuthor();

@@ -14,6 +14,8 @@ use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Livewire\Composition\Forms\CompositionCancellationForm;
 use App\Models\MedicalEvents\Sql\Composition;
+use App\Models\MedicalEvents\Sql\CompositionOperation;
+use App\Repositories\MedicalEvents\CompositionOperationRepository;
 use App\Models\MergeRequest;
 use App\Models\Preperson;
 use App\Enums\Composition\CompositionJobStatus;
@@ -194,9 +196,9 @@ class PatientCompositions extends BasePatientComponent
 
         abort_unless(Auth::user()->can('view', $composition), 404);
 
-        $this->compositionDetail = is_array($composition->data) ? $composition->data : [];
+        $this->compositionDetail = $composition->toDetail();
         $this->showDetailModal = true;
-        $this->integrationData = data_get($composition->data, '_integration', []);
+        $this->integrationData = $composition->integrationDetails();
     }
 
     public function closeDetailModal(): void
@@ -431,11 +433,12 @@ class PatientCompositions extends BasePatientComponent
             // eHealth processes the cancellation asynchronously, so the conclusion is not
             // in error yet. The job is recorded so the poller can finish the job off;
             // discarding it would leave the row permanently claiming to be pending.
-            $composition->update([
-                'async_job_id' => $job['id'],
-                'async_job_status' => CompositionJobStatus::PENDING->value,
-                'async_job_operation' => CompositionAsyncOperation::CANCEL->value,
-                'async_job_error' => null,
+            app(CompositionOperationRepository::class)->store($job, CompositionAsyncOperation::CANCEL, $this->patient(), [
+                'composition_id' => $composition->id,
+                'composition_type' => $composition->type,
+                'encounter_uuid' => $composition->encounterUuid,
+                'episode_uuid' => $composition->episodeOfCareUuid,
+                'author_uuid' => $composition->authorUuid,
             ]);
 
             $this->closeCancellationModal();
@@ -458,8 +461,8 @@ class PatientCompositions extends BasePatientComponent
      */
     public function pollAsyncJobs(): void
     {
-        foreach ($this->pendingJobCompositions() as $composition) {
-            $this->advanceAsyncJob($composition);
+        foreach ($this->pendingOperations() as $operation) {
+            $this->advanceAsyncJob($operation);
         }
 
         unset($this->paginatedCompositions, $this->hasPendingAsyncJobs);
@@ -471,74 +474,76 @@ class PatientCompositions extends BasePatientComponent
     #[Computed]
     public function hasPendingAsyncJobs(): bool
     {
-        return $this->pendingJobCompositions()->isNotEmpty();
+        return $this->pendingOperations()->isNotEmpty();
     }
 
     /**
-     * @return Collection<int, Composition>
+     * @return Collection<int, CompositionOperation>
      */
-    private function pendingJobCompositions(): Collection
+    private function pendingOperations(): Collection
     {
-        return Composition::forPatient($this->patient())
-            ->awaitingAsyncJob()
-            ->get();
+        return CompositionOperation::forPatient($this->patient())->pending()->with(['job', 'composition'])->get();
     }
 
-    /**
-     * Apply the outcome of one finished job to the local projection.
-     *
-     * The local state is only moved on DONE. A PENDING job says nothing yet, and a
-     * FAILED one means the conclusion is exactly as it was — the failure is recorded so
-     * the list can explain why nothing changed.
-     */
-    private function advanceAsyncJob(Composition $composition): void
+    private function advanceAsyncJob(CompositionOperation $operation): void
     {
         try {
-            $status = EHealth::composition()->getAsyncJobStatus((string) $composition->asyncJobId)->validate();
+            $status = EHealth::composition()->getAsyncJobStatus($operation->remoteJobId)->validate();
         } catch (Throwable $exception) {
-            Log::error('Failed to read a composition async job', [
-                'compositionUuid' => $composition->uuid,
-                'error' => $exception->getMessage(),
-            ]);
+            report($exception);
 
             return;
         }
-
+        $repository = app(CompositionOperationRepository::class);
         if ($status['status'] === CompositionJobStatus::FAILED->value) {
-            $composition->update([
-                'async_job_status' => CompositionJobStatus::FAILED->value,
-                'async_job_error' => implode(' ', $status['errors'])
-                    ?: __('compositions.errors.async_job_failed'),
-            ]);
+            $status['errors'] = $status['errors'] ?: [__('compositions.errors.async_job_failed')];
+            $repository->fail($operation, $status);
 
             return;
         }
-
         if ($status['status'] !== CompositionJobStatus::DONE->value) {
             return;
         }
-
         try {
-            if ($composition->asyncJobOperation === CompositionAsyncOperation::CANCEL) {
-                $composition->update([
-                    'status' => CompositionStatus::ENTERED_IN_ERROR->value,
-                    'data' => array_replace($composition->data ?? [], ['status' => CompositionStatus::ENTERED_IN_ERROR->value]),
-                ]);
-            } elseif ($composition->asyncJobOperation === CompositionAsyncOperation::ERLN_RETRY) {
+            $composition = $operation->composition;
+            if ($operation->operation === CompositionAsyncOperation::CREATE) {
+                $uuid = $status['compositionUuid'] ?? $composition?->uuid;
+                if (!$uuid) {
+                    $results = EHealth::composition()->search([
+                        'subject' => $this->patient()->uuid,
+                        'encounter' => $operation->encounterUuid,
+                        'type' => $operation->compositionType->value,
+                    ])->validate();
+                    $uuid = collect($results)->sortByDesc('date')->pluck('identifier.value')->filter()->first();
+                }
+                if (!$uuid || !$operation->episodeUuid) {
+                    return;
+                }
+                $details = EHealth::composition()->getById(
+                    $this->patient()->uuid,
+                    $uuid,
+                    $operation->episodeUuid,
+                    $operation->encounterUuid
+                )->validate();
+                $composition = Repository::composition()->store($details, $this->patient(), $operation->episodeUuid);
+                if ($composition === null) {
+                    return;
+                }
+            } elseif ($composition === null) {
+                return;
+            } elseif ($operation->operation === CompositionAsyncOperation::CANCEL) {
+                $composition->update(['status' => CompositionStatus::ENTERED_IN_ERROR]);
+            } elseif ($operation->operation === CompositionAsyncOperation::ERLN_RETRY) {
                 $this->syncIntegration($composition);
-            } elseif ($composition->asyncJobOperation === CompositionAsyncOperation::SIGN) {
+            } elseif ($operation->operation === CompositionAsyncOperation::SIGN) {
                 $details = $this->fetchComposition($composition);
                 if ($details === []) {
                     return;
                 }
                 Repository::composition()->store($details, $this->patient(), $composition->episodeOfCareUuid);
             }
-
-            // Keep polling if the remote result could not be persisted yet.
-            $composition->update([
-                'async_job_status' => CompositionJobStatus::DONE->value,
-                'async_job_error' => null,
-            ]);
+            // A remote DONE remains locally pending until its result has been stored.
+            $repository->complete($operation, $composition);
         } catch (Throwable $exception) {
             report($exception);
         }
@@ -592,11 +597,12 @@ class PatientCompositions extends BasePatientComponent
             // The retry is asynchronous: the ERLN status will not change until the job
             // finishes, so the job is recorded and the list poller reports the outcome
             // instead of an immediate refresh that can only show the stale status.
-            $composition->update([
-                'async_job_id' => $job['id'],
-                'async_job_status' => CompositionJobStatus::PENDING->value,
-                'async_job_operation' => CompositionAsyncOperation::ERLN_RETRY->value,
-                'async_job_error' => null,
+            app(CompositionOperationRepository::class)->store($job, CompositionAsyncOperation::ERLN_RETRY, $this->patient(), [
+                'composition_id' => $composition->id,
+                'composition_type' => $composition->type,
+                'encounter_uuid' => $composition->encounterUuid,
+                'episode_uuid' => $composition->episodeOfCareUuid,
+                'author_uuid' => $composition->authorUuid,
             ]);
 
             $this->closeErlnResendModal();
@@ -648,6 +654,7 @@ class PatientCompositions extends BasePatientComponent
                 'encounter',
                 'episodeOfCare',
                 'eventPeriod',
+                'integrations',
             ])
             ->recentlyUpdatedFirst();
 

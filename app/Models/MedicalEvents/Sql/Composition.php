@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\EHealthTimestampCast;
-use App\Enums\Composition\CompositionAsyncOperation;
 use App\Enums\Composition\CompositionCategory;
 use App\Enums\Composition\CompositionStatus;
 use App\Enums\Composition\CompositionType;
 use App\Models\Person\Person;
 use App\Models\Preperson;
-use App\Enums\Composition\CompositionJobStatus;
+use App\Enums\Composition\CompositionExtension;
+use Carbon\CarbonImmutable;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Composition extends Model
 {
@@ -41,15 +43,15 @@ class Composition extends Model
         'episode_of_care_id',
         'relates_to_code',
         'relates_to_target_id',
-        'extension',
-        'data',
-        'async_job_id',
-        'async_job_status',
-        'async_job_operation',
-        'async_job_error',
-        'erln_status',
-        'erln_record_number',
-        'erln_status_message',
+        'inform_with_uuid',
+        'is_accident',
+        'is_intoxicated',
+        'is_foreign_treatment',
+        'is_force_renew',
+        'treatment_violation',
+        'treatment_violation_date',
+        'newborn_birth_date',
+        'newborn_sex',
         'ehealth_inserted_at',
         'ehealth_updated_at',
     ];
@@ -66,10 +68,13 @@ class Composition extends Model
     {
         return [
             'status' => CompositionStatus::class,
-            'async_job_operation' => CompositionAsyncOperation::class,
             'date' => EHealthTimestampCast::class,
-            'extension' => 'array',
-            'data' => 'array',
+            'is_accident' => 'boolean',
+            'is_intoxicated' => 'boolean',
+            'is_foreign_treatment' => 'boolean',
+            'is_force_renew' => 'boolean',
+            'treatment_violation_date' => 'immutable_date',
+            'newborn_birth_date' => 'immutable_date',
             'ehealth_inserted_at' => EHealthTimestampCast::class,
             'ehealth_updated_at' => EHealthTimestampCast::class,
         ];
@@ -240,57 +245,89 @@ class Composition extends Model
         return Attribute::get(fn (): bool => $this->type === CompositionType::NEWBORN);
     }
 
-    protected function informWithUuid(): Attribute
+    public function integrations(): HasMany
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('INFORM_WITH', 'valueUuid'));
+        return $this->hasMany(CompositionIntegration::class);
     }
 
-    protected function isAccident(): Attribute
+    public function operations(): HasMany
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('IS_ACCIDENT', 'valueBoolean'));
+        return $this->hasMany(CompositionOperation::class);
     }
 
-    protected function isIntoxicated(): Attribute
+    public function latestOperation(): HasOne
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('IS_INTOXICATED', 'valueBoolean'));
+        return $this->hasOne(CompositionOperation::class)->latestOfMany();
     }
 
-    protected function isForeignTreatment(): Attribute
+    protected function erlnStatus(): Attribute
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('IS_FOREIGN_TREATMENT', 'valueBoolean'));
+        return Attribute::get(fn (): ?string => $this->erlnIntegration()?->integration_status);
     }
 
-    protected function isForceRenew(): Attribute
+    protected function erlnRecordNumber(): Attribute
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('IS_FORCE_RENEW', 'valueBoolean'));
+        return Attribute::get(fn (): ?string => $this->erlnIntegration()?->record_number);
     }
 
-    protected function treatmentViolation(): Attribute
+    protected function erlnStatusMessage(): Attribute
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('TREATMENT_VIOLATION', 'valueString'));
+        return Attribute::get(fn (): ?string => $this->erlnIntegration()?->status_message);
     }
 
-    protected function treatmentViolationDate(): Attribute
+    public function integrationDetails(): array
     {
-        return Attribute::get(function (): mixed {
-            $value = $this->extensionValue('TREATMENT_VIOLATION_DATE', 'valueDate');
-
-            return $value ? \Carbon\CarbonImmutable::parse((string) $value) : null;
-        });
+        return $this->integrations->map(fn (CompositionIntegration $item): array => $item->toDetail())->all();
     }
 
-    protected function newbornBirthDate(): Attribute
+    /** Local presentation only. Signing always uses a fresh eHealth response. */
+    public function toDetail(): array
     {
-        return Attribute::get(function (): mixed {
-            $value = $this->extensionValue('NEWBORN_BIRTH_DATE', 'valueDate');
+        $this->loadMissing(['typeConcept.coding', 'categoryConcept.coding']);
+        $extensions = [];
+        foreach (CompositionExtension::cases() as $field) {
+            $value = $this->getAttribute($field->column());
+            if ($value === null || ($field->valueKey() === 'valueBoolean' && $value === false)) {
+                continue;
+            }
+            $extensions[] = [
+                'valueCode' => $field->value,
+                $field->valueKey() => $value instanceof \DateTimeInterface ? $value->format('Y-m-d') : $value,
+            ];
+        }
+        $detail = [
+            'identifier' => ['value' => $this->uuid],
+            'status' => $this->status->value,
+            'title' => $this->title,
+            'date' => $this->isoDate($this->getRawOriginal('date')),
+            'type' => $this->typeConcept?->toArray(),
+            'category' => $this->categoryConcept?->toArray(),
+            'section' => ['focus' => $this->sectionFocus?->identifier],
+            'event' => [['period' => [
+                'start' => $this->isoDate($this->eventPeriod?->getRawOriginal('start')),
+                'end' => $this->isoDate($this->eventPeriod?->getRawOriginal('end')),
+            ]]],
+            'extension' => $extensions,
+        ];
+        foreach (['encounter', 'author', 'custodian', 'subject'] as $reference) {
+            $detail[$reference] = $this->{$reference}?->identifier;
+        }
+        if ($this->relatesToCode !== null) {
+            $detail['relatesTo'] = ['code' => $this->relatesToCode, 'targetIdentifier' => $this->relatesToTarget?->identifier];
+        }
 
-            return $value ? \Carbon\CarbonImmutable::parse((string) $value) : null;
-        });
+        return $detail;
     }
 
-    protected function newbornSex(): Attribute
+    private function isoDate(?string $value): ?string
     {
-        return Attribute::get(fn (): mixed => $this->extensionValue('NEWBORN_SEX', 'valueString'));
+        return $value ? CarbonImmutable::parse($value, 'UTC')->toIso8601ZuluString() : null;
+    }
+
+    private function erlnIntegration(): ?CompositionIntegration
+    {
+        return $this->integrations->first(fn (CompositionIntegration $item): bool =>
+            $item->component === 'ERLN' && $item->type === 'CREATE_ERLN_RECORD');
     }
 
     #[Scope]
@@ -340,18 +377,6 @@ class Composition extends Model
         return $query->where('status', '!=', CompositionStatus::ENTERED_IN_ERROR->value);
     }
 
-    /**
-     * Conclusions with an async request eHealth has not finished yet.
-     */
-    #[Scope]
-    protected function awaitingAsyncJob(Builder $query): Builder
-    {
-        return $query
-            ->whereNotNull('async_job_id')
-            ->whereNotNull('async_job_operation')
-            ->where('async_job_status', CompositionJobStatus::PENDING->value);
-    }
-
     #[Scope]
     protected function recentlyUpdatedFirst(Builder $query): Builder
     {
@@ -360,11 +385,4 @@ class Composition extends Model
             ->orderByDesc('ehealth_updated_at');
     }
 
-    private function extensionValue(string $code, string $valueKey): mixed
-    {
-        $item = collect($this->extension ?? [])
-            ->first(static fn (mixed $item): bool => is_array($item) && ($item['valueCode'] ?? null) === $code);
-
-        return is_array($item) ? ($item[$valueKey] ?? null) : null;
-    }
 }

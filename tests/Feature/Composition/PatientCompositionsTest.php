@@ -11,6 +11,7 @@ use App\Enums\Composition\CompositionType;
 use App\Livewire\Person\Records\PatientCompositions;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
+use App\Repositories\MedicalEvents\CompositionOperationRepository;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -68,8 +69,8 @@ class PatientCompositionsTest extends TestCase
 
         $composition->refresh();
 
-        $this->assertSame('job-cancel', $composition->asyncJobId);
-        $this->assertSame(CompositionAsyncOperation::CANCEL, $composition->asyncJobOperation);
+        $this->assertSame('job-cancel', $composition->latestOperation->remoteJobId);
+        $this->assertSame(CompositionAsyncOperation::CANCEL, $composition->latestOperation->operation);
         $this->assertSame(
             CompositionStatus::FINAL,
             $composition->status,
@@ -87,9 +88,8 @@ class PatientCompositionsTest extends TestCase
         );
 
         $composition = $this->storedComposition($person, $employee->uuid, [
-            'async_job_id' => 'job-cancel',
-            'async_job_status' => 'PENDING',
-            'async_job_operation' => CompositionAsyncOperation::CANCEL->value,
+            'job_id' => 'job-cancel',
+                        'operation' => CompositionAsyncOperation::CANCEL->value,
         ]);
 
         $this->fakeEHealth(['*' => Http::response(['data' => ['status' => 'PENDING']], 200)]);
@@ -106,7 +106,7 @@ class PatientCompositionsTest extends TestCase
         $component->call('pollAsyncJobs');
 
         $this->assertSame(CompositionStatus::ENTERED_IN_ERROR, $composition->fresh()->status);
-        $this->assertSame('ENTERED_IN_ERROR', $composition->fresh()->data['status']);
+        $this->assertSame('ENTERED_IN_ERROR', $composition->fresh()->toDetail()['status']);
     }
 
     /**
@@ -119,9 +119,8 @@ class PatientCompositionsTest extends TestCase
         );
 
         $composition = $this->storedComposition($person, $employee->uuid, [
-            'async_job_id' => 'job-cancel',
-            'async_job_status' => 'PENDING',
-            'async_job_operation' => CompositionAsyncOperation::CANCEL->value,
+            'job_id' => 'job-cancel',
+                        'operation' => CompositionAsyncOperation::CANCEL->value,
         ]);
 
         $this->fakeEHealth([
@@ -141,8 +140,8 @@ class PatientCompositionsTest extends TestCase
         $composition->refresh();
 
         $this->assertSame(CompositionStatus::FINAL, $composition->status);
-        $this->assertSame('FAILED', $composition->asyncJobStatus);
-        $this->assertNotNull($composition->asyncJobError);
+        $this->assertSame('FAILED', $composition->latestOperation->status);
+        $this->assertNotNull($composition->latestOperation->error);
     }
 
     /**
@@ -171,8 +170,8 @@ class PatientCompositionsTest extends TestCase
 
         $composition->refresh();
 
-        $this->assertSame('job-erln', $composition->asyncJobId);
-        $this->assertSame(CompositionAsyncOperation::ERLN_RETRY, $composition->asyncJobOperation);
+        $this->assertSame('job-erln', $composition->latestOperation->remoteJobId);
+        $this->assertSame(CompositionAsyncOperation::ERLN_RETRY, $composition->latestOperation->operation);
     }
 
     /**
@@ -242,7 +241,7 @@ class PatientCompositionsTest extends TestCase
         ['employee' => $employee, 'legalEntity' => $legalEntity, 'person' => $person] = $this->compositionFixture();
         $composition = $this->storedComposition($person, $employee->uuid, [
             'episode_of_care_id' => null,
-            'data' => ['identifier' => ['value' => 'local-id'], 'status' => 'FINAL', 'title' => 'Local conclusion'],
+            'title' => 'Local conclusion',
         ]);
         $this->fakeEHealth(['*' => Http::response(['data' => []])]);
 
@@ -270,9 +269,8 @@ class PatientCompositionsTest extends TestCase
     {
         ['employee' => $employee, 'legalEntity' => $legalEntity, 'person' => $person] = $this->compositionFixture();
         $composition = $this->storedComposition($person, $employee->uuid, [
-            'async_job_id' => 'job-erln',
-            'async_job_status' => 'PENDING',
-            'async_job_operation' => CompositionAsyncOperation::ERLN_RETRY->value,
+            'job_id' => 'job-erln',
+                        'operation' => CompositionAsyncOperation::ERLN_RETRY->value,
             'erln_status' => 'ERROR',
         ]);
         $this->fakeEHealth([
@@ -281,7 +279,7 @@ class PatientCompositionsTest extends TestCase
         ]);
         $component = Livewire::test(PatientCompositions::class, ['legalEntity' => $legalEntity, 'personId' => $person->id]);
         $component->call('pollAsyncJobs');
-        $this->assertSame('PENDING', $composition->fresh()->asyncJobStatus);
+        $this->assertSame('PENDING', $composition->fresh()->latestOperation->status);
 
         $this->fakeEHealth([
             '*/composition/job/*' => Http::response(['data' => ['status' => 'DONE']]),
@@ -291,7 +289,7 @@ class PatientCompositionsTest extends TestCase
             ]]]),
         ]);
         $component->call('pollAsyncJobs');
-        $this->assertSame('DONE', $composition->fresh()->asyncJobStatus);
+        $this->assertSame('DONE', $composition->fresh()->latestOperation->status);
         $this->assertSame('SUCCESS', $composition->fresh()->erlnStatus);
         $this->assertSame('12345', $composition->fresh()->erlnRecordNumber);
     }
@@ -319,8 +317,44 @@ class PatientCompositionsTest extends TestCase
         $this->assertCount(3, Http::recorded());
     }
 
+    public function test_the_list_finishes_a_creation_job_after_the_wizard_has_closed(): void
+    {
+        ['employee' => $employee, 'legalEntity' => $legalEntity, 'person' => $person] = $this->compositionFixture();
+        $encounterUuid = (string) Str::uuid();
+        $episodeUuid = (string) Str::uuid();
+        $compositionUuid = (string) Str::uuid();
+        $operation = app(CompositionOperationRepository::class)->store(
+            ['id' => 'closed-wizard-job', 'status' => 'PENDING'],
+            CompositionAsyncOperation::CREATE,
+            $person,
+            ['composition_type' => CompositionType::TEMP_DISABILITY, 'encounter_uuid' => $encounterUuid,
+                'episode_uuid' => $episodeUuid, 'author_uuid' => $employee->uuid]
+        );
+        $this->fakeEHealth([
+            '*/composition/job/*' => Http::response(['data' => ['status' => 'DONE',
+                'links' => [['href' => "/composition/$compositionUuid"]]]]),
+            '*' => Http::response(['data' => [
+                'identifier' => ['value' => $compositionUuid], 'status' => 'PRELIMINARY', 'title' => 'Created remotely',
+                'type' => ['coding' => [['system' => 'COMPOSITION_TYPES', 'code' => 'TEMP_DISABILITY']]],
+                'author' => ['value' => $employee->uuid], 'encounter' => ['value' => $encounterUuid],
+                'subject' => ['value' => $person->uuid],
+            ]]),
+        ]);
+        $component = Livewire::test(PatientCompositions::class, ['legalEntity' => $legalEntity, 'personId' => $person->id]);
+        $component->assertSet('hasPendingAsyncJobs', true)->call('pollAsyncJobs')->assertSet('hasPendingAsyncJobs', false);
+        $composition = Composition::whereUuid($compositionUuid)->firstOrFail();
+        $this->assertSame($person->id, $composition->personId);
+        $this->assertSame($episodeUuid, $composition->episodeOfCareUuid);
+        $this->assertSame('DONE', $operation->fresh()->status);
+        $this->assertSame($composition->id, $operation->fresh()->compositionId);
+    }
+
     private function storedComposition(Person $person, string $authorUuid, array $overrides = []): Composition
     {
+        $jobId = $overrides['job_id'] ?? null;
+        $operation = $overrides['operation'] ?? null;
+        $erlnStatus = $overrides['erln_status'] ?? null;
+        unset($overrides['job_id'], $overrides['operation'], $overrides['erln_status']);
         $type = CompositionType::from($overrides['type'] ?? CompositionType::TEMP_DISABILITY->value);
         unset($overrides['type'], $overrides['author_uuid'], $overrides['subject_uuid'], $overrides['encounter_uuid'], $overrides['episode_of_care_uuid'], $overrides['event_period_start'], $overrides['event_period_end'], $overrides['category']);
 
@@ -359,6 +393,21 @@ class PatientCompositionsTest extends TestCase
             'start' => '2026-09-01',
             'end' => '2026-09-05',
         ]);
+
+        if ($erlnStatus !== null) {
+            $composition->integrations()->create([
+                'component' => 'ERLN', 'type' => 'CREATE_ERLN_RECORD', 'integration_status' => $erlnStatus,
+            ]);
+        }
+        if ($jobId !== null) {
+            app(CompositionOperationRepository::class)->store(
+                ['id' => $jobId, 'status' => 'PENDING'],
+                CompositionAsyncOperation::from($operation),
+                $person,
+                ['composition_id' => $composition->id, 'composition_type' => $type,
+                    'encounter_uuid' => $encounter->value, 'episode_uuid' => $episode->value, 'author_uuid' => $authorUuid]
+            );
+        }
 
         return $composition->refresh();
     }

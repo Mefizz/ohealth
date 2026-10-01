@@ -8,14 +8,7 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Local cache of eHealth Composition (МВН / МВТН), stored in the same FHIR
-     * shape as the other medical-event tables: CodeableConcept and Identifier FKs,
-     * a morph Period for event.period, and the original extension list as JSON.
-     *
-     * Also used by `artisan update` (see database/migrations/update/0_1/) so
-     * existing environments get the table without a fresh install.
-     */
+    /** Clinical data only; request processing and integrations have their own tables. */
     public function up(): void
     {
         if (Schema::hasTable('compositions')) {
@@ -45,20 +38,15 @@ return new class extends Migration
             $table->string('relates_to_code')->nullable();
             $table->foreignId('relates_to_target_id')->nullable()->constrained('identifiers');
 
-            $table->json('extension')->nullable();
-            $table->json('data')->nullable();
-
-            // eHealth create/sign/cancel/ERLN-retry return a job, not the finished
-            // conclusion. These columns track that job until poll marks it DONE or FAILED.
-            $table->string('async_job_id')->nullable();
-            $table->string('async_job_status')->nullable();
-            $table->string('async_job_operation')->nullable()
-                ->comment('CREATE | SIGN | CANCEL | ERLN_RETRY');
-            $table->text('async_job_error')->nullable();
-
-            $table->string('erln_status')->nullable();
-            $table->string('erln_record_number')->nullable();
-            $table->text('erln_status_message')->nullable();
+            $table->uuid('inform_with_uuid')->nullable();
+            $table->boolean('is_accident')->default(false);
+            $table->boolean('is_intoxicated')->default(false);
+            $table->boolean('is_foreign_treatment')->default(false);
+            $table->boolean('is_force_renew')->default(false);
+            $table->string('treatment_violation')->nullable();
+            $table->date('treatment_violation_date')->nullable();
+            $table->date('newborn_birth_date')->nullable();
+            $table->string('newborn_sex')->nullable();
 
             $table->timestampTz('ehealth_inserted_at')->nullable();
             $table->timestampTz('ehealth_updated_at')->nullable();

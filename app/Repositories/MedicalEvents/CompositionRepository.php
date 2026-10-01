@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories\MedicalEvents;
 
 use App\Enums\Composition\CompositionStatus;
+use App\Enums\Composition\CompositionExtension;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Person\Person;
@@ -32,15 +33,22 @@ class CompositionRepository extends BaseRepository
             $attributes = [
                 $ownerColumn => $ownerId,
                 $ownerColumn === 'person_id' ? 'preperson_id' : 'person_id' => null,
-                'data' => array_replace($composition->data ?? [], $details),
                 'ehealth_updated_at' => now(),
             ];
 
-            foreach (['status', 'title', 'date', 'extension'] as $field) {
+            foreach (['status', 'title', 'date'] as $field) {
                 if (array_key_exists($field, $details)) {
                     $attributes[$field] = $field === 'status'
                         ? CompositionStatus::fromEHealth($details[$field])->value
                         : $details[$field];
+                }
+            }
+
+            if (array_key_exists('extension', $details)) {
+                $extensions = collect($details['extension'] ?? [])->keyBy('valueCode');
+                foreach (CompositionExtension::cases() as $field) {
+                    $value = data_get($extensions->get($field->value), $field->valueKey());
+                    $attributes[$field->column()] = $field->valueKey() === 'valueBoolean' ? (bool) $value : $value;
                 }
             }
 
@@ -91,17 +99,22 @@ class CompositionRepository extends BaseRepository
 
     public function storeIntegration(Composition $composition, array $items): void
     {
-        $erln = collect($items)->first(
-            static fn (array $item): bool =>
-            data_get($item, 'component') === 'ERLN' && data_get($item, 'type') === 'CREATE_ERLN_RECORD'
-        );
-
-        $composition->update([
-            'data' => array_replace($composition->data ?? [], ['_integration' => $items]),
-            'erln_status' => data_get($erln, 'integrationStatus'),
-            'erln_record_number' => data_get($erln, 'details.SL_NUM'),
-            'erln_status_message' => data_get($erln, 'statusMessage'),
-        ]);
+        DB::transaction(function () use ($composition, $items): void {
+            $composition->newQuery()->whereKey($composition->id)->lockForUpdate()->firstOrFail();
+            $composition->integrations()->delete();
+            foreach ($items as $item) {
+                $composition->integrations()->create([
+                    'component' => $item['component'],
+                    'type' => $item['type'],
+                    'integration_status' => $item['integrationStatus'] ?? null,
+                    'task_status' => $item['taskStatus'] ?? null,
+                    'record_number' => data_get($item, 'details.SL_NUM'),
+                    'status_message' => $item['statusMessage'] ?? null,
+                    'ehealth_updated_at' => $item['updatedAt'] ?? null,
+                ]);
+            }
+        });
+        $composition->unsetRelation('integrations');
     }
 
     private function storeIdentifier(mixed $reference, ?int $existingId = null): ?int

@@ -4,28 +4,63 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Referral;
 
-use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\Api\Patient\DeviceRequest as DeviceRequestApi;
+use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
+use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 use App\Models\CarePlanActivity;
-use App\Models\Person\Person;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
+use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Mockery;
 use Tests\TestCase;
-use Livewire\Livewire;
-use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 
 class ReferralLifecycleTest extends TestCase
 {
     use DatabaseTransactions;
+
+    public function test_partial_service_request_sync_preserves_author_and_local_references(): void
+    {
+        $uuid = (string) Str::uuid();
+        $local = [
+            'uuid' => $uuid,
+            'employee_id' => $this->employee->id,
+            'status' => 'draft',
+            'service_id' => 'service-local',
+            'quantity' => 2,
+            'intent' => 'order',
+            'priority' => 'routine',
+            'based_on_uuid' => $this->serviceActivity->uuid,
+            'context_uuid' => $this->encounter->uuid,
+            'note' => 'Keep this note',
+            'supporting_info' => [['type' => 'condition', 'uuid' => (string) Str::uuid()]],
+        ];
+        $id = Repository::serviceRequest()->store($local, $this->person->id);
+        $record = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::findOrFail($id);
+
+        app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+            $this->encounter, $this->serviceActivity, $record, 'service_request', $local,
+            ['id' => $uuid, 'status' => 'active', 'quantity' => ['value' => 0], 'note' => null, 'supporting_info' => [], 'requester_employee' => ['identifier' => ['value' => 'foreign-author']]]
+        );
+
+        $record->refresh();
+        $this->assertSame('active', $record->status);
+        $this->assertSame(0.0, (float) $record->quantity);
+        $this->assertEquals($this->employee->id, $record->employeeId);
+        $this->assertSame($this->serviceActivity->uuid, $record->basedOn->value);
+        $this->assertSame($this->encounter->uuid, $record->context->value);
+        $this->assertSame('service-local', $record->serviceId);
+        $this->assertSame('Keep this note', $record->note);
+        $this->assertSame($local['supporting_info'], $record->supportingInfo);
+    }
 
     protected Person $person;
     protected Encounter $encounter;
@@ -166,7 +201,7 @@ class ReferralLifecycleTest extends TestCase
 
     private function mockActivityRegisteredInEHealth(): void
     {
-        $mockActivityApi = Mockery::mock(\App\Classes\eHealth\Api\CarePlanActivity::class);
+        $mockActivityApi = Mockery::mock(\App\Classes\eHealth\Api\CarePlanActivity::class)->makePartial();
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('successful')->andReturn(true);
         $response->shouldReceive('getData')->andReturn(['id' => (string) Str::uuid()]);
@@ -524,10 +559,10 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_mock_api_create_and_sign_lifecycle(): void
     {
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
-        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class);
+        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class)->makePartial();
         $this->instance(DeviceRequestApi::class, $mockDeviceApi);
 
         $serviceRequestId = (string) Str::uuid();
@@ -563,7 +598,7 @@ class ReferralLifecycleTest extends TestCase
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
         $prequalifyResponse = Mockery::mock(EHealthResponse::class);
@@ -607,7 +642,7 @@ class ReferralLifecycleTest extends TestCase
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
         $mockServiceApi->shouldReceive('prequalify')->never();
@@ -639,7 +674,7 @@ class ReferralLifecycleTest extends TestCase
             'scheduled_period_end' => now()->addWeek()->format('Y-m-d'),
         ]);
 
-        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class);
+        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class)->makePartial();
         $mockDeviceApi->shouldReceive('prequalify')->never();
         $this->instance(DeviceRequestApi::class, $mockDeviceApi);
 
@@ -691,7 +726,7 @@ class ReferralLifecycleTest extends TestCase
             ],
         ]);
 
-        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class);
+        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class)->makePartial();
         $mockDeviceApi->shouldReceive('prequalify')
             ->once()
             ->withArgs(function (string $personUuid, array $payload) use ($programId): bool {
@@ -754,7 +789,7 @@ class ReferralLifecycleTest extends TestCase
             'request_number' => 'SR-888888',
         ]);
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $resendResponse = Mockery::mock(EHealthResponse::class);
         $resendResponse->shouldReceive('successful')->andReturn(true);
         $resendResponse->shouldReceive('getData')->andReturn(['status' => 'ok']);
@@ -794,7 +829,7 @@ class ReferralLifecycleTest extends TestCase
         ]);
 
         // Mock eHealth ServiceRequest cancel API
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $cancelResponse = Mockery::mock(EHealthResponse::class);
         $cancelResponse->shouldReceive('successful')->andReturn(true);
         $cancelResponse->shouldReceive('getData')->andReturn(['status' => 'entered-in-error']);
@@ -855,7 +890,7 @@ class ReferralLifecycleTest extends TestCase
             'ended_at' => '2026-09-01',
         ]);
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $createResponse = Mockery::mock(EHealthResponse::class);
         $createResponse->shouldReceive('getData')->andReturn([
             'id' => $signedUuid,
@@ -931,7 +966,7 @@ class ReferralLifecycleTest extends TestCase
             'ended_at' => '2026-09-01',
         ]);
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
         $missingResponse = Mockery::mock(EHealthResponse::class);
@@ -1014,7 +1049,7 @@ class ReferralLifecycleTest extends TestCase
             'ended_at' => '2026-09-01',
         ]);
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
         $getResponse = Mockery::mock(EHealthResponse::class);
@@ -1176,11 +1211,11 @@ class ReferralLifecycleTest extends TestCase
 
         $this->actingAs($this->user);
 
-        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class);
+        $mockDeviceApi = Mockery::mock(DeviceRequestApi::class)->makePartial();
         $mockDeviceApi->shouldReceive('prequalify')->never();
         $this->instance(DeviceRequestApi::class, $mockDeviceApi);
 
-        $mockActivityApi = Mockery::mock(\App\Classes\eHealth\Api\CarePlanActivity::class);
+        $mockActivityApi = Mockery::mock(\App\Classes\eHealth\Api\CarePlanActivity::class)->makePartial();
         $activityCreateResponse = Mockery::mock(EHealthResponse::class);
         $activityCreateResponse->shouldReceive('getData')->andReturn(['id' => $activityUuid, 'status' => 'scheduled']);
         $mockActivityApi->shouldReceive('create')->once()->andReturn($activityCreateResponse);

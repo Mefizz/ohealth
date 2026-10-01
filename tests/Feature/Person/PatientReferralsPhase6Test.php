@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Person;
 
-use App\Enums\Person\ServiceRequestStatus;
-use App\Livewire\DiagnosticReport\DiagnosticReportCreate;
-use App\Livewire\DiagnosticReport\DiagnosticReportEdit;
-use App\Livewire\Encounter\EncounterComponent;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequest;
 use App\Classes\eHealth\EHealthResponse;
+use App\Enums\Person\ServiceRequestStatus;
+use App\Livewire\DiagnosticReport\DiagnosticReportEdit;
+use App\Livewire\Encounter\EncounterComponent;
 use App\Livewire\Person\Records\PatientReferrals;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
-use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
@@ -25,9 +24,9 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use ReflectionMethod;
 use Livewire\Livewire;
 use Mockery;
+use ReflectionMethod;
 use Tests\TestCase;
 
 class PatientReferralsPhase6Test extends TestCase
@@ -164,7 +163,7 @@ class PatientReferralsPhase6Test extends TestCase
             ServiceRequestRequest::create([
                 'uuid' => $uuid, 'person_id' => $this->person->id,
                 'employee_id' => $this->employee->id,
-                'status' => ServiceRequestStatus::PROCESSED->value,
+                'status' => ServiceRequestStatus::ACTIVE->value,
                 'service_id' => $serviceId, 'category_id' => $categoryId,
             ]);
             if ($category !== null) {
@@ -194,15 +193,10 @@ class PatientReferralsPhase6Test extends TestCase
             $this->assertSame($referral['id'], $referral['requisition']);
         }
 
-        $create = new DiagnosticReportCreate();
-        $create->personId = $this->person->id;
-        $create->dictionaries = $component->dictionaries;
-        (new ReflectionMethod(DiagnosticReportCreate::class, 'loadAvailableReferrals'))->invoke($create);
-        $this->assertCount(3, $create->availableReferrals);
-
         $edit = new DiagnosticReportEdit();
         $edit->dictionaries = $component->dictionaries;
-        foreach ($create->availableReferrals as $referral) {
+        // DiagnosticReportCreate now searches eHealth directly (#865); only edit restores a local selection.
+        foreach ($component->availableReferrals as $referral) {
             [$category, , $reportAllowed] = $expected[$referral['id']];
             $this->assertSame($category === null
                 ? __('encounters.electronic_referral')
@@ -210,8 +204,9 @@ class PatientReferralsPhase6Test extends TestCase
             $this->assertSame($reportAllowed, $referral['isDiagnosticReportAllowed']);
             (new ReflectionMethod(DiagnosticReportEdit::class, 'loadSelectedElectronicReferral'))
                 ->invoke($edit, $referral['id']);
-            $this->assertSame([$referral], $edit->availableReferrals);
-            $this->assertTrue($edit->referralsLoaded);
+            $diagnosticReferral = $referral;
+            unset($diagnosticReferral['isProcedureAllowed']);
+            $this->assertSame([$diagnosticReferral], $edit->availableReferrals);
         }
     }
 
@@ -356,7 +351,7 @@ class PatientReferralsPhase6Test extends TestCase
 
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn(['id' => $uuid, 'status' => 'active', 'requisition' => 'SR-REGISTRY']);
-        $api = Mockery::mock(PatientServiceRequest::class);
+        $api = Mockery::mock(PatientServiceRequest::class)->makePartial();
         $api->shouldReceive('createSigned')->once()->with($this->person->uuid, [
             'signed_data' => 'synthetic-signature',
             'signed_data_encoding' => 'base64',

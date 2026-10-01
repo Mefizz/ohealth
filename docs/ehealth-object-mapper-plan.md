@@ -1,8 +1,18 @@
 # Рефактор eHealth без прикладного сервісного шару
 
-Оновлено 23.09.2026 за уточненнями автора й прикладом тімліда: операції розподіляємо між Livewire, API-класами, enum і вузькими трейтами; mapping організовуємо за призначенням ModelData/EHealthData/FormData з підтримкою кількох типів джерел. Окремий шар Actions та нові класи Rules/Managers/Coordinators не вводимо.
+Оновлено 01.10.2026 за уточненнями автора й прикладом тімліда: операції розподіляємо між Livewire, API-класами, enum і вузькими трейтами; mapping організовуємо за призначенням ModelData/EHealthData/FormData з підтримкою кількох типів джерел. Окремий шар Actions та нові класи Rules/Managers/Coordinators не вводимо.
 
-Issue: [#841](https://github.com/openhealths/nationHealth/issues/841). Робоча гілка: `Mefizz/ohealth:i841_object_mapper_service_request`, база #792 `d91299f72ffa115de7a441d7cb6a8d3475f6fe94`. Рефактор не публікується в гілку #792. Після merge #792 — rebase на фактичний upstream main і повторні перевірки. Стан реалізації та результати тестів: [object-mapper-refactor.md](object-mapper-refactor.md).
+Issue: [#841](https://github.com/openhealths/nationHealth/issues/841). Робоча гілка: `Mefizz/ohealth:i841_object_mapper_service_request`, база upstream main `b2239108` після merge #792 (24.09) і rebase (30.09). Рефактор не публікується в гілку #792. Під час rebase збережено нові сценарії main, включно з eHealth referral search і поточним session-flash/x-message. Стан реалізації та результати тестів: [object-mapper-refactor.md](object-mapper-refactor.md).
+
+## Стан реалізації 01.10
+
+- Видалено `CarePlanLifecycleService`, `CarePlanActivityLifecycleService`, `EHealthJobResolver`; callers використовують API, а remote job statuses — окремий enum.
+- Видалено `CarePlanLifecycleGateService`, `CarePlanActivityEHealthGuard`, `InformWith`. Запити відкритих документів — у Repository, властивості статусів — в enum, UI-перевірки — у protected Livewire concerns, auth-method extraction — чистий transform.
+- Видалено `MedicalRequestOwnership`. Scoped lookup — у Repository, контекст закладу передає Livewire явно; approvals обмежені поточним care plan. Збережено Identifier UUID для перевірки Encounter.
+- Patient ServiceRequest/DeviceRequest API виконують signed create/cancel та prequalify з перевіркою job/verdict; ServiceRequest також виконує recall. Транспортні wrappers видалено з referral lifecycle.
+- `ServiceRequestModelData` та `DeviceRequestModelData` приймають локальні поля форми й відповідь eHealth; спільні поля описані в `ReferralModelData`. Інтегровані створення чернетки та inbound sync; captured baseline фіксує правила неповних відповідей.
+- Outbound ServiceRequest JSON на підпис зберігається; device outbound та eRx ще не перенесені.
+- Великий referral lifecycle, guards, ownership та approvals залишаються незавершеною частиною плану. Саме перенесення HTTP wrappers не означає завершення всього рефактору.
 
 ## 1. Кінцевий результат
 
@@ -26,7 +36,7 @@ SignatureService і dictionary infrastructure — раніше визначен�
 
 `app/Classes/eHealth/Api` володіє endpoints, HTTP, transport envelopes, response validation, pagination та перевіркою remote job/verdict. Існуючі низькорівневі методи й типи відповіді глобально не змінюємо.
 
-Для операцій, що потребують завершеного результату, додаємо явні методи на відповідному API-класі, наприклад `createSignedAndResolve()` чи `prequalifyAndValidate()`. Назва показує очікування job; метод GET не починає приховано polling. Спільний транспортний алгоритм — у `app/Classes/eHealth/Api/Concerns/ResolvesEHealthJobs`, специфічний endpoint — у своєму Api. Спільні helpers трейта protected, без UI-стану й Eloquent.
+Для операцій, що потребують завершеного результату, додаємо явні методи на відповідному API-класі, наприклад `createSignedAndResolve()` чи `prequalifyAndValidate()`. Назва показує очікування job; метод GET не починає приховано polling. Polling реалізований у `Api/Job`; спільні операції patient request API — у `Api/Concerns/ResolvesSignedPatientRequests`, специфічний endpoint — у своєму Api. Public methods — контракт API, допоміжні методи protected, без UI-стану й Eloquent.
 
 Api не читає `auth()`, не отримує `$this->form`, не викликає SignatureService, не записує клінічні записи в БД, не надсилає Livewire events і не обирає текст toast. Він отримує payload/UUID явно, повертає валідовані дані або кидає типізований виняток. Наявний async approval polling через jobs/EhealthLink зберігається: його не замінюємо синхронним очікуванням.
 
@@ -40,7 +50,7 @@ Enum не виконує SQL, HTTP, `app()`, `auth()` або перевірок 
 
 Наявні `app/Repositories` залишаються місцем для scoped queries, aggregate queries, upsert, Identifier/FK, транзакцій і блокувань. Перевірка належності запису пацієнту/закладу виконується до мапінгу та підпису, а не після HTTP.
 
-Repository отримує `*Write` або погоджений масив даних, а не Livewire-компонент чи eHealth client. Він не формує КЕП-документ, не виконує HTTP та не генерує HTML. Не переносимо сирий SQL у компонент заради видалення сервісу.
+Repository отримує `*ModelData` або погоджений масив даних, а не Livewire-компонент чи eHealth client. Він не формує КЕП-документ, не виконує HTTP та не генерує HTML. Не переносимо сирий SQL у компонент заради видалення сервісу.
 
 Перевірка кількості й блокування залишаються в тій самій атомарній області, що й відповідний локальний запис. Довгий HTTP/polling не додаємо всередину SQL-транзакції. Поточну поведінку lock спочатку фіксуємо тестами; окремо перевіряємо паралельні та повторні підписи. DTO із попередньо обчисленою кількістю не є резервуванням.
 
@@ -66,17 +76,17 @@ Repository отримує `*Write` або погоджений масив дан
 
 Symfony `SourceClass`/`TargetClass` дозволяють застосувати mapping для одного з кількох класів. Це не об'єднання кількох source objects за один `map()` і не автоматичне сканування будь-яких класів з суфіксом Data. Щоб правила DivisionModelData застосувалися, він повинен бути source/target у виклику або бути явно підключений через metadata configuration. Сам виклик `map($source, Division::class)` не знаходить сторонній DivisionModelData за назвою. [Офіційна документація](https://symfony.com/doc/current/object_mapper.html#matching-multiple-classes).
 
-Приклад `new Division($mapper->map(..., Division::class))` розглядаємо як ескіз, не готовий Laravel-код: map приймає object і повертає object, Eloquent constructor — array. У нас EHealthResponse::validate() і дані DivisionForm повертають масиви, тому потрібна явна object-межа з урахуванням вкладених структур.
+Приклад тімліда розглядаємо як концепцію розподілу mapping. Масив форми або відповіді адаптуємо в object одним викликом; не створюємо для цього додатковий шар DTO чи recursive JSON round-trip. ModelData містить правила записуваних полів і приймає кілька source classes.
 
 Наступний spike перевіряє два кроки: source → DivisionModelData → уже створений `new Division()` або завантажена модель; після цього явний save. Правила mapping зберігаються на Data-класі. Перевірити HasCamelCasing, casts, mutators, події, дозволені до запису поля та незмінність identity/ownership. Якщо потрібен масив для fill, нормалізується тільки погоджений набір полів; не вводимо загальний mapper, який повертає то array, то object.
 
 Repository не є обов'язковою обгорткою простого save однієї моделі. Проте він залишається потрібним для транзакцій, scoped lookup, кількох таблиць і FHIR Identifier relationships, навіть коли всередині використовується Eloquent. Ці операції не є рутинним копіюванням DTO-полів.
 
-Для ServiceRequest: переглянути наявні Input/Body/Payloads на користь `ServiceRequestModelData`, `ServiceRequestEHealthData` і, лише якщо потрібне заповнення форми, `ServiceRequestFormData`. Поточний задум ServiceRequestWrite відповідає ролі ModelData; не тримати обидві назви для тієї самої структури. Це напрям наступної реалізації, ще не виконане перейменування.
+Для ServiceRequest уже реалізовано `ServiceRequestModelData` для локальної форми та API-відповіді; окремий ServiceRequestWrite не створюємо. Input/Body/Payloads далі переглядаємо для Model → eHealth і повторного використання `ServiceRequestEHealthData`. `ServiceRequestFormData` додаємо лише під час фактичної міграції заповнення форми.
 
 Виняток із одного EHealthData — справді різні контракти: prequalify envelope і документ для КЕП, create і raw cancel/reject, medication draft і prescription. Спочатку повторно використовуємо спільні дані, потім окремий transport envelope в API або вузький contract DTO, якщо цього потребують відмінні поля/правила. Кількість класів не скорочуємо шляхом прихованого режиму, який змінює підписуваний JSON.
 
-Перед масштабуванням потрібні перевірки усіх реально підтримуваних напрямків: Form → Model, API → Model, Model → Form, Model → API та за потреби Form → API/API → Form; missing/null/[] при sync; точні JSON bytes перед підписом. Поточні 124 тести підтверджують попередній outbound spike, а не ще не реалізоване multi-source mapping.
+Перед масштабуванням потрібні перевірки усіх реально підтримуваних напрямків: Form → Model, API → Model, Model → Form, Model → API та за потреби Form → API/API → Form; missing/null/[] при sync; точні JSON bytes перед підписом. Multi-source ModelData уже має незалежні fixtures для восьми ServiceRequest і десяти DeviceRequest API-відповідей та перевірки локальної форми. Актуальні результати регресії — у документі стану, історичні 124 тести стосуються попереднього outbound spike.
 
 ## 3. Правила для трейтів
 
@@ -114,7 +124,7 @@ Care plan, encounter і patient registry готують власний конт�
 - `MedicationRequestLifecycleService`: concerns create/sign/reject/sync; API отримує готові payload; Repository розв'язує контекст і зберігає raw snapshot. Пріоритет підпису raw draft → fetched raw → локальний fallback зберігається.
 - `CarePlanLifecycleService`, `CarePlanActivityLifecycleService`, `DeviceRequestLifecycleService`: короткі wrappers розчиняються в явних методах Api; UI sequence — у наявних компонентах/вузьких concerns. Не дублюємо кожен API-метод ще одним UI-трейтом без поведінки.
 - `EHealthRequestLifecycleService`: базове наслідування видаляється. Transport error handling/prequalify resolution — Api concerns; signer tax ID перевіряється на межі підписання в Livewire, до відправлення документа.
-- `EHealthJobResolver`: polling, fallback URL, timeout та успішність — `Api/Concerns/ResolvesEHealthJobs`; статуси — окремий enum контракту job, якщо наявний enum не відповідає цьому набору. Зберегти 404 fallback, інтервали, ліміти й типи винятків; не змінювати їх разом із переносом.
+- `EHealthJobResolver`: polling, fallback URL, timeout та успішність — `Api/Job`; статуси — окремий enum контракту job, якщо наявний enum не відповідає цьому набору. Зберегти 404 fallback, інтервали, ліміти й типи винятків; не змінювати їх разом із переносом.
 - `CarePlanLifecycleGateService`: запити відкритих документів — Repository; властивості статусів — enum; поєднання умов cancel/complete — `ValidatesCarePlanCompletion`/відповідний concern; текст помилки — translations/UI.
 - `CarePlanActivityValidationService`: providing conditions, rehab reason references — `ValidatesCarePlanActivity`; чисте розбирання API/category форми — Mapping; кінцеві коди — enum тільки для справді замкненого набору, не для динамічного довідника ЕСОЗ.
 - `ActivityRemainingQuantityGuard`: issued totals і lock — Repository; allowed status sets — enum; UI-повідомлення й виклик атомарної перевірки — concern. Не замінювати захист БД одним порівнянням у Livewire.
@@ -196,6 +206,6 @@ Care plan, encounter і patient registry готують власний конт�
 
 Рефактор виконується в окремому worktree з isolated Sail/PostgreSQL. Mapping-only зміни не потребують міграцій схеми. Відкат — revert відповідного інкременту; fixtures не маскують зміну поведінки. Реальний КЕП/eHealth UAT потрібний перед rollout.
 
-На актуальній базі upstream main `186ecd08` додатково містить #847/#820 (`PatientData.php`, personal data sync). Він не змінює mapping-контракт і має потрапити через фінальний rebase після merge #792.
+База upstream main `b2239108` уже містить #847/#820 (`PatientData.php`, personal data sync), #792 та нові сценарії diagnostic/specimen/referral search. Ці зміни збережено під час rebase 30.09.
 
 Готовність оцінюємо разом: прикладні сервіси видалені, сценарій читається в Livewire, Api не залежить від UI/БД, enum не має побічних ефектів, трейт не приховує весь домен, поле eHealth змінюється в одному mapping-контракті, а перевірки існуючої поведінки проходять.

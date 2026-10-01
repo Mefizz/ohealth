@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Mapping\EHealth\Referral;
 
-use App\Services\MedicalEvents\InformWith;
 use Carbon\CarbonImmutable;
 use stdClass;
 
@@ -30,7 +29,7 @@ final readonly class ServiceRequestInput
         public ?array $supportingInfo = null,
         public ?array $reasonReference = null,
         public ?string $patientInstruction = null,
-        public ?string $authMethodId = null,
+        public mixed $informWith = null,
         public ?string $programId = null,
     ) {
     }
@@ -68,7 +67,7 @@ final readonly class ServiceRequestInput
             supportingInfo: self::references($data['supporting_info'] ?? null),
             reasonReference: self::references($data['reason_reference'] ?? null),
             patientInstruction: !empty($data['patient_instruction']) ? (string) $data['patient_instruction'] : null,
-            authMethodId: InformWith::authMethodId($data['inform_with'] ?? null),
+            informWith: $data['inform_with'] ?? null,
             programId: !empty($data['program_id']) ? (string) $data['program_id'] : null,
         );
     }

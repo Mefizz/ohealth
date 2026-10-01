@@ -8,6 +8,7 @@ use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\CarePlanStatus;
 use App\Enums\Person\ServiceRequestStatus;
+use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Mapping\EHealth\Referral\ServiceRequestInput;
@@ -17,9 +18,7 @@ use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
 use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
-use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -76,9 +75,13 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            app(CarePlanActivityEHealthGuard::class)->assertRegisteredInEHealth($this->carePlan, $activity);
+            $this->assertCarePlanActivityRegistered($this->carePlan, $activity);
         } catch (RuntimeException $exception) {
             Session::flash('error', $exception->getMessage());
+
+            return;
+        } catch (EHealthException $exception) {
+            $exception->handle('Care-plan activity registration check failed');
 
             return;
         }
@@ -332,8 +335,7 @@ trait ManagesCarePlanReferrals
     {
         $this->authorizeCarePlanWrite();
         try {
-            app(MedicalRequestOwnership::class)
-                ->referralForPerson($requestId, (int) $this->carePlan->personId);
+            Repository::serviceRequest()->findOwnedReferralByPerson($requestId, (int) $this->carePlan->personId, legalEntity()?->id);
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -386,8 +388,7 @@ trait ManagesCarePlanReferrals
         $this->carePlan->loadMissing(['encounter', 'person']);
 
         try {
-            $requestRecord = app(MedicalRequestOwnership::class)
-                ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
+            $requestRecord = Repository::serviceRequest()->findOwnedReferralByPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId, legalEntity()?->id);
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -438,8 +439,7 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(ReferralRequestLifecycleService::class)
-                ->submitSignedCreate($kind, $this->carePlan->person->uuid, $signedContent);
+            $finalResponse = $this->referralApi($kind)->createSignedAndResolve($this->carePlan->person->uuid, $signedContent);
 
             $dbData = app(ReferralRequestLifecycleService::class)->persistAfterSignedCreate(
                 $dbData,
@@ -517,8 +517,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $record = app(MedicalRequestOwnership::class)
-                ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
+            $record = Repository::serviceRequest()->findOwnedReferralByPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId, legalEntity()?->id);
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -551,12 +550,11 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(ReferralRequestLifecycleService::class)
-                ->submitSignedRecall($this->carePlan->person->uuid, $record->uuid, [
-                    'signed_data' => $signedContent,
-                    'signed_data_encoding' => 'base64',
-                    'explanatory_letter' => $letter,
-                ]);
+            $finalResponse = $this->referralApi('service_request')->recallAndResolve($this->carePlan->person->uuid, $record->uuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
+                'explanatory_letter' => $letter,
+            ]);
 
             $this->persistReferralStatusFromJob(
                 $finalResponse,
@@ -589,8 +587,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $record = app(MedicalRequestOwnership::class)
-                ->referralForPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId);
+            $record = Repository::serviceRequest()->findOwnedReferralByPerson((string) $this->referralRequestIdToSign, (int) $this->carePlan->personId, legalEntity()?->id);
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -618,12 +615,11 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(ReferralRequestLifecycleService::class)
-                ->submitSignedCancel($kind, $this->carePlan->person->uuid, $record->uuid, [
-                    'signed_data' => $signedContent,
-                    'signed_data_encoding' => 'base64',
-                    'status_reason' => $payload['status_reason'],
-                ]);
+            $finalResponse = $this->referralApi($kind)->cancelAndResolve($this->carePlan->person->uuid, $record->uuid, [
+                'signed_data' => $signedContent,
+                'signed_data_encoding' => 'base64',
+                'status_reason' => $payload['status_reason'],
+            ]);
 
             $this->persistReferralStatusFromJob(
                 $finalResponse,
@@ -669,10 +665,10 @@ trait ManagesCarePlanReferrals
         $this->authorizeCarePlanWrite();
 
         try {
-            $ownership = app(MedicalRequestOwnership::class);
+
             $requestRecord = match ($kind) {
-                'service_request' => $ownership->serviceForPerson($requestUuid, (int) $this->carePlan->personId),
-                'device_request' => $ownership->deviceForPerson($requestUuid, (int) $this->carePlan->personId),
+                'service_request' => Repository::serviceRequest()->findOwnedByPerson($requestUuid, (int) $this->carePlan->personId, legalEntity()?->id),
+                'device_request' => Repository::deviceRequest()->findOwnedByPerson($requestUuid, (int) $this->carePlan->personId, legalEntity()?->id),
                 default => throw new ModelNotFoundException(),
             };
         } catch (ModelNotFoundException) {

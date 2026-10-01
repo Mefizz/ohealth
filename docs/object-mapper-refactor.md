@@ -2,136 +2,98 @@
 
 Issue: https://github.com/openhealths/nationHealth/issues/841
 
-Full staged plan: [ehealth-object-mapper-plan.md](ehealth-object-mapper-plan.md).
-
+Full plan: [ehealth-object-mapper-plan.md](ehealth-object-mapper-plan.md).
 Branch: `Mefizz/ohealth:i841_object_mapper_service_request`.
-Base: PR #792 head `d91299f72ffa115de7a441d7cb6a8d3475f6fe94` (updated 2026-09-22).
-This is an independent branch. Rebase onto upstream main after #792 is merged;
-never push these commits to the #792 head branch.
+Base: upstream main `b2239108`, rebased 2026-09-30 after #792 merged on September 24.
+Never push refactor commits to the #792 head branch.
 
-## First increment
+## Implemented
 
-- Symfony ObjectMapper 8.1.5 with a Laravel provider and explicit callable bindings.
-- A typed ServiceRequest input snapshot with caller-supplied time and resolved UUID context.
-- Separate prequalify envelope and flat signed-create targets, with shared body fields.
-- Explicit mapping of object collections and pure FHIR value transforms.
-- Symfony Serializer normalization; stable legacy field order at the KEP boundary.
-- Encounter/care-plan prequalify and encounter/care-plan/patient-registry signing use the new contracts directly.
-- Legacy public mapper methods remain compatibility delegates; their outbound construction is removed.
-- Eight synthetic baseline cases captured from the unmodified #792 mapper, using `Europe/Kyiv` and a fixed clock.
+- Symfony ObjectMapper 8.1.5, Laravel provider, explicit callable bindings and Serializer normalization.
+- ServiceRequest prequalify and signed-create contracts, preserving the exact JSON passed to KEP.
+  The source snapshot carries caller-supplied time and resolved UUID context. HTTP and persistence stay outside mapping.
+- Encounter/care-plan prequalify and encounter/care-plan/patient-registry signing use these contracts.
+  Legacy public outbound methods delegate until their remaining callers migrate.
+- `ServiceRequestModelData` and `DeviceRequestModelData` accept both validated local fields (`ArrayObject`)
+  and eHealth JSON (`stdClass`) through `SourceClass`. These are one-line adapters, not new source DTOs.
+  Shared metadata lives in `ReferralModelData`; resource-specific fields stay on the corresponding target.
+- Draft creation and inbound synchronization use these targets. Remote reference rows use `MapCollection`;
+  already local array rows retain their form representation. Mapping performs no SQL or HTTP.
+- `toSyncPatch()` preserves the old import contract: null/empty scalars and empty reference lists do not
+  clear local fields. Zero remains an update; `inform_with: []` keeps its distinct previous behavior.
+  Author and Identifier relationships come from the authorized caller and are resolved by Repository.
+- Removed `CarePlanLifecycleService` and `CarePlanActivityLifecycleService`. Livewire calls the existing
+  APIs through `createSignedAndResolve`, `cancelAndResolve`, `completeAndResolve`; GET callers use
+  `getDetails()->getData()`. Existing low-level methods and response types remain unchanged.
+- Removed `EHealthJobResolver`. Polling, 404 href fallback, timeout and verdict checks now belong to
+  `Api/Job`. `Enums/EHealth/JobStatus` describes remote statuses separately from local queue statuses.
+  Async approval/OTP jobs retain their existing workflow.
+- Removed `CarePlanLifecycleGateService`. Request repositories find open documents through Identifier
+  relationships; activity/document enums describe status properties. Protected Livewire methods produce
+  the existing cancellation/completion blocking messages.
+- Removed `CarePlanActivityEHealthGuard`. A narrow Livewire registration concern uses the existing API.
+  Only a 404 becomes "activity absent"; authorization and server errors retain their transport exception.
+- Removed `InformWith`. `AuthMethodId` extracts the identifier as a pure ObjectMapper transform;
+  selection/display formatting stays in the encounter concern.
+- Patient ServiceRequest/DeviceRequest APIs now own signed create/cancel and prequalify resolution.
+  ServiceRequest owns recall resolution. Livewire callers choose the API explicitly; the referral
+  lifecycle no longer exposes these transport wrappers. INVALID prequalify verdicts remain blocking.
+- Removed `MedicalRequestOwnership`. Request repositories resolve UUIDs within the patient/encounter
+  and explicit facility context; the shared query concern uses no session/container context. Approval
+  lookup stays scoped to the current care plan. All Livewire callers pass the facility id explicitly.
+- The encounter authentication select uses its prepared `raw` option value, with the UUID fallback;
+  Blade no longer references the removed service. A rendered-view regression covers populated options.
 
-No changes to HTTP endpoints, database schema, job verdicts, ownership, quantity gates or signature handling.
-The raw-document eRx signing path is not involved in this increment.
+## Compatibility with main
 
-## Updated base and next increments
+The September 30 rebase includes personal-data sync, separate specimen/diagnostic pages and eHealth
+referral search (#865). It preserves the session-flash/x-message convention and does not restore the
+removed `InteractsWithFlashMessages` trait. The old referral regression fixture was adjusted to the
+current ACTIVE referral selection and diagnostic edit contract; diagnostic create now searches eHealth.
 
-The six new #792 commits preserve the outbound ServiceRequest mapper unchanged; golden fixtures still
-record their original `4b1f0e7` capture. They were checked against `d91299f` without regeneration.
-The rebase retained the localized toast behavior and the explicit ownership imports in the signing UI.
-Upstream main `186ecd08` additionally changes personal-data sync in `PatientData.php`; it is outside this
-branch's base until #792 is merged and the final rebase is performed.
+Other preserved contracts: complete contract pagination before transactional sync; explicit approval
+success checks; multiple-prescription eRx sync; loading-state recovery; medication resource/source and
+care-plan terms enums. The raw eRx document signing path, ownership and quantity protection are unchanged.
 
-Preserve these newer contracts in subsequent stages:
+## Mapping boundaries
 
-- `DeviceActivityReadinessAssessment` already lives in `App\Dto\MedicalEvents`.
-- Medication source/resource type and care-plan terms already have enums under `app/Enums`.
-- Contract sync validates all pages before a transaction and COMPLETED status; partial lists are not authoritative.
-- Approval confirm/deactivate require successful responses before the UI grants access or reports success.
-- Care-plan eRx sync handles multiple prescriptions; failed UI requests clear loading state.
-- AJAX emits one localized toast, while redirects use session flash. Both public activity handlers remain in use.
+Use one ModelData/EHealthData/FormData contract for each purpose, with multiple source classes where
+useful. Do not create a DTO for every arrow, duplicate Write/ModelData classes, or add an Actions layer.
+Separate prequalify envelopes and signed documents where their wire contracts differ.
+FormData is introduced only when an actual form-hydration path is migrated.
 
-Finish #841 in two reviewable increments: outbound mapping/callers, then inbound Write with a captured
-baseline for partial updates and Identifier relationships. Only after the complete flow passes should
-DeviceRequest, eRx and care-plan mapping adopt this pattern. Do not rename whole lifecycle services into Actions.
+Repository writes receive explicit arrays because Identifier relationships and aggregate persistence
+already belong there. The outbound snapshot still carries resolved context and the operation clock;
+simplifying it must preserve signed bytes and avoid lazy relation queries. `(object)` adapts the top level;
+only collection rows need explicit object adaptation. No recursive JSON round-trip is required.
 
-Regression preparation also corrected old referral fixtures that used activity/encounter primary keys
-as Identifier foreign keys, updated the readiness DTO namespace, and isolated certificate-authority lookup.
-A separate fix removes the repeated `#[Locked]` on the standalone eRx form; one lock remains in place.
+Laravel's PSR-11 `has()` does not advertise every autowirable class. Bind class-name transforms and
+conditions explicitly; attribute-instantiated pure callables need no registration.
 
-## Integration findings
+## Independent contract fixtures
 
-Laravel's container supports PSR-11, but its `has()` does not advertise every autowirable class.
-Class-name transforms must be explicitly bound: the mapper checks `has()` before `get()`.
-The same rule applies to future class-name conditions. Attribute-instantiated callables need no binding.
+- Outbound: eight cases captured from the unmodified #792 mapper at `4b1f0e7`, using a fixed clock and
+  Europe/Kyiv. Expected prequalify, signed document and exact SignatureService JSON bytes are retained.
+- Inbound: eight service-request and ten device-request cases captured from the original lifecycle on
+  main `b2239108` before replacing its mapping. Cover aliases, partial/empty values, reference filtering,
+  search-service fallback, device definitions/classification and zero quantities.
+- Never regenerate expectations from the new mapper to make a failing test pass.
 
-`MapCollection` maps objects, not associative arrays. The legacy-input boundary prepares each reference
-as an object and reindexes list entries. It preserves the existing distinction between an omitted list
-and a supplied list whose incomplete references are filtered out.
+## Remaining work
 
-Missing optional DTO values normalize to omitted keys. An explicit empty list and `0.0` remain intact.
-`SignatureService` continues to apply its existing JSON flags. Contract tests compare its actual JSON
-argument to Cipher, not the nondeterministic PKCS#7 signature.
-
-Date calculations consume the supplied time in the application timezone, including DST rules.
-Transform methods avoid names that PropertyAccessor could interpret as accessors for mapped fields.
-
-`EHealthServiceRequestBody` shares the wire fields between create and prequalify; it is not a generic
-mapping base class. The field-order list only preserves signed bytes; it does not transform values.
-
-## Boundaries
-
-- Mapping: no SQL, HTTP, session, UUID generation or current-clock lookup.
-- Api: `app/Classes/eHealth/Api`; request execution remains there.
-- Repository: persistence, scoped lookup, Identifier links and transactions.
-- Enums: `app/Enums`.
-- Livewire/Blade: explicit workflow, user interaction, signature modal and presentation; narrowly scoped concerns share repeated steps.
-- No new Actions/Rules/Managers layer. Medical service classes are removed as each flow migrates to Livewire concerns, Api and Repository.
-
-## Architecture amendment — 2026-09-23
-
-The team lead's ModelData/EHealthData/FormData approach is the default for subsequent mapping:
-reuse one destination contract across multiple source classes with SourceClass/TargetClass conditions.
-Do not create one DTO for each source-to-target pair. Distinct wire contracts may still require separate
-envelopes or targets, especially prequalify versus the document signed with KEP.
-
-The current code is an outbound spike, not yet this complete design: it normalizes sources into
-ServiceRequestInput and does not implement multi-source ModelData or FormData. Before adding more
-resource-specific DTOs, validate the Data-to-existing-Eloquent-model path, including HasCamelCasing,
-casts, mutators, editable-field boundaries and partial updates. The planned Write contract has the
-ModelData role; do not keep duplicate Write and ModelData representations of the same data.
-
-ObjectMapper accepts and returns objects. An Eloquent constructor takes an attributes array, so
-`new Division($mapper->map($source, Division::class))` is not a working direct integration.
-Also, attributes on DivisionModelData are not automatically used when neither mapping endpoint is
-that class. The intended short caller needs explicit metadata routing or a mapping step through Data.
-These amendments update the plan only; the recorded test results below apply to the existing implementation.
-
-## Remaining scope of #841
-
-- Consolidate form/API-to-model mapping in ServiceRequestModelData without losing partial-field semantics.
-- Exercise the complete create/sign/sync flow, then assess whether this pattern reduces maintenance work.
-- Preserve legacy `toFhir`/`fromFhir` until their separate contracts and callers are migrated.
-
-Do not infer that a successful mapping spike completes the full service refactor.
-Follow-up stages are DeviceRequest, eRx, care plan, activities, and then lifecycle responsibilities.
-Approvals/OTP, dispense, other encounter mappers and Composition remain separate changes.
+- Split remaining referral workflow into narrow Livewire concerns, existing APIs and repositories,
+  preserving ownership checks, quantity protection and operation order. The large ReferralRequestLifecycleService
+  is still present and is not considered an acceptable final architecture.
+- Migrate separate legacy `toFhir`/`fromFhir` callers before deleting their compatibility classes.
+- DeviceRequest outbound, eRx, care-plan/activity mapping, approvals and other medical workflows remain
+  staged work. Do not mechanically copy a lifecycle service into a large trait or rename it into Actions.
+- Real KEP/eHealth UAT is still required before rollout.
 
 ## Validation
 
-2026-09-22, on the rebased branch in isolated Sail PHP 8.5.3/PostgreSQL:
-
-- 124 tests / 608 assertions, no failures or errors. One existing PHP 8.5 PDO deprecation remains.
-- Coverage: mapping/KEP bytes, referral create/sign/sync/registry, FHIR references, standalone signing,
-  contract pagination, approval response contracts/resend/inpatient confirmation, care-plan actions/toasts,
-  medication registry sync and encounter standalone flows.
-- PHP Pint: all 22 changed PHP mapping/caller/test/config files pass, using the project's rules with only
-  the Blade formatter disabled (its npm plugins are absent from the isolated runtime; no Blade files changed).
-- `composer validate --no-check-publish`, `composer check-platform-reqs` and `git diff --check` pass.
-
-Run in the project's Sail PHP environment with an isolated `testing` database:
-
-```sh
-php artisan config:clear
-php vendor/bin/phpunit tests/Unit/Mapping/ServiceRequestPayloadsTest.php \
-  tests/Unit/Services/MedicalEvents/ServiceRequestMapperTest.php \
-  tests/Unit/Services/MedicalEvents/DeviceRequestMapperTest.php \
-  tests/Unit/Services/MedicalEvents/ReferralRequestLifecycleWriteTest.php
-```
-
-The mapping suite covers exact arrays/JSON, actual SignatureService JSON input, injected-time determinism,
-no database/HTTP work, and reuse of Laravel transform bindings inside nested collections.
-Database-backed regression tests must additionally cover encounter signing, care-plan referrals,
-FHIR Identifier relationships and the patient registry. Actual KEP/eHealth UAT is still required before rollout.
-
-The fixture baseline records its source commit, timestamp and timezone. Do not regenerate expected
-fixtures from the new mapper to make a failing contract test pass.
+Final regression (2026-10-01): **286 tests / 1151 assertions**, no failures, errors or risky tests.
+Includes mapping and exact signing bytes, API job/prequalify contracts, partial sync/Identifier links,
+explicit ownership scopes, rendered authentication options, eRx raw-signing and approval workflows.
+One existing PHP 8.5 PDO constant deprecation remains. New mapping/enum/concern/API/test files pass
+the project's PHP Pint rules; the Blade extension is disabled in the isolated PHP formatter.
+Tests run only in isolated mapper841 PHP 8.5.3/PostgreSQL, never the user's application DB.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Mapping\EHealth\Referral;
 
 use App\Mapping\EHealth\Shared\EHealthReference;
+use App\Mapping\Transforms\AuthMethodId;
 use App\Mapping\Transforms\FhirCodeableConcept;
 use App\Mapping\Transforms\FhirReference;
 use Carbon\CarbonImmutable;
@@ -51,7 +52,7 @@ class EHealthServiceRequestBody
     #[Map(source: 'patientInstruction')]
     public ?string $patient_instruction = null;
 
-    #[Map(source: 'authMethodId', transform: [self::class, 'mapInformWith'])]
+    #[Map(source: 'informWith', transform: [new AuthMethodId(), [self::class, 'mapInformWith']])]
     public ?array $inform_with = null;
 
     public static function mapQuantity(?float $value, ServiceRequestInput $source): ?array

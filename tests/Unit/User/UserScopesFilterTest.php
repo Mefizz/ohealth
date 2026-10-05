@@ -12,10 +12,12 @@ use Tests\TestCase;
 class UserScopesFilterTest extends TestCase
 {
     #[Test]
-    public function get_scopes_returns_unique_permission_names(): void
+    public function get_scopes_uses_role_permissions_not_direct_permissions(): void
     {
+        config(['permission.teams' => false]);
+
         $user = Mockery::mock(User::class)->makePartial();
-        $user->shouldReceive('getAllPermissions')->andReturn(collect([
+        $user->shouldReceive('getPermissionsViaRoles')->andReturn(collect([
             (object) ['name' => 'party_verification:details'],
             (object) ['name' => 'party_verification:write'],
             (object) ['name' => 'employee:deactivate'],

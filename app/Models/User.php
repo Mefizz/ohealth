@@ -304,14 +304,31 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
-     * Retrieves the scopes assigned to a specific user.
+     * Scopes to send to eHealth oauth/apps/authorize.
      *
-     * @return string The concatenated string of user's scopes
+     * Use permissions granted via Spatie roles for the current team only — never
+     * model_has_permissions. Direct permissions store the last *granted* token
+     * scopes after a successful login; merging them into the next authorize
+     * request re-asks for a stale/wider set and eHealth responds 422 RBAC.
      */
     public function getScopes(): string
     {
-        // Collect all permissions (direct + via roles)
-        return $this->getAllPermissions()->pluck('name')->unique()->join(' ');
+        $viaRoles = $this->getPermissionsViaRoles()->pluck('name')->unique();
+
+        if (!config('permission.teams') || !getPermissionsTeamId()) {
+            return $viaRoles->join(' ');
+        }
+
+        $allowedNames = $this->allowedPermissionNamesForCurrentTeam();
+
+        if ($allowedNames->isEmpty()) {
+            return '';
+        }
+
+        return $viaRoles
+            ->filter(fn (string $name) => $allowedNames->contains($name))
+            ->values()
+            ->join(' ');
     }
 
     /**

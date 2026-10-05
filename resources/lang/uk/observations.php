@@ -15,6 +15,8 @@ return [
     */
 
     'label' => 'Спостереження',
+    'id' => 'ID спостереження',
+    'explanatory_letter' => 'Обґрунтування підстави позначення запису помилково внесеним',
     'plural' => 'Спостереження',
     'medical_label' => 'Медичне спостереження',
     'category_and_code' => 'Категорія та код',
@@ -49,6 +51,23 @@ return [
     'effective_period_start' => 'Час початку',
     'effective_period_end' => 'Час завершення',
     'comment' => 'Коментар',
+    'result' => 'Результат',
+    'reference_range' => 'Референтний діапазон',
+    'component' => 'Компонент',
+    'no_components' => 'Немає компонентів',
+    'general_info' => 'Загальна інформація',
+    'code_and_name' => 'Код та назва',
+    'status_label' => 'Статус',
+    'method_label' => 'Метод',
+    'body_site_label' => 'Ділянка тіла',
+    'device' => 'Медичне обладнання',
+    'effective_date_label' => 'Дата/період проведення',
+    'performer' => 'Виконавець',
+    'diagnostic_report' => 'Діагностичний звіт',
+    'specimen' => 'Зразок біоматеріалу',
+    'context' => 'Взаємодія',
+    'inserted_at_label' => 'Дата та час внесення в Систему',
+    'updated_at_label' => 'Дата та час оновлення запису в Системі',
     'position' => 'спостереження №:position',
     'specimen_id' => 'ID зразка',
     'reaction_on' => 'Реакція на вакцинацію',
@@ -65,6 +84,7 @@ return [
 
     'messages' => [
         'synced_successfully' => 'Спостереження успішно синхронізовані',
+        'record_synced_successfully' => 'Спостереження успішно синхронізоване',
         'first_page_synced_successfully' => 'Перша сторінка спостережень синхронізована, решта обробляється у фоні',
         'sync_already_running' => 'Синхронізація спостережень вже запущена. Будь ласка, зачекайте її завершення.',
         'sync_resume_started' => 'Відновлення попередньої синхронізації спостережень розпочато',
@@ -81,6 +101,7 @@ return [
     // Field names for :attribute in validation messages
     'attributes' => [
         'primarySource' => 'джерело інформації спостереження',
+        'performerEmployeeId' => 'виконавець спостереження',
         'reportOriginCode' => 'посилання на джерело спостереження',
         'reportOriginText' => 'опис джерела спостереження',
         'categorySystem' => 'система кодування спостереження',

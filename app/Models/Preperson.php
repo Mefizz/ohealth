@@ -9,7 +9,9 @@ use App\Enums\Person\Gender;
 use App\Enums\Preperson\Status;
 use App\Models\MedicalEvents\Sql\DetectedIssue;
 use App\Models\MedicalEvents\Sql\Device;
+use App\Models\MedicalEvents\Sql\DeviceAssociation;
 use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\Specimen;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -106,6 +108,26 @@ class Preperson extends Model
     public function detectedIssues(): HasMany
     {
         return $this->hasMany(DetectedIssue::class);
+    }
+
+    /**
+     * Observations recorded for this preperson.
+     *
+     * @return HasMany
+     */
+    public function observations(): HasMany
+    {
+        return $this->hasMany(Observation::class);
+    }
+
+    /**
+     * Associations of the medical devices with this preperson.
+     *
+     * @return HasMany
+     */
+    public function deviceAssociations(): HasMany
+    {
+        return $this->hasMany(DeviceAssociation::class);
     }
 
     /**

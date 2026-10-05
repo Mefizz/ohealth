@@ -94,6 +94,11 @@ class EquipmentPolicy
             return Response::denyWithStatus(404);
         }
 
+        // Only OWNER and ADMIN are allowed to edit equipment
+        if (!$user->hasAllowedRole([Role::OWNER, Role::ADMIN])) {
+            return Response::denyWithStatus(404);
+        }
+
         // Only draft can be edited
         if ($equipment->status !== Status::DRAFT) {
             return Response::denyWithStatus(404);
@@ -121,8 +126,8 @@ class EquipmentPolicy
             return Response::denyWithStatus(404);
         }
 
-        // It is allowed to change status only for active equipment
-        if ($equipment->status !== Status::ACTIVE) {
+        // Active equipment can become inactive or entered_in_error, inactive equipment only entered_in_error
+        if (!in_array($equipment->status, [Status::ACTIVE, Status::INACTIVE], true)) {
             return Response::denyWithStatus(404);
         }
 

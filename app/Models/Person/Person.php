@@ -11,7 +11,9 @@ use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\DetectedIssue;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Device;
+use App\Models\MedicalEvents\Sql\DeviceAssociation;
 use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\Specimen;
 use App\Models\Relations\ConfidantPerson;
 use App\Models\Relations\PersonName;
@@ -62,6 +64,16 @@ class Person extends BasePerson
     public function detectedIssues(): HasMany
     {
         return $this->hasMany(DetectedIssue::class);
+    }
+
+    public function observations(): HasMany
+    {
+        return $this->hasMany(Observation::class);
+    }
+
+    public function deviceAssociations(): HasMany
+    {
+        return $this->hasMany(DeviceAssociation::class);
     }
 
     public function declarations(): HasMany

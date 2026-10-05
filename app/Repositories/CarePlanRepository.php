@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
-use App\Enums\CarePlanStatus;
+use App\Dto\CarePlan\Model as CarePlanModelData;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanSync;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Database\Eloquent\Collection;
@@ -263,51 +265,28 @@ class CarePlanRepository
                     $localEncounterId = $localEncounter?->id;
                 }
 
+                $fields = app(ObjectMapperInterface::class)->map(
+                    new CarePlanSync($rawFhir),
+                    new CarePlanModelData(
+                        $carePlan?->title ?? 'План лікування',
+                        $carePlan?->description,
+                        $carePlan?->note,
+                        now(),
+                    )
+                )->toSyncAttributes();
+                $fields = array_replace($fields, [
+                    'author_id' => $authorId,
+                    'legal_entity_id' => $person->legal_entity_id ?? ($carePlan ? legalEntity()->id : legalEntity()?->id),
+                    'category_id' => $category?->id,
+                    'encounter_identifier_id' => $encounterIdentifier?->id,
+                    'encounter_id' => $localEncounterId ?? $carePlan?->encounter_id,
+                    'care_manager_id' => $careManager?->id,
+                    'addresses' => !empty($addresses) ? $addresses : $carePlan?->addresses,
+                ]);
                 if ($carePlan) {
-                    $carePlan->update([
-                        'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
-                        'author_id' => $authorId,
-                        'legal_entity_id' => $person->legal_entity_id ?? legalEntity()->id,
-                        'status' => $rawFhir['status'] ?? CarePlanStatus::ACTIVE->value,
-                        'title' => !empty($rawFhir['title']) ? $rawFhir['title'] : ($carePlan->title ?? 'План лікування'),
-                        'description' => !empty($rawFhir['description']) ? $rawFhir['description'] : ($carePlan->description ?? null),
-                        'note' => !empty($rawFhir['note']) ? $rawFhir['note'] : ($carePlan->note ?? null),
-                        'category_id' => $category?->id,
-                        'encounter_identifier_id' => $encounterIdentifier?->id,
-                        'encounter_id' => $localEncounterId ?? $carePlan->encounter_id,
-                        'care_manager_id' => $careManager?->id,
-                        'period_start' => isset($rawFhir['period']['start'])
-                            ? \Carbon\Carbon::parse($rawFhir['period']['start'])
-                            : ($rawFhir['ehealth_inserted_at'] ?? now()),
-                        'period_end' => isset($rawFhir['period']['end'])
-                            ? \Carbon\Carbon::parse($rawFhir['period']['end'])
-                            : null,
-                        'terms_of_service' => $rawFhir['terms_of_service']['coding'][0]['code'] ?? null,
-                        'addresses' => !empty($addresses) ? $addresses : ($carePlan->addresses ?? null),
-                    ]);
+                    $carePlan->update($fields);
                 } else {
-                    $carePlan = CarePlan::create([
-                        'uuid' => $rawFhir['id'] ?? $rawFhir['uuid'] ?? null,
-                        'person_id' => $person->id,
-                        'author_id' => $authorId,
-                        'legal_entity_id' => $person->legal_entity_id ?? (legalEntity()?->id ?? null),
-                        'status' => $rawFhir['status'] ?? CarePlanStatus::ACTIVE->value,
-                        'title' => !empty($rawFhir['title']) ? $rawFhir['title'] : 'План лікування',
-                        'description' => !empty($rawFhir['description']) ? $rawFhir['description'] : null,
-                        'note' => !empty($rawFhir['note']) ? $rawFhir['note'] : null,
-                        'category_id' => $category?->id,
-                        'encounter_identifier_id' => $encounterIdentifier?->id,
-                        'encounter_id' => $localEncounterId,
-                        'care_manager_id' => $careManager?->id,
-                        'period_start' => isset($rawFhir['period']['start'])
-                            ? \Carbon\Carbon::parse($rawFhir['period']['start'])
-                            : ($rawFhir['ehealth_inserted_at'] ?? now()),
-                        'period_end' => isset($rawFhir['period']['end'])
-                            ? \Carbon\Carbon::parse($rawFhir['period']['end'])
-                            : null,
-                        'terms_of_service' => $rawFhir['terms_of_service']['coding'][0]['code'] ?? null,
-                        'addresses' => !empty($addresses) ? $addresses : null,
-                    ]);
+                    $carePlan = CarePlan::create(array_replace($fields, ['person_id' => $person->id]));
                 }
 
                 if (isset($rawFhir['period'])) {

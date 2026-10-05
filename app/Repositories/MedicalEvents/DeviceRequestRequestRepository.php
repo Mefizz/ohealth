@@ -274,7 +274,7 @@ class DeviceRequestRequestRepository extends BaseRepository
     {
         return (float) $this->model->newQuery()
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
-            ->whereNotIn('status', MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM)
+            ->whereNotIn('status', \App\Enums\MedicalEvents\RequestQuantityStatus::excluded())
             ->sum('quantity');
     }
 

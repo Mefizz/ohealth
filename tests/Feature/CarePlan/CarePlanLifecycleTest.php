@@ -18,6 +18,36 @@ use Tests\TestCase;
 class CarePlanLifecycleTest extends TestCase
 {
     use DatabaseTransactions;
+    public function test_activity_edit_and_save_stay_scoped_to_the_current_care_plan(): void
+    {
+        $this->withoutVite();
+        $this->actingAs($this->user);
+        $attributes = [
+            'person_id' => $this->person->id,
+            'author_id' => $this->employee->id,
+            'legal_entity_id' => $this->employee->legal_entity_id,
+            'status' => 'draft', 'title' => 'Scope test', 'period_start' => '2026-10-01',
+        ];
+        $current = CarePlan::create($attributes + ['uuid' => (string) Str::uuid()]);
+        $other = CarePlan::create($attributes + ['uuid' => (string) Str::uuid()]);
+        $foreign = CarePlanActivity::create([
+            'care_plan_id' => $other->id, 'author_id' => $this->employee->id,
+            'kind' => 'service_request', 'status' => 'draft', 'quantity' => 2,
+            'description' => 'Must remain unchanged',
+        ]);
+        $component = Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $current]);
+        $initialForm = $component->get('activityForm');
+        $component->call('editActivity', $foreign->id)->assertSet('activityForm', $initialForm);
+        foreach (['saveActivity', 'saveActivityAndSign'] as $action) {
+            Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $current])
+                ->set('activityForm.id', $foreign->id)
+                ->set('activityForm.description', 'Tampered')
+                ->call($action)
+                ->assertStatus(404);
+        }
+        $this->assertSame('Must remain unchanged', $foreign->fresh()->description);
+        $this->assertSame(2, $foreign->fresh()->quantity);
+    }
 
     protected function migrateDatabases()
     {
@@ -362,6 +392,37 @@ class CarePlanLifecycleTest extends TestCase
             'product_reference' => 'A01001',
             'quantity' => 2,
         ]);
+    }
+
+    public function test_repository_quantity_check_keeps_the_activity_row_lock_and_transaction_scope(): void
+    {
+        $plan = CarePlan::create([
+            'person_id' => $this->person->id, 'author_id' => $this->employee->id,
+            'legal_entity_id' => $this->employee->legal_entity_id, 'status' => 'draft',
+            'title' => 'Quantity plan', 'period_start' => '2026-10-05',
+        ]);
+        $activity = CarePlanActivity::create(['care_plan_id' => $plan->id, 'author_id' => $this->employee->id, 'kind' => 'service_request', 'status' => 'draft', 'quantity' => 7]);
+        $initialLevel = \Illuminate\Support\Facades\DB::transactionLevel();
+        $queries = [];
+        \Illuminate\Support\Facades\DB::listen(static function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+        $result = app(\App\Repositories\CarePlanActivityRepository::class)->assertCanIssue($activity->id, 5, function (int $id) use ($activity, $initialLevel): float {
+            $this->assertSame($activity->id, $id);
+            $this->assertSame($initialLevel + 1, \Illuminate\Support\Facades\DB::transactionLevel());
+
+            return 2.0;
+        });
+        $this->assertSame($activity->id, $result->id);
+        $this->assertNotEmpty(array_filter($queries, static fn (string $sql): bool => str_contains(strtolower($sql), 'for update')));
+        $this->assertSame($initialLevel, \Illuminate\Support\Facades\DB::transactionLevel());
+        try {
+            app(\App\Repositories\CarePlanActivityRepository::class)->assertCanIssue($activity->id, 6, static fn (): float => 2.0);
+            $this->fail('Quantity above the remaining cap must fail.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame(__('care-plan.activity_issue_exceeds_remaining', ['remaining' => 5.0]), $exception->getMessage());
+        }
+        $this->assertSame($initialLevel, \Illuminate\Support\Facades\DB::transactionLevel());
     }
 
     public function test_create_medication_activity_with_program_and_linked_grounds(): void
@@ -992,6 +1053,7 @@ class CarePlanLifecycleTest extends TestCase
         $devicesById = collect($devices)->keyBy('id');
 
         $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($response, $devicesById): void {
+            $mock->makePartial();
             $mock->shouldReceive('getMany')->andReturn($response);
             $mock->shouldReceive('getById')->andReturnUsing(function (string $id) use ($devicesById) {
                 $device = $devicesById->get($id);
@@ -1098,6 +1160,7 @@ class CarePlanLifecycleTest extends TestCase
         );
 
         $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($catalogResponse, $byIdResponse, $targetId): void {
+            $mock->makePartial();
             $mock->shouldReceive('getMany')->andReturn($catalogResponse);
             $mock->shouldReceive('getById')->with($targetId)->andReturn($byIdResponse);
         });
@@ -1159,6 +1222,7 @@ class CarePlanLifecycleTest extends TestCase
         );
 
         $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($response): void {
+            $mock->makePartial();
             $mock->shouldReceive('getMany')->andReturn($response);
             $mock->shouldReceive('getById')->andReturn($response);
         });
@@ -1221,6 +1285,7 @@ class CarePlanLifecycleTest extends TestCase
         );
 
         $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($emptyCatalog, $byIdResponse, $targetId): void {
+            $mock->makePartial();
             $mock->shouldReceive('getMany')->andReturn($emptyCatalog);
             $mock->shouldReceive('getById')->with($targetId)->andReturn($byIdResponse);
         });
@@ -1297,6 +1362,7 @@ class CarePlanLifecycleTest extends TestCase
         );
 
         $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($deviceResponse, $deviceUuid): void {
+            $mock->makePartial();
             $mock->shouldReceive('getById')->once()->with($deviceUuid)->andReturn($deviceResponse);
             $mock->shouldReceive('getMany')->never();
         });

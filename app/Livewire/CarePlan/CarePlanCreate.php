@@ -29,7 +29,6 @@ use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\Person\Person;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Traits\InteractsWithApprovals;
 use Carbon\Carbon;
 use Exception;
@@ -47,6 +46,10 @@ class CarePlanCreate extends BasePatientComponent
 {
     use WithFileUploads;
     use InteractsWithApprovals;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\SelectsCarePlanApprovalAccess;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\RequestsCarePlanApprovals;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\QueuesCarePlanApproval;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\PollsCarePlanApprovals;
 
     public bool $showSignatureModal = false;
     public bool $showMethodSelectionModal = false;
@@ -557,10 +560,10 @@ class CarePlanCreate extends BasePatientComponent
             }
 
             $carePlan = CarePlan::where('uuid', $this->carePlanUuid)->firstOrFail();
-            $approvalService = app(CarePlanApprovalService::class);
+
             $skipsOtp = $this->shouldSkipPatientAuthUi($carePlan);
 
-            $result = $approvalService->create(
+            $result = $this->createCarePlanApproval(
                 carePlan: $carePlan,
                 patientUuid: $this->patientUuid,
                 employeeUuid: $employeeUuid,
@@ -607,7 +610,7 @@ class CarePlanCreate extends BasePatientComponent
             return;
         }
 
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($this->pollingLinkId);
+        $status = $this->resolveCarePlanApprovalJob($this->pollingLinkId);
 
         if ($status->isPending()) {
             return;
@@ -835,10 +838,10 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         try {
-            $response = app(CarePlanApprovalService::class)->verify(
+            $response = EHealth::approval()->verify(
                 $this->patientUuid,
                 $this->approvalId,
-                (int) $this->verificationCode,
+                ['code' => (int) $this->verificationCode],
             );
 
             if ($response->successful()) {
@@ -860,7 +863,7 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         try {
-            app(CarePlanApprovalService::class)->resendSms($this->patientUuid, $this->approvalId);
+            $this->resendCarePlanApprovalSms($this->patientUuid, $this->approvalId);
             $this->smsResent = true;
             Session::flash('success', __('SMS надіслано повторно'));
         } catch (Exception $e) {
@@ -1299,7 +1302,7 @@ class CarePlanCreate extends BasePatientComponent
      */
     protected function shouldSkipPatientAuthUi(?CarePlan $carePlan): bool
     {
-        if ($carePlan && app(CarePlanApprovalService::class)->skipsPatientOtp($carePlan)) {
+        if ($carePlan && $this->skipsPatientOtp($carePlan)) {
             return true;
         }
 

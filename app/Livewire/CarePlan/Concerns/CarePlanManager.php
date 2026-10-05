@@ -6,6 +6,8 @@ namespace App\Livewire\CarePlan\Concerns;
 
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\EhealthDraft as CarePlanDraftData;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthJobTimeoutException;
@@ -15,7 +17,6 @@ use App\Models\MedicalEvents\Mongo\CarePlanActivity;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -239,37 +240,11 @@ trait CarePlanManager
 
     protected function signPlan(CarePlanRepository $repository): void
     {
-        $legalEntity = legalEntity();
-
-        // Build eHealth payload from model
-        $carePlanPayload = removeEmptyKeys([
-            'intent' => 'order',
-            'status' => CarePlanStatus::DRAFT->value,
-            'category' => is_array($this->carePlan->category) ? ($this->carePlan->category['coding'][0]['code'] ?? null) : $this->carePlan->category,
-            'context' => $this->carePlan->context ? ['identifier' => ['type_code' => $this->carePlan->context]] : null,
-            'title' => $this->carePlan->title,
-            'period' => array_filter([
-                'start' => $this->carePlan->period_start ? $this->carePlan->period_start->format('Y-m-d') : null,
-                'end' => $this->carePlan->period_end ? $this->carePlan->period_end->format('Y-m-d') : null,
-            ]),
-            'addresses' => $this->carePlan->addresses, // Already stored as array of diagnoses
-            'supporting_info' => array_merge(
-                array_map(fn ($e) => ['display' => $e['name']], $this->carePlan->supporting_info['episodes'] ?? []),
-                array_map(fn ($m) => ['display' => $m['name']], $this->carePlan->supporting_info['medical_records'] ?? [])
-            ),
-            'encounter' => $this->carePlan->encounter?->uuid ? ['identifier' => ['value' => $this->carePlan->encounter->uuid]] : null,
-            'care_manager' => [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
-                    ],
-                    'value' => Auth::user()?->activeDoctorEmployee()?->uuid
-                ]
-            ],
-            'description' => $this->carePlan->description ?: null,
-            'note' => $this->carePlan->note ?: null,
-            'inform_with' => $this->carePlan->inform_with ?: null,
-        ]);
+        $this->carePlan->loadMissing(['encounter']);
+        $carePlanPayload = app(ObjectMapperInterface::class)->map(
+            $this->carePlan,
+            new CarePlanDraftData(Auth::user()?->activeDoctorEmployee()?->uuid)
+        )->toArray();
 
         try {
             $signedContent = signatureService()->signData(
@@ -408,7 +383,7 @@ trait CarePlanManager
             return;
         }
 
-        $activity = $activityRepository->findById($this->activityToSign);
+        $activity = $activityRepository->findForCarePlan($this->carePlan, $this->activityToSign);
         if (!$activity) {
             Session::flash('error', __('care-plan.activity_not_found'));
             $this->showSignatureModal = false;
@@ -432,7 +407,7 @@ trait CarePlanManager
         }
 
         // Build Payload
-        $activityPayload = $activityRepository->formatCarePlanActivityRequest($activity);
+        $activityPayload = $this->buildCarePlanActivityPayload($activity);
         Log::info('CarePlanActivity: signing activity', [
             'activity_id' => $activity->id,
             'activity_uuid' => $activity->uuid,
@@ -449,10 +424,10 @@ trait CarePlanManager
             Log::info('CarePlanActivity: Signing key succeeded');
 
             $finalResponse = EHealth::carePlanActivity()->createSignedAndResolve(
-                    $this->carePlan->person->uuid,
-                    $this->carePlan->uuid,
-                    $signedContent
-                );
+                $this->carePlan->person->uuid,
+                $this->carePlan->uuid,
+                $signedContent
+            );
 
             // Extract the actual CarePlanActivity data
             $activityUuid = $finalResponse['id'] ?? null;
@@ -548,7 +523,7 @@ trait CarePlanManager
             return;
         }
 
-        $activity = $activityRepository->findById($this->activityToSign);
+        $activity = $activityRepository->findForCarePlan($this->carePlan, $this->activityToSign);
         if (!$activity) {
             return;
         }
@@ -562,46 +537,23 @@ trait CarePlanManager
             return;
         }
 
-        $systemMap = [
-            'cancel_activity' => 'eHealth/care_plan_activity_cancel_reasons',
-            'complete_activity' => 'eHealth/care_plan_activity_complete_reasons',
-        ];
-
-        $statusReasonCodeableConcept = [
-            'coding' => [
-                [
-                    'system' => $systemMap[$this->actionType] ?? 'eHealth/care_plan_activity_cancel_reasons',
-                    'code' => $this->statusReason,
-                ]
-            ]
-        ];
-
         $payloadForSign = [];
-
         if ($this->actionType === 'cancel_activity') {
-            // API-007-006-0005: signed content must match activity stored in eHealth DB.
-            // Use remote activity snapshot and change only detail.status_reason.
-            $basePayload = $activityRepository->resolveActivityPayloadForCancelSigning(
-                $activity,
-                $this->carePlan->person->uuid,
-                $this->carePlan->uuid,
-            );
-            $payloadForSign = $activityRepository->buildActivityCancelSignPayload(
-                $basePayload,
-                $statusReasonCodeableConcept,
-            );
-
-            $debugContext = $activityRepository->buildCancelSignatureDebugContext($basePayload, $payloadForSign);
-            Log::info(
-                'CarePlanActivityStatus cancel debug: original vs signed content (status_reason excluded)',
-                [
-                    'activity_uuid' => (string) $activity->uuid,
-                    'person_uuid' => (string) $this->carePlan->person->uuid,
-                    'care_plan_uuid' => (string) $this->carePlan->uuid,
-                    'diff_count' => $debugContext['diff_count_excluding_status_reason'],
-                    'diffs' => $debugContext['diffs_excluding_status_reason'],
-                ]
-            );
+            $snapshot = [];
+            if (!empty($activity->uuid)) {
+                try {
+                    $snapshot = EHealth::carePlanActivity()->getSigningSnapshot(
+                        $this->carePlan->person->uuid,
+                        $this->carePlan->uuid,
+                        (string) $activity->uuid,
+                    );
+                } catch (Throwable) {
+                    // Preserve the established local creation-payload fallback.
+                }
+            }
+            $snapshot = $snapshot !== [] ? $snapshot : $this->buildCarePlanActivityPayload($activity);
+            $payloadForSign = app(ObjectMapperInterface::class)
+                ->map($this, new \App\Dto\CarePlanActivity\EhealthCancel($snapshot))->toArray();
         }
 
         try {
@@ -622,33 +574,8 @@ trait CarePlanManager
             } else {
                 // Complete (API-007-006-0006) takes status_reason and the outcome in the PATCH
                 // body and is not signed at all.
-                $payloadData = [
-                    'detail' => $activityRepository->buildActivityCompletePatchDetail(
-                        $statusReasonCodeableConcept,
-                    ),
-                ];
-
-                if ($this->outcomeCode) {
-                    // eHealth expects outcome_codeable_concept as an array (list) of CodeableConcept objects.
-                    $payloadData['outcome_codeable_concept'] = [
-                        [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/care_plan_activity_outcomes',
-                                    'code' => $this->outcomeCode,
-                                ],
-                            ],
-                        ],
-                    ];
-                }
-
-                if (!empty($this->outcomeReferences)) {
-                    $payloadData['outcome_reference'] = collect($this->outcomeReferences)->map(fn ($id) => [
-                        'identifier' => [
-                            'value' => $id,
-                        ]
-                    ])->toArray();
-                }
+                $payloadData = app(ObjectMapperInterface::class)
+                    ->map($this, \App\Dto\CarePlanActivity\EhealthComplete::class)->toArray();
             }
 
             $activityApi = EHealth::carePlanActivity();
@@ -735,8 +662,7 @@ trait CarePlanManager
             return;
         }
 
-        $service = app(CarePlanApprovalService::class);
-        if ($service->skipsPatientOtp($this->carePlan)) {
+        if ($this->skipsPatientOtp($this->carePlan)) {
             $this->createApproval('');
 
             return;
@@ -808,13 +734,12 @@ trait CarePlanManager
                 return;
             }
 
-            $service = app(CarePlanApprovalService::class);
-            $result = $service->create(
+            $result = $this->createCarePlanApproval(
                 carePlan: $this->carePlan,
                 patientUuid: $this->carePlan->person->uuid,
                 employeeUuid: $employeeUuid,
                 accessLevel: 'write',
-                authorizeWith: $service->skipsPatientOtp($this->carePlan) ? null : ($methodUuid ?: null),
+                authorizeWith: $this->skipsPatientOtp($this->carePlan) ? null : ($methodUuid ?: null),
                 user: Auth::user(),
                 bearerToken: session()->get(config('ehealth.api.oauth.bearer_token')),
             );
@@ -829,7 +754,7 @@ trait CarePlanManager
 
             $this->approvalId = $result->approvalId;
 
-            if ($result->requiresOtp() && !$service->skipsPatientOtp($this->carePlan)) {
+            if ($result->requiresOtp() && !$this->skipsPatientOtp($this->carePlan)) {
                 $this->currentAuthMethod = $result->authMethod ?? $this->currentAuthMethod;
                 $this->openAuthModal();
 
@@ -839,7 +764,7 @@ trait CarePlanManager
             $this->syncPlanStatus();
             Session::flash(
                 'success',
-                $service->skipsPatientOtp($this->carePlan)
+                $this->skipsPatientOtp($this->carePlan)
                     ? __('care-plan.approval_inpatient_granted')
                     : __('План лікування успішно активовано.')
             );
@@ -855,7 +780,7 @@ trait CarePlanManager
             return;
         }
 
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($this->pollingLinkId);
+        $status = $this->resolveCarePlanApprovalJob($this->pollingLinkId, $this->carePlan->id);
 
         if ($status->isPending()) {
             return;
@@ -874,8 +799,7 @@ trait CarePlanManager
             $this->approvalId = $status->approvalId;
         }
 
-        $service = app(CarePlanApprovalService::class);
-        if ($status->requiresOtp() && !$service->skipsPatientOtp($this->carePlan)) {
+        if ($status->requiresOtp() && !$this->skipsPatientOtp($this->carePlan)) {
             $this->currentAuthMethod = $status->authMethod ?? $this->currentAuthMethod;
             $this->openAuthModal();
 
@@ -885,7 +809,7 @@ trait CarePlanManager
         $this->syncPlanStatus();
         Session::flash(
             'success',
-            $service->skipsPatientOtp($this->carePlan)
+            $this->skipsPatientOtp($this->carePlan)
                 ? __('care-plan.approval_inpatient_granted')
                 : __('План лікування успішно активовано.')
         );
@@ -905,10 +829,10 @@ trait CarePlanManager
         }
 
         try {
-            $response = app(CarePlanApprovalService::class)->verify(
+            $response = EHealth::approval()->verify(
                 $this->carePlan->person->uuid,
                 $this->approvalId,
-                (int) $this->verificationCode,
+                ['code' => (int) $this->verificationCode],
             );
 
             if ($response->successful()) {
@@ -928,7 +852,7 @@ trait CarePlanManager
             return;
         }
         try {
-            app(CarePlanApprovalService::class)->resendSms($this->carePlan->person->uuid, $this->approvalId);
+            $this->resendCarePlanApprovalSms($this->carePlan->person->uuid, $this->approvalId);
             $this->smsResent = true;
             Session::flash('success', __('SMS надіслано повторно'));
         } catch (Exception $e) {
@@ -994,7 +918,7 @@ trait CarePlanManager
 
             app(CarePlanActivityRepository::class)->syncActivities($this->carePlan->person, $this->carePlan);
 
-            app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan);
+            \App\Repositories\MedicalEvents\Repository::approval()->syncApprovals($this->carePlan, 'care_plan', []);
 
             $this->refreshCarePlan();
             $this->dispatch('refreshApprovals');

@@ -8,6 +8,7 @@ use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Dto\CarePlan\Ehealth as CarePlanEhealthData;
 use App\Dto\CarePlan\Model as CarePlanModelData;
+use App\Dto\CarePlan\Form as CarePlanFormData;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
@@ -42,29 +43,8 @@ class CarePlanUpdate extends CarePlanCreate
 
         parent::mount($legalEntity, $this->id);
 
-        // Hydrate form from model
-        $this->form->patient = $carePlan->person?->full_name ?? '';
-        $this->form->medical_number = (string) ($carePlan->encounterId ?? '');
-        $this->form->author = $carePlan->author?->party?->full_name ?? '';
-        $this->form->coAuthors = []; // TODO: if co-authors are implemented
-        $this->form->category = is_array($carePlan->category) ? ($carePlan->category['coding'][0]['code'] ?? '') : ($carePlan->category ?? '');
-        $this->form->context = $carePlan->context ?? '';
-        $this->form->title = $carePlan->title ?? '';
-        $this->form->intent = 'order';
-        $this->form->periodStart = $carePlan->periodStart?->format('d.m.Y') ?? '';
-        $this->form->periodStartTime = $carePlan->periodStart?->format('H:i') ?? '';
-        $this->form->periodEnd = $carePlan->periodEnd?->format('d.m.Y') ?? '';
-        $this->form->periodEndTime = $carePlan->periodEnd?->format('H:i') ?? '';
-        $this->form->encounter = $carePlan->encounter?->uuid ?? '';
-        $this->form->description = $carePlan->description ?? '';
-        $this->form->note = $carePlan->note ?? '';
-        $this->form->informWith = $carePlan->informWith ?? '';
-        $this->form->episodes = $carePlan->supportingInfo['episodes'] ?? [];
-        $this->form->medicalRecords = $carePlan->supportingInfo['medical_records'] ?? [];
-        $this->form->knedp = '';
-        $this->form->keyContainerUpload = null;
-        $this->form->keyContainerFileName = '';
-        $this->form->password = '';
+        $carePlan->loadMissing(['person', 'author.party', 'encounter']);
+        $this->form->fill(app(ObjectMapperInterface::class)->map($carePlan, CarePlanFormData::class)->toArray());
 
         // Load patient auth methods is handled by parent::mount
 

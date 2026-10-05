@@ -30,14 +30,14 @@ trait SignsMedicationRequests
         if ($activityUuid) {
             $activityForQty = CarePlanActivity::query()->where('uuid', $activityUuid)->first();
             if ($activityForQty !== null) {
-                app(\App\Services\MedicalEvents\ActivityRemainingQuantityGuard::class)->assertCanIssue(
+                app(\App\Repositories\CarePlanActivityRepository::class)->assertCanIssue(
                     (int) $activityForQty->id,
                     (float) ($requestRecord->medicationQty ?? 0),
                     function (int $activityId) use ($requestRecord, $activityUuid): float {
                         return (float) MedicationRequestRequest::query()
                             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
                             ->where('uuid', '!=', $requestRecord->uuid)
-                            ->whereNotIn('status', \App\Services\MedicalEvents\ActivityRemainingQuantityGuard::occupyingStatusesExcluded())
+                            ->whereNotIn('status', \App\Enums\MedicalEvents\RequestQuantityStatus::excluded(reserveDrafts: true))
                             ->sum('medication_qty');
                     }
                 );

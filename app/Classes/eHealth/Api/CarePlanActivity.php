@@ -19,6 +19,17 @@ class CarePlanActivity extends Request
 {
     protected const string URL = '/api/care_plans';
 
+    /** Return the raw remote signing snapshot, including unknown/read-only fields. */
+    public function getSigningSnapshot(string $patientUuid, string $carePlanUuid, string $activityUuid): array
+    {
+        $payload = $this->getDetails($patientUuid, $carePlanUuid, $activityUuid)->getData();
+        if (is_array($payload['data'] ?? null)) {
+            $payload = $payload['data'];
+        }
+
+        return is_array($payload) ? $payload : [];
+    }
+
     /**
      * @return array<string, mixed>
      */

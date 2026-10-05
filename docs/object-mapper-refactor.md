@@ -110,6 +110,34 @@ Base: upstream main `1cf8b92e`, integrated 2026-10-05 including merged #907; #79
   are removed. Ten independent full-import baselines were captured before deletion at c8e5f5ce;
   tests verify mapping has no SQL/HTTP and that the same JSON selects different import/sync rules.
 
+
+- CarePlan remote sync uses the same Model target as validated CarePlanForm, with SourceClass and
+  explicit fallback context. Model-to-Form hydration and the distinct legacy model-source signPlan
+  now have actual Form/EhealthDraft targets; four independent old model contracts preserve JSON.
+- CarePlanActivity draft, remote sync, preloaded-model create and edit hydration use resource DTOs.
+  Ten old create/hydration contracts and five write contracts retain product priority, date clipping,
+  quantity casts, whole-object alias precedence and local null-clearing. Dictionary/relation preparation
+  is a protected Livewire concern; ActivityRepository retains persistence/sync rather than payload builders.
+  Cancel changes only detail.status_reason in the complete raw remote snapshot. Complete maps the
+  validated component to its own unsigned PATCH DTO; outcome lists use MapCollection. Dead, uncalled
+  signing/prequalify helpers and their obsolete implementation-only tests were removed.
+- ActivityRemainingQuantityGuard is removed. Repository owns the existing transaction/row lock;
+  RequestQuantityStatus owns the exact excluded SQL statuses. The lock scope is unchanged: this is
+  not a claim that concurrent issuance became atomic. Validation/program guards are removed;
+  protected concerns own UI decisions, API owns complete pagination/catalog lookup, Repository owns
+  contract persistence, and ActivityRequirements/DeviceDefinition Program map explicit data without IO.
+- CarePlanApprovalService is removed. Protected request/access/queue/poll concerns preserve async jobs,
+  inpatient/read access, OTP and resend throttling. Approval HTTP confirmation/deactivation checks belong
+  to the API. Repository owns pending approval/link persistence, scoped polling and provisional UUID
+  replacement. Outcomes live in Enums and results in Dto; no lifecycle service was renamed.
+- MedicationDispenseLifecycleService is removed. The pharmacy component maps validated quantity into
+  its Ehealth DTO, qualifies through the existing API, signs the accepted raw document and resolves the
+  process job. Employee SQL lookup is in Repository. Five old independent contracts retain minimum
+  quantity, fixed price defaults, exact JSON and unknown-field/raw signing behavior.
+- Activity edit/save/delete/sign lookups are scoped to the current care plan. Approval polling cannot
+  read or replace a UUID through a foreign care-plan link. Contract sync uses the explicitly supplied
+  legal entity even when the session is bound to another entity; tests exercise both contexts.
+
 ## Compatibility with main
 
 The September 30 rebase includes personal-data sync, separate specimen/diagnostic pages and eHealth
@@ -151,7 +179,7 @@ Device/eRx context adapters retain source preparation only and no longer own ser
 Repository receives explicitly projected DTO arrays because Identifier/FK resolution and relational
 persistence belong there. A toModel() method that silently dropped unresolved links would not preserve
 this contract; no unused model conversion or SQL inside DTOs is added. Model-to-form hydration remains
-a subsequent migration with its own Form target and actual caller.
+implemented for CarePlan and CarePlanActivity through Form targets with actual hydration callers.
 
 Use one ModelData/EHealthData/FormData contract for each purpose, with multiple source classes where
 useful. Do not create a DTO for every arrow, duplicate Write/ModelData classes, or add an Actions layer.
@@ -196,29 +224,39 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   The fixture is distinct from partial GET baselines; Repository tests cover persisted author/patient,
   Identifier links, defaults, existing-document protection and first-duplicate selection.
 
+- CarePlan model-source sign and hydration: four contracts captured from 606d2c94 before replacement.
+- CarePlanActivity: ten payload/JSON/hydration contracts and five draft/remote write contracts captured
+  from 606d2c94. The old field order, clock, null-clearing and whole-object alias priority remain fixed.
+- Pharmacy dispense: five old 606d2c94 contracts cover defaults, qualified minimum quantity, zero,
+  exact create JSON and completion without an extra signature. Browser price keys remain ignored.
+- Activity transitions: existing raw-cancel assertions are retained; complete is checked against the
+  previous component PATCH builder, including sparse reference keys and the false-like outcome code.
+
 ## Remaining work
 
-- Care-plan form draft/create/update now use `Dto/CarePlan/Model` and `Ehealth` directly. The existing
-  target receives explicit id/author/encounter/timezone context; there is no additional source adapter.
-  Repository::formatCarePlanRequest is removed. These DTOs retain the old local null-clearing,
-  display-snapshot and wire empty-value policies rather than applying a global serializer rule.
-  CarePlanManager::signPlan still has its separate legacy model-source contract; remote sync,
-  Model-to-Form hydration and activity payload formatting remain subsequent steps.
-- Other encounter/FHIR callers remain. All three request array mappers and request lifecycle services
-  are gone; external search import no longer depends on the old ServiceRequestMapper.
-- Care-plan/activity mapping, quantity/program guards, approvals and other medical workflows remain
-  staged work. Existing quantity protection was retained; its transaction scope was not redesigned here.
-- CarePlanActivityRepository still prepares activity fields for prequalify, now delegated to the device
-  DTO mapping. Move that remaining preparation when migrating activity DTOs; it is not final architecture.
-- Real KEP/eHealth UAT is still required before rollout.
-- Keep the base current before ready; #907/main 1cf8b92e are already integrated. Resolve the independently
-  reproduced Division baseline failures separately before claiming a green application-wide suite.
-  The refactor still has 27 PHP files in Services/MedicalEvents: 14 mappers, seven workflow/guard/
-  package classes, four approval result/enum classes and two FHIR helpers. The whole folder is not retired.
+- The separate encounter/FHIR wave still has 18 PHP files in Services/MedicalEvents: 14 array mappers,
+  EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
+  helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
+- Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
+  encounter forms. Their DTOs already own serialization; do not hide SQL or orchestration in a mapper.
+- Real KEP/eHealth UAT, concurrency assessment and the HTTP authorization suite with built Vite assets
+  are required before ready. This refactor preserves the old quantity transaction scope.
+- Keep main current and address the independently reproduced Division baseline failures separately.
+  Nonmedical Services and the agreed Signature/Dictionary infrastructure exceptions are outside #841.
 
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 care-plan/activity/approval/dispense completion: **553 tests / 2249 assertions**, no failures,
+errors or risky tests in retained mapper841 PHP 8.5.3/PostgreSQL. Includes multi-source CarePlan/activity
+mapping, actual Form hydration and legacy signPlan, old activity/dispense JSON, raw cancel and unsigned
+complete, scoped activity/polling operations, explicit contract entity context, complete pagination,
+quantity transaction/rollback behavior and the expanded referral/eRx/device/encounter medical suite.
+PHP Pint passes all 84 changed/new PHP files; git diff --check passes. One existing PDO deprecation
+remains. No Composer change or new Docker environment; real KEP/eHealth UAT and concurrency assessment
+remain pending. The quantity lock scope is unchanged. The separate encounter/FHIR wave remains open.
+
 
 October 5 care-plan form increment: **518 tests / 2076 assertions**, no failures, errors or risky
 tests, in retained mapper841 PHP 8.5.3/PostgreSQL. This adds eight independent outbound care-plan

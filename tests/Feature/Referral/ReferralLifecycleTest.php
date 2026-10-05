@@ -1211,10 +1211,21 @@ class ReferralLifecycleTest extends TestCase
         $mockActivityApi->shouldReceive('create')->once()->andReturn($activityCreateResponse);
         $this->instance(\App\Classes\eHealth\Api\CarePlanActivity::class, $mockActivityApi);
 
-        $mockGuard = Mockery::mock(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
-        $mockGuard->shouldReceive('resolveParticipatingProgramIds')->andReturn([$programId]);
-        $mockGuard->shouldReceive('assess')->andReturn(new \App\Dto\MedicalEvents\DeviceActivityReadinessAssessment([], []));
-        $this->instance(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class, $mockGuard);
+        $legalEntity = legalEntity();
+        $legalEntity->setEntityStatus(\App\Enums\JobStatus::COMPLETED, \App\Models\LegalEntity::ENTITY_CONTRACT);
+        \App\Models\Contracts\Contract::create([
+            'uuid' => (string) Str::uuid(), 'legal_entity_id' => $legalEntity->id,
+            'contractor_legal_entity_id' => $legalEntity->uuid,
+            'contractor_owner_id' => $this->employee->uuid,
+            'status' => 'VERIFIED', 'contract_number' => 'DEVICE-PARTICIPATION',
+            'medical_programs' => [$programId],
+        ]);
+        $catalog = Mockery::mock(\App\Classes\eHealth\Api\DeviceDefinition::class)->makePartial();
+        $catalog->shouldReceive('getMany')->andReturn(new EHealthResponse(new \GuzzleHttp\Psr7\Response(200, [], json_encode([
+            'data' => [['id' => $deviceUuid, 'is_active' => true]],
+            'paging' => ['page_number' => 1, 'total_pages' => 1],
+        ]))));
+        $this->instance(\App\Classes\eHealth\Api\DeviceDefinition::class, $catalog);
 
         $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);
         $mockSignatureService->shouldReceive('signData')->andReturn('mock-base64-signature');

@@ -20,11 +20,17 @@ ServiceRequest/DeviceRequest: create/prequalify, багатоджерельни�
 
 eRx: структуровані create/prequalify/dosage/fallback-sign, partial metadata sync, draft/sign/reject, raw-first signing, active UUID, block/unblock, друк і повідомлення. Standalone payload із рядковим dosage тепер також має власні DTO. Чотири незалежні fixtures з попереднього компонента перевіряють точний JSON і casts duration; feature-тести перевіряють validation до mapper/API та збереження невідомих raw-полів. Ownership, eligibility та quantity checks збережені; область транзакції quantity guard не змінювалася.
 
-Видалено одинадцять сервісів: CarePlanLifecycleService, CarePlanActivityLifecycleService, EHealthJobResolver, CarePlanLifecycleGateService, CarePlanActivityEHealthGuard, InformWith, MedicalRequestOwnership, ReferralRequestLifecycleService, MedicationRequestLifecycleService, DeviceRequestLifecycleService, EHealthRequestLifecycleService. Прибрано lifecycle-інтерфейс, legacy static MedicationRequest API wrapper, ServiceRequestMapper, DeviceRequestMapper і MedicationRequestMapper. Workflow читається в Livewire та вузьких protected concerns; HTTP/job/verdict — у наявних API-класах, SQL — у Repository. Нового Actions/Manager шару немає.
+Видалено шістнадцять прикладних service/guard/helper класів: CarePlanLifecycleService, CarePlanActivityLifecycleService, EHealthJobResolver, CarePlanLifecycleGateService, CarePlanActivityEHealthGuard, InformWith, MedicalRequestOwnership, ReferralRequestLifecycleService, MedicationRequestLifecycleService, DeviceRequestLifecycleService, EHealthRequestLifecycleService, ActivityRemainingQuantityGuard, CarePlanActivityValidationService, DeviceProgramParticipationGuard, CarePlanApprovalService, MedicationDispenseLifecycleService. Прибрано lifecycle-інтерфейс, legacy static MedicationRequest API wrapper, ServiceRequestMapper, DeviceRequestMapper і MedicationRequestMapper. Workflow читається в Livewire та вузьких protected concerns; HTTP/job/verdict — у наявних API-класах, SQL — у Repository. Нового Actions/Manager шару немає.
+
+CarePlan тепер також має remote→Model, Model→Form і окремий legacy model-source signPlan. Activity draft/sync/create/edit використовують Model/Ehealth/Form; period/product/quantity mapping чистий, relations і dictionary context готує protected Livewire concern. Cancel зберігає повний remote snapshot і додає лише status_reason; complete має власний unsigned PATCH DTO. Repository payload builders і невикористовувані signing helpers видалені.
+
+Quantity lock і точні SQL status lists перенесені в Repository/enum; область транзакції збережена. Activity validation/program participation, approvals/OTP/async polling і pharmacy dispense розподілені між API, Repository, enum, DTO та вузькими protected concerns. Для договорів перевіряються всі сторінки до persist. Polling та edit/save/delete/sign activity обмежені поточним care plan; contract sync не підміняє явний заклад session-контекстом.
+
+Додано незалежні старі baseline-контракти: чотири для care-plan Model/sign/hydration, десять для activity payload/hydration, п'ять для activity draft/sync і п'ять для pharmacy dispense. Golden expectations отримані до заміни, а не з нового mapper.
 
 ## Перевірки
 
-Остання медична регресія: **518 тестів / 2076 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/API/Repository/Livewire, care plan, referrals, eRx, device, registry, encounter, approvals та main device-dispense сценарії. Прогін включає нові care-plan DTO contracts, фактичні create/update/sign/sync та care-plan Repository/activity unit tests. Старі golden expectations не перегенеровано. Pint для дев'яти PHP-файлів інкременту і git diff --check проходять; Composer не змінювався після попереднього успішного validate.
+Остання медична регресія після CarePlan/activity/approval/dispense: **553 тести / 2249 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/JSON/no-IO, API/job, Repository/Identifier links, care plan, referrals, eRx/device, registry, encounter, approvals і pharmacy dispense. Pint пройшов для всіх 84 змінених/нових PHP-файлів; git diff --check проходить. Використано наявний isolated mapper841 PHP 8.5.3/PostgreSQL; нових контейнерів не створено. Старі golden expectations збережено, Composer не змінювався після попереднього успішного validate. Реальний КЕП/eHealth UAT та HTTP authorization suite із Vite assets ще потрібні.
 
 Окремо повний Division feature suite має **91 тест / 401 assertions, п'ять errors, один failure та чотири risky tests**. Ті самі збої підтверджено на незалежно завантаженому незміненому main `1cf8b92e`: обробка mapping exceptions і persistence Division. Вони не замовчуються й не включаються у твердження про успішну медичну регресію. Application-wide suite поки не є green.
 
@@ -32,10 +38,9 @@ eRx: структуровані create/prequalify/dosage/fallback-sign, partial 
 
 ## Що ще потрібно
 
-1. Завершити care-plan remote→Model і Model→Form hydration, окремий legacy model-source signPlan, activity DTO та quantity/program/validation guards зі збереженням блокувань і перевіркою повторних/паралельних підписів. Raw cancel/status documents не відновлюємо через create DTO.
-2. Перенести approvals/OTP та dispense: HTTP — API, polling/UI — concerns, persistence — Repository, enum — app/Enums, result DTO — app/Dto. Зберегти async jobs і read-access.
-3. Перенести решту encounter-маперів і package builder/loader; далі Composition/FHIR helpers. У Services/MedicalEvents лишається **27 PHP-файлів**: 14 маперів, 7 workflow/guard/package класів, 4 approval enum/result класи і 2 FHIR helpers.
-4. Під час відповідних хвиль спростити складні care-plan/encounter source adapters і додати Model→Form лише для реальної hydration. Усі шість напрямків mapping не вважаються завершеними.
-5. Перед ready провести КЕП/eHealth UAT, HTTP-перевірки з Vite manifest, підтримати актуальність main і окремо усунути підтверджені Division baseline failures.
+1. Окрема encounter/FHIR хвиля: 14 array-маперів, EncounterPackageBuilder/Loader і Fhir/FhirResource. У Services/MedicalEvents лишається **18 PHP-файлів**. Після останнього caller видалити facade/helpers/FhirMapperContract; Composition входить у цю хвилю.
+2. Спростити DeviceRequest/MedicationRequest context adapters під час міграції складних encounter форм. Вони вже делегують серіалізацію DTO; не додавати порожні Form DTO без реального hydration caller.
+3. Перед ready провести реальний КЕП/eHealth UAT, перевірити конкурентні issuance/sign операції й HTTP authorization suite з Vite assets. Збережений quantity lock сам по собі не робить весь issuance атомарним.
+4. Підтримати актуальність main та окремо усунути підтверджені Division baseline failures до заяви про application-wide green.
 
 SignatureService/DictionaryService і сервіси інших модулів не вважаються видаленими в межах цієї медичної хвилі. Issue залишається відкритою, PR — draft.

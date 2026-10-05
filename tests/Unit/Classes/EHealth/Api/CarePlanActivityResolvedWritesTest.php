@@ -12,6 +12,22 @@ use Tests\TestCase;
 
 class CarePlanActivityResolvedWritesTest extends TestCase
 {
+    public function test_signing_snapshot_preserves_remote_fields_and_unwraps_the_response(): void
+    {
+        $snapshot = [
+            'id' => 'activity', 'author' => ['identifier' => ['value' => 'employee']],
+            'detail' => ['do_not_perform' => false, 'remaining_quantity' => ['value' => 0]],
+            'unknownClinicalField' => ['empty' => [], 'fraction' => 1.0],
+        ];
+        $api = Mockery::mock(CarePlanActivityApi::class)->makePartial();
+        foreach ([$snapshot, ['data' => $snapshot]] as $data) {
+            $response = Mockery::mock(EHealthResponse::class);
+            $response->shouldReceive('getData')->once()->andReturn($data);
+            $api->shouldReceive('getDetails')->once()->with('patient', 'plan', 'activity')->andReturn($response);
+            $this->assertSame($snapshot, $api->getSigningSnapshot('patient', 'plan', 'activity'));
+        }
+    }
+
     public function test_submit_signed_create_posts_and_resolves_the_job(): void
     {
         $response = Mockery::mock(EHealthResponse::class);

@@ -26,6 +26,52 @@ use Throwable;
  */
 class ApprovalRepository extends BaseRepository
 {
+    public function createPendingCarePlanApproval(CarePlan $carePlan, string $uuid, ?string $employeeUuid, string $href): EhealthLink
+    {
+        $attributes = [
+            'approvable_type' => CarePlan::class,
+            'approvable_id' => $carePlan->id,
+            'status' => ApprovalStatus::PENDING->value,
+        ];
+        if ($employeeUuid) {
+            $identifier = Repository::identifier()->store($employeeUuid);
+            $attributes['granted_to_id'] = $identifier->id;
+            $attributes['granted_to_type'] = 'employee';
+        }
+        $approval = Approval::firstOrCreate(['uuid' => $uuid], $attributes);
+
+        return $this->attachEhealthLink($approval, ['href' => $href]);
+    }
+
+    public function findCarePlanPollingLink(int $id, int $carePlanId): ?EhealthLink
+    {
+        return EhealthLink::with(['job', 'linkable.approvable', 'processingData'])
+            ->whereHasMorph('linkable', [Approval::class], static function ($query) use ($carePlanId): void {
+                $query->where('approvable_type', CarePlan::class)->where('approvable_id', $carePlanId);
+            })
+            ->find($id);
+    }
+
+    public function replaceProvisionalUuid(EhealthLink $link, ?string $uuid): void
+    {
+        if ($uuid && $link->linkable instanceof Approval) {
+            $link->linkable->update(['uuid' => $uuid]);
+        }
+    }
+
+    public function carePlanForPollingLink(EhealthLink $link): ?CarePlan
+    {
+        if (!$link->linkable instanceof Approval) {
+            return null;
+        }
+        $carePlan = $link->linkable->approvable;
+        if (!$carePlan instanceof CarePlan && $link->linkable->approvableId) {
+            $carePlan = CarePlan::query()->find($link->linkable->approvableId);
+        }
+
+        return $carePlan instanceof CarePlan ? $carePlan : null;
+    }
+
     public function findOwnedForCarePlan(CarePlan $carePlan, string $uuid): Approval
     {
         $approval = $carePlan->approvals()->where('uuid', $uuid)->first();

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Services\MedicalEvents;
+namespace Tests\Unit\CarePlan;
 
 use App\Classes\eHealth\Api\Contract as ContractApi;
 use App\Classes\eHealth\Api\DeviceDefinition;
@@ -14,7 +14,7 @@ use App\Models\CarePlanActivity;
 use App\Models\Contracts\Contract;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
-use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
+use Tests\Support\CarePlanActivityRequirements;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
@@ -23,7 +23,7 @@ use ReflectionMethod;
 use RuntimeException;
 use Tests\TestCase;
 
-class DeviceProgramParticipationGuardTest extends TestCase
+class DeviceProgramParticipationTest extends TestCase
 {
     use DatabaseTransactions;
 
@@ -45,14 +45,15 @@ class DeviceProgramParticipationGuardTest extends TestCase
             }
         }
 
-        $this->assertEqualsCanonicalizing($expected, app(DeviceProgramParticipationGuard::class)
+        $this->assertEqualsCanonicalizing($expected, app(CarePlanActivityRequirements::class)
             ->resolveParticipatingProgramIds($legalEntity, false));
     }
 
     public function test_contract_sync_validates_and_persists_all_pages(): void
     {
         $legalEntity = $this->createLegalEntity();
-        $this->instance('legalEntity', $legalEntity);
+        $sessionEntity = $this->createLegalEntity();
+        $this->instance('legalEntity', $sessionEntity);
         $programs = [(string) Str::uuid(), (string) Str::uuid()];
         $api = Mockery::mock(ContractApi::class)->makePartial();
         foreach ($programs as $index => $program) {
@@ -66,9 +67,12 @@ class DeviceProgramParticipationGuardTest extends TestCase
         }
         $this->instance(ContractApi::class, $api);
 
-        $this->assertEqualsCanonicalizing($programs, app(DeviceProgramParticipationGuard::class)
+        $this->assertEqualsCanonicalizing($programs, app(CarePlanActivityRequirements::class)
             ->resolveParticipatingProgramIds($legalEntity));
         $this->assertSame(2, Contract::where('legal_entity_id', $legalEntity->id)->count());
+        $this->assertSame(0, Contract::where('legal_entity_id', $sessionEntity->id)->count());
+        $this->assertSame([$legalEntity->uuid], Contract::where('legal_entity_id', $legalEntity->id)
+            ->distinct()->pluck('contractor_legal_entity_id')->all());
         $this->assertSame(JobStatus::COMPLETED, $legalEntity->fresh()->getEntityStatus(LegalEntity::ENTITY_CONTRACT));
     }
 
@@ -83,11 +87,11 @@ class DeviceProgramParticipationGuardTest extends TestCase
             'status' => 'VERIFIED', 'contract_number' => 'PARTIAL',
             'medical_programs' => [(string) Str::uuid()],
         ]);
-        $api = Mockery::mock(ContractApi::class);
+        $api = Mockery::mock(ContractApi::class)->makePartial();
         $api->shouldReceive('getMany')->once()->andThrow(new RuntimeException('Unavailable'));
         $this->instance(ContractApi::class, $api);
 
-        $this->assertSame([], app(DeviceProgramParticipationGuard::class)->resolveParticipatingProgramIds($legalEntity));
+        $this->assertSame([], app(CarePlanActivityRequirements::class)->resolveParticipatingProgramIds($legalEntity));
         $this->assertSame(JobStatus::PROCESSING, $legalEntity->fresh()->getEntityStatus(LegalEntity::ENTITY_CONTRACT));
         $this->assertSame(1, Contract::where('legal_entity_id', $legalEntity->id)->count());
     }
@@ -108,7 +112,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
         ])->andReturn($this->contractResponse($api, [['id' => 'not-a-uuid']], 2, 2));
         $this->instance(ContractApi::class, $api);
 
-        $this->assertSame([], app(DeviceProgramParticipationGuard::class)->resolveParticipatingProgramIds($legalEntity));
+        $this->assertSame([], app(CarePlanActivityRequirements::class)->resolveParticipatingProgramIds($legalEntity));
         $this->assertSame(0, Contract::where('legal_entity_id', $legalEntity->id)->count());
     }
 
@@ -121,7 +125,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
         ]], 1, null));
         $this->instance(ContractApi::class, $api);
 
-        $this->assertSame([], app(DeviceProgramParticipationGuard::class)->resolveParticipatingProgramIds($legalEntity));
+        $this->assertSame([], app(CarePlanActivityRequirements::class)->resolveParticipatingProgramIds($legalEntity));
         $this->assertSame(0, Contract::where('legal_entity_id', $legalEntity->id)->count());
     }
 
@@ -134,7 +138,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
 
     public function test_catalog_lookup_continues_to_the_second_page(): void
     {
-        $api = Mockery::mock(DeviceDefinition::class);
+        $api = Mockery::mock(DeviceDefinition::class)->makePartial();
         $api->shouldReceive('getMany')->once()->with([
             'medical_program_id' => 'program', 'page_size' => 300, 'page' => 1,
         ])->andReturn(new EHealthResponse(new Response(200, [], json_encode([
@@ -149,13 +153,13 @@ class DeviceProgramParticipationGuardTest extends TestCase
         ]))));
         $this->instance(DeviceDefinition::class, $api);
 
-        $this->assertTrue(app(DeviceProgramParticipationGuard::class)
+        $this->assertTrue(app(DeviceDefinition::class)
             ->isDeviceInProgramCatalog('program', 'target-device'));
     }
 
     public function test_incomplete_catalog_pagination_is_a_lookup_warning_not_a_missing_device(): void
     {
-        $api = Mockery::mock(DeviceDefinition::class);
+        $api = Mockery::mock(DeviceDefinition::class)->makePartial();
         $api->shouldReceive('getMany')->once()->andReturn(new EHealthResponse(new Response(200, [], json_encode([
             'data' => [['id' => 'other-device']],
             'paging' => ['page_number' => 1],
@@ -164,7 +168,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
         $dictionary = Mockery::mock(\App\Services\Dictionary\DictionaryManager::class);
         $dictionary->shouldReceive('medicalPrograms')->andReturn(collect());
         $this->instance(\App\Services\Dictionary\DictionaryManager::class, $dictionary);
-        $guard = Mockery::mock(DeviceProgramParticipationGuard::class)->makePartial();
+        $guard = Mockery::mock(CarePlanActivityRequirements::class)->makePartial();
         $guard->shouldReceive('resolveParticipatingProgramIds')->once()->andReturn(['program']);
         $activity = new CarePlanActivity(['program' => 'program', 'product_reference' => 'target-device']);
 
@@ -245,7 +249,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
             'product_reference' => (string) Str::uuid(),
         ]);
 
-        $guard = app(DeviceProgramParticipationGuard::class);
+        $guard = app(CarePlanActivityRequirements::class);
         $participating = $guard->resolveParticipatingProgramIds($legalEntity, false);
 
         $this->assertSame([$otherProgramId], $participating);
@@ -271,7 +275,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
             ],
         ]);
 
-        $participating = app(DeviceProgramParticipationGuard::class)
+        $participating = app(CarePlanActivityRequirements::class)
             ->resolveParticipatingProgramIds($legalEntity, false);
 
         $this->assertSame([$programId], $participating);
@@ -322,7 +326,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
             'product_reference' => (string) Str::uuid(),
         ]);
 
-        $assessment = app(DeviceProgramParticipationGuard::class)
+        $assessment = app(CarePlanActivityRequirements::class)
             ->assess($carePlan, $activity, $legalEntity);
 
         $this->assertNull($assessment->blockingMessage());
@@ -330,7 +334,7 @@ class DeviceProgramParticipationGuardTest extends TestCase
 
     public function test_device_allows_care_plan_activity_respects_program_devices_flag(): void
     {
-        $guard = app(DeviceProgramParticipationGuard::class);
+        $guard = app(DeviceDefinition::class);
 
         $allowed = [
             'is_active' => true,

@@ -7,7 +7,7 @@ namespace App\Livewire\CarePlan\Concerns;
 use Illuminate\Support\Str;
 use App\Dto\FormCollection;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
-use App\Services\MedicalEvents\ActivityRemainingQuantityGuard;
+use App\Enums\MedicalEvents\RequestQuantityStatus;
 use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
 use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Models\CarePlan;
@@ -1027,7 +1027,7 @@ trait ManagesCarePlanReferrals
 
         $formData['kind'] = $resolvedKind;
 
-        app(ActivityRemainingQuantityGuard::class)->assertCanIssue(
+        app(CarePlanActivityRepository::class)->assertCanIssue(
             (int) $activity->id,
             $qty,
             function (int $activityId) use ($resolvedKind, $activity): float {
@@ -1037,7 +1037,7 @@ trait ManagesCarePlanReferrals
 
                 return (float) $query
                     ->whereHas('basedOn', fn ($q) => $q->where('value', $activity->uuid))
-                    ->whereNotIn('status', ActivityRemainingQuantityGuard::occupyingStatusesExcluded())
+                    ->whereNotIn('status', RequestQuantityStatus::excluded(reserveDrafts: true))
                     ->sum('quantity');
             }
         );

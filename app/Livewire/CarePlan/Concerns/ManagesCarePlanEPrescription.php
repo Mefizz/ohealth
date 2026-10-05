@@ -16,7 +16,6 @@ use App\Models\CarePlan;
 use App\Enums\Person\MedicationRequestStatus;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Repositories\CarePlanActivityRepository;
-use App\Repositories\MedicalEvents\MedicalEventsRequestStatuses;
 use App\Repositories\MedicalEvents\Repository;
 use Carbon\Carbon;
 use Exception;
@@ -147,7 +146,7 @@ trait ManagesCarePlanEPrescription
         }
 
         $issuedQty = MedicationRequestRequest::whereHas('basedOn', fn ($q) => $q->where('value', $activity->uuid))
-            ->whereNotIn('status', MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM)
+            ->whereNotIn('status', \App\Enums\MedicalEvents\RequestQuantityStatus::excluded())
             ->sum('medication_qty');
 
         $activityQty = $activity->quantity;
@@ -950,13 +949,13 @@ trait ManagesCarePlanEPrescription
         }
 
         if ($activity !== null) {
-            app(\App\Services\MedicalEvents\ActivityRemainingQuantityGuard::class)->assertCanIssue(
+            app(\App\Repositories\CarePlanActivityRepository::class)->assertCanIssue(
                 (int) $activity->id,
                 (float) ($formData['medication_qty'] ?? 1),
                 function (int $activityId) use ($activity): float {
                     return (float) MedicationRequestRequest::query()
                         ->whereHas('basedOn', fn ($q) => $q->where('value', $activity->uuid))
-                        ->whereNotIn('status', \App\Services\MedicalEvents\ActivityRemainingQuantityGuard::occupyingStatusesExcluded())
+                        ->whereNotIn('status', \App\Enums\MedicalEvents\RequestQuantityStatus::excluded(reserveDrafts: true))
                         ->sum('medication_qty');
                 }
             );

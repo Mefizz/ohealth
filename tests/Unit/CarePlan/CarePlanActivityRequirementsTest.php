@@ -8,16 +8,16 @@ use App\Models\CarePlan;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
-use App\Services\MedicalEvents\CarePlanActivityValidationService;
+use Tests\Support\CarePlanActivityRequirements;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
-class CarePlanActivityValidationServiceTest extends TestCase
+class CarePlanActivityRequirementsTest extends TestCase
 {
     use DatabaseTransactions;
 
-    private CarePlanActivityValidationService $service;
+    private CarePlanActivityRequirements $service;
 
     private CarePlan $carePlan;
 
@@ -25,7 +25,7 @@ class CarePlanActivityValidationServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->service = new CarePlanActivityValidationService();
+        $this->service = new CarePlanActivityRequirements();
 
         $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
             ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);

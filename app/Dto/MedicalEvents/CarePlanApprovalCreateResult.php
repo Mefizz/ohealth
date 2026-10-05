@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Services\MedicalEvents;
+namespace App\Dto\MedicalEvents;
+
+use App\Enums\MedicalEvents\CarePlanApprovalCreateOutcome;
 
 final class CarePlanApprovalCreateResult
 {

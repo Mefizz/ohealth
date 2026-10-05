@@ -13,9 +13,9 @@ use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\Person\Person;
 use App\Models\User;
-use App\Services\MedicalEvents\CarePlanApprovalCreateOutcome;
-use App\Services\MedicalEvents\CarePlanApprovalJobOutcome;
-use App\Services\MedicalEvents\CarePlanApprovalService;
+use App\Enums\MedicalEvents\CarePlanApprovalCreateOutcome;
+use App\Enums\MedicalEvents\CarePlanApprovalJobOutcome;
+use Tests\Support\CarePlanApprovals as CarePlanApprovalHarness;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Crypt;
@@ -24,7 +24,7 @@ use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
 
-class CarePlanApprovalServiceTest extends TestCase
+class CarePlanApprovalWorkflowTest extends TestCase
 {
     use DatabaseTransactions;
 
@@ -43,7 +43,7 @@ class CarePlanApprovalServiceTest extends TestCase
     public function test_build_create_payload_for_care_plan_employee_grant(): void
     {
         $carePlan = new CarePlan(['uuid' => 'care-plan-uuid']);
-        $payload = app(CarePlanApprovalService::class)->buildCreatePayload(
+        $payload = app(CarePlanApprovalHarness::class)->buildCreatePayload(
             $carePlan,
             'employee-uuid',
             'write',
@@ -61,7 +61,7 @@ class CarePlanApprovalServiceTest extends TestCase
     public function test_build_create_payload_omits_empty_authorize_with(): void
     {
         $carePlan = new CarePlan(['uuid' => 'care-plan-uuid']);
-        $payload = app(CarePlanApprovalService::class)->buildCreatePayload(
+        $payload = app(CarePlanApprovalHarness::class)->buildCreatePayload(
             $carePlan,
             'employee-uuid',
             'read',
@@ -90,7 +90,7 @@ class CarePlanApprovalServiceTest extends TestCase
             'terms_of_service' => 'INPATIENT',
         ]);
 
-        $service = app(CarePlanApprovalService::class);
+        $service = app(CarePlanApprovalHarness::class);
 
         $this->assertTrue($service->skipsPatientOtp($inpatient, $legalEntity));
         $this->assertFalse($service->skipsPatientOtp($outpatient, $legalEntity));
@@ -109,7 +109,7 @@ class CarePlanApprovalServiceTest extends TestCase
             'terms_of_service' => 'OUTPATIENT',
         ]);
 
-        $service = app(CarePlanApprovalService::class);
+        $service = app(CarePlanApprovalHarness::class);
 
         $this->assertTrue($service->skipsPatientOtp($newInpatient, $legalEntity));
         $this->assertFalse($service->skipsPatientOtp($newOutpatient, $legalEntity));
@@ -127,7 +127,7 @@ class CarePlanApprovalServiceTest extends TestCase
             ],
         ]);
 
-        $this->assertTrue(app(CarePlanApprovalService::class)->skipsPatientOtp($carePlan, $legalEntity));
+        $this->assertTrue(app(CarePlanApprovalHarness::class)->skipsPatientOtp($carePlan, $legalEntity));
     }
 
     public function test_build_create_payload_omits_authorize_with_for_inpatient_same_org(): void
@@ -142,7 +142,7 @@ class CarePlanApprovalServiceTest extends TestCase
             'terms_of_service' => 'INPATIENT',
         ]);
 
-        $payload = app(CarePlanApprovalService::class)->buildCreatePayload(
+        $payload = app(CarePlanApprovalHarness::class)->buildCreatePayload(
             $carePlan,
             'employee-uuid',
             'write',
@@ -176,7 +176,7 @@ class CarePlanApprovalServiceTest extends TestCase
             ->andReturn($response);
         $this->instance(ApprovalApi::class, $api);
 
-        $result = app(CarePlanApprovalService::class)->create(
+        $result = app(CarePlanApprovalHarness::class)->create(
             carePlan: $carePlan->fresh(),
             patientUuid: 'patient-uuid',
             employeeUuid: 'employee-uuid',
@@ -199,7 +199,7 @@ class CarePlanApprovalServiceTest extends TestCase
 
         $this->assertSame(
             'write',
-            app(CarePlanApprovalService::class)->resolveAccessLevel($carePlan, $legalEntity)
+            app(CarePlanApprovalHarness::class)->resolveAccessLevel($carePlan, $legalEntity)
         );
     }
 
@@ -212,7 +212,7 @@ class CarePlanApprovalServiceTest extends TestCase
 
         $this->assertSame(
             'read',
-            app(CarePlanApprovalService::class)->resolveAccessLevel($carePlan, $legalEntity)
+            app(CarePlanApprovalHarness::class)->resolveAccessLevel($carePlan, $legalEntity)
         );
     }
 
@@ -236,7 +236,7 @@ class CarePlanApprovalServiceTest extends TestCase
             ->andReturn($response);
         $this->instance(ApprovalApi::class, $api);
 
-        $result = app(CarePlanApprovalService::class)->create(
+        $result = app(CarePlanApprovalHarness::class)->create(
             carePlan: $carePlan,
             patientUuid: 'patient-uuid',
             employeeUuid: 'employee-uuid',
@@ -269,7 +269,7 @@ class CarePlanApprovalServiceTest extends TestCase
         $api->shouldReceive('createApproval')->once()->andReturn($response);
         $this->instance(ApprovalApi::class, $api);
 
-        $result = app(CarePlanApprovalService::class)->create(
+        $result = app(CarePlanApprovalHarness::class)->create(
             carePlan: $carePlan,
             patientUuid: 'patient-uuid',
             employeeUuid: '77777777-7777-7777-7777-777777777777',
@@ -313,7 +313,7 @@ class CarePlanApprovalServiceTest extends TestCase
         $this->expectExceptionMessage('Bearer token is required for async approval processing');
 
         try {
-            app(CarePlanApprovalService::class)->create(
+            app(CarePlanApprovalHarness::class)->create(
                 carePlan: $carePlan,
                 patientUuid: 'patient-uuid',
                 employeeUuid: '77777777-7777-7777-7777-777777777777',
@@ -340,7 +340,7 @@ class CarePlanApprovalServiceTest extends TestCase
         $this->expectExceptionMessage('User is required for async approval processing');
 
         try {
-            app(CarePlanApprovalService::class)->create(
+            app(CarePlanApprovalHarness::class)->create(
                 carePlan: $carePlan,
                 patientUuid: 'patient-uuid',
                 employeeUuid: '77777777-7777-7777-7777-777777777777',
@@ -355,6 +355,7 @@ class CarePlanApprovalServiceTest extends TestCase
     public function test_resolve_async_job_swaps_uuid_and_requests_otp_when_unverified(): void
     {
         [$carePlan] = $this->makeCarePlanContext();
+        [$otherPlan] = $this->makeCarePlanContext();
 
         $approval = Approval::create([
             'uuid' => '33333333-3333-3333-3333-333333333333',
@@ -381,7 +382,12 @@ class CarePlanApprovalServiceTest extends TestCase
             'href' => '/jobs/job-1',
         ]);
 
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($link->id);
+        $foreignStatus = app(CarePlanApprovalHarness::class)->resolveAsyncJob($link->id, $otherPlan->id);
+        $this->assertTrue($foreignStatus->isPending());
+        $this->assertNull($foreignStatus->approvalId);
+        $this->assertSame('33333333-3333-3333-3333-333333333333', $approval->fresh()->uuid);
+
+        $status = app(CarePlanApprovalHarness::class)->resolveAsyncJob($link->id, $carePlan->id);
 
         $this->assertTrue($status->requiresOtp());
         $this->assertSame('44444444-4444-4444-4444-444444444444', $status->approvalId);
@@ -420,7 +426,7 @@ class CarePlanApprovalServiceTest extends TestCase
             'href' => '/jobs/job-missing-verified',
         ]);
 
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($link->id);
+        $status = app(CarePlanApprovalHarness::class)->resolveAsyncJob($link->id, $carePlan->id);
 
         $this->assertTrue($status->requiresOtp());
         $this->assertSame('77777777-7777-7777-7777-777777777777', $status->approvalId);
@@ -458,7 +464,7 @@ class CarePlanApprovalServiceTest extends TestCase
             'href' => '/jobs/job-inpatient',
         ]);
 
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($link->id);
+        $status = app(CarePlanApprovalHarness::class)->resolveAsyncJob($link->id, $carePlan->id);
 
         $this->assertTrue($status->isGranted());
         $this->assertSame(CarePlanApprovalJobOutcome::Granted, $status->outcome);

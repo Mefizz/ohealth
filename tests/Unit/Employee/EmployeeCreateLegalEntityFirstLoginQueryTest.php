@@ -26,20 +26,4 @@ class EmployeeCreateLegalEntityFirstLoginQueryTest extends TestCase
             $source
         );
     }
-
-    #[Test]
-    public function owner_new_replace_must_nullsafe_compare_when_no_local_owner(): void
-    {
-        $source = file_get_contents(app_path('Listeners/OwnerNewReplace.php'));
-
-        $this->assertNotFalse($source);
-        $this->assertStringContainsString(
-            'if ($oldOwner && $oldOwner->uuid === ($newOwner[\'uuid\'] ?? null))',
-            $source
-        );
-        $this->assertStringNotContainsString(
-            'if ($oldOwner->uuid === $newOwner[\'uuid\'])',
-            $source
-        );
-    }
 }

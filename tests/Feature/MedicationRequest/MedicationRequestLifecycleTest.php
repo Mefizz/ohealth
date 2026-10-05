@@ -442,7 +442,7 @@ class MedicationRequestLifecycleTest extends TestCase
         ]);
 
         // Mock eHealth reject API
-        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
         $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
         $mockApi->shouldReceive('getBySearchParams')->andReturn($this->responseWithData([]));
         $mockApi->shouldReceive('getById')->andReturn($this->responseWithData([

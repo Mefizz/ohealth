@@ -357,6 +357,43 @@ class CarePlanShowActionsTest extends TestCase
             ->assertSet('showSignatureModal', true);
     }
 
+    public static function prescriptionBlockActions(): iterable
+    {
+        yield 'block success' => ['blockPrescription', 'block', 'active', 'blocked', true];
+        yield 'unblock success' => ['unblockPrescription', 'unblock', 'blocked', 'active', true];
+        yield 'block failure' => ['blockPrescription', 'block', 'active', 'active', false];
+        yield 'unblock failure' => ['unblockPrescription', 'unblock', 'blocked', 'blocked', false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('prescriptionBlockActions')]
+    public function test_block_actions_use_active_uuid_and_persist_only_after_api_success(string $action, string $endpoint, string $before, string $after, bool $succeeds): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $this->grantApproval($plan, $this->employee, ApprovalStatus::ACTIVE->value);
+        $activeId = (string) Str::uuid();
+        $record = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id, 'status' => $before,
+            'ehealth_payload' => ['active_id' => $activeId, 'unknown' => ['raw' => true]],
+        ]);
+        $api = Mockery::mock(MedicationRequestApi::class);
+        $api->shouldNotReceive('getBySearchParams');
+        $expected = $api->shouldReceive($endpoint)->once()->with($this->person->uuid, $activeId, $endpoint === 'block'
+            ? ['status_reason' => 'Призупинення або блокування призначення'] : []);
+        if ($succeeds) {
+            $expected->andReturn(new EHealthResponse(new Response(200, [], json_encode(['data' => ['status' => $after]]))));
+        } else {
+            $expected->andThrow(new \RuntimeException('eHealth unavailable'));
+        }
+        $this->instance(MedicationRequestApi::class, $api);
+
+        Livewire::test(CarePlanShow::class, ['carePlan' => $plan])->call($action, $record->uuid);
+
+        $this->assertSame($after, $record->fresh()->status);
+        $this->assertSame(['active_id' => $activeId, 'unknown' => ['raw' => true]], $record->fresh()->ehealthPayload);
+    }
+
     private function makeSignedNewPlan(): CarePlan
     {
         return CarePlan::create([

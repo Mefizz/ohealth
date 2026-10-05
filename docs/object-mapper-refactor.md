@@ -5,7 +5,6 @@ Issue: https://github.com/openhealths/nationHealth/issues/841
 Full plan: [ehealth-object-mapper-plan.md](ehealth-object-mapper-plan.md).
 Branch: `Mefizz/ohealth:i841_object_mapper_service_request`.
 Base: upstream main `b2239108`, rebased 2026-09-30 after #792 merged on September 24.
-Never push refactor commits to the #792 head branch.
 
 ## Implemented
 
@@ -77,6 +76,21 @@ Never push refactor commits to the #792 head branch.
   and references. Its partial ModelData sync preserves zero/empty scalar updates and excludes nulls;
   raw payload, dosage, author and links keep their existing Repository semantics. The accepted raw
   document signing path is unchanged. Legacy outbound methods delegate to the same DTO adapter.
+- Removed `MedicationRequestLifecycleService` and the unused static `Api/MedicationRequest` wrapper.
+  Existing care-plan/encounter actions use narrow protected draft, sign, reject, signing-document,
+  active-identity, signature-validation, message and print concerns. Patient API owns prequalify/job
+  resolution and reject-document fetching; Repository owns eligible encounters and loaded signing context.
+  There is no replacement lifecycle class or universal workflow trait.
+- eRx ModelData now accepts validated local fields, a preloaded MedicationRequestRequest and remote
+  stdClass metadata. DosageModelData maps local dosage through MapCollection. The seven-field remote
+  patch allowlist keeps these new local fields out of partial synchronization. Mapping issues no SQL.
+- Raw-first signing/reject preserves unknown clinical fields. DraftResult retains the original accepted
+  document when a create job returns only metadata. Failure cannot persist active/rejected status.
+  Standalone prequalify/sign now validates verdict and waits for the job before showing success.
+- SMS, print and dispense history retain active-resource identity resolution; block/unblock now also
+  use the active UUID rather than the local draft UUID. The local status changes only after API success.
+  Print markup is in Blade. Multiple-prescription sync, ownership, eligibility and quantity checks remain.
+  Existing quantity guard transaction scope was not redesigned during this migration.
 
 ## Compatibility with main
 
@@ -151,17 +165,31 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 ## Remaining work
 
 - Migrate separate legacy `toFhir`/`fromFhir` callers before deleting their compatibility classes.
-- Split `MedicationRequestLifecycleService` into explicit draft/sign/reject/sync and other UI steps,
-  API methods and Repository operations. Outgoing eRx mapping and partial metadata sync are ready;
-  raw-first signing, eligibility, resource identity, print/SMS/block/history still need their migration.
-  Do not mechanically copy a lifecycle service into a large trait or rename it into Actions.
+- Migrate DeviceRequestLifecycleService and the shared transport base only after preserving the distinct
+  legacy request-request endpoints and their signing envelopes. MedicationRequestLifecycleService is gone.
+- The older standalone eRx form still prepares its distinct simple string-dosage payload directly.
+  Verify that wire contract independently before unifying it with structured DTO mapping.
 - Care-plan/activity mapping, quantity/program guards, approvals and other medical workflows remain
   staged work. Existing quantity protection was retained; its transaction scope was not redesigned here.
 - CarePlanActivityRepository still prepares activity fields for prequalify, now delegated to the device
   DTO mapping. Move that remaining preparation when migrating activity DTOs; it is not final architecture.
 - Real KEP/eHealth UAT is still required before rollout.
+- Rebase/integrate current main and the actual merged #907 response-source/Composer changes before ready.
+  The refactor still has 32 PHP files in Services/MedicalEvents: 17 mappers, nine workflow/guard/base/
+  package classes, four approval result/enum classes and two FHIR helpers. The whole folder is not retired.
+
+Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 eRx lifecycle removal: **481 tests / 1900 assertions**, no failures, errors or risky tests,
+in isolated mapper841 PHP 8.5.3/PostgreSQL. This extends the medical regression with Unit API/Job
+contracts, the older standalone MedicationRequest tests and new lifecycle failure/identity cases.
+One existing PHP 8.5 PDO deprecation remains. All 29 changed PHP files pass the project's PHP Pint
+rules; the isolated formatter disables the Blade extension. git diff --check passes.
+New coverage includes direct preloaded Model/dosage to exact golden signing JSON without SQL,
+opaque document envelopes, original create document when the job returns metadata, failed sign/reject,
+INVALID prequalify preventing creation, cached active identity and block/unblock success/failure.
 
 October 5 take/draft/sign/sync/eRx increment: **432 tests / 1753 assertions**, no failures, errors or
 risky tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. Includes mapping, API, repositories, enums,
@@ -184,7 +212,7 @@ and approvals. Project Pint passes for all 13 changed PHP files. One existing PD
 
 An earlier expanded run exposed stale Identifier FK fixtures/alias mocks in two older MedicationRequest
 lifecycle files. These fixtures now use actual Identifier rows and instance API mocks; all 24 tests /
-87 assertions pass and both files are included in the current 432-test regression. Their behavior
+87 assertions pass and both files are included in the current 481-test regression. Their behavior
 assertions remain intact. MedicalEventAuthorizationTest's HTTP route test still lacks a Vite manifest
 in the isolated environment and is excluded. This is a medical regression, not a claim that the
 complete application suite is green; real KEP/eHealth UAT has not been run.

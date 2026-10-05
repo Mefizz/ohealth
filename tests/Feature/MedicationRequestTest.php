@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Classes\eHealth\Api\MedicationRequest;
+use App\Classes\eHealth\Api\Patient\MedicationRequest;
+use App\Classes\eHealth\EHealthResponse;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\User;
-use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -37,6 +37,9 @@ class MedicationRequestTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $signature = Mockery::mock(\App\Services\SignatureService::class);
+        $signature->shouldReceive('getCertificateAuthorities')->andReturn([]);
+        $this->instance(\App\Services\SignatureService::class, $signature);
 
         $party = \App\Models\Relations\Party::create([
             'uuid' => (string) \Illuminate\Support\Str::uuid(),
@@ -81,24 +84,23 @@ class MedicationRequestTest extends TestCase
         $this->user->employees()->attach($this->employee->id);
     }
 
-    public function test_it_can_prequalify_medication_request()
+    public function test_invalid_prequalify_verdict_is_blocking()
     {
         $mockResponse = [
             'data' => [
-                ['status' => 'valid']
+                ['status' => 'INVALID']
             ]
         ];
 
-        $mockApi = Mockery::mock('alias:' . MedicationRequest::class);
-        $mockApi->shouldReceive('preQualify')
-            ->once()
-            ->with(['person_id' => 'patient-123'])
-            ->andReturn($mockResponse);
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn($mockResponse);
+        $mockApi = Mockery::mock(MedicationRequest::class)->makePartial();
+        $mockApi->shouldReceive('prequalify')->once()->with(['person_id' => 'patient-123'])->andReturn($response);
+        $this->instance(MedicationRequest::class, $mockApi);
 
-        $service = app(MedicationRequestLifecycleService::class);
-        $result = $service->preQualify(['person_id' => 'patient-123']);
+        $this->expectException(\App\Exceptions\EHealth\EHealthValidationException::class);
+        $mockApi->prequalifyAndValidate(['person_id' => 'patient-123']);
 
-        $this->assertEquals('valid', $result[0]['status']);
     }
 
     public function test_medication_request_index_component_renders()
@@ -107,16 +109,16 @@ class MedicationRequestTest extends TestCase
 
         Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestIndex::class, ['legalEntity' => $this->legalEntity])
             ->assertStatus(200)
-            ->assertSee('Е-Рецепти');
+            ->assertSee('Електронні рецепти');
     }
 
     public function test_medication_request_form_component_prequalify()
     {
         $this->actingAs($this->user);
 
-        $mockService = Mockery::mock(MedicationRequestLifecycleService::class);
-        $mockService->shouldReceive('preQualify')->once()->andReturn([]);
-        $this->app->instance(MedicationRequestLifecycleService::class, $mockService);
+        $mockService = Mockery::mock(MedicationRequest::class);
+        $mockService->shouldReceive('prequalifyAndValidate')->once()->andReturnNull();
+        $this->app->instance(MedicationRequest::class, $mockService);
 
         Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
             ->set('patientId', 'uuid-123')
@@ -124,6 +126,6 @@ class MedicationRequestTest extends TestCase
             ->set('dosageInstruction', 'Take 1 pill')
             ->set('duration', '30')
             ->call('preQualify')
-            ->assertSee('PreQualify успішно пройдено');
+            ->assertSee(__('care-plan.prequalify_passed'));
     }
 }

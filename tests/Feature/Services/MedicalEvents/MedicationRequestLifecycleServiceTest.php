@@ -12,7 +12,7 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
-use App\Services\MedicalEvents\MedicationRequestLifecycleService;
+use Tests\Support\MedicationRequestWorkflowHarness;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -152,14 +152,14 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'context_id' => $this->identifierId($this->encounter->uuid),
         ]);
 
-        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
         $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
         $mockApi->shouldReceive('rejectRequest')
             ->once()
             ->with((string) $requestRecord->uuid)
             ->andReturn($this->responseWithData(['status' => 'rejected']));
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $service->rejectPrescription($this->carePlan->fresh(['person']), $requestRecord);
 
         $this->assertDatabaseHas('medication_request_requests', [
@@ -189,7 +189,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'intent' => 'order',
         ];
 
-        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
         $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
         $mockApi->shouldReceive('getBySearchParams')->andReturn($this->responseWithData([]));
         $mockApi->shouldReceive('getById')
@@ -218,7 +218,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             })
             ->andReturn('mock-base64-signature');
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $result = $service->rejectPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
@@ -259,7 +259,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             )
         );
 
-        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
         $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
         $mockApi->shouldReceive('getBySearchParams')->andThrow($forbidden);
         $mockApi->shouldReceive('getById')->andThrow($forbidden);
@@ -272,7 +272,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage(__('care-plan.eprescription_reject_wrong_legal_entity'));
 
-        app(MedicationRequestLifecycleService::class)->rejectPrescription(
+        (new MedicationRequestWorkflowHarness())->rejectPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [
@@ -308,7 +308,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.signer_tax_id_required'));
 
-        app(MedicationRequestLifecycleService::class)->rejectPrescription(
+        (new MedicationRequestWorkflowHarness())->rejectPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [
@@ -321,7 +321,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_build_fallback_printout_html(): void
     {
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $carePlan = new CarePlan();
 
         $uuid = '00000000-0000-4000-8000-000000001234';
@@ -334,7 +334,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_build_fallback_printout_html_uses_doctor_name_passed_by_caller(): void
     {
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
 
         $html = $service->buildFallbackPrintoutHtml(
             new CarePlan(),
@@ -353,7 +353,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         // name the memo must show a placeholder instead of whoever happens to be logged in.
         $this->actingAs($this->user);
 
-        $html = app(MedicationRequestLifecycleService::class)->buildFallbackPrintoutHtml(
+        $html = (new MedicationRequestWorkflowHarness())->buildFallbackPrintoutHtml(
             new CarePlan(),
             '00000000-0000-4000-8000-000000009012'
         );
@@ -406,7 +406,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now()->subDay(),
         ]);
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $eligible = $service->findEligibleEncountersForEPrescription(
             (int) $this->person->id,
             $this->employee->uuid
@@ -427,7 +427,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now(),
         ]);
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $employeeContext = [
             'employee_id' => $this->employee->id,
             'employee_uuid' => $this->employee->uuid,
@@ -463,7 +463,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now(),
         ]);
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $employeeContext = [
             'employee_id' => $this->employee->id,
             'employee_uuid' => $this->employee->uuid,
@@ -501,7 +501,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         ]);
 
         $createdUuid = (string) Str::uuid();
-        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
         $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
         $mockApi->shouldReceive('createRequest')
             ->once()
@@ -511,7 +511,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
                 'status' => 'NEW',
             ]));
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $employeeContext = [
             'employee_id' => $this->employee->id,
             'employee_uuid' => $this->employee->uuid,
@@ -554,7 +554,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'end' => now(),
         ]);
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.eprescription_signature_required'));
@@ -577,7 +577,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_post_sign_success_message_sms_vs_print(): void
     {
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
 
         $sms = $service->buildPostSignSuccessMessage(
             '5555666677778888',
@@ -605,7 +605,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_remaining_qty_warning_when_leftover_less_than_qty(): void
     {
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
 
         $this->assertTrue($service->shouldWarnRemainingQty(15.0, 10.0));
         $this->assertFalse($service->shouldWarnRemainingQty(30.0, 10.0));
@@ -637,7 +637,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             ],
         ]);
 
-        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
         $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
         $mockApi->shouldReceive('signRequest')
             ->once()
@@ -650,7 +650,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->instance(\App\Services\SignatureService::class, $mockSignatureService);
         $mockSignatureService->shouldReceive('signData')->once()->andReturn('kep-signed');
 
-        $service = app(MedicationRequestLifecycleService::class);
+        $service = new MedicationRequestWorkflowHarness();
         $result = $service->signPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
@@ -691,7 +691,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.kep_signature_required'));
 
-        app(MedicationRequestLifecycleService::class)->signPrescription(
+        (new MedicationRequestWorkflowHarness())->signPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             ['signed_medication_request_request' => 'client-blob']
@@ -727,7 +727,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.activity_issue_exceeds_remaining', ['remaining' => 0]));
 
-        app(MedicationRequestLifecycleService::class)->signPrescription(
+        (new MedicationRequestWorkflowHarness())->signPrescription(
             $this->carePlan->fresh(['person']),
             $requestRecord,
             [
@@ -736,6 +736,90 @@ class MedicationRequestLifecycleServiceTest extends TestCase
                 'signer_tax_id' => '9876543210',
             ]
         );
+    }
+
+    public function test_failed_sign_job_keeps_draft_status_and_signs_unknown_raw_fields(): void
+    {
+        $raw = ['id' => 'raw-id', 'unknown_clinical_field' => ['quantity' => 0, 'flag' => false]];
+        $record = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id, 'person_id' => $this->person->id,
+            'status' => 'new', 'medication_id' => 'INN-101', 'medication_qty' => 10, 'ehealth_payload' => ['data' => $raw],
+        ]);
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
+        $api->shouldReceive('signRequest')->once()->andReturn($this->responseWithData(['job_id' => 'pending-job']));
+        $api->shouldNotReceive('getRequestsBySearchParams');
+        $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $api);
+        $job = Mockery::mock(\App\Classes\eHealth\Api\Job::class);
+        $job->shouldReceive('resolve')->once()->with(['job_id' => 'pending-job'])->andThrow(new \RuntimeException('Signing job timed out'));
+        $this->instance(\App\Classes\eHealth\Api\Job::class, $job);
+        $signature = Mockery::mock(\App\Services\SignatureService::class);
+        $signature->shouldReceive('signData')->once()->with($raw, 'password', 'knedp', null, '9876543210')->andReturn('signed-raw');
+        $this->instance(\App\Services\SignatureService::class, $signature);
+
+        try {
+            (new MedicationRequestWorkflowHarness())->signPrescription($this->carePlan->fresh(['person']), $record, [
+                'password' => 'password', 'knedp' => 'knedp', 'signer_tax_id' => '9876543210',
+            ]);
+            $this->fail('The unresolved job must block success.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Signing job timed out', $exception->getMessage());
+            $this->assertDatabaseHas('medication_request_requests', ['uuid' => $record->uuid, 'status' => 'new']);
+        }
+    }
+
+    public function test_failed_unsigned_rejection_keeps_local_status(): void
+    {
+        $record = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id, 'person_id' => $this->person->id,
+            'status' => 'new', 'medication_id' => 'INN-101', 'medication_qty' => 10,
+        ]);
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $api->shouldReceive('rejectRequest')->once()->andThrow(new \RuntimeException('Reject failed'));
+        $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $api);
+        try {
+            (new MedicationRequestWorkflowHarness())->rejectPrescription($this->carePlan, $record);
+            $this->fail('Rejection failure must propagate.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Reject failed', $exception->getMessage());
+            $this->assertDatabaseHas('medication_request_requests', ['uuid' => $record->uuid, 'status' => 'new']);
+        }
+    }
+
+    public function test_invalid_prequalify_does_not_create_or_persist_an_encounter_draft(): void
+    {
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class)->makePartial();
+        $api->shouldReceive('prequalify')->once()->andReturn($this->responseWithData(['data' => [['status' => 'INVALID']]]));
+        $api->shouldNotReceive('createRequest');
+        $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $api);
+        $count = MedicationRequestRequest::count();
+        try {
+            (new MedicationRequestWorkflowHarness())->createEncounterDraft($this->encounter, [
+                'medication_id' => 'INN-101', 'program_id' => 'program-1',
+            ], ['employee_id' => $this->employee->id, 'employee_uuid' => $this->employee->uuid, 'division_id' => null]);
+            $this->fail('INVALID prequalify must block draft creation.');
+        } catch (\App\Exceptions\EHealth\EHealthValidationException) {
+            $this->assertSame($count, MedicationRequestRequest::count());
+        }
+    }
+
+    public function test_active_id_is_cached_without_erasing_the_raw_document(): void
+    {
+        $raw = ['unknown' => ['zero' => 0, 'list' => []]];
+        $record = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id, 'person_id' => $this->person->id,
+            'status' => 'active', 'medication_id' => 'INN-101', 'medication_qty' => 10,
+            'request_number' => 'RX-CACHED', 'ehealth_payload' => $raw,
+        ]);
+        $activeId = (string) Str::uuid();
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['request_number' => 'RX-CACHED'])
+            ->andReturn($this->responseWithData([['id' => $activeId, 'request_number' => 'RX-CACHED']]));
+        $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $api);
+        $workflow = new MedicationRequestWorkflowHarness();
+
+        $this->assertSame($activeId, $workflow->resolveActiveEhealthId($this->person->uuid, $record->uuid));
+        $this->assertSame($raw + ['active_id' => $activeId], $record->fresh()->ehealthPayload);
+        $this->assertSame($activeId, $workflow->resolveActiveEhealthId($this->person->uuid, $record->uuid));
     }
 
     private function identifierId(string $uuid): int

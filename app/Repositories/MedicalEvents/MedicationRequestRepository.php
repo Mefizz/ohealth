@@ -28,6 +28,34 @@ class MedicationRequestRepository extends BaseRepository
     use FindsOpenActivityRequests;
     use FindsOwnedRequests;
 
+    public function personUuid(int $personId): ?string
+    {
+        return \App\Models\Person\Person::whereKey($personId)->value('uuid');
+    }
+
+    public function rememberActiveId(MedicationRequestRequest $record, string $activeId): void
+    {
+        $payload = is_array($record->ehealthPayload) ? $record->ehealthPayload : [];
+        $payload['active_id'] = $activeId;
+        $record->update(['ehealth_payload' => $payload]);
+    }
+
+    /** Load local context before ObjectMapper reads the model; no lazy SQL in transforms. */
+    public function signingContext(\App\Models\CarePlan|Encounter $context, MedicationRequestRequest $record, ?string $personUuid): array
+    {
+        $record->loadMissing(['dosageInstructions', 'intent', 'category', 'basedOn', 'context']);
+        $employee = \App\Models\Employee\Employee::find($record->employeeId);
+        $division = \App\Models\Division::find($record->divisionId);
+        $encounter = $record->context?->value ? Encounter::where('uuid', $record->context->value)->first() : null;
+        $activity = $record->basedOn?->value ? CarePlanActivity::where('uuid', $record->basedOn->value)->first() : null;
+
+        return [
+            'uuids' => ['person_uuid' => $personUuid, 'encounter_uuid' => $encounter?->uuid, 'employee_uuid' => $employee?->uuid, 'division_uuid' => $division?->uuid],
+            'activity_uuid' => $activity?->uuid,
+            'care_plan_uuid' => $context instanceof \App\Models\CarePlan ? $context->uuid : $activity?->carePlan?->uuid,
+        ];
+    }
+
     public function __construct(MedicationRequestRequest $model)
     {
         parent::__construct($model);

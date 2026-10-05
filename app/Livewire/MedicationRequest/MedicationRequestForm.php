@@ -6,7 +6,7 @@ namespace App\Livewire\MedicationRequest;
 
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\LegalEntity;
-use App\Services\MedicalEvents\MedicationRequestLifecycleService;
+use App\Classes\eHealth\EHealth;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -55,12 +55,12 @@ class MedicationRequestForm extends Component
         'duration' => 'required|numeric|min:1',
     ];
 
-    public function preQualify(MedicationRequestLifecycleService $service): void
+    public function preQualify(): void
     {
         $this->validate();
 
         try {
-            $service->preQualify([
+            EHealth::medicationRequest()->prequalifyAndValidate([
                 'person_id' => $this->patientId,
                 'medical_program_id' => $this->medicalProgram,
                 'programs' => [
@@ -76,12 +76,12 @@ class MedicationRequestForm extends Component
         }
     }
 
-    public function createDraft(MedicationRequestLifecycleService $service): void
+    public function createDraft(): void
     {
         $this->validate();
 
         try {
-            $response = $service->createDraft([
+            $created = EHealth::medicationRequest()->createAndResolve([
                 'person_id' => $this->patientId,
                 'medical_program_id' => $this->medicalProgram,
                 'dosage_instruction' => $this->dosageInstruction,
@@ -93,6 +93,7 @@ class MedicationRequestForm extends Component
                     ],
                 ],
             ]);
+            $response = $created->resolved['data'] ?? $created->resolved;
         } catch (EHealthValidationException $e) {
             $this->failWith($e->getFormattedMessage());
 
@@ -116,7 +117,8 @@ class MedicationRequestForm extends Component
 
         $this->isDraftCreated = true;
         $this->draftId = $draftId;
-        $this->draftContent = $response['medication_request_request'] ?? $response;
+        $document = $created->document();
+        $this->draftContent = $document['medication_request_request'] ?? $document;
 
         $this->statusMessage = __('care-plan.draft_created_awaiting_signature', ['id' => $draftId]);
     }
@@ -132,7 +134,7 @@ class MedicationRequestForm extends Component
         $this->showSignatureModal = true;
     }
 
-    public function sign(MedicationRequestLifecycleService $service): void
+    public function sign(): void
     {
         if (!$this->isDraftCreated || $this->draftId === null) {
             $this->failWith(__('care-plan.draft_required_before_signing'));
@@ -155,7 +157,7 @@ class MedicationRequestForm extends Component
                 (string) Auth::user()?->party?->taxId
             );
 
-            $service->sign($this->draftId, [
+            EHealth::medicationRequest()->signAndResolve($this->draftId, [
                 'signed_medication_request_request' => $signedContent,
                 'signed_content_encoding' => 'base64',
             ]);

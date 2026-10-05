@@ -8,20 +8,14 @@ use App\Classes\eHealth\Api\Job;
 use App\Contracts\EHealthRequestLifecycleContract;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use App\Services\MedicalEvents\EHealthRequestLifecycleService;
-use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use Tests\TestCase;
 
 class EHealthRequestLifecycleServiceTest extends TestCase
 {
-    public function test_medication_and_device_lifecycles_share_the_same_contract(): void
+    public function test_remaining_device_lifecycle_implements_the_contract(): void
     {
-        // The twin standalone forms depend on the contract, not on either concrete service.
-        $this->assertInstanceOf(
-            EHealthRequestLifecycleContract::class,
-            app(MedicationRequestLifecycleService::class)
-        );
         $this->assertInstanceOf(
             EHealthRequestLifecycleContract::class,
             app(DeviceRequestLifecycleService::class)
@@ -79,7 +73,7 @@ class EHealthRequestLifecycleServiceTest extends TestCase
 
     private function makeLifecycle(): EHealthRequestLifecycleService
     {
-        return new class(Mockery::mock(Job::class)) extends EHealthRequestLifecycleService
+        return new class (Mockery::mock(Job::class)) extends EHealthRequestLifecycleService
         {
             protected function requestType(): string
             {

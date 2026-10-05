@@ -11,7 +11,8 @@ use App\Models\LegalEntity;
 use App\Models\Relations\Party;
 use App\Models\User;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
-use App\Services\MedicalEvents\MedicationRequestLifecycleService;
+use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
+use App\Dto\MedicationRequest\DraftResult;
 use App\Services\SignatureService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
@@ -109,9 +110,9 @@ class StandaloneRequestSigningTest extends TestCase
         $draftId = (string) Str::uuid();
         $draftContent = ['id' => $draftId, 'status' => 'NEW', 'medication_id' => (string) Str::uuid()];
 
-        $lifecycle = Mockery::mock(MedicationRequestLifecycleService::class);
-        $lifecycle->shouldReceive('createDraft')->once()->andReturn($draftContent);
-        $lifecycle->shouldReceive('sign')
+        $lifecycle = Mockery::mock(MedicationRequestApi::class);
+        $lifecycle->shouldReceive('createAndResolve')->once()->andReturn(new DraftResult($draftContent, $draftContent));
+        $lifecycle->shouldReceive('signAndResolve')
             ->once()
             ->withArgs(static function (string $id, array $payload) use ($draftId): bool {
                 return $id === $draftId
@@ -119,7 +120,7 @@ class StandaloneRequestSigningTest extends TestCase
                     && $payload['signed_content_encoding'] === 'base64';
             })
             ->andReturn([]);
-        $this->app->instance(MedicationRequestLifecycleService::class, $lifecycle);
+        $this->app->instance(MedicationRequestApi::class, $lifecycle);
 
         $this->signature->shouldReceive('signData')
             ->once()
@@ -148,14 +149,32 @@ class StandaloneRequestSigningTest extends TestCase
             ->assertHasNoErrors();
     }
 
+    public function test_original_draft_is_retained_when_resolved_job_contains_only_metadata(): void
+    {
+        $draftId = (string) Str::uuid();
+        $raw = ['id' => $draftId, 'person' => ['id' => 'patient-id'], 'unknown_extension' => ['zero' => 0, 'list' => []]];
+        $api = Mockery::mock(MedicationRequestApi::class);
+        $api->shouldReceive('createAndResolve')->once()->andReturn(new DraftResult(
+            ['data' => $raw],
+            ['id' => $draftId, 'status' => 'processed']
+        ));
+        $this->instance(MedicationRequestApi::class, $api);
+
+        Livewire::test(MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
+            ->set('patientId', (string) Str::uuid())->set('medicalProgram', (string) Str::uuid())
+            ->set('dosageInstruction', 'Take 1 pill')->set('duration', '30')
+            ->call('createDraft')->assertSet('isDraftCreated', true)
+            ->assertSet('draftId', $draftId)->assertSet('draftContent', $raw);
+    }
+
     public function test_prescription_cannot_be_signed_without_kep_credentials(): void
     {
         $draftId = (string) Str::uuid();
 
-        $lifecycle = Mockery::mock(MedicationRequestLifecycleService::class);
-        $lifecycle->shouldReceive('createDraft')->once()->andReturn(['id' => $draftId]);
-        $lifecycle->shouldNotReceive('sign');
-        $this->app->instance(MedicationRequestLifecycleService::class, $lifecycle);
+        $lifecycle = Mockery::mock(MedicationRequestApi::class);
+        $lifecycle->shouldReceive('createAndResolve')->once()->andReturn(new DraftResult(['id' => $draftId], ['id' => $draftId]));
+        $lifecycle->shouldNotReceive('signAndResolve');
+        $this->app->instance(MedicationRequestApi::class, $lifecycle);
 
         $this->signature->shouldNotReceive('signData');
 
@@ -171,9 +190,9 @@ class StandaloneRequestSigningTest extends TestCase
 
     public function test_prescription_signing_is_refused_before_a_draft_exists(): void
     {
-        $lifecycle = Mockery::mock(MedicationRequestLifecycleService::class);
-        $lifecycle->shouldNotReceive('sign');
-        $this->app->instance(MedicationRequestLifecycleService::class, $lifecycle);
+        $lifecycle = Mockery::mock(MedicationRequestApi::class);
+        $lifecycle->shouldNotReceive('signAndResolve');
+        $this->app->instance(MedicationRequestApi::class, $lifecycle);
 
         Livewire::test(MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
             ->call('sign')
@@ -182,9 +201,9 @@ class StandaloneRequestSigningTest extends TestCase
 
     public function test_draft_without_an_identifier_is_not_treated_as_created(): void
     {
-        $lifecycle = Mockery::mock(MedicationRequestLifecycleService::class);
-        $lifecycle->shouldReceive('createDraft')->once()->andReturn(['status' => 'NEW']);
-        $this->app->instance(MedicationRequestLifecycleService::class, $lifecycle);
+        $lifecycle = Mockery::mock(MedicationRequestApi::class);
+        $lifecycle->shouldReceive('createAndResolve')->once()->andReturn(new DraftResult(['status' => 'NEW'], ['status' => 'NEW']));
+        $this->app->instance(MedicationRequestApi::class, $lifecycle);
 
         Livewire::test(MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
             ->set('patientId', (string) Str::uuid())

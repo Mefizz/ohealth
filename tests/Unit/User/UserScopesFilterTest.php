@@ -31,4 +31,37 @@ class UserScopesFilterTest extends TestCase
             $scopes
         );
     }
+
+    #[Test]
+    public function format_authorize_scopes_drops_ehealth_rbac_denied_scopes(): void
+    {
+        $scopes = User::formatAuthorizeScopes([
+            'employee:read',
+            'employee_request:approve',
+            'employee_request:reject',
+            'employee_request:read',
+            'person:read',
+        ]);
+
+        $this->assertSame('employee:read employee_request:read person:read', $scopes);
+    }
+
+    #[Test]
+    public function doctor_and_owner_role_configs_omit_denied_employee_request_scopes(): void
+    {
+        foreach (['DOCTOR', 'OWNER', 'HR', 'ADMIN'] as $role) {
+            $permissions = config("ehealth.roles.$role", []);
+
+            $this->assertNotContains(
+                'employee_request:approve',
+                $permissions,
+                "$role must not request employee_request:approve"
+            );
+            $this->assertNotContains(
+                'employee_request:reject',
+                $permissions,
+                "$role must not request employee_request:reject"
+            );
+        }
+    }
 }

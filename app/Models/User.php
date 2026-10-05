@@ -304,6 +304,16 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Scopes eHealth rejects on oauth/apps/authorize for the current RBAC policies
+     * (verified against PRIMARY_CARE DOCTOR/OWNER). Including any of these 422s the
+     * entire authorize request even when they still appear in upstream role catalogs.
+     */
+    public const AUTHORIZE_SCOPE_DENYLIST = [
+        'employee_request:approve',
+        'employee_request:reject',
+    ];
+
+    /**
      * Scopes to send to eHealth oauth/apps/authorize.
      *
      * Use permissions granted via Spatie roles for the current team only — never
@@ -316,19 +326,51 @@ class User extends Authenticatable implements MustVerifyEmail
         $viaRoles = $this->getPermissionsViaRoles()->pluck('name')->unique();
 
         if (!config('permission.teams') || !getPermissionsTeamId()) {
-            return $viaRoles->join(' ');
+            return self::formatAuthorizeScopes($viaRoles);
         }
 
-        $allowedNames = $this->allowedPermissionNamesForCurrentTeam();
+        return self::formatAuthorizeScopes($viaRoles, $this->allowedPermissionNamesForCurrentTeam());
+    }
 
-        if ($allowedNames->isEmpty()) {
-            return '';
+    /**
+     * Build authorize scopes from permission names using the current team whitelist
+     * (when teams are enabled) and the authorize denylist.
+     *
+     * @param  iterable<int, string>  $permissionNames
+     */
+    public static function authorizeScopesFromPermissionNames(iterable $permissionNames): string
+    {
+        $allowed = null;
+
+        if (config('permission.teams') && getPermissionsTeamId()) {
+            $allowed = (new static())->allowedPermissionNamesForCurrentTeam();
         }
 
-        return $viaRoles
-            ->filter(fn (string $name) => $allowedNames->contains($name))
-            ->values()
-            ->join(' ');
+        return self::formatAuthorizeScopes($permissionNames, $allowed);
+    }
+
+    /**
+     * Build a space-delimited authorize scope string from permission names.
+     *
+     * @param  iterable<int, string>  $permissionNames
+     * @param  Collection<int, string>|null  $allowedNames  LE-type whitelist; null skips that filter
+     */
+    public static function formatAuthorizeScopes(iterable $permissionNames, ?Collection $allowedNames = null): string
+    {
+        $names = collect($permissionNames)
+            ->filter(fn ($name) => is_string($name) && $name !== '')
+            ->unique()
+            ->reject(fn (string $name) => in_array($name, self::AUTHORIZE_SCOPE_DENYLIST, true));
+
+        if ($allowedNames !== null) {
+            if ($allowedNames->isEmpty()) {
+                return '';
+            }
+
+            $names = $names->filter(fn (string $name) => $allowedNames->contains($name));
+        }
+
+        return $names->values()->join(' ');
     }
 
     /**

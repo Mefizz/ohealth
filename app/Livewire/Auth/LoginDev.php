@@ -94,8 +94,7 @@ class LoginDev extends Login
             }
 
             $role = Role::findByName($this->role)->loadMissing('permissions', 'legalEntityTypes');
-            $permissions = $role->permissions->pluck('name')->unique()->toArray();
-            $scopes = implode(' ', $permissions);
+            $scopes = User::authorizeScopesFromPermissionNames($role->permissions->pluck('name'));
 
             Session::put('first_login_role', $this->role);
         }

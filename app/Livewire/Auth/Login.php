@@ -338,9 +338,7 @@ class Login extends Component
 
         $role = Role::findByName($this->role)->loadMissing('permissions', 'legalEntityTypes');
 
-        $permissions = $role->permissions->pluck('name')->unique()->toArray();
-
-        $scope = implode(' ', $permissions);
+        $scope = User::authorizeScopesFromPermissionNames($role->permissions->pluck('name'));
 
         // Base query parameters
         $queryParams = [

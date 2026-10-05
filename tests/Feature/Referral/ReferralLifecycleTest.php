@@ -13,7 +13,7 @@ use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
+use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
@@ -328,67 +328,10 @@ class ReferralLifecycleTest extends TestCase
         ]);
     }
 
-    public function test_can_map_to_fhir_payloads(): void
-    {
-        $serviceMapper = new ServiceRequestMapper();
-        $deviceMapper = new DeviceRequestMapper();
-
-        $serviceData = [
-            'uuid' => (string) Str::uuid(),
-            'status' => 'draft',
-            'intent' => 'order',
-            'service_id' => '59300-00',
-            'quantity' => 2.0,
-            'category' => 'procedure',
-            'based_on_uuid' => $this->serviceActivity->uuid,
-            'priority' => 'routine',
-            'note' => 'Service note',
-            'started_at' => '2026-06-01',
-            'ended_at' => '2026-09-01',
-        ];
-
-        $deviceData = [
-            'uuid' => (string) Str::uuid(),
-            'status' => 'draft',
-            'intent' => 'order',
-            'device_id' => 'D-707',
-            'quantity' => 1.0,
-            'based_on_uuid' => $this->deviceActivity->uuid,
-            'priority' => 'urgent',
-            'note' => 'Device note',
-            'started_at' => '2026-06-01',
-            'ended_at' => '2026-09-01',
-        ];
-
-        $uuids = [
-            'person_uuid' => $this->person->uuid,
-            'encounter_uuid' => $this->encounter->uuid,
-            'employee_uuid' => $this->employee->uuid,
-            'legal_entity_uuid' => (string) Str::uuid()
-        ];
-
-        $serviceFhir = $serviceMapper->toFhir($serviceData, $uuids);
-        $deviceFhir = $deviceMapper->toFhir($deviceData, $uuids);
-
-        // ServiceRequest assertions
-        $this->assertEquals($serviceData['uuid'], $serviceFhir['id']);
-        $this->assertEquals('draft', $serviceFhir['status']);
-        $this->assertEquals('59300-00', $serviceFhir['code']['coding'][0]['code']);
-        $this->assertEquals($this->serviceActivity->uuid, $serviceFhir['basedOn'][0]['identifier']['value']);
-        $this->assertEquals(2, $serviceFhir['quantityInteger']);
-
-        // DeviceRequest assertions
-        $this->assertEquals($deviceData['uuid'], $deviceFhir['id']);
-        $this->assertEquals('draft', $deviceFhir['status']);
-        $this->assertEquals('D-707', $deviceFhir['codeCodeableConcept']['coding'][0]['code']);
-        $this->assertEquals($this->deviceActivity->uuid, $deviceFhir['basedOn'][0]['identifier']['value']);
-        $this->assertEquals(1, $deviceFhir['quantityInteger']);
-    }
-
     public function test_can_map_to_prequalify_payloads(): void
     {
         $serviceMapper = new ServiceRequestMapper();
-        $deviceMapper = new DeviceRequestMapper();
+        $deviceMapper = app(DeviceRequestPayloads::class);
 
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
 
@@ -431,9 +374,10 @@ class ReferralLifecycleTest extends TestCase
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
         );
-        $devicePrequalify = $deviceMapper->toPrequalifyPayload(
+        $devicePrequalify = $deviceMapper->prequalify(
             $deviceData,
             $uuids,
+            \Carbon\CarbonImmutable::now('UTC'),
             $carePlanUuid,
             (string) $this->deviceActivity->uuid
         );
@@ -456,7 +400,7 @@ class ReferralLifecycleTest extends TestCase
         $this->assertArrayHasKey('programs', $devicePrequalify);
         $this->assertArrayNotHasKey('programs', $devicePrequalify['device_request']);
 
-        $devicePrequalifyWithoutDates = $deviceMapper->toPrequalifyPayload(
+        $devicePrequalifyWithoutDates = $deviceMapper->prequalify(
             [
                 'device_id' => 'D-707',
                 'quantity' => 1.0,
@@ -464,6 +408,7 @@ class ReferralLifecycleTest extends TestCase
                 'program_id' => 'program-uuid',
             ],
             $uuids,
+            \Carbon\CarbonImmutable::now('UTC'),
             $carePlanUuid,
             (string) $this->deviceActivity->uuid
         );
@@ -473,7 +418,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_device_prequalify_uses_device_definition_identifier_for_uuid(): void
     {
-        $deviceMapper = new DeviceRequestMapper();
+        $deviceMapper = app(DeviceRequestPayloads::class);
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
         $deviceUuid = '0fa1e6cd-7066-4881-92a5-6d747a1128f7';
 
@@ -495,9 +440,10 @@ class ReferralLifecycleTest extends TestCase
             'legal_entity_uuid' => $this->employee->legalEntity->uuid,
         ];
 
-        $devicePrequalify = $deviceMapper->toPrequalifyPayload(
+        $devicePrequalify = $deviceMapper->prequalify(
             $deviceData,
             $uuids,
+            \Carbon\CarbonImmutable::now('UTC'),
             $carePlanUuid,
             (string) $this->deviceActivity->uuid
         );
@@ -511,7 +457,7 @@ class ReferralLifecycleTest extends TestCase
     public function test_can_map_to_create_signed_payloads(): void
     {
         $serviceMapper = new ServiceRequestMapper();
-        $deviceMapper = new DeviceRequestMapper();
+        $deviceMapper = app(DeviceRequestPayloads::class);
 
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
         $requestUuid = (string) Str::uuid();
@@ -552,9 +498,10 @@ class ReferralLifecycleTest extends TestCase
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
         );
-        $deviceSigned = $deviceMapper->toCreateSignedPayload(
+        $deviceSigned = $deviceMapper->signedCreate(
             $deviceData,
             $uuids,
+            \Carbon\CarbonImmutable::now('UTC'),
             $carePlanUuid,
             (string) $this->deviceActivity->uuid
         );
@@ -580,9 +527,10 @@ class ReferralLifecycleTest extends TestCase
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
         );
-        $deviceSignContent = $deviceMapper->toCreateSignedContent(
+        $deviceSignContent = $deviceMapper->signedCreate(
             $deviceData,
             $uuids,
+            \Carbon\CarbonImmutable::now('UTC'),
             $carePlanUuid,
             (string) $this->deviceActivity->uuid
         );

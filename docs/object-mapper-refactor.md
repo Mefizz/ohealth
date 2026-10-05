@@ -21,7 +21,7 @@ Base: upstream main `b2239108`, rebased 2026-09-30 after #792 merged on Septembe
 - Device create remains flat, with a fixed active status, one of code/reference and optional program;
   prequalify uses its separate envelope. Exact legacy field order, integer quantities including zero,
   invalid-reference empty lists, UTC clock skew and occurrence-date rules are preserved.
-  The old DeviceRequestMapper outbound methods delegate instead of retaining a second implementation.
+  The old DeviceRequestMapper has been removed after the last production caller migrated.
 - `ServiceRequestModelData` and `DeviceRequestModelData` accept both validated local fields (`ArrayObject`)
   and eHealth JSON (`stdClass`) through `SourceClass`. These are one-line adapters, not new source DTOs.
   Shared metadata lives in `ReferralModelData`; resource-specific fields stay on the corresponding target.
@@ -75,7 +75,7 @@ Base: upstream main `b2239108`, rebased 2026-09-30 after #792 merged on Septembe
 - eRx create/prequalify/fallback-sign uses `app/Dto/MedicationRequest` and MapCollection for dosage
   and references. Its partial ModelData sync preserves zero/empty scalar updates and excludes nulls;
   raw payload, dosage, author and links keep their existing Repository semantics. The accepted raw
-  document signing path is unchanged. Legacy outbound methods delegate to the same DTO adapter.
+  document signing path is unchanged. The old MedicationRequestMapper has now been removed.
 - Removed `MedicationRequestLifecycleService` and the unused static `Api/MedicationRequest` wrapper.
   Existing care-plan/encounter actions use narrow protected draft, sign, reject, signing-document,
   active-identity, signature-validation, message and print concerns. Patient API owns prequalify/job
@@ -91,6 +91,17 @@ Base: upstream main `b2239108`, rebased 2026-09-30 after #792 merged on Septembe
   use the active UUID rather than the local draft UUID. The local status changes only after API success.
   Print markup is in Blade. Multiple-prescription sync, ownership, eligibility and quantity checks remain.
   Existing quantity guard transaction scope was not redesigned during this migration.
+- Removed DeviceRequestLifecycleService, the now-unused EHealthRequestLifecycleService base and
+  EHealthRequestLifecycleContract. The standalone DeviceRequestForm maps directly to EhealthDraft
+  and EhealthDraftPrequalify; the existing standalone API resolves prequalify/create/sign jobs.
+  Its /api/device_requests endpoint, SNOMED coding, integer quantity and signed_device_request_request
+  envelope remain separate from the Patient API. DraftResult retains raw content independently of job metadata.
+  A response containing only job metadata cannot enable signing without an accepted clinical document.
+- Removed DeviceRequestMapper and MedicationRequestMapper after confirming no production callers
+  remained, including dynamic/config/route references. Retired their unused FHIR facade methods.
+  Existing tests of active wire contracts now use DTO adapters with an explicit clock; independent
+  golden fixtures and signing-byte assertions remain. Obsolete wrapper-only tests and four tests of
+  uncalled toFhir contracts were retired. ServiceRequestMapper still has two live repository import callers.
 
 ## Compatibility with main
 
@@ -164,9 +175,9 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 
 ## Remaining work
 
-- Migrate separate legacy `toFhir`/`fromFhir` callers before deleting their compatibility classes.
-- Migrate DeviceRequestLifecycleService and the shared transport base only after preserving the distinct
-  legacy request-request endpoints and their signing envelopes. MedicationRequestLifecycleService is gone.
+- Migrate the two remaining ServiceRequestMapper::fromFhir import callers in Repository, preserving
+  their full-import semantics separately from partial GET patches. Other encounter/FHIR callers remain.
+  Device/eRx request mappers and all three request lifecycle services are gone.
 - The older standalone eRx form still prepares its distinct simple string-dosage payload directly.
   Verify that wire contract independently before unifying it with structured DTO mapping.
 - Care-plan/activity mapping, quantity/program guards, approvals and other medical workflows remain
@@ -175,12 +186,20 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   DTO mapping. Move that remaining preparation when migrating activity DTOs; it is not final architecture.
 - Real KEP/eHealth UAT is still required before rollout.
 - Rebase/integrate current main and the actual merged #907 response-source/Composer changes before ready.
-  The refactor still has 32 PHP files in Services/MedicalEvents: 17 mappers, nine workflow/guard/base/
+  The refactor still has 28 PHP files in Services/MedicalEvents: 15 mappers, seven workflow/guard/
   package classes, four approval result/enum classes and two FHIR helpers. The whole folder is not retired.
 
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 device lifecycle/mapper retirement: **480 tests / 1902 assertions**, no failures, errors or
+risky tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. The same expanded medical suite includes
+direct standalone Form mapping, distinct device endpoints/signing envelopes, INVALID and failed-job
+UI behavior, raw-document preservation and refusal to sign job metadata without a clinical document.
+Current contract tests use DTO adapters; obsolete wrapper/dead-contract tests were removed, while
+independent golden expectations remain unchanged. Project PHP Pint passes all 16 changed PHP files;
+git diff --check passes. One existing PDO deprecation remains. Real KEP/eHealth UAT is still pending.
 
 October 5 eRx lifecycle removal: **481 tests / 1900 assertions**, no failures, errors or risky tests,
 in isolated mapper841 PHP 8.5.3/PostgreSQL. This extends the medical regression with Unit API/Job
@@ -212,7 +231,7 @@ and approvals. Project Pint passes for all 13 changed PHP files. One existing PD
 
 An earlier expanded run exposed stale Identifier FK fixtures/alias mocks in two older MedicationRequest
 lifecycle files. These fixtures now use actual Identifier rows and instance API mocks; all 24 tests /
-87 assertions pass and both files are included in the current 481-test regression. Their behavior
+87 assertions passed at that checkpoint and both files remain in the current expanded regression. Their behavior
 assertions remain intact. MedicalEventAuthorizationTest's HTTP route test still lacks a Vite manifest
 in the isolated environment and is excluded. This is a medical regression, not a claim that the
 complete application suite is green; real KEP/eHealth UAT has not been run.

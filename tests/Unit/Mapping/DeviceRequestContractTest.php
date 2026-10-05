@@ -2,23 +2,23 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Services\MedicalEvents;
+namespace Tests\Unit\Mapping;
 
-use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
+use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
-class DeviceRequestMapperTest extends TestCase
+class DeviceRequestContractTest extends TestCase
 {
     #[Test]
     public function prequalify_authored_on_is_current_utc_not_in_the_future(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-13T07:38:24Z'));
 
-        $mapper = new DeviceRequestMapper();
-        $payload = $mapper->toPrequalifyPayload(
+        $mapper = app(DeviceRequestPayloads::class);
+        $payload = $mapper->prequalify(
             [
                 'device_id' => '0fa1e6cd-7066-4881-92a5-6d747a1128f7',
                 'device_code_type' => 'DEVICE_DEFINITION',
@@ -35,6 +35,7 @@ class DeviceRequestMapperTest extends TestCase
                 'employee_uuid' => (string) Str::uuid(),
                 'legal_entity_uuid' => (string) Str::uuid(),
             ],
+            \Carbon\CarbonImmutable::now('UTC'),
             (string) Str::uuid(),
             (string) Str::uuid()
         );
@@ -51,8 +52,8 @@ class DeviceRequestMapperTest extends TestCase
     #[Test]
     public function prequalify_maps_device_quantity_as_integer_package_units(): void
     {
-        $mapper = new DeviceRequestMapper();
-        $payload = $mapper->toPrequalifyPayload(
+        $mapper = app(DeviceRequestPayloads::class);
+        $payload = $mapper->prequalify(
             [
                 'device_id' => '0fa1e6cd-7066-4881-92a5-6d747a1128f7',
                 'device_code_type' => 'DEVICE_DEFINITION',
@@ -68,6 +69,7 @@ class DeviceRequestMapperTest extends TestCase
                 'employee_uuid' => (string) Str::uuid(),
                 'legal_entity_uuid' => (string) Str::uuid(),
             ],
+            \Carbon\CarbonImmutable::now('UTC'),
             (string) Str::uuid(),
             (string) Str::uuid()
         );
@@ -82,11 +84,11 @@ class DeviceRequestMapperTest extends TestCase
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-13T07:38:24Z'));
 
-        $mapper = new DeviceRequestMapper();
+        $mapper = app(DeviceRequestPayloads::class);
         $programId = (string) Str::uuid();
         $requestId = (string) Str::uuid();
 
-        $payload = $mapper->toCreateSignedContent(
+        $payload = $mapper->signedCreate(
             [
                 'uuid' => $requestId,
                 'device_id' => '0fa1e6cd-7066-4881-92a5-6d747a1128f7',
@@ -104,6 +106,7 @@ class DeviceRequestMapperTest extends TestCase
                 'employee_uuid' => (string) Str::uuid(),
                 'legal_entity_uuid' => (string) Str::uuid(),
             ],
+            \Carbon\CarbonImmutable::now('UTC'),
             (string) Str::uuid(),
             (string) Str::uuid()
         );
@@ -127,10 +130,10 @@ class DeviceRequestMapperTest extends TestCase
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-13T07:38:24Z'));
 
-        $mapper = new DeviceRequestMapper();
+        $mapper = app(DeviceRequestPayloads::class);
         $requestId = (string) Str::uuid();
 
-        $payload = $mapper->toCreateSignedContent(
+        $payload = $mapper->signedCreate(
             [
                 'uuid' => $requestId,
                 'device_id' => '0fa1e6cd-7066-4881-92a5-6d747a1128f7',
@@ -148,6 +151,7 @@ class DeviceRequestMapperTest extends TestCase
                 'employee_uuid' => (string) Str::uuid(),
                 'legal_entity_uuid' => (string) Str::uuid(),
             ],
+            \Carbon\CarbonImmutable::now('UTC'),
             (string) Str::uuid(),
             (string) Str::uuid()
         );

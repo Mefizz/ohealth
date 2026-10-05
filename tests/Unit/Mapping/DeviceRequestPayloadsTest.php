@@ -6,7 +6,6 @@ namespace Tests\Unit\Mapping;
 
 use App\Classes\Cipher\Api\CipherApi;
 use App\Dto\DeviceRequest\DeviceRequestPayloads;
-use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
 use App\Services\SignatureService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -64,18 +63,6 @@ class DeviceRequestPayloadsTest extends TestCase
         $this->assertSame($expected['signedJson'], json_encode($payloads->signedCreate(...$args), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
         $this->assertSame([], $queries);
         Http::assertNothingSent();
-    }
-
-    #[DataProvider('contracts')]
-    public function test_remaining_legacy_callers_use_the_same_dto_contract(array $input, array $expected, string $now): void
-    {
-        CarbonImmutable::setTestNow($now);
-        $args = [$input['data'], $input['uuids'], $input['carePlanUuid'] ?? null, $input['activityUuid'] ?? null];
-        $mapper = new DeviceRequestMapper();
-
-        $this->assertSame($expected['prequalify'], $mapper->toPrequalifyPayload(...$args));
-        $this->assertSame($expected['signedCreate'], $mapper->toCreateSignedContent(...$args));
-        $this->assertSame($expected['signedCreate'], $mapper->toCreateSignedPayload(...$args));
     }
 
     public function test_local_status_and_extra_fields_cannot_override_the_wire_contract(): void

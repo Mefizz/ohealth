@@ -12,7 +12,7 @@ use App\Models\Person\Person;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
+use App\Dto\MedicationRequest\MedicationRequestPayloads;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
 use Mockery;
@@ -213,57 +213,11 @@ class MedicationRequestLifecycleTest extends TestCase
         ]);
     }
 
-    public function test_can_map_to_fhir_payload(): void
-    {
-        $mapper = new MedicationRequestMapper();
-
-        $payload = [
-            'uuid' => (string) Str::uuid(),
-            'status' => 'draft',
-            'intent' => 'order',
-            'medication_id' => 'INN-101',
-            'medication_qty' => 30.0,
-            'medication_program_id' => 'program-affordable-medicines',
-            'based_on_uuid' => $this->carePlanActivity->uuid,
-            'note' => 'Take in the morning',
-            'dosage_instructions' => [
-                [
-                    'sequence' => 1,
-                    'text' => '1 tablet daily',
-                    'route' => 'oral',
-                    'as_needed_boolean' => false,
-                    'dose_and_rate' => [
-                        [
-                            'dose_quantity_value' => 1.0
-                        ]
-                    ]
-                ]
-            ]
-        ];
-
-        $uuids = [
-            'person_uuid' => $this->person->uuid,
-            'encounter_uuid' => $this->encounter->uuid,
-            'employee_uuid' => $this->employee->uuid,
-            'legal_entity_uuid' => (string) Str::uuid()
-        ];
-
-        $fhir = $mapper->toFhir($payload, $uuids);
-
-        $this->assertEquals($payload['uuid'], $fhir['id']);
-        $this->assertEquals('draft', $fhir['status']);
-        $this->assertEquals('INN-101', $fhir['medicationCodeableConcept']['coding'][0]['code']);
-        $this->assertEquals('program-affordable-medicines', $fhir['program']['identifier']['value']);
-        $this->assertEquals($this->carePlanActivity->uuid, $fhir['basedOn'][0]['identifier']['value']);
-        $this->assertEquals('Take in the morning', $fhir['note'][0]['text']);
-        $this->assertEquals(1.0, $fhir['dosageInstruction'][0]['doseAndRate'][0]['doseQuantity']['value']);
-    }
-
     public function test_create_request_payload_uses_snomed_route_and_object_dose_and_rate(): void
     {
-        $mapper = new MedicationRequestMapper();
+        $mapper = app(MedicationRequestPayloads::class);
 
-        $payload = $mapper->toCreateRequestPayload(
+        $payload = $mapper->create(
             [
                 'medication_id' => 'INN-101',
                 'medication_qty' => 10.0,
@@ -291,7 +245,8 @@ class MedicationRequestLifecycleTest extends TestCase
                 'employee_uuid' => $this->employee->uuid,
                 'division_uuid' => (string) Str::uuid(),
             ],
-            $this->carePlanActivity->carePlan->uuid,
+            \Carbon\CarbonImmutable::now(),
+            $this->carePlanActivity->carePlan->uuid
         );
 
         $dosage = $payload['medication_request_request']['dosage_instruction'][0];

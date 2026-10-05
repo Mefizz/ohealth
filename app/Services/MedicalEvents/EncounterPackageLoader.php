@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
+use App\Dto\DetectedIssue\Form as DetectedIssueForm;
+use App\Dto\DeviceAssociation\Form as DeviceAssociationForm;
 use App\Repositories\MedicalEvents\Repository;
+use Illuminate\Support\Collection;
 use RuntimeException;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
 class EncounterPackageLoader
 {
@@ -240,7 +244,8 @@ class EncounterPackageLoader
     private function loadDeviceAssociations(string $encounterId): array
     {
         return collect(Repository::deviceAssociation()->get($encounterId))
-            ->map(static fn (array $deviceAssociation) => Fhir::deviceAssociation()->fromFhir($deviceAssociation))
+            ->map(static fn (array $deviceAssociation): array => app(ObjectMapperInterface::class)
+                ->map(new Collection($deviceAssociation), DeviceAssociationForm::class)->toArray())
             ->toArray();
     }
 
@@ -251,7 +256,8 @@ class EncounterPackageLoader
     private function loadDetectedIssues(string $encounterId): array
     {
         return collect(Repository::detectedIssue()->get($encounterId))
-            ->map(static fn (array $detectedIssue): array => Fhir::detectedIssue()->fromFhir($detectedIssue))
+            ->map(static fn (array $detectedIssue): array => app(ObjectMapperInterface::class)
+                ->map(new Collection($detectedIssue), DetectedIssueForm::class)->toArray())
             ->toArray();
     }
 

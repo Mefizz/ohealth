@@ -6,7 +6,6 @@ namespace App\Services\MedicalEvents;
 
 use App\Services\MedicalEvents\Mappers\ClinicalImpressionMapper;
 use App\Services\MedicalEvents\Mappers\ConditionMapper;
-use App\Services\MedicalEvents\Mappers\DeviceAssociationMapper;
 use App\Services\MedicalEvents\Mappers\DeviceMapper;
 use App\Services\MedicalEvents\Mappers\DiagnosticReportMapper;
 use App\Services\MedicalEvents\Mappers\EncounterMapper;
@@ -14,7 +13,6 @@ use App\Services\MedicalEvents\Mappers\EpisodeMapper;
 use App\Services\MedicalEvents\Mappers\ImmunizationMapper;
 use App\Services\MedicalEvents\Mappers\ObservationMapper;
 use App\Services\MedicalEvents\Mappers\ProcedureMapper;
-use App\Services\MedicalEvents\Mappers\DetectedIssueMapper;
 use App\Services\MedicalEvents\Mappers\DeviceDispenseMapper;
 use App\Services\MedicalEvents\Mappers\SpecimenMapper;
 
@@ -68,16 +66,6 @@ final class Fhir
     public static function specimen(): SpecimenMapper
     {
         return app(SpecimenMapper::class);
-    }
-
-    public static function detectedIssue(): DetectedIssueMapper
-    {
-        return app(DetectedIssueMapper::class);
-    }
-
-    public static function deviceAssociation(): DeviceAssociationMapper
-    {
-        return app(DeviceAssociationMapper::class);
     }
 
     public static function procedure(): ProcedureMapper

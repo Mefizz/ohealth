@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace App\Services\MedicalEvents;
 
+use App\Dto\DetectedIssue\Ehealth as DetectedIssueEhealth;
+use App\Dto\DeviceAssociation\Ehealth as DeviceAssociationEhealth;
+use App\Dto\FormCollection;
+use App\Enums\DeviceAssociation\Status as DeviceAssociationStatus;
 use App\Enums\Episode\Status;
 use App\Enums\Person\ConditionClinicalStatus;
 use App\Enums\Person\DiagnosticReportStatus;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
 class EncounterPackageBuilder
 {
@@ -123,18 +129,28 @@ class EncounterPackageBuilder
             ->toArray();
 
         $fhirDetectedIssues = collect($data['detectedIssues'] ?? [])
-            ->map(
-                fn (array $detectedIssue): array =>
-                    Fhir::detectedIssue()->toFhir(
-                        $detectedIssue,
-                        $uuids
-                    )
-            )
+            ->map(function (array $detectedIssue) use ($uuids): array {
+                $payload = app(ObjectMapperInterface::class)->map(new FormCollection($detectedIssue), new DetectedIssueEhealth(
+                    id: $detectedIssue['uuid'] ?? Str::uuid()->toString(),
+                    encounter: $uuids['encounter'],
+                    recorder: $uuids['employee'],
+                ))->toArray();
+
+                return $this->toPackageDocument($payload);
+            })
             ->values()
             ->toArray();
 
-        $fhirDeviceAssociations = Fhir::deviceAssociation()
-            ->toFhirCollection($data['deviceAssociations'] ?? [], $uuids);
+        $fhirDeviceAssociations = collect($this->dateDeviceAssociations($data['deviceAssociations'] ?? []))
+            ->map(function (array $association) use ($uuids): array {
+                return $this->toPackageDocument(app(ObjectMapperInterface::class)->map(new FormCollection($association), new DeviceAssociationEhealth(
+                    id: $association['uuid'] ?? Str::uuid()->toString(),
+                    encounter: $uuids['encounter'],
+                    recorder: $uuids['employee'],
+                ))->toArray());
+            })
+            ->values()
+            ->toArray();
 
         $fhirClinicalImpressions = collect($data['clinicalImpressions'] ?? [])
             ->map(fn (array $clinicalImpression) => Fhir::clinicalImpression()->toFhir($clinicalImpression, $uuids))
@@ -181,5 +197,34 @@ class EncounterPackageBuilder
             'specimens' => $fhirSpecimens,
             'clinicalImpressions' => $fhirClinicalImpressions
         ];
+    }
+
+    /** New opening/closing pairs must remain a minute apart after repository hydration. */
+    private function dateDeviceAssociations(array $associations): array
+    {
+        $now = CarbonImmutable::now();
+        $perDevice = array_count_values(array_column($associations, 'deviceId'));
+        foreach ($associations as $index => $association) {
+            if (!empty($association['recorded'])) {
+                continue;
+            }
+
+            $opensPair = ($perDevice[$association['deviceId']] ?? 1) > 1
+                && in_array($association['status'], [DeviceAssociationStatus::IMPLANTED->value, DeviceAssociationStatus::ATTACHED->value], true);
+            $associations[$index]['recorded'] = ($opensPair ? $now->subMinute() : $now)->toIso8601ZuluString();
+        }
+
+        return $associations;
+    }
+
+    /** Temporary adapter for the remaining camelCase package boundary; retain nested JSON objects. */
+    private function toPackageDocument(array $payload): array
+    {
+        $document = [];
+        foreach ($payload as $field => $value) {
+            $document[Str::camel($field)] = $value;
+        }
+
+        return $document;
     }
 }

@@ -143,6 +143,14 @@ Base: upstream main `1cf8b92e`, integrated 2026-10-05 including merged #907; #79
   priority. SourceHasPath checks plain input presence without IO. Only the legacy parent adapters
   restore camelCase; that intermediate conversion disappears with their own DTO migration.
 
+- DetectedIssueMapper and DeviceAssociationMapper are removed with both facade methods. The actual
+  package builder/loader map Ehealth/Form DTOs. Twenty-nine independent old 1084b17e baseline cases
+  preserve exact JSON, null versus missing fields, empty author objects, sparse lists and timestamp
+  order. The caller owns IDs and the clock, including the minute separating an opening/closing pair.
+  Existing timestamps remain untouched. Shared transforms add opt-in text without changing defaults.
+  Only the remaining builder adapts DTO keys to its camelCase package contract; repository persistence
+  remains unchanged. No new workflow service was introduced.
+
 ## Compatibility with main
 
 The September 30 rebase includes personal-data sync, separate specimen/diagnostic pages and eHealth
@@ -239,9 +247,11 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 
 ## Remaining work
 
-- The separate encounter/FHIR wave still has 17 PHP files in Services/MedicalEvents: 13 array mappers,
+- The encounter/FHIR wave still has 15 PHP files in Services/MedicalEvents: 11 array mappers,
   EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
   helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
+  Next: Device names/identifiers/properties with typed MapCollection mapping and independent old
+  baselines, then the remaining clinical resources. Builder/loader retirement follows all callers.
 - Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
   encounter forms. Their DTOs already own serialization; do not hide SQL or orchestration in a mapper.
 - Real KEP/eHealth UAT, concurrency assessment and the HTTP authorization suite with built Vite assets
@@ -252,6 +262,13 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 detected-issue/device-association increment: **594 tests / 2579 assertions**,
+no failures, errors or risky tests. One existing PDO deprecation remains. Includes 31 new tests for
+independent old wire/hydration contracts, actual builder/loader callers, sparse lists, missing/null
+IDs, no mapping IO and caller-owned opening/closing timestamps. Pint passes all 14 PHP files in this
+increment; git diff --check passes. Isolated mapper841 PHP 8.5.3/PostgreSQL is retained for the open
+draft PR. The remaining medical service inventory is 15 files, including 11 array mappers.
 
 October 5 paper-referral increment: **563 tests / 2331 assertions**, no failures, errors or risky tests.
 Adds nine independent PaperReferral contracts, both actual parent mapper adapters and ProcedureRepository

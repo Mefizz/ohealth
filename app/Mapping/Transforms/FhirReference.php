@@ -8,7 +8,7 @@ use Symfony\Component\ObjectMapper\TransformCallableInterface;
 
 final class FhirReference implements TransformCallableInterface
 {
-    public function __construct(private readonly ?string $resourceType = null)
+    public function __construct(private readonly ?string $resourceType = null, private readonly bool $includeText = false)
     {
     }
 
@@ -23,6 +23,6 @@ final class FhirReference implements TransformCallableInterface
             $value = $value->uuid;
         }
 
-        return ['identifier' => new FhirIdentifier($this->resourceType)($value, $source, $target)];
+        return ['identifier' => new FhirIdentifier($this->resourceType, $this->includeText)($value, $source, $target)];
     }
 }

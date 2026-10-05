@@ -299,7 +299,7 @@ class Login extends Component
         // Set a temporary team/legalEntity ID, this should be overridden once a user actually logs in.
         // Spatie Permissions sets permissions globally, they can't be loaded by querying relations tables
         setPermissionsTeamId($selectedLegalEntity->id);
-        $user->unsetRelation('roles')->unsetRelation('permissions');
+        $this->reconcileUserRolesBeforeAuthorize($user, $selectedLegalEntity);
 
         // Additional query parameters if email is provided
         if (!empty($user->email)) {
@@ -355,6 +355,29 @@ class Login extends Component
 
         // Build the full URL with query parameters
         return $baseUrl . '?' . http_build_query($queryParams);
+    }
+
+    /**
+     * Drop party-wide invented roles before oauth authorize so getScopes() matches
+     * employees bound to this user in the selected legal entity.
+     */
+    protected function reconcileUserRolesBeforeAuthorize(User $user, LegalEntity $legalEntity): void
+    {
+        $user->loadMissing('party');
+
+        if ($user->party) {
+            try {
+                Repository::party()->syncUserEmployeesAndRoles($user->party, $legalEntity);
+            } catch (\Throwable $exception) {
+                Log::warning('Role reconcile before eHealth authorize failed', [
+                    'user_id' => $user->id,
+                    'legal_entity_id' => $legalEntity->id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        $user->unsetRelation('roles')->unsetRelation('permissions');
     }
 
     /**

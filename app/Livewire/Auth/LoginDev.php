@@ -73,10 +73,15 @@ class LoginDev extends Login
         $user = User::withLegalEntityAccess($accessToken['user_id'], $this->legalEntityUuid)->first();
 
         $accessToken = $accessToken['value'];
-        $selectedLegalEntityId = LegalEntity::whereUuid($this->legalEntityUuid)->value('id');
+        $selectedLegalEntity = LegalEntity::whereUuid($this->legalEntityUuid)->first();
+        $selectedLegalEntityId = $selectedLegalEntity?->id;
         setPermissionsTeamId($selectedLegalEntityId);
 
         if ($user && !$this->isSingleRoleAuth) {
+            if ($selectedLegalEntity) {
+                $this->reconcileUserRolesBeforeAuthorize($user, $selectedLegalEntity);
+            }
+
             $scopes = $user->getScopes();
             Session::put(config('ehealth.api.auth_ehealth'), $user->id);
         } else {

@@ -1,43 +1,61 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repositories;
 
-use App\Models\User;
 use App\Enums\Status;
 use App\Enums\User\Role;
+use App\Models\Employee\Employee;
+use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Models\Relations\Party;
-use App\Models\Employee\Employee;
-use Illuminate\Support\Facades\DB;
+use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 
 class PartyRepository
 {
+    /**
+     * Sync employee↔user pivot and Spatie roles for users of this party in the legal entity.
+     *
+     * Roles and scopes must come only from employees bound to that user (user_id, pivot,
+     * or employee_request email) — never from every APPROVED employee on the party.
+     * eHealth oauth/apps/authorize rejects the whole request when local roles invent scopes
+     * the account does not hold (RBAC 422), which locks the user out of login.
+     */
     public function syncUserEmployeesAndRoles(Party $party, LegalEntity $legalEntity): void
     {
-        $isLegalEntityCanBeReorganized = $legalEntity->type->name  === LegalEntity::TYPE_PRIMARY_CARE || $legalEntity->type->name === LegalEntity::TYPE_OUTPATIENT;
+        $isLegalEntityCanBeReorganized = $legalEntity->type->name === LegalEntity::TYPE_PRIMARY_CARE
+            || $legalEntity->type->name === LegalEntity::TYPE_OUTPATIENT;
 
         $partyEmployees = Employee::getEmployeesForParty(legalEntityId: $legalEntity->id, partyId: $party->id)->get();
 
         if ($legalEntity->status === Status::REORGANIZED->value) {
-            $reorganizedEmployees = Employee::getEmployeesForParty(legalEntityId: $legalEntity->id, partyId: $party->id, status: Status::REORGANIZED)->get();
+            $reorganizedEmployees = Employee::getEmployeesForParty(
+                legalEntityId: $legalEntity->id,
+                partyId: $party->id,
+                status: Status::REORGANIZED
+            )->get();
 
             $partyEmployees = $partyEmployees->merge($reorganizedEmployees)->unique('id')->values();
         }
-
-        // Get all employee-user relations from pivot table for the legal entity to compare with the new candidates we want to sync later
-        $pivotEmployeeUsers = $this->getPivotEmployeeUsers($legalEntity->id);
 
         if ($partyEmployees->isEmpty()) {
             return;
         }
 
-        $employeesWithUser = $partyEmployees->filter(fn(Employee $employee) => $employee->user_id !== null);
+        $pivotEmployeeUsers = $this->getPivotEmployeeUsers($legalEntity->id);
+        $partyUsers = $this->resolvePartyUsers($party, $legalEntity, $partyEmployees);
 
-        // Users whose own OWNER employee was explicitly stopped (e.g. by disableOldOwner()
-        // during an owner replacement) must not reacquire OWNER through another employee
-        // in the party, even though role sharing is otherwise symmetric for all party users.
+        if ($partyUsers->isEmpty()) {
+            return;
+        }
+
+        // Stopped OWNERS must not pick OWNER back up from another employee that happens
+        // to share the party (owner replacement). Binding is otherwise per-user only.
         $stoppedOwnerUserIds = Employee::where('legal_entity_id', $legalEntity->id)
             ->where('party_id', $party->id)
             ->where('employee_type', Role::OWNER->value)
@@ -45,15 +63,12 @@ class PartyRepository
             ->whereNotNull('user_id')
             ->pluck('user_id');
 
-        // Get all users that are linked to the party through employees with user_id or through employee_users pivot
-        $partyUsers = User::allRelated($party->id, $legalEntity->id)->get();
+        $employeeRequestsByEmail = EmployeeRequest::query()
+            ->where('legal_entity_id', $legalEntity->id)
+            ->whereIn('email', $partyUsers->pluck('email')->filter()->all())
+            ->get()
+            ->groupBy(fn (EmployeeRequest $request) => mb_strtolower((string) $request->email));
 
-        if ($partyUsers->isEmpty()) {
-            return;
-        }
-
-        $employeesToSync = [];
-        $employeesToDelete = [];
         $employeesCandidatesToSync = [];
         $usersToSync = $partyUsers->pluck('id')->all();
 
@@ -63,105 +78,88 @@ class PartyRepository
 
         setPermissionsTeamId($legalEntity->id);
 
-        // Get the right data structure to perform sync
         foreach ($partyUsers as $user) {
-            if ($user->insertedAt === null) {
-                continue;
-            }
+            $userEmployees = $this->resolveEmployeesForUser(
+                $user,
+                $partyEmployees,
+                $pivotEmployeeUsers,
+                $employeeRequestsByEmail->get(mb_strtolower((string) $user->email), collect()),
+                $stoppedOwnerUserIds
+            );
 
-            // Only pair this user with employees inserted on/after their own registration:
-            // older users pick up newer party employees automatically, but a newly created
-            // user must not retroactively gain access to employees that predate them.
-            // OWNER employees are exempt from this sharing entirely: they must only ever be
-            // paired with the user_id actually attached to that OWNER employee record.
-            $employeesFiltered = $employeesWithUser->filter(fn(Employee $employee) => $employee->employeeType === Role::OWNER->value
-                ? $employee->user_id === $user->id
-                : $employee->isCreatedAtOrAfter($user->insertedAt));
+            $employeesCandidatesToSync = array_merge(
+                $employeesCandidatesToSync,
+                $userEmployees->map(fn (Employee $employee) => [
+                    'employee_id' => $employee->id,
+                    'user_id' => $user->id,
+                ])->all()
+            );
 
-            $employeesCandidatesToSync = array_merge($employeesCandidatesToSync, $employeesFiltered->map(fn(Employee $employee) => ['employee_id' => $employee->id, 'user_id' => $user->id])->all());
-
-            // Current Roles for the $user
-            $oldRoles = $user->loadMissing('roles')->roles->pluck('name')->all();
-
-            // Get all suitable roles based on the employee types of the user's party employees,
-            // limited the same way (older users inherit newer employees' roles, not vice versa).
-            // Additionally: a user who was previously stopped as OWNER must not inherit OWNER
-            // from someone else's employee record — their own currently-approved OWNER employee
-            // (if any) is never excluded.
-            $availRoles = $partyEmployees->filter(fn(Employee $employee) => $employee->isCreatedAtOrAfter($user->insertedAt))
-                ->reject(fn(Employee $employee) => $employee->employeeType === Role::OWNER->value
-                    && $employee->user_id !== $user->id
-                    && $stoppedOwnerUserIds->contains($user->id))
-                ->map(fn(Employee $employee) => $employee->employeeType)
+            $availRoles = $userEmployees
+                ->map(fn (Employee $employee) => $employee->employeeType)
                 ->unique()
                 ->values()
                 ->all();
 
-            if (\in_array(Role::OWNER->value, $availRoles) && $isLegalEntityCanBeReorganized) {
+            if (in_array(Role::OWNER->value, $availRoles, true) && $isLegalEntityCanBeReorganized) {
                 $availRoles[] = Role::REORGANIZATION_OWNER->value;
             }
 
-            // Determine which roles are new and need to be assigned
-            $newRoles = collect($availRoles)->diff($oldRoles)->values()->toArray();
-
-            // Check if the user has an more than one employee with $loginedRole role in the same party.
-            // If so, include the $loginedRole's role from the party to ensure proper access for users with multiple $loginedRole employees in the same party
-            // NOTE: this case is possible when data of existent employee has been modified with changed an email.
-            // Changing email causes to create a new user with the same email and assign the employee to this new user,
-            // but the old user still exists with the old employee and role.
+            // Preserve access when the logged-in role was chosen at first login and email was changed.
             if ($loginedRole && $user->id === Auth::id()) {
+                $loginedEmployee = $userEmployees->firstWhere('employee_type', $loginedRole);
 
-                $loginedEmployee = $partyEmployees->where('employee_type', $loginedRole)->first();
+                if ($loginedEmployee) {
+                    $employeesCandidatesToSync = array_merge(
+                        $employeesCandidatesToSync,
+                        [['employee_id' => $loginedEmployee->id, 'user_id' => $user->id]],
+                        array_map(
+                            fn ($userId) => ['employee_id' => $loginedEmployee->id, 'user_id' => $userId],
+                            array_column(
+                                array_filter(
+                                    $pivotEmployeeUsers,
+                                    fn ($puser) => $puser['employee_id'] === $loginedEmployee->id
+                                ),
+                                'user_id'
+                            )
+                        )
+                    );
 
-                // This need to save the pivot table data when the employee has been modified with changed email, (employee record has new 'user_id' value)
-                // so the new user is created and assigned to the employee, but the old user still exists with the old employee and role.
-                $employeesCandidatesToSync = array_merge(
-                    $employeesCandidatesToSync,
-                    [['employee_id' => $loginedEmployee->id, 'user_id' => $user->id]],
-                    array_map(
-                        fn($userId) => ['employee_id' => $loginedEmployee->id, 'user_id' => $userId],
-                        array_column(array_filter($pivotEmployeeUsers, fn($puser) => $puser['employee_id'] === $loginedEmployee->id), 'user_id')
-                    )
-                );
+                    $availRoles = array_values(array_unique(array_merge($availRoles, [$loginedRole])));
+                }
 
-                $newRoles = array_unique(array_merge($newRoles, [$loginedRole]));
-            }
-
-            if (empty($newRoles)) {
-                continue;
+                if ($loginedRole === Role::OWNER->value && $isLegalEntityCanBeReorganized) {
+                    $availRoles = array_values(array_unique(array_merge(
+                        $availRoles,
+                        [Role::REORGANIZATION_OWNER->value]
+                    )));
+                }
             }
 
             $user->unsetRelation('roles')->unsetRelation('permissions');
 
-            // This only for case when the user has changed email and has the same employee with the same role in the same party, but with different user_id.
-            if($loginedRole === Role::OWNER->value) {
-                $newRoles = array_unique(array_merge($newRoles, [Role::REORGANIZATION_OWNER->value]));
-            }
-
+            // Replace roles for this team: drop invented ones (e.g. SPECIALIST from unbound
+            // party positions) so the next oauth/apps/authorize does not 422.
             foreach ($guards as $guard) {
                 Auth::shouldUse($guard);
-
-                // Set all roles for the all guards that have the same name as the new roles we want to assign (depends on guard)
-                $user->assignRole($newRoles);
+                $user->syncRoles($availRoles);
             }
         }
 
-        // Get the right data structure to perform sync
         [
             'employeesToDelete' => $employeesToDelete,
             'employeesToSync' => $employeesToSync,
         ] = $this->filterEmployeesSyncData($employeesCandidatesToSync, $pivotEmployeeUsers, $usersToSync);
 
-        // Perform the actual sync: delete removed relations
         if (!empty($employeesToDelete)) {
-            DB::table('employee_users')->where(function ($query) use ($employeesToDelete) {
-                foreach ($employeesToDelete as $pair) {
-                    $query->orWhere(fn ($q) => $q->where('employee_id', $pair['employee_id'])->where('user_id', $pair['user_id']));
-                }
-            })->delete();
+            foreach ($employeesToDelete as $pair) {
+                DB::table('employee_users')
+                    ->where('employee_id', $pair['employee_id'])
+                    ->where('user_id', $pair['user_id'])
+                    ->delete();
+            }
         }
 
-        // Perform the actual sync: add new relations
         if (!empty($employeesToSync)) {
             DB::table('employee_users')->upsert($employeesToSync, ['employee_id', 'user_id']);
         }
@@ -170,44 +168,141 @@ class PartyRepository
     }
 
     /**
+     * Users for this party in the LE: already linked via employee.user_id / pivot,
+     * plus users whose email matches an employee request for these party employees.
+     *
+     * @param  Collection<int, Employee>  $partyEmployees
+     * @return Collection<int, User>
+     */
+    protected function resolvePartyUsers(Party $party, LegalEntity $legalEntity, Collection $partyEmployees): Collection
+    {
+        $linkedUsers = User::allRelated($party->id, $legalEntity->id)->get();
+
+        $requestEmails = EmployeeRequest::query()
+            ->where('legal_entity_id', $legalEntity->id)
+            ->where(function ($query) use ($partyEmployees) {
+                $query->whereIn('employee_id', $partyEmployees->pluck('id')->all())
+                    ->orWhere(function ($fallback) use ($partyEmployees) {
+                        foreach ($partyEmployees as $employee) {
+                            $fallback->orWhere(function ($match) use ($employee) {
+                                $match->where('employee_type', $employee->employeeType)
+                                    ->where('position', $employee->position);
+
+                                $startDate = $employee->getRawOriginal('start_date');
+                                if ($startDate === null) {
+                                    $match->whereNull('start_date');
+                                } else {
+                                    $match->where('start_date', $startDate);
+                                }
+                            });
+                        }
+                    });
+            })
+            ->whereNotNull('email')
+            ->pluck('email')
+            ->map(fn (string $email) => mb_strtolower($email))
+            ->unique()
+            ->values()
+            ->all();
+
+        $emailUsers = empty($requestEmails)
+            ? collect()
+            : User::query()
+                ->where('party_id', $party->id)
+                ->whereIn(DB::raw('LOWER(email)'), $requestEmails)
+                ->get();
+
+        return $linkedUsers->merge($emailUsers)->unique('id')->values();
+    }
+
+    /**
+     * Resolve employees that belong to a specific user (not the whole party).
+     *
+     * @param  Collection<int, Employee>  $partyEmployees
+     * @param  array<int, array{employee_id: int, user_id: int}>  $pivotEmployeeUsers
+     * @param  Collection<int, EmployeeRequest>  $userRequests
+     * @param  Collection<int, int>  $stoppedOwnerUserIds
+     * @return Collection<int, Employee>
+     */
+    protected function resolveEmployeesForUser(
+        User $user,
+        Collection $partyEmployees,
+        array $pivotEmployeeUsers,
+        Collection $userRequests,
+        Collection $stoppedOwnerUserIds
+    ): Collection {
+        $pivotEmployeeIds = collect($pivotEmployeeUsers)
+            ->filter(fn (array $item) => $item['user_id'] === $user->id)
+            ->pluck('employee_id')
+            ->all();
+
+        $requestMatchedIds = $partyEmployees
+            ->filter(function (Employee $employee) use ($userRequests) {
+                return $userRequests->contains(function (EmployeeRequest $request) use ($employee) {
+                    if ($request->employeeId !== null && (int) $request->employeeId === (int) $employee->id) {
+                        return true;
+                    }
+
+                    if ($request->employeeType !== $employee->employeeType
+                        || $request->position !== $employee->position
+                    ) {
+                        return false;
+                    }
+
+                    $requestStart = $request->getRawOriginal('start_date');
+                    $employeeStart = $employee->getRawOriginal('start_date');
+
+                    return $requestStart === $employeeStart;
+                });
+            })
+            ->pluck('id')
+            ->all();
+
+        return $partyEmployees
+            ->filter(function (Employee $employee) use ($user, $pivotEmployeeIds, $requestMatchedIds, $stoppedOwnerUserIds) {
+                $belongsToUser = (int) $employee->userId === (int) $user->id
+                    || in_array($employee->id, $pivotEmployeeIds, true)
+                    || in_array($employee->id, $requestMatchedIds, true);
+
+                if (!$belongsToUser) {
+                    return false;
+                }
+
+                // Do not let a replaced (stopped) OWNER inherit OWNER from another binding path.
+                if ($employee->employeeType === Role::OWNER->value
+                    && $stoppedOwnerUserIds->contains($user->id)
+                    && (int) $employee->userId !== (int) $user->id
+                ) {
+                    return false;
+                }
+
+                return true;
+            })
+            ->values();
+    }
+
+    /**
      * Get all existing employee-user relations from the pivot table for a given legal entity.
-     *
-     * Fetches employees that already have at least one associated user, then flattens
-     * the result into a list of `employee_id` / `user_id` pairs for later comparison
-     * during sync operations.
-     *
-     * @param  int   $legalEntityId
      *
      * @return array<int, array{employee_id: int, user_id: int}>
      */
     protected function getPivotEmployeeUsers(int $legalEntityId): array
     {
-        // First iteration: get all employees with user_id and their users from pivot table
-         $pivotEmployeeUsers = Employee::getEmployeesViaPivot($legalEntityId)->get()->map(fn(Employee $employee) => [
+        $pivotEmployeeUsers = Employee::getEmployeesViaPivot($legalEntityId)->get()->map(fn (Employee $employee) => [
             'id' => $employee->id,
             'users' => $employee->users()->allRelatedIds()->all(),
         ])->toArray();
 
-        // Second iteration: flatten the pivot data to have a list of employee_id and user_id pairs for easier syncing later
-        return collect($pivotEmployeeUsers)->flatMap(fn($item) =>
-                collect($item['users'])->map(fn($userId) => [
-                    'employee_id'   => $item['id'],
-                    'user_id' => $userId,
-                ])
-            )->values()->all();
+        return collect($pivotEmployeeUsers)->flatMap(fn ($item) => collect($item['users'])->map(fn ($userId) => [
+            'employee_id' => $item['id'],
+            'user_id' => $userId,
+        ]))->values()->all();
     }
 
     /**
-     * Compare sync candidates against existing pivot relations and determine which records to add or remove.
-     *
-     * For each user in $usersToSync, computes the symmetric difference between the currently
-     * stored pivot pairs ($pivotEmployeeUsers) and the desired pairs ($employeesCandidatesToSync),
-     * returning two lists: relations that should be inserted and relations that should be deleted.
-     *
-     * @param  array<int, array{employee_id: int, user_id: int}> $employeesCandidatesToSync  Desired employee-user pairs.
-     * @param  array<int, array{employee_id: int, user_id: int}> $pivotEmployeeUsers         Existing employee-user pairs from the pivot table.
-     * @param  array<int, int>                                   $usersToSync                IDs of users to process.
-     *
+     * @param  array<int, array{employee_id: int, user_id: int}>  $employeesCandidatesToSync
+     * @param  array<int, array{employee_id: int, user_id: int}>  $pivotEmployeeUsers
+     * @param  array<int, int>  $usersToSync
      * @return array{employeesToDelete: array<int, array{employee_id: int, user_id: int}>, employeesToSync: array<int, array{employee_id: int, user_id: int}>}
      */
     protected function filterEmployeesSyncData(array $employeesCandidatesToSync, array $pivotEmployeeUsers, array $usersToSync): array
@@ -215,23 +310,18 @@ class PartyRepository
         $employeesToDelete = [];
         $employeesToSync = [];
 
-        // Deduplicate before insert
         $employeesCandidatesToSync = collect($employeesCandidatesToSync)
-            ->unique(fn($item) => $item['employee_id'] . '_' . $item['user_id'])
+            ->unique(fn ($item) => $item['employee_id'] . '_' . $item['user_id'])
             ->values()
             ->all();
 
         foreach ($usersToSync as $userId) {
-            $pivotEmployee = collect($pivotEmployeeUsers)->filter(fn($item) => $item['user_id'] === $userId)->pluck('employee_id')->all();
-            $candidate = collect($employeesCandidatesToSync)->filter(fn($item) => $item['user_id'] === $userId)->pluck('employee_id')->all();
+            $pivotEmployee = collect($pivotEmployeeUsers)->filter(fn ($item) => $item['user_id'] === $userId)->pluck('employee_id')->all();
+            $candidate = collect($employeesCandidatesToSync)->filter(fn ($item) => $item['user_id'] === $userId)->pluck('employee_id')->all();
 
-            // Values in pivotEmployee but not in candidate
             $employeesToRemove = array_diff($pivotEmployee, $candidate);
-
-            // Values in candidate but not in pivotEmployee
             $employeesToAdd = array_diff($candidate, $pivotEmployee);
 
-            // Skip if nothing to sync for the user
             if (empty($employeesToRemove) && empty($employeesToAdd)) {
                 continue;
             }

@@ -93,25 +93,35 @@ class EmployeeDetailsUpsert extends EHealthJob
 
         $startdate = $validatedData['employee']['start_date'] ?? null;
 
+        // Prefer an already-linked request for this employee; fall back to type/position/start_date.
         $employeeEmployeeRequest = EmployeeRequest::where('legal_entity_id', $legalEntityId)
-            ->where("employee_type", $roleName)
-            ->where('position', $this->employee->position)
-            ->when(
-                $divisionUuid === null,
-                fn ($query) => $query->whereNull('division_uuid'),
-                fn ($query) => $query->where('division_uuid', $divisionUuid)
-            )
-            ->when(
-                $startdate === null,
-                fn ($query) => $query->whereNull('start_date'),
-                fn ($query) => $query->where('start_date', $startdate)
-            )
-            ->latest('applied_at')->first();
+            ->where('employee_id', $this->employee->id)
+            ->latest('applied_at')
+            ->first();
+
+        if ($employeeEmployeeRequest === null) {
+            $employeeEmployeeRequest = EmployeeRequest::where('legal_entity_id', $legalEntityId)
+                ->where('employee_type', $roleName)
+                ->where('position', $this->employee->position)
+                ->when(
+                    $divisionUuid === null,
+                    fn ($query) => $query->whereNull('division_uuid'),
+                    fn ($query) => $query->where('division_uuid', $divisionUuid)
+                )
+                ->when(
+                    $startdate === null,
+                    fn ($query) => $query->whereNull('start_date'),
+                    fn ($query) => $query->where('start_date', $startdate)
+                )
+                ->latest('applied_at')
+                ->first();
+        }
 
         $userID = User::where('email', $employeeEmployeeRequest?->email)->first()?->id ?? null;
 
         $employeeEmployeeRequest?->update(['employee_id' => $this->employee->id]);
 
+        // Never overwrite an existing correct binding with null / a different guess.
         $this->employee->update([
             'division_uuid' => $divisionUuid,
             'inserted_at' => Carbon::parse($employeeEmployeeRequest?->appliedAt)->format('Y-m-d H:i:s'),

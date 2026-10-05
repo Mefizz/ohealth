@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\LegalEntity;
 use App\Classes\eHealth\Request;
 use App\Classes\eHealth\Exceptions\ApiException;
+use App\Exceptions\EHealth\EHealthValidationException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Spatie\Permission\Models\Role;
 
@@ -22,6 +24,7 @@ class EmployeeApi
      * @param  string  $legalEntityUUID
      * @return mixed
      * @throws ApiException
+     * @throws EHealthValidationException
      */
     public static function authenticate(string $code, string $legalEntityUUID): mixed
     {
@@ -45,6 +48,38 @@ class EmployeeApi
             $scope = $user->getScopes();
         }
 
+        try {
+            return self::requestToken($code, $legalEntity, $scope);
+        } catch (EHealthValidationException $exception) {
+            $grantedScope = self::lastGrantedScope($user);
+
+            if (!self::isScopeRejection($exception) || $grantedScope === '' || $grantedScope === $scope) {
+                throw $exception;
+            }
+
+            // Local roles can still claim more than eHealth grants; eHealth rejects the whole
+            // token request rather than the surplus. Retry once with the last granted set.
+            Log::warning('eHealth rejected the requested scopes, retrying with the last granted set.', [
+                'legal_entity_id' => $legalEntity->id,
+                'user_id' => $user?->id,
+                'rejected_scope' => $scope,
+            ]);
+
+            return self::requestToken($code, $legalEntity, $grantedScope);
+        }
+    }
+
+    /**
+     * Exchange the authorization code for a token with the given scope.
+     *
+     * @param  string  $code
+     * @param  LegalEntity  $legalEntity
+     * @param  string  $scope
+     * @return mixed
+     * @throws ApiException
+     */
+    protected static function requestToken(string $code, LegalEntity $legalEntity, string $scope): mixed
+    {
         $data = [
             'token' => [
                 'client_id' => $legalEntity->client_id ?? '',
@@ -57,6 +92,32 @@ class EmployeeApi
         ];
 
         return new Request('POST', config('ehealth.api.oauth.tokens'), $data, false)->sendRequest();
+    }
+
+    /**
+     * Whether eHealth refused the request because of the scopes we asked for.
+     */
+    protected static function isScopeRejection(EHealthValidationException $exception): bool
+    {
+        $message = mb_strtolower((string) data_get($exception->getDetails(), 'error.message'));
+
+        return str_contains($message, 'scope') && str_contains($message, 'not allowed');
+    }
+
+    /**
+     * Scopes eHealth granted on the previous login, stored as the user's direct permissions.
+     */
+    protected static function lastGrantedScope(?User $user): string
+    {
+        if (!$user) {
+            return '';
+        }
+
+        return $user->permissions()
+            ->where('guard_name', 'ehealth')
+            ->pluck('name')
+            ->unique()
+            ->join(' ');
     }
 
     /**

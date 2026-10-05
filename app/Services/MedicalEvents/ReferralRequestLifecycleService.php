@@ -768,59 +768,6 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
     }
 
     /**
-     * @param  string  $referralUuid
-     * @param  string  $resourceUuid  UUID of encounter / procedure / diagnostic_report
-     * @param  string  $resourceType  eHealth resource code: encounter|procedure|diagnostic_report
-     * @param  array  $payload  Optional payload for complete
-     * @return array
-     */
-    public function completeReferral(
-        string $referralUuid,
-        string $resourceUuid,
-        string $resourceType = 'encounter',
-        array $payload = []
-    ): array {
-        $allowedTypes = ['encounter', 'procedure', 'diagnostic_report'];
-        if (!in_array($resourceType, $allowedTypes, true)) {
-            throw new \InvalidArgumentException(__('care-plan.referral_complete_invalid_emz_type'));
-        }
-
-        if ($resourceUuid === '') {
-            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_required'));
-        }
-
-        $this->assertCompletionResourceOwned($referralUuid, $resourceUuid, $resourceType);
-
-        $payload = [
-            'based_on' => [
-                [
-                    'identifier' => [
-                        'type' => [
-                            'coding' => [
-                                [
-                                    'system' => 'eHealth/resources',
-                                    'code' => $resourceType,
-                                ],
-                            ],
-                        ],
-                        'value' => $resourceUuid,
-                    ],
-                ],
-            ],
-        ];
-
-        $response = \App\Classes\eHealth\EHealth::serviceRequest()->complete($referralUuid, $payload)->getData();
-        $response = $this->jobApi->resolve(is_array($response) ? $response : []);
-
-        $model = Repository::serviceRequest()->findByUuid($referralUuid);
-        if ($model) {
-            $model->update(['status' => ServiceRequestStatus::COMPLETED->value]);
-        }
-
-        return $response;
-    }
-
-    /**
      * Recall Service Request (TV 3.17.1.13) — Active → Recalled (not entered-in-error).
      *
      * @param  array<string, mixed>  $payload  Must include explanatory_letter; typically also signed_data
@@ -841,25 +788,6 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         }
 
         return is_array($response) ? $response : [];
-    }
-
-    /**
-     * @param  string  $referralUuid
-     * @param  string  $patientId
-     * @param  array  $payload  Optional payload for cancel
-     * @return array
-     */
-    public function cancelUsage(string $referralUuid, string $patientId, array $payload = []): array
-    {
-        $response = \App\Classes\eHealth\EHealth::serviceRequest()->cancelUsage($referralUuid, $patientId, $payload)->getData();
-
-        $model = Repository::serviceRequest()->findByUuid($referralUuid);
-        if ($model) {
-            // Cancel usage typically returns it to 'active' state so another facility can take it.
-            $model->update(['status' => ServiceRequestStatus::ACTIVE->value]);
-        }
-
-        return $response;
     }
 
     /**
@@ -946,25 +874,4 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         return $payload;
     }
 
-    private function assertCompletionResourceOwned(string $referralUuid, string $resourceUuid, string $resourceType): void
-    {
-        $referral = Repository::serviceRequest()->findByUuid($referralUuid);
-        $personId = $referral?->personId;
-
-        $resource = match ($resourceType) {
-            'encounter' => \App\Models\MedicalEvents\Sql\Encounter::query()->where('uuid', $resourceUuid)->first(),
-            'procedure' => \App\Models\MedicalEvents\Sql\Procedure::query()->where('uuid', $resourceUuid)->first(),
-            'diagnostic_report' => \App\Models\MedicalEvents\Sql\DiagnosticReport::query()->where('uuid', $resourceUuid)->first(),
-            default => null,
-        };
-
-        if ($resource === null) {
-            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_required'));
-        }
-
-        $resourcePersonId = $resource->personId ?? $resource->person_id ?? null;
-        if ($personId !== null && $resourcePersonId !== null && (int) $resourcePersonId !== (int) $personId) {
-            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_mismatch'));
-        }
-    }
 }

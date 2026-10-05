@@ -40,6 +40,10 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
     {
         parent::setUp();
 
+        $repository = Mockery::mock(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class);
+        $repository->shouldReceive('setExecutionStatus')->andReturnNull();
+        $this->instance(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class, $repository);
+
         $party = \App\Models\Relations\Party::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Іван',
@@ -120,7 +124,7 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
         $referralUuid = (string) Str::uuid();
         $patientId = (string) Str::uuid();
 
-        $mock = Mockery::mock(ReferralRequestLifecycleService::class);
+        $mock = Mockery::mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class);
         $mock->shouldReceive('cancelUsage')
             ->once()
             ->withArgs(function (string $uuid, string $passedPatientId, array $payload) use ($referralUuid, $patientId): bool {
@@ -128,9 +132,9 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
                     && $passedPatientId === $patientId
                     && ($payload['explanatory_letter'] ?? null) === 'Пацієнт не зʼявився';
             })
-            ->andReturn(['status' => 'active']);
+            ->andReturn($this->responseWithData(['status' => 'active']));
 
-        $this->app->instance(ReferralRequestLifecycleService::class, $mock);
+        $this->app->instance(\App\Classes\eHealth\Api\Patient\ServiceRequest::class, $mock);
 
         $response = $this->actingAsDoctor()->postJson($this->url($referralUuid, 'cancel-usage'), [
             'patient_id' => $patientId,
@@ -146,9 +150,9 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
     {
         $referralUuid = (string) Str::uuid();
 
-        $mock = Mockery::mock(ReferralRequestLifecycleService::class);
+        $mock = Mockery::mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class);
         $mock->shouldNotReceive('cancelUsage');
-        $this->app->instance(ReferralRequestLifecycleService::class, $mock);
+        $this->app->instance(\App\Classes\eHealth\Api\Patient\ServiceRequest::class, $mock);
 
         $response = $this->actingAsDoctor()->postJson($this->url($referralUuid, 'cancel-usage'), [
             'payload' => ['explanatory_letter' => 'x'],
@@ -160,6 +164,14 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
     private function actingAsDoctor(): static
     {
         return $this->actingAs($this->user, 'ehealth')->withoutMiddleware();
+    }
+
+    private function responseWithData(array $data): \App\Classes\eHealth\EHealthResponse
+    {
+        $response = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn($data);
+
+        return $response;
     }
 
     private function url(string $referralUuid, string $action): string

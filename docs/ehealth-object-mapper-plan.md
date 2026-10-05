@@ -181,6 +181,8 @@ Care plan, encounter і patient registry готують власний конт�
 
 Критерій: перенесений service-request flow не звертається до lifecycle service; bytes/API/job/persist/UI відповідають baseline. Issue не закриваємо лише за наявності DTO.
 
+Оновлення 05.10: complete/cancel usage перенесено з lifecycle service у вузький `app/Traits/MedicalEvents/UpdatesReferralExecution`, спільний для Livewire і HTTP-контролера. Він не залежить від Livewire properties: аргументи явні, DTO формує based_on через MapCollection, Api завершує job, Repository перевіряє пацієнта й зберігає статус лише після успіху. Resource type — enum. Старі методи й ownership helper видалені без delegates. Take-into-work/qualify і решта draft/sign/sync ще потребують окремої міграції. Спільний трейт у `app/Traits`, бо HTTP-контролер не має залежати від Livewire namespace.
+
 ### Наступні інкременти
 
 - DeviceRequest outbound завершено 05.10: `app/Dto/DeviceRequest` із окремими create/prequalify контрактами, MapCollection, явним часом/UUID, без SQL/HTTP; усі наявні outbound callers переведені, старі методи — лише сумісні delegates. Вісім незалежних fixtures з `9eb61910` фіксують signed JSON і edge cases. Inbound уже переведено раніше. Залишаються draft/sign/sync/print/SMS orchestration і legacy toFhir/fromFhir: після останнього caller видалити ReferralRequestLifecycleService та старий mapper. Це ще не завершений вертикальний DeviceRequest інкремент.

@@ -23,6 +23,7 @@ use App\Services\MedicalEvents\EncounterPackageBuilder;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use App\Traits\EnsuresEntityExists;
 use App\Traits\SubmitsEHealthEncounter;
+use App\Traits\MedicalEvents\UpdatesReferralExecution;
 use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Support\Facades\Auth;
@@ -37,6 +38,7 @@ class EncounterCreate extends EncounterComponent
 {
     use EnsuresEntityExists;
     use SubmitsEHealthEncounter;
+    use UpdatesReferralExecution;
 
     private EncounterPackageBuilder $packageBuilder;
 
@@ -597,7 +599,7 @@ class EncounterCreate extends EncounterComponent
                     $this->ensureReferralTakenIntoWork($service, $this->referralToRedeemUuid);
                 }
 
-                $service->completeReferral($this->referralToRedeemUuid, $this->createdEncounterUuidForRedeem);
+                $this->completeReferral($this->referralToRedeemUuid, $this->createdEncounterUuidForRedeem);
                 Session::flash('success', __('encounters.messages.referral_redeemed'));
             }
         } catch (\Exception $e) {

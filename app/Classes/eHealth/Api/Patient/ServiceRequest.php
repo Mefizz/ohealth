@@ -20,6 +20,13 @@ class ServiceRequest extends PatientApiBase
 {
     use ResolvesSignedPatientRequests;
 
+    public function completeAndResolve(string $id, array $payload): array
+    {
+        $response = $this->complete($id, $payload)->getData();
+
+        return EHealth::job()->resolve(is_array($response) ? $response : []);
+    }
+
     public function recallAndResolve(string $patientId, string $id, array $payload): array
     {
         if (trim((string) ($payload['explanatory_letter'] ?? '')) === '') {

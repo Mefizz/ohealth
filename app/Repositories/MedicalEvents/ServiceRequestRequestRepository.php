@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Enums\MedicalEvents\ReferralCompletionResourceType;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
@@ -28,6 +29,27 @@ class ServiceRequestRequestRepository extends BaseRepository
     use ResolvesRequestFhirRefs;
     use FindsOpenActivityRequests;
     use FindsOwnedRequests;
+
+    public function assertCompletionResourceOwned(string $referralUuid, string $resourceUuid, ReferralCompletionResourceType $type): void
+    {
+        $personId = $this->findByUuid($referralUuid)?->personId;
+        $modelClass = $type->modelClass();
+        $resource = $modelClass::query()->where('uuid', $resourceUuid)->first();
+
+        if ($resource === null) {
+            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_required'));
+        }
+
+        $resourcePersonId = $resource->personId ?? $resource->person_id ?? null;
+        if ($personId !== null && $resourcePersonId !== null && (int) $resourcePersonId !== (int) $personId) {
+            throw new \InvalidArgumentException(__('care-plan.referral_complete_emz_mismatch'));
+        }
+    }
+
+    public function setExecutionStatus(string $uuid, ServiceRequestStatus $status): void
+    {
+        $this->findByUuid($uuid)?->update(['status' => $status->value]);
+    }
 
     public function findOwnedReferralByPerson(string $uuid, int $personId, ?int $legalEntityId): ServiceRequestRequest|DeviceRequestRequest
     {

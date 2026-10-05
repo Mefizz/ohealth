@@ -168,7 +168,7 @@ class ElectronicReferralAndPrescriptionDiagnosticTest extends TestCase
             'complete' => ['status' => ServiceRequestStatus::COMPLETED->value],
         ]);
 
-        $service = app(ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\ReferralExecutionHarness();
         $result = $service->completeReferral($referralUuid, $encounterUuid);
 
         $this->assertSame(ServiceRequestStatus::COMPLETED->value, $result['status'] ?? null);
@@ -278,7 +278,7 @@ class ElectronicReferralAndPrescriptionDiagnosticTest extends TestCase
             ->andReturn($this->responseWithData(['status' => 'pending']));
         $this->app->instance(\App\Classes\eHealth\Api\Job::class, $jobApi);
 
-        $service = app(ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\ReferralExecutionHarness();
 
         try {
             $service->completeReferral($referralUuid, $encounterUuid);

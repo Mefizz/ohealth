@@ -47,6 +47,15 @@ Never push refactor commits to the #792 head branch.
 - Patient ServiceRequest/DeviceRequest APIs now own signed create/cancel and prequalify resolution.
   ServiceRequest owns recall resolution. Livewire callers choose the API explicitly; the referral
   lifecycle no longer exposes these transport wrappers. INVALID prequalify verdicts remain blocking.
+- ServiceRequest completion/cancel usage no longer call the lifecycle service. HTTP controller,
+  referral search UI and encounter completion share two protected methods in
+  `app/Traits/MedicalEvents/UpdatesReferralExecution`, with explicit arguments and no component state.
+  `EhealthComplete` maps the allowlisted completion reference collection; supported resource types
+  live in `Enums/MedicalEvents/ReferralCompletionResourceType`. Repository keeps the existing
+  same-patient/resource-exists checks and local status writes. Patient ServiceRequest API owns
+  completion job resolution; status is persisted only after that API call succeeds.
+  Cancel usage retains its existing synchronous response semantics. Both old lifecycle methods and
+  its duplicated completion ownership helper have been deleted, without compatibility delegates.
 - Removed `MedicalRequestOwnership`. Request repositories resolve UUIDs within the patient/encounter
   and explicit facility context; the shared query concern uses no session/container context. Approval
   lookup stays scoped to the current care plan. All Livewire callers pass the facility id explicitly.
@@ -124,6 +133,8 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 - Split remaining referral workflow into narrow Livewire concerns, existing APIs and repositories,
   preserving ownership checks, quantity protection and operation order. The large ReferralRequestLifecycleService
   is still present and is not considered an acceptable final architecture.
+- Remaining referral operations include take-into-work/qualify, draft creation, sign/sync, print and
+  SMS. Completion/cancel usage have been migrated across both HTTP and Livewire entry points.
 - Migrate separate legacy `toFhir`/`fromFhir` callers before deleting their compatibility classes.
 - eRx, care-plan/activity mapping, approvals and other medical workflows remain
   staged work. Do not mechanically copy a lifecycle service into a large trait or rename it into Actions.
@@ -133,7 +144,13 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 
 ## Validation
 
-October 5 increment: **348 tests / 1477 assertions**, no failures, errors or risky tests, in isolated
+October 5 completion/cancel increment: **363 tests / 1520 assertions**, no failures, errors or risky
+tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. Project Pint passes for all 16 changed PHP files.
+Targeted tests cover all three completion resource types, cross-patient rejection, missing/unsupported
+resources, completion job timeout, HTTP payload allowlisting/error translation and cancellation
+success/failure persistence. One existing PDO deprecation remains.
+
+Earlier October 5 device checkpoint: **348 tests / 1477 assertions**, no failures, errors or risky tests, in isolated
 mapper841 PHP 8.5.3/PostgreSQL. Includes device golden contracts, actual SignatureService bytes,
 patient-registry/encounter/care-plan signing, API contracts, partial sync, ownership, eRx raw signing
 and approvals. Project Pint passes for all 13 changed PHP files. One existing PDO deprecation remains.
@@ -143,7 +160,7 @@ fail on an immutable application snapshot of pre-change `9eb61910`: the two olde
 lifecycle test files use stale Identifier FK fixtures/alias mocks and lack Cipher configuration;
 MedicalEventAuthorizationTest's HTTP route test lacks a Vite manifest in the isolated environment.
 These are tracked limitations, not a claim that the complete application test suite is green. The
-348-test refactor regression excludes those three legacy files; no expectations were weakened.
+current refactor regression excludes those three legacy files; no expectations were weakened.
 
 Final regression (2026-10-01): **286 tests / 1151 assertions**, no failures, errors or risky tests.
 Includes mapping and exact signing bytes, API job/prequalify contracts, partial sync/Identifier links,

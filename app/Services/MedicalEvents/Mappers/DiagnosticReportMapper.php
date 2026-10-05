@@ -65,7 +65,9 @@ class DiagnosticReportMapper implements FhirMapperContract
                 ->toIdentifier($data['basedOnIdentifier']);
         }
 
-        $paperReferral = PaperReferralMapper::toFhir($data);
+        $paperReferral = empty($data['paperReferralRequesterLegalEntityEdrpou']) ? null
+            : \App\Core\Arr::toCamelCase(app(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class)
+                ->map(new \App\Dto\FormCollection($data), \App\Dto\PaperReferral\Ehealth::class)->toArray());
         if ($paperReferral !== null) {
             $result['paperReferral'] = $paperReferral;
         }
@@ -175,7 +177,8 @@ class DiagnosticReportMapper implements FhirMapperContract
             'primarySource' => data_get($data, 'primarySource'),
             'reportOriginCode' => data_get($data, 'reportOrigin.coding.0.code', ''),
             'reportOriginText' => data_get($data, 'reportOrigin.text', ''),
-            ...PaperReferralMapper::fromFhir($data),
+            ...app(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class)
+                ->map(new \Illuminate\Support\Collection($data), \App\Dto\PaperReferral\Form::class)->toArray(),
             'conclusionCode' => data_get($data, 'conclusionCode.coding.0.code', ''),
             'conclusion' => data_get($data, 'conclusion', ''),
             'divisionId' => data_get($data, 'division.identifier.value', ''),

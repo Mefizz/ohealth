@@ -28,9 +28,11 @@ Quantity lock і точні SQL status lists перенесені в Repository/
 
 Додано незалежні старі baseline-контракти: чотири для care-plan Model/sign/hydration, десять для activity payload/hydration, п'ять для activity draft/sync і п'ять для pharmacy dispense. Golden expectations отримані до заміни, а не з нового mapper.
 
+PaperReferralMapper також видалено. Procedure/DiagnosticReport використовують PaperReferral/Ehealth та Form; дев'ять старих baseline cases перевіряють точний wire JSON, missing/null і paper/electronic priority. Чиста SourceHasPath condition зберігає явний null; старий camelCase intermediate contract адаптують тільки невідрефакторені parent-мапери.
+
 ## Перевірки
 
-Остання медична регресія після CarePlan/activity/approval/dispense: **553 тести / 2249 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/JSON/no-IO, API/job, Repository/Identifier links, care plan, referrals, eRx/device, registry, encounter, approvals і pharmacy dispense. Pint пройшов для всіх 84 змінених/нових PHP-файлів; git diff --check проходить. Використано наявний isolated mapper841 PHP 8.5.3/PostgreSQL; нових контейнерів не створено. Старі golden expectations збережено, Composer не змінювався після попереднього успішного validate. Реальний КЕП/eHealth UAT та HTTP authorization suite із Vite assets ще потрібні.
+Остання медична регресія після CarePlan/activity/approval/dispense та PaperReferral: **563 тести / 2331 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/JSON/no-IO, API/job, Repository/Identifier links, care plan, referrals, eRx/device, registry, encounter, approvals і pharmacy dispense. Pint пройшов для 84 PHP-файлів основного інкременту та семи PHP-файлів PaperReferral; git diff --check проходить. Використано наявний isolated mapper841 PHP 8.5.3/PostgreSQL; нових контейнерів не створено. Старі golden expectations збережено, Composer не змінювався після попереднього успішного validate. Реальний КЕП/eHealth UAT та HTTP authorization suite із Vite assets ще потрібні.
 
 Окремо повний Division feature suite має **91 тест / 401 assertions, п'ять errors, один failure та чотири risky tests**. Ті самі збої підтверджено на незалежно завантаженому незміненому main `1cf8b92e`: обробка mapping exceptions і persistence Division. Вони не замовчуються й не включаються у твердження про успішну медичну регресію. Application-wide suite поки не є green.
 
@@ -38,7 +40,7 @@ Quantity lock і точні SQL status lists перенесені в Repository/
 
 ## Що ще потрібно
 
-1. Окрема encounter/FHIR хвиля: 14 array-маперів, EncounterPackageBuilder/Loader і Fhir/FhirResource. У Services/MedicalEvents лишається **18 PHP-файлів**. Після останнього caller видалити facade/helpers/FhirMapperContract; Composition входить у цю хвилю.
+1. Окрема encounter/FHIR хвиля: 13 array-маперів, EncounterPackageBuilder/Loader і Fhir/FhirResource. У Services/MedicalEvents лишається **17 PHP-файлів**. Після останнього caller видалити facade/helpers/FhirMapperContract; Composition входить у цю хвилю.
 2. Спростити DeviceRequest/MedicationRequest context adapters під час міграції складних encounter форм. Вони вже делегують серіалізацію DTO; не додавати порожні Form DTO без реального hydration caller.
 3. Перед ready провести реальний КЕП/eHealth UAT, перевірити конкурентні issuance/sign операції й HTTP authorization suite з Vite assets. Збережений quantity lock сам по собі не робить весь issuance атомарним.
 4. Підтримати актуальність main та окремо усунути підтверджені Division baseline failures до заяви про application-wide green.

@@ -138,6 +138,11 @@ Base: upstream main `1cf8b92e`, integrated 2026-10-05 including merged #907; #79
   read or replace a UUID through a foreign care-plan link. Contract sync uses the explicitly supplied
   legal entity even when the session is bound to another entity; tests exercise both contexts.
 
+- PaperReferralMapper is removed. Procedure/DiagnosticReport map the shared Ehealth/Form targets.
+  Nine old a6618f05 contracts preserve exact wire JSON, missing versus explicit null and paper/electronic
+  priority. SourceHasPath checks plain input presence without IO. Only the legacy parent adapters
+  restore camelCase; that intermediate conversion disappears with their own DTO migration.
+
 ## Compatibility with main
 
 The September 30 rebase includes personal-data sync, separate specimen/diagnostic pages and eHealth
@@ -234,7 +239,7 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 
 ## Remaining work
 
-- The separate encounter/FHIR wave still has 18 PHP files in Services/MedicalEvents: 14 array mappers,
+- The separate encounter/FHIR wave still has 17 PHP files in Services/MedicalEvents: 13 array mappers,
   EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
   helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
 - Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
@@ -247,6 +252,14 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 paper-referral increment: **563 tests / 2331 assertions**, no failures, errors or risky tests.
+Adds nine independent PaperReferral contracts, both actual parent mapper adapters and ProcedureRepository
+coverage to the expanded medical regression. Pint passes the seven changed/new PHP files (the prior
+care-plan/activity/approval/dispense increment passed all 84 PHP files). Git diff --check passes.
+One existing PDO deprecation remains. The remaining Services/MedicalEvents inventory is 17 files:
+13 array mappers, two package classes and two FHIR helpers; UAT and the separate encounter wave remain open.
+
 
 October 5 care-plan/activity/approval/dispense completion: **553 tests / 2249 assertions**, no failures,
 errors or risky tests in retained mapper841 PHP 8.5.3/PostgreSQL. Includes multi-source CarePlan/activity

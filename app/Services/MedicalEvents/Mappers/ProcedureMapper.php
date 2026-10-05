@@ -62,7 +62,9 @@ class ProcedureMapper implements FhirMapperContract
                 ->toIdentifier($data['basedOnIdentifier']);
         }
 
-        $paperReferral = PaperReferralMapper::toFhir($data);
+        $paperReferral = empty($data['paperReferralRequesterLegalEntityEdrpou']) ? null
+            : \App\Core\Arr::toCamelCase(app(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class)
+                ->map(new \App\Dto\FormCollection($data), \App\Dto\PaperReferral\Ehealth::class)->toArray());
         if ($paperReferral !== null) {
             $result['paperReferral'] = $paperReferral;
         }
@@ -233,7 +235,8 @@ class ProcedureMapper implements FhirMapperContract
             'outcomeCode' => data_get($data, 'outcome.coding.0.code', ''),
             'note' => data_get($data, 'note', ''),
             'basedOnIdentifier' => data_get($data, 'basedOn.0.identifier.value', data_get($data, 'basedOn.identifier.value', '')),
-            ...PaperReferralMapper::fromFhir($data),
+            ...app(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class)
+                ->map(new \Illuminate\Support\Collection($data), \App\Dto\PaperReferral\Form::class)->toArray(),
             'performedType' => match (true) {
                 !empty($performedDateTime) => 'date_time',
                 !empty($performedPeriodStartDate) => 'period',

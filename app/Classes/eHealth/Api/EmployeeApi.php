@@ -35,15 +35,16 @@ class EmployeeApi
 
         $role = Session::get('first_login_role');
 
+        // Same scope rules as Login/LoginDev authorize: role catalog ∩ LE-type whitelist,
+        // minus scopes eHealth RBAC rejects (a single illegal scope 422s the whole token).
         if (!$user || $role) {
             $permissions = Role::where('name', $role)
                 ->whereGuardName('ehealth')
                 ->firstOrFail()
                 ->permissions()
-                ->pluck('name')
-                ->toArray();
+                ->pluck('name');
 
-            $scope = implode(' ', $permissions);
+            $scope = User::authorizeScopesFromPermissionNames($permissions);
         } else {
             $scope = $user->getScopes();
         }

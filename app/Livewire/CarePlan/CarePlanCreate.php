@@ -6,6 +6,8 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\Ehealth as CarePlanEhealthData;
+use App\Dto\CarePlan\Model as CarePlanModelData;
 use App\Enums\CarePlanStatus;
 use App\Enums\CarePlanTermsOfService;
 use App\Enums\EmployeeRole\Status as EmployeeRoleStatus;
@@ -39,6 +41,7 @@ use Illuminate\Validation\ValidationException;
 use Livewire\WithFileUploads;
 use RuntimeException;
 use Throwable;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
 class CarePlanCreate extends BasePatientComponent
 {
@@ -664,29 +667,17 @@ class CarePlanCreate extends BasePatientComponent
 
         $encounterData = $this->resolveEncounterData();
 
-        $carePlan = $repository->create([
-            'person_id' => $this->resolvePersonId(),
-            'author_id' => Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null)?->id,
-            'legal_entity_id' => $legalEntity?->id,
-            'status' => CarePlanStatus::DRAFT->value,
-            'category' => $this->form->category,
-            'context' => $this->form->context ?: null,
-            'title' => $this->form->title,
-            'terms_of_service' => $this->form->termsOfService ?: null,
-            'period_start' => convertToYmd($this->form->periodStart),
-            'period_end' => !empty($this->form->periodEnd)
-                ? convertToYmd($this->form->periodEnd) : null,
-            'encounter_id' => $encounterData['id'],
-            'addresses' => $encounterData['addresses'],
-            'supporting_info' => [
-                'episodes' => $this->form->episodes,
-                'medical_records' => $this->form->medicalRecords,
-            ],
-            'description' => $this->form->description ?: null,
-            'note' => $this->form->note ?: null,
-            'inform_with' => $this->form->informWith ?: null,
-            'terms_of_service' => $this->form->termsOfService ?: null,
-        ]);
+        $carePlan = $repository->create(array_replace(
+            app(ObjectMapperInterface::class)->map($this->form, CarePlanModelData::class)->toArray(),
+            [
+                'person_id' => $this->resolvePersonId(),
+                'author_id' => Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null)?->id,
+                'legal_entity_id' => $legalEntity?->id,
+                'status' => CarePlanStatus::DRAFT->value,
+                'encounter_id' => $encounterData['id'],
+                'addresses' => $encounterData['addresses'],
+            ]
+        ));
 
         session()->flash('success', __('care-plan.draft_saved'));
         $this->redirectRoute('care-plans.edit', [legalEntity(), $carePlan->id], navigate: true);
@@ -927,13 +918,15 @@ class CarePlanCreate extends BasePatientComponent
                 ]);
             }
 
-            $carePlanPayload = $repository->formatCarePlanRequest(
-                $this->form->toArray(),
-                $this->form->encounter ?: null,
-                $encounterData,
-                $author?->uuid,
-                $this->carePlanUuid ?: null
-            );
+            $carePlanPayload = app(ObjectMapperInterface::class)->map(
+                $this->form,
+                new CarePlanEhealthData(
+                    $this->carePlanUuid ?: (string) Str::uuid(),
+                    $author?->uuid,
+                    $encounterData,
+                    config('app.timezone', 'Europe/Kyiv'),
+                )
+            )->toArray();
             $generatedUuid = $carePlanPayload['id'];
 
             $signedContent = signatureService()->signData(

@@ -717,6 +717,12 @@ class CarePlanLifecycleTest extends TestCase
         $this->assertFalse(array_key_exists('instantiates_protocol', $capturedPayload));
         $this->assertStringNotContainsString('"instantiates_protocol"', json_encode($capturedPayload));
         $this->assertEquals('SMS', $capturedPayload['inform_with'] ?? null);
+        $this->assertSame($this->employee->uuid, $capturedPayload['author']['identifier']['value']);
+        $this->assertSame($this->encounter->uuid, $capturedPayload['encounter']['identifier']['value']);
+        $this->assertSame('PROVIDING_CONDITION', $capturedPayload['terms_of_service']['coding'][0]['code']);
+        foreach (['password', 'knedp', 'key_container_upload', 'patient', 'medical_number', 'co_authors'] as $key) {
+            $this->assertArrayNotHasKey($key, $capturedPayload);
+        }
 
         // Check signed Care Plan is in DB with all fields persisted locally
         $this->assertDatabaseHas('care_plans', [
@@ -762,6 +768,9 @@ class CarePlanLifecycleTest extends TestCase
         // Check payload did NOT contain instantiates_protocol
         $this->assertNotNull($capturedPayload);
         $this->assertFalse(array_key_exists('instantiates_protocol', $capturedPayload));
+        $this->assertSame('Signed Updated Plan', $capturedPayload['title']);
+        $this->assertSame('PROVIDING_CONDITION_SIGNED', $capturedPayload['terms_of_service']['coding'][0]['code']);
+        $this->assertSame($this->employee->uuid, $capturedPayload['author']['identifier']['value']);
 
         // Check updated Care Plan is in DB with all fields updated locally
         $this->assertDatabaseHas('care_plans', [

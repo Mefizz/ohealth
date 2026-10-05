@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Enums\CarePlanStatus;
-use App\Classes\eHealth\EHealth;
 use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Database\Eloquent\Collection;
@@ -77,96 +76,6 @@ class CarePlanRepository
         }
 
         return $carePlan->update($data);
-    }
-
-    /**
-     * Format Care Plan data into the proper FHIR schema for eHealth API requests.
-     */
-    public function formatCarePlanRequest(array $form, ?string $encounterUuid, array $encounterData, ?string $employeeUuid, ?string $carePlanUuid = null): array
-    {
-        $id = $carePlanUuid ?: \Illuminate\Support\Str::uuid()->toString();
-
-        $addresses = $encounterData['addresses'] ?? [];
-
-        $employeeRef = [
-            'identifier' => [
-                'type' => [
-                    'coding' => [['system' => 'eHealth/resources', 'code' => 'employee']]
-                ],
-                'value' => $employeeUuid
-            ]
-        ];
-
-        // Use encounter period start if available to satisfy eHealth rule:
-        // "Care plan start date must be greater or equal than Encounter period start"
-        $periodStart = $form['periodStart'] ?? $form['period_start'];
-        if (!empty($encounterData['period_start'])) {
-            // Encounter start is already in UTC from DB
-            $encounterStart = \Carbon\CarbonImmutable::parse($encounterData['period_start'], 'UTC');
-
-            // Form date is Kyiv time (e.g. "12.05.2026")
-            $formStart = \Carbon\CarbonImmutable::parse($periodStart, config('app.timezone', 'Europe/Kyiv'))->startOfDay();
-
-            // If the selected day is the same or earlier than the encounter's day,
-            // we MUST use the encounter's actual start time to avoid the 422 error.
-            if ($formStart->utc()->lt($encounterStart)) {
-                // If user picked today but encounter started later today,
-                // we set care plan start exactly to encounter start + 1 minute for safety
-                $periodStart = $encounterStart->addMinute()->toDateTimeString();
-
-                // Since convertToEHealthISO8601 parses and converts to UTC again,
-                // we need to pass it a format it understands or bypass it.
-                // To keep it simple, we'll use a direct ISO string if we already have UTC.
-                $finalPeriodStart = $encounterStart->addMinute()->toIso8601ZuluString();
-            } else {
-                $finalPeriodStart = convertToEHealthISO8601($periodStart . ' 00:00:00');
-            }
-        } else {
-            $finalPeriodStart = convertToEHealthISO8601($periodStart . ' 00:00:00');
-        }
-
-        $payload = removeEmptyKeys([
-            'id' => $id,
-            'intent' => 'order',
-            'status' => 'new',
-            'category' => [
-                'coding' => [
-                    ['system' => 'eHealth/care_plan_categories', 'code' => $form['category']]
-                ]
-            ],
-            'title' => $form['title'],
-            'period' => array_filter([
-                'start' => $finalPeriodStart,
-                'end' => !empty($form['periodEnd']) ? convertToEHealthISO8601($form['periodEnd'] . ' 23:59:59') : (!empty($form['period_end']) ? convertToEHealthISO8601($form['period_end'] . ' 23:59:59') : null),
-            ]),
-            'addresses' => !empty($addresses) ? array_values($addresses) : null,
-            'supporting_info' => array_values(array_filter(array_map(fn ($e) =>
-                (!empty($e['uuid']) || !empty($e['id'])) ? [
-                    'identifier' => [
-                        'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'episode_of_care']]],
-                        'value' => $e['uuid'] ?? $e['id']
-                    ]
-                ] : null, $form['episodes'] ?? []))),
-            'encounter' => !empty($form['encounter']) ? [
-                'identifier' => [
-                    'type' => [
-                        'coding' => [['system' => 'eHealth/resources', 'code' => 'encounter']]
-                    ],
-                    'value' => $form['encounter']
-                ]
-            ] : null,
-            'author' => $employeeRef,
-            'description' => $form['description'] ?: null,
-            'note' => $form['note'] ?: null,
-            'terms_of_service' => [
-                'coding' => [
-                    ['system' => 'PROVIDING_CONDITION', 'code' => $form['termsOfService'] ?? $form['terms_of_service']]
-                ]
-            ],
-            'inform_with' => $form['informWith'] ?? ($form['inform_with'] ?? null)
-        ]);
-
-        return $payload;
     }
 
     /**

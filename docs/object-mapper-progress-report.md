@@ -14,6 +14,8 @@ Repository залишається відповідальним за Identifier/F
 
 ## Що вже зроблено загалом
 
+Care-plan create/update: валідована CarePlanForm прямо мапиться у `CarePlan/Model` для draft та `CarePlan/Ehealth` для підписання. UUID/author/encounter/timezone готує caller і передає у target; DTO не шукає їх у БД/session. Repository payload formatter видалено. Вісім незалежних контрактів зі старої реалізації перевіряють arrays і точні КЕП-байти, включно з DST і clipping до encounter. Локальні display snapshots та null-clearing збережено; password/key/UI поля не потрапляють у payload.
+
 ServiceRequest/DeviceRequest: create/prequalify, багатоджерельний inbound, partial sync, draft/sign/print/SMS, взяття в роботу, qualify, complete/cancel usage та full search import. Успішний signed create зберігається до додаткового GET; його помилка не втрачає документ. Partial sync зберігає автора й Identifier-зв'язки; імпорт зберігає свої aliases, timestamps, quantity=0 та неповні references.
 
 eRx: структуровані create/prequalify/dosage/fallback-sign, partial metadata sync, draft/sign/reject, raw-first signing, active UUID, block/unblock, друк і повідомлення. Standalone payload із рядковим dosage тепер також має власні DTO. Чотири незалежні fixtures з попереднього компонента перевіряють точний JSON і casts duration; feature-тести перевіряють validation до mapper/API та збереження невідомих raw-полів. Ownership, eligibility та quantity checks збережені; область транзакції quantity guard не змінювалася.
@@ -22,7 +24,7 @@ eRx: структуровані create/prequalify/dosage/fallback-sign, partial 
 
 ## Перевірки
 
-Остання медична регресія: **496 тестів / 1983 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/API/Repository/Livewire, care plan, referrals, eRx, device, registry, encounter, approvals та нові main device-dispense сценарії. Старі golden expectations не перегенеровано. Composer validation, Pint для 50 PHP-файлів і git diff --check проходять.
+Остання медична регресія: **518 тестів / 2076 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/API/Repository/Livewire, care plan, referrals, eRx, device, registry, encounter, approvals та main device-dispense сценарії. Прогін включає нові care-plan DTO contracts, фактичні create/update/sign/sync та care-plan Repository/activity unit tests. Старі golden expectations не перегенеровано. Pint для дев'яти PHP-файлів інкременту і git diff --check проходять; Composer не змінювався після попереднього успішного validate.
 
 Окремо повний Division feature suite має **91 тест / 401 assertions, п'ять errors, один failure та чотири risky tests**. Ті самі збої підтверджено на незалежно завантаженому незміненому main `1cf8b92e`: обробка mapping exceptions і persistence Division. Вони не замовчуються й не включаються у твердження про успішну медичну регресію. Application-wide suite поки не є green.
 
@@ -30,7 +32,7 @@ eRx: структуровані create/prequalify/dosage/fallback-sign, partial 
 
 ## Що ще потрібно
 
-1. Завершити care-plan/activity DTO та quantity/program/validation guards зі збереженням блокувань і перевіркою повторних/паралельних підписів.
+1. Завершити care-plan remote→Model і Model→Form hydration, окремий legacy model-source signPlan, activity DTO та quantity/program/validation guards зі збереженням блокувань і перевіркою повторних/паралельних підписів. Raw cancel/status documents не відновлюємо через create DTO.
 2. Перенести approvals/OTP та dispense: HTTP — API, polling/UI — concerns, persistence — Repository, enum — app/Enums, result DTO — app/Dto. Зберегти async jobs і read-access.
 3. Перенести решту encounter-маперів і package builder/loader; далі Composition/FHIR helpers. У Services/MedicalEvents лишається **27 PHP-файлів**: 14 маперів, 7 workflow/guard/package класів, 4 approval enum/result класи і 2 FHIR helpers.
 4. Під час відповідних хвиль спростити складні care-plan/encounter source adapters і додати Model→Form лише для реальної hydration. Усі шість напрямків mapping не вважаються завершеними.

@@ -168,6 +168,10 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 
 ## Independent contract fixtures
 
+- Care-plan form create: eight payloads captured from `CarePlanRepository::formatCarePlanRequest`
+  at `17955764` before replacement. Cover sparse lists, Unicode, empty optional fields, null author,
+  same-day encounter clipping, exact encounter midnight and both DST boundaries. Arrays and exact
+  signing JSON are compared independently, including SignatureService's call to the mocked Cipher.
 - Outbound: eight cases captured from the unmodified #792 mapper at `4b1f0e7`, using a fixed clock and
   Europe/Kyiv. Expected prequalify, signed document and exact SignatureService JSON bytes are retained.
 - Inbound: eight service-request and ten device-request cases captured from the original lifecycle on
@@ -194,6 +198,12 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 
 ## Remaining work
 
+- Care-plan form draft/create/update now use `Dto/CarePlan/Model` and `Ehealth` directly. The existing
+  target receives explicit id/author/encounter/timezone context; there is no additional source adapter.
+  Repository::formatCarePlanRequest is removed. These DTOs retain the old local null-clearing,
+  display-snapshot and wire empty-value policies rather than applying a global serializer rule.
+  CarePlanManager::signPlan still has its separate legacy model-source contract; remote sync,
+  Model-to-Form hydration and activity payload formatting remain subsequent steps.
 - Other encounter/FHIR callers remain. All three request array mappers and request lifecycle services
   are gone; external search import no longer depends on the old ServiceRequestMapper.
 - Care-plan/activity mapping, quantity/program guards, approvals and other medical workflows remain
@@ -209,6 +219,16 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 care-plan form increment: **518 tests / 2076 assertions**, no failures, errors or risky
+tests, in retained mapper841 PHP 8.5.3/PostgreSQL. This adds eight independent outbound care-plan
+contracts, exact SignatureService bytes, local draft/null-clearing contracts and CarePlan Repository/
+activity unit coverage to the previous expanded medical suite. Actual Livewire create/update/sign
+and existing sync pass. PHP Pint passes all nine changed PHP files; git diff --check passes.
+The final direct shared-trait DTOs also passed 11 tests / 51 assertions after simplification.
+One existing PDO deprecation remains. Composer dependencies were unchanged after the previous
+successful validation; no new containers were created. Remote care-plan and activity DTO migration
+remain pending, and the independently reproduced Division baseline failures remain separate.
 
 October 5 alignment with merged #907: **496 tests / 1983 assertions**, no failures, errors or risky
 tests, in the retained mapper841 PHP 8.5.3/PostgreSQL environment. Covers medical mapping, API,

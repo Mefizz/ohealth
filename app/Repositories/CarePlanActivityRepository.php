@@ -6,10 +6,11 @@ namespace App\Repositories;
 
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use App\Services\MedicalEvents\Fhir;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -498,7 +499,7 @@ class CarePlanActivityRepository
 
         $deviceFields = $this->resolveDeviceRequestFieldsFromActivity($activity, $detail);
 
-        return Fhir::deviceRequest()->toPrequalifyPayload(
+        return app(DeviceRequestPayloads::class)->prequalify(
             array_merge([
                 'quantity' => $activity->quantity,
                 'program_id' => $activity->program,
@@ -508,6 +509,7 @@ class CarePlanActivityRepository
                 'ended_at' => $endDate ? \Carbon\Carbon::parse($endDate)->format('Y-m-d') : null,
             ], $deviceFields),
             $uuids,
+            CarbonImmutable::now('UTC'),
             (string) $carePlan->uuid,
             (string) $activity->uuid,
         );

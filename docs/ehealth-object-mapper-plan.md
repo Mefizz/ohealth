@@ -1,6 +1,6 @@
 # Рефактор eHealth без прикладного сервісного шару
 
-Оновлено 01.10.2026 за уточненнями автора й прикладом тімліда: операції розподіляємо між Livewire, API-класами, enum і вузькими трейтами; mapping організовуємо за призначенням ModelData/EHealthData/FormData з підтримкою кількох типів джерел. Окремий шар Actions та нові класи Rules/Managers/Coordinators не вводимо.
+Оновлено 04.10.2026 після порівняння з PR #907: операції розподіляємо між Livewire, API-класами, enum і вузькими трейтами; mapping організовуємо за призначенням ModelData/EHealthData/FormData з підтримкою кількох типів джерел. Валідований Form або підготовлений Model дозволені як прямі джерела. Окремий шар Actions та нові класи Rules/Managers/Coordinators не вводимо.
 
 Issue: [#841](https://github.com/openhealths/nationHealth/issues/841). Робоча гілка: `Mefizz/ohealth:i841_object_mapper_service_request`, база upstream main `b2239108` після merge #792 (24.09) і rebase (30.09). Рефактор не публікується в гілку #792. Під час rebase збережено нові сценарії main, включно з eHealth referral search і поточним session-flash/x-message. Стан реалізації та результати тестів: [object-mapper-refactor.md](object-mapper-refactor.md).
 
@@ -56,15 +56,24 @@ Repository отримує `*ModelData` або погоджений масив д
 
 ### ObjectMapper: чисте перетворення контрактів
 
-`app/Mapping/EHealth/{Referral,MedicationRequest,CarePlan,CarePlanActivity,Shared}` — source snapshots, target DTO та Map-метадані. `app/Mapping/Transforms` — невеликі чисті перетворення. Нормалізація до wire-array залишається поруч із контрактом; вона не виконує workflow.
+У поточному коді `app/Mapping/EHealth/{Referral,Shared}` містить source snapshot, target DTO та Map-метадані. Після прикладу #907 узгоджуємо цільові DTO з `app/Dto/<Resource>` за призначенням Ehealth/Model/Form; різні API-контракти зберігають окремі Create/Prequalify-класи. Перенесення namespace виконується одним окремим інкрементом із міграцією callers, без дублювання двох реалізацій. `app/Mapping/Transforms` залишається місцем спільних чистих перетворень; невеликі resource-specific static transforms можуть лишатися біля DTO. Нормалізація до wire-array залишається поруч із контрактом; вона не виконує workflow.
 
-Атрибути ставимо на DTO, не на Eloquent і не на Livewire. Source містить валідовані поля й підготовлені UUID/час; він не є публічною властивістю компонента. Не передаємо mapper весь компонент або Model із lazy-loading relations.
+Атрибути ставимо на DTO, не на Eloquent і не на Livewire. Валідований Livewire Form або Model із явно завантаженими необхідними relations можна передавати mapper без додаткової копії джерела. DTO описує allowlist полів і точні property paths; для різних джерел застосовуємо SourceClass. Class-level Map(source: Form::class) сам по собі не перенаправляє читання в form.data[...] і не замінює валідацію чи ownership checks. Не серіалізуємо весь Form/Model; UI-стан, пароль та КЕП-файл не стають полями payload. SQL/HTTP під час mapping заборонені. Окремий snapshot лишається лише там, де потрібні вже перевірені UUID, час операції або однаковий незмінний документ для кількох callers.
+
+### Уточнення після PR #907 — 04.10.2026
+
+- ObjectMapperInterface використовуємо через наявний Laravel provider із PropertyAccessor та callable locators. Не створюємо новий ObjectMapper у кожному компоненті й не успадковуємо final ObjectMapper; decorator потрібен лише за конкретної потреби.
+- Однорядковий object/ArrayObject adapter дозволений для API JSON та legacy масивів. Не використовуємо його лише заради уникнення справжнього Form/Model, якщо їхній тип потрібний для вибору правил. Для form.data[...] додаємо явні property paths і тести кожного джерела.
+- Не приймаємо EhealthMapping із #907 як універсальний медичний serializer: removeEmptyKeys прибирає 0/0.0 та [], а recursive snakeCaseKeys змінює буквальні ключі словників. False цей helper зберігає. Missing/null/[]/0 визначає конкретний контракт; прості механічні правила можна повторно використовувати через вузький трейт.
+- Зберігаємо розділення prequalify envelope і signed create, точні КЕП-байти, raw-first eRx signing та partial inbound patches. Простий Division create не доводить взаємозамінність цих контрактів.
+- PR #907 і #898 додають ті самі Composer-пакети: merge-tree для 45b8ac39 і 9eb61910 показав конфлікти composer.json/composer.lock. Після інтеграції #907 залишаємо один набір вимог та контрольовано погоджуємо lock; його актуальні mapper/serializer — 8.1.8. До цього не змінюємо робочий vendor чи lock у #898 лише заради рев'ю.
+- Перевірка 04.10: 4 tests / 7 assertions із #907 на mapper/serializer 8.1.8; multi-source Form/Model/stdClass probe; 9 випадків порівняння Division pipeline; наші 44 mapping tests / 126 assertions без failures/errors, з одним deprecation. Повний медичний regression 286/1151 залишається історичним прогоном 01.10, а не новою перевіркою всіх сценаріїв.
 
 `ServiceRequestPayloads` у поточному інкременті — лише адаптер ObjectMapper/Serializer зі збереженням порядку ключів. До нього заборонено додавати API, Repository, підпис, lookup чи UI-поведінку. Він не замінює LifecycleService і не росте в новий сервіс.
 
 ### Уточнення за прикладом тімліда: ModelData / EHealthData / FormData
 
-Це цільовий підхід за замовчуванням. Попередній outbound spike не реалізував його повністю: він вводить `ServiceRequestInput` і target-класи конкретних API-операцій, але ще не має багатоджерельного ModelData та FormData. Не описувати поточний код як готову реалізацію пропозиції тімліда.
+Це цільовий підхід за замовчуванням. Поточний код уже має багатоджерельні `ServiceRequestModelData`/`DeviceRequestModelData` і target-класи create/prequalify. Outbound ще використовує `ServiceRequestInput`, локальний inbound — ArrayObject; прямі Form/Model sources і FormData не мігровані. Не описувати всі напрямки mapping як завершені.
 
 Для ресурсу визначаємо класи за призначенням, а не окремий DTO на кожну стрілку:
 
@@ -78,7 +87,7 @@ Symfony `SourceClass`/`TargetClass` дозволяють застосувати 
 
 Приклад тімліда розглядаємо як концепцію розподілу mapping. Масив форми або відповіді адаптуємо в object одним викликом; не створюємо для цього додатковий шар DTO чи recursive JSON round-trip. ModelData містить правила записуваних полів і приймає кілька source classes.
 
-Наступний spike перевіряє два кроки: source → DivisionModelData → уже створений `new Division()` або завантажена модель; після цього явний save. Правила mapping зберігаються на Data-класі. Перевірити HasCamelCasing, casts, mutators, події, дозволені до запису поля та незмінність identity/ownership. Якщо потрібен масив для fill, нормалізується тільки погоджений набір полів; не вводимо загальний mapper, який повертає то array, то object.
+Для локального запису перевіряємо source → ModelData → явний `new Division($data->toArray())` або `fill()` завантаженої моделі, після цього save чи наявний Repository. Правила mapping зберігаються на Data-класі. Generic direct mapping у Eloquent target із magic attributes потребує окремої перевірки metadata/casts і не є автоматичною заміною цього запису. Перевірити HasCamelCasing, mutators, події, дозволені поля та незмінність identity/ownership. Нормалізується тільки погоджений набір полів; не вводимо mapper, який повертає то array, то object. Перед mapping форма вже валідована.
 
 Repository не є обов'язковою обгорткою простого save однієї моделі. Проте він залишається потрібним для транзакцій, scoped lookup, кількох таблиць і FHIR Identifier relationships, навіть коли всередині використовується Eloquent. Ці операції не є рутинним копіюванням DTO-полів.
 
@@ -174,7 +183,7 @@ Care plan, encounter і patient registry готують власний конт�
 
 ### Наступні інкременти
 
-- DeviceRequest: classification/reference, program/no-program, inbound, UI callers; після останнього caller видалити ReferralRequestLifecycleService. Print/SMS/cancel/recall теж мають цільові місця, а не залишковий сервіс.
+- DeviceRequest outbound завершено 05.10: `app/Dto/DeviceRequest` із окремими create/prequalify контрактами, MapCollection, явним часом/UUID, без SQL/HTTP; усі наявні outbound callers переведені, старі методи — лише сумісні delegates. Вісім незалежних fixtures з `9eb61910` фіксують signed JSON і edge cases. Inbound уже переведено раніше. Залишаються draft/sign/sync/print/SMS orchestration і legacy toFhir/fromFhir: після останнього caller видалити ReferralRequestLifecycleService та старий mapper. Це ще не завершений вертикальний DeviceRequest інкремент.
 - eRx: create/prequalify/dosage/Write, raw-first sign, sync/reject; після міграції всіх callers видалити MedicationRequestLifecycleService. Не переносити весь клас в один трейт.
 - Care plan: DTO create/patch/read, Repository без payload formatting, Api resolved writes, Livewire completion/cancel concerns; видалити CarePlanLifecycleService й GateService після перенесення їхніх правил.
 - Activities: періоди/product/quantity/readiness, sync orchestration у Livewire, transport у Api; видалити ActivityLifecycle/Validation/EHealthGuard та DeviceProgramParticipationGuard після перевірок усіх гілок.

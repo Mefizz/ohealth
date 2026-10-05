@@ -6,6 +6,7 @@ namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
+use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use App\Enums\Person\DeviceRequestStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -151,10 +152,10 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         // PreQualify schema requires $.programs; Create Device Request allows optional program.
         // Mirror service_request: only prequalify when a medical program is present.
         if (!empty($dbData['program_id'])) {
-            $mapper = Fhir::deviceRequest();
-            $prequalifyPayload = $mapper->toPrequalifyPayload(
+            $prequalifyPayload = app(DeviceRequestPayloads::class)->prequalify(
                 $dbData,
                 $uuids,
+                CarbonImmutable::now('UTC'),
                 $carePlan->uuid,
                 (string) $activity->uuid
             );
@@ -214,10 +215,10 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         $dbData['device_id'] = $formData['device_id'] ?? null;
         $dbData['device_code_type'] = $formData['device_code_type'] ?? 'DEVICE_DEFINITION';
         if ($personUuid && !empty($dbData['program_id'])) {
-            $mapper = Fhir::deviceRequest();
-            $prequalifyPayload = $mapper->toPrequalifyPayload(
+            $prequalifyPayload = app(DeviceRequestPayloads::class)->prequalify(
                 $dbData,
                 $uuids,
+                CarbonImmutable::now('UTC'),
                 null,
                 null
             );

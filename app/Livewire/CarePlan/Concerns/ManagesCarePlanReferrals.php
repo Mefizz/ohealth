@@ -6,6 +6,7 @@ namespace App\Livewire\CarePlan\Concerns;
 
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use App\Enums\CarePlanStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthException;
@@ -18,7 +19,6 @@ use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -424,9 +424,10 @@ trait ManagesCarePlanReferrals
                     (string) $this->carePlan->uuid,
                     (string) $activity->uuid
                 ))
-                : (new DeviceRequestMapper())->toCreateSignedContent(
+                : app(DeviceRequestPayloads::class)->signedCreate(
                     $dbData,
                     $uuids,
+                    CarbonImmutable::now('UTC'),
                     (string) $this->carePlan->uuid,
                     (string) $activity->uuid
                 );

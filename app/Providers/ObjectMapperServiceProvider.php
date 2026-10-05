@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Dto\DeviceRequest\MapDeviceRequestBody;
 use App\Mapping\EHealth\Referral\MapServiceRequestBody;
 use App\Mapping\Transforms\FhirIdentifier;
 use Illuminate\Contracts\Foundation\Application;
@@ -19,6 +20,7 @@ final class ObjectMapperServiceProvider extends ServiceProvider
         // Laravel can autowire an unbound class, but PSR-11 has() only reports registered services.
         $this->app->bind(FhirIdentifier::class, FhirIdentifier::class);
         $this->app->bind(MapServiceRequestBody::class, MapServiceRequestBody::class);
+        $this->app->bind(MapDeviceRequestBody::class, MapDeviceRequestBody::class);
 
         $this->app->bind(ObjectMapperInterface::class, static fn (Application $app): ObjectMapper => new ObjectMapper(
             propertyAccessor: PropertyAccess::createPropertyAccessor(),

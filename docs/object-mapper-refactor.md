@@ -14,6 +14,15 @@ Never push refactor commits to the #792 head branch.
   The source snapshot carries caller-supplied time and resolved UUID context. HTTP and persistence stay outside mapping.
 - Encounter/care-plan prequalify and encounter/care-plan/patient-registry signing use these contracts.
   Legacy public outbound methods delegate until their remaining callers migrate.
+- DeviceRequest outbound now maps to `app/Dto/DeviceRequest/Ehealth`, `EhealthCreate` and
+  `EhealthPrequalify`. Signing callers in care plan/patient registry and the existing prequalify callers
+  use the DTO mapping directly. Collections use `MapCollection`; small pure device transformations
+  stay beside the DTO. The adapter only prepares native objects, supplies explicit UUID/time context
+  and normalizes the wire contract; it performs no lifecycle operations.
+- Device create remains flat, with a fixed active status, one of code/reference and optional program;
+  prequalify uses its separate envelope. Exact legacy field order, integer quantities including zero,
+  invalid-reference empty lists, UTC clock skew and occurrence-date rules are preserved.
+  The old DeviceRequestMapper outbound methods delegate instead of retaining a second implementation.
 - `ServiceRequestModelData` and `DeviceRequestModelData` accept both validated local fields (`ArrayObject`)
   and eHealth JSON (`stdClass`) through `SourceClass`. These are one-line adapters, not new source DTOs.
   Shared metadata lives in `ReferralModelData`; resource-specific fields stay on the corresponding target.
@@ -57,6 +66,33 @@ care-plan terms enums. The raw eRx document signing path, ownership and quantity
 
 ## Mapping boundaries
 
+### Alignment with #907 (2026-10-04)
+
+Validated Livewire Forms and prepared Eloquent models are supported direct sources. Put the mapping
+attributes, allowlisted fields, property paths and SourceClass conditions on the target DTO. A class-level
+source declaration alone does not redirect properties into a form's nested data array. Snapshots are
+retained for explicit resolved UUID/time context and signing stability, not as a mandatory wrapper.
+Align target DTO locations with app/Dto/<Resource> in a separate migration; do not duplicate DTOs.
+Resource-specific static transforms may stay beside the DTO; shared pure transforms retain their home.
+Use the existing ObjectMapperInterface Laravel binding rather than per-component mapper construction.
+
+Do not adopt #907's generic EhealthMapping emptiness/key rewriting for medical documents: it removes
+numeric zero and empty lists, preserves false, and rewrites literal dictionary keys. Contract-specific
+normalization, signed byte order, raw eRx and partial synchronization remain required. merge-tree on
+heads 45b8ac39 and 9eb61910 found only composer.json/composer.lock content conflicts; resolve package
+requirements/lock together when integrating #907. No application PHP or lock changes were made in
+this review. Implementation status and remaining work below are still the October 1 checkpoint.
+
+The October 5 DeviceRequest increment follows the resource DTO layout. #907 has since advanced to
+`b4c47459`, adding nominal Collection response sources and Division form/model DTOs. It is still open;
+we have not imported its global `EHealthResponse::validate(): array|Collection` change. After merge,
+re-check response-source handling and Composer compatibility against its actual merged head. The
+earlier merge-tree result applies only to the October 4 heads, not the updated PR.
+
+New targeted validation (2026-10-04): our 44 mapping tests / 126 assertions passed with one deprecation;
+#907's 4 unit tests / 7 assertions passed on isolated mapper/serializer 8.1.8. A Form/Model/stdClass
+probe and nine legacy Division comparisons were also executed. This is not a repeat of the full 286-test run.
+
 Use one ModelData/EHealthData/FormData contract for each purpose, with multiple source classes where
 useful. Do not create a DTO for every arrow, duplicate Write/ModelData classes, or add an Actions layer.
 Separate prequalify envelopes and signed documents where their wire contracts differ.
@@ -77,6 +113,10 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 - Inbound: eight service-request and ten device-request cases captured from the original lifecycle on
   main `b2239108` before replacing its mapping. Cover aliases, partial/empty values, reference filtering,
   search-service fallback, device definitions/classification and zero quantities.
+- Device outbound: eight cases captured before changing DeviceRequestMapper at `9eb61910`, with
+  clock `2026-10-05T12:15:30Z` and Europe/Kyiv. Cover both product forms, explicit type precedence,
+  program/no-program, encounter/episode/no context, zero/default quantity, sparse/incomplete references,
+  expired/inverted/date-only/DST dates. Tests compare arrays and signed JSON and exercise SignatureService.
 - Never regenerate expectations from the new mapper to make a failing test pass.
 
 ## Remaining work
@@ -85,11 +125,25 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   preserving ownership checks, quantity protection and operation order. The large ReferralRequestLifecycleService
   is still present and is not considered an acceptable final architecture.
 - Migrate separate legacy `toFhir`/`fromFhir` callers before deleting their compatibility classes.
-- DeviceRequest outbound, eRx, care-plan/activity mapping, approvals and other medical workflows remain
+- eRx, care-plan/activity mapping, approvals and other medical workflows remain
   staged work. Do not mechanically copy a lifecycle service into a large trait or rename it into Actions.
+- CarePlanActivityRepository still prepares activity fields for prequalify, now delegated to the device
+  DTO mapping. Move that remaining preparation when migrating activity DTOs; it is not final architecture.
 - Real KEP/eHealth UAT is still required before rollout.
 
 ## Validation
+
+October 5 increment: **348 tests / 1477 assertions**, no failures, errors or risky tests, in isolated
+mapper841 PHP 8.5.3/PostgreSQL. Includes device golden contracts, actual SignatureService bytes,
+patient-registry/encounter/care-plan signing, API contracts, partial sync, ownership, eRx raw signing
+and approvals. Project Pint passes for all 13 changed PHP files. One existing PDO deprecation remains.
+
+An additional expanded run included older test files and reported 13 failing scenarios. All 13 also
+fail on an immutable application snapshot of pre-change `9eb61910`: the two older MedicationRequest
+lifecycle test files use stale Identifier FK fixtures/alias mocks and lack Cipher configuration;
+MedicalEventAuthorizationTest's HTTP route test lacks a Vite manifest in the isolated environment.
+These are tracked limitations, not a claim that the complete application test suite is green. The
+348-test refactor regression excludes those three legacy files; no expectations were weakened.
 
 Final regression (2026-10-01): **286 tests / 1151 assertions**, no failures, errors or risky tests.
 Includes mapping and exact signing bytes, API job/prequalify contracts, partial sync/Identifier links,

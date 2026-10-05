@@ -6,6 +6,7 @@ namespace App\Livewire\Person\Records;
 
 use App\Core\Arr;
 use App\Core\BaseForm as Form;
+use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
@@ -20,7 +21,6 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\DeviceRequestRequestRepository;
 use App\Repositories\MedicalEvents\Repository;
 use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;
-use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
@@ -355,9 +355,10 @@ class PatientReferrals extends BasePatientComponent
                     $carePlan !== null ? (string) $carePlan->uuid : null,
                     $activity !== null ? (string) $activity->uuid : null
                 ))
-                : (new DeviceRequestMapper())->toCreateSignedContent(
+                : app(DeviceRequestPayloads::class)->signedCreate(
                     $dbData,
                     $uuids,
+                    CarbonImmutable::now('UTC'),
                     $carePlan !== null ? (string) $carePlan->uuid : null,
                     $activity !== null ? (string) $activity->uuid : null
                 );

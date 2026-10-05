@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
@@ -17,13 +19,13 @@ class ServiceRequestContractTest extends TestCase
     public function prequalify_keeps_programs_envelope(): void
     {
         $programId = (string) Str::uuid();
-        $payload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
+        $payload = app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
             $this->serviceData($programId),
             $this->uuids(),
             CarbonImmutable::now(),
             (string) Str::uuid(),
             (string) Str::uuid()
-        ));
+        ), ServiceRequestPrequalifyData::class)->toArray();
 
         $this->assertArrayHasKey('service_request', $payload);
         $this->assertArrayHasKey('programs', $payload);
@@ -37,13 +39,13 @@ class ServiceRequestContractTest extends TestCase
         $programId = (string) Str::uuid();
         $requestId = (string) Str::uuid();
 
-        $payload = app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
+        $payload = app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
             $this->serviceData($programId, $requestId),
             $this->uuids(),
             CarbonImmutable::now(),
             (string) Str::uuid(),
             (string) Str::uuid()
-        ));
+        ), ServiceRequestCreateData::class)->toArray();
 
         $this->assertArrayNotHasKey('service_request', $payload);
         $this->assertArrayNotHasKey('programs', $payload);

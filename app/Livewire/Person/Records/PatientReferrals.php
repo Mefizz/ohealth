@@ -11,8 +11,9 @@ use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Concerns\MedicalEvents\Referral\SelectsReferralApi;
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -350,13 +351,13 @@ class PatientReferrals extends BasePatientComponent
 
             $kind = $this->requestKindToSign === 'device_request' ? 'device_request' : 'service_request';
             $signPayload = $kind === 'service_request'
-                ? app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
+                ? app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
                     $dbData,
                     $uuids,
                     CarbonImmutable::now(),
                     $carePlan !== null ? (string) $carePlan->uuid : null,
                     $activity !== null ? (string) $activity->uuid : null
-                ))
+                ), ServiceRequestCreateData::class)->toArray()
                 : app(DeviceRequestPayloads::class)->signedCreate(
                     $dbData,
                     $uuids,

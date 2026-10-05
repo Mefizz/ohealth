@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Mapping\EHealth\Referral;
+namespace App\Dto\ServiceRequest;
 
 use Symfony\Component\ObjectMapper\ObjectMapperAwareInterface;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Symfony\Component\ObjectMapper\TransformCallableInterface;
 
-final class MapServiceRequestBody implements TransformCallableInterface, ObjectMapperAwareInterface
+final class MapBody implements TransformCallableInterface, ObjectMapperAwareInterface
 {
     private ObjectMapperInterface $mapper;
 
@@ -20,8 +20,8 @@ final class MapServiceRequestBody implements TransformCallableInterface, ObjectM
         return $clone;
     }
 
-    public function __invoke(mixed $value, object $source, ?object $target): EHealthServiceRequestBody
+    public function __invoke(mixed $value, object $source, ?object $target): Ehealth
     {
-        return $this->mapper->map($value, EHealthServiceRequestBody::class);
+        return $this->mapper->map($source, Ehealth::class);
     }
 }

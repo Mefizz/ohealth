@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
+use App\Dto\FormCollection;
+
 use App\Classes\eHealth\EHealth;
 use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthException;
@@ -980,7 +982,7 @@ trait ManagesCarePlanEPrescription
         $formData['medication_qty'] ??= 1;
         $formData['intent'] = 'order';
         $formData['category'] ??= 'community';
-        $formData['dosage_instructions'] = [new \ArrayObject([
+        $formData['dosage_instructions'] = [new FormCollection([
             'sequence' => 1, 'text' => $signatureText, 'patient_instruction' => $patientInstruction,
             'route' => $formData['route'] ?? 'oral',
             'dose_and_rate' => [['dose_quantity_value' => $maxDosePerAdministration, 'dose_quantity_unit' => $formData['medication_unit'] ?? 'од.']],
@@ -988,8 +990,8 @@ trait ManagesCarePlanEPrescription
             'max_dose_per_period' => $maxDosePerPeriod,
         ])];
         $dbData = array_replace(app(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class)->map(
-            new \ArrayObject($formData),
-            \App\Dto\MedicationRequest\ModelData::class
+            new FormCollection($formData),
+            \App\Dto\MedicationRequest\Model::class
         )->toSigningFields(), [
             'uuid' => (string) \Illuminate\Support\Str::uuid(),
             'employee_id' => $employeeContext['employee_id'] ?? null,

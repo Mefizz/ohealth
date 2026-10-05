@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Dto\DeviceRequest;
 
 use App\Mapping\Transforms\FhirCodeableConcept;
+use App\Livewire\DeviceRequest\DeviceRequestForm;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 
 /** The standalone /api/device_requests contract differs from the patient signed-create contract. */
+#[Map(source: DeviceRequestForm::class)]
 final class EhealthDraft
 {
     #[Map(source: 'patientId')]

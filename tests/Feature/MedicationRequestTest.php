@@ -117,7 +117,9 @@ class MedicationRequestTest extends TestCase
         $this->actingAs($this->user);
 
         $mockService = Mockery::mock(MedicationRequest::class);
-        $mockService->shouldReceive('prequalifyAndValidate')->once()->andReturnNull();
+        $mockService->shouldReceive('prequalifyAndValidate')->once()->with([
+            'person_id' => 'uuid-123', 'medical_program_id' => 'program-123', 'programs' => [['id' => 'program-123']],
+        ])->andReturnNull();
         $this->app->instance(MedicationRequest::class, $mockService);
 
         Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
@@ -127,5 +129,39 @@ class MedicationRequestTest extends TestCase
             ->set('duration', '30')
             ->call('preQualify')
             ->assertSee(__('care-plan.prequalify_passed'));
+    }
+
+    public function test_standalone_create_maps_validated_fields_and_keeps_the_accepted_raw_document(): void
+    {
+        $this->actingAs($this->user);
+        $document = ['id' => 'draft-id', 'dosage_instruction' => 'Take 1 pill', 'unknownClinicalKey' => ['keepMe' => 0]];
+        $api = Mockery::mock(MedicationRequest::class);
+        $api->shouldReceive('createAndResolve')->once()->with([
+            'person_id' => 'uuid-123', 'medical_program_id' => 'program-123', 'dosage_instruction' => 'Take 1 pill',
+            'dispense_request' => ['expected_supply_duration' => ['value' => 30, 'system' => 'http://unitsofmeasure.org', 'code' => 'd']],
+        ])->andReturn(new \App\Dto\MedicationRequest\DraftResult(['data' => $document], ['data' => $document]));
+        $this->instance(MedicationRequest::class, $api);
+
+        Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
+            ->set('patientId', 'uuid-123')->set('medicalProgram', 'program-123')
+            ->set('dosageInstruction', 'Take 1 pill')->set('duration', '30')->set('form.password', 'synthetic-secret')
+            ->call('createDraft')->assertHasNoErrors()->assertSet('draftId', 'draft-id')
+            ->assertSet('isDraftCreated', true)->assertSet('draftContent', $document);
+    }
+
+    public function test_standalone_validation_runs_before_mapper_or_api(): void
+    {
+        $this->actingAs($this->user);
+        $mapper = Mockery::mock(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class);
+        $mapper->shouldNotReceive('map');
+        $this->instance(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class, $mapper);
+        $api = Mockery::mock(MedicationRequest::class);
+        $api->shouldNotReceive('createAndResolve');
+        $this->instance(MedicationRequest::class, $api);
+
+        Livewire::test(\App\Livewire\MedicationRequest\MedicationRequestForm::class, ['legalEntity' => $this->legalEntity])
+            ->set('patientId', 'uuid-123')->set('medicalProgram', 'program-123')
+            ->set('dosageInstruction', 'Take 1 pill')->set('duration', '0')
+            ->call('createDraft')->assertHasErrors(['duration' => 'min'])->assertSet('isDraftCreated', false);
     }
 }

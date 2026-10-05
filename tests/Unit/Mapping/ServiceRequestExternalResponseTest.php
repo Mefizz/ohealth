@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Dto\ServiceRequest\ExternalResponse;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestSearch;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -35,7 +35,7 @@ class ServiceRequestExternalResponseTest extends TestCase
             $queries[] = $query->sql;
         });
 
-        $result = app(ObjectMapperInterface::class)->map(new ExternalResponse($input), ServiceRequestModelData::class);
+        $result = app(ObjectMapperInterface::class)->map(new ServiceRequestSearch($input), ServiceRequestModelData::class);
 
         $this->assertSame($expected, $result->toExternalRecord());
         $this->assertSame([], $queries);
@@ -48,7 +48,7 @@ class ServiceRequestExternalResponseTest extends TestCase
             'occurrencePeriod' => ['start' => '2026-10-01T14:15:00+03:00'],
             'basedOn' => [['identifier' => ['value' => 'activity-id']]], 'supportingInfo' => [[]]];
         $mapper = app(ObjectMapperInterface::class);
-        $import = $mapper->map(new ExternalResponse($source), ServiceRequestModelData::class)->toExternalRecord();
+        $import = $mapper->map(new ServiceRequestSearch($source), ServiceRequestModelData::class)->toExternalRecord();
         $sync = $mapper->map((object) $source, ServiceRequestModelData::class)->toSyncPatch();
 
         $this->assertSame('local-id', $import['uuid']);

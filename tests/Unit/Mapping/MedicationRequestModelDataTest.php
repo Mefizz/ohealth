@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Dto\MedicationRequest\ModelData;
+use App\Dto\MedicationRequest\Model as ModelData;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;

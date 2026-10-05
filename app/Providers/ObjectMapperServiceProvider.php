@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Dto\DeviceRequest\MapDeviceRequestBody;
-use App\Mapping\EHealth\Referral\MapServiceRequestBody;
+use App\Dto\ServiceRequest\MapBody as MapServiceRequestBody;
 use App\Mapping\Transforms\FhirIdentifier;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;

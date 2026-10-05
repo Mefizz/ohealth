@@ -4,16 +4,27 @@ declare(strict_types=1);
 
 namespace App\Dto\DeviceRequest;
 
-use App\Mapping\EHealth\Shared\EHealthReference;
+use App\Dto\Concerns\PreservesEhealthDocumentValues;
+use App\Dto\Shared\EhealthReference as EHealthReference;
 use App\Mapping\Transforms\FhirCodeableConcept;
 use App\Mapping\Transforms\FhirReference;
 use Carbon\CarbonImmutable;
 use stdClass;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\Transform\MapCollection;
+use Symfony\Component\Serializer\NameConverter\CamelCaseToSnakeCaseNameConverter;
 
 class Ehealth
 {
+    use PreservesEhealthDocumentValues;
+
+    private const array FIELD_ORDER = ['intent', 'priority', 'quantity', 'encounter', 'requester', 'authored_on', 'based_on', 'code_reference', 'code', 'occurrence_period', 'reason', 'id', 'status', 'program'];
+
+    protected function normalizeMappedData(array $data, CamelCaseToSnakeCaseNameConverter $converter): array
+    {
+        return array_replace(array_intersect_key(array_fill_keys(self::FIELD_ORDER, null), $data), $data);
+    }
+
     public string $intent;
     public string $priority;
 

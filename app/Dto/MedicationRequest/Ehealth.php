@@ -4,15 +4,24 @@ declare(strict_types=1);
 
 namespace App\Dto\MedicationRequest;
 
+use App\Dto\Concerns\PreservesEhealthDocumentValues;
 use App\Mapping\Transforms\AuthMethodId;
 use App\Mapping\Transforms\FhirIdentifier;
 use Carbon\CarbonImmutable;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\Transform\MapCollection;
+use Symfony\Component\Serializer\NameConverter\CamelCaseToSnakeCaseNameConverter;
 
 /** Outgoing request body; the accepted raw draft is signed separately, without remapping. */
 final class Ehealth
 {
+    use PreservesEhealthDocumentValues;
+
+    protected function normalizeMappedData(array $data, CamelCaseToSnakeCaseNameConverter $converter): array
+    {
+        return array_filter($data, static fn (mixed $value): bool => $value !== null && $value !== '');
+    }
+
     #[Map(source: 'uuids[person_uuid]')]
     public string $person_id;
 

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Dto\DeviceRequest;
 
+use App\Livewire\DeviceRequest\DeviceRequestForm;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 
+#[Map(source: DeviceRequestForm::class)]
 final class EhealthDraftPrequalify
 {
     #[Map(source: 'patientId')]

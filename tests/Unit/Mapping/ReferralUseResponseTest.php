@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Dto\ServiceRequest\UseResponse;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestUse;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Tests\TestCase;
@@ -39,7 +39,7 @@ class ReferralUseResponseTest extends TestCase
     public function test_use_import_has_its_own_defaults_without_changing_get_sync(array $input, array $expected): void
     {
         $mapper = app(ObjectMapperInterface::class);
-        $this->assertSame($expected, $mapper->map(new UseResponse($input), ServiceRequestModelData::class)->toUseRecord());
+        $this->assertSame($expected, $mapper->map(new ServiceRequestUse($input), ServiceRequestModelData::class)->toUseRecord());
         $this->assertSame([], $mapper->map((object) [], ServiceRequestModelData::class)->toSyncPatch());
     }
 }

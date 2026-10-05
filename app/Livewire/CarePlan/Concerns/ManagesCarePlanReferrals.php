@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Livewire\CarePlan\Concerns;
 
 use Illuminate\Support\Str;
-use ArrayObject;
+use App\Dto\FormCollection;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Services\MedicalEvents\ActivityRemainingQuantityGuard;
-use App\Mapping\EHealth\Referral\DeviceRequestModelData;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Models\CarePlan;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
@@ -19,8 +19,9 @@ use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
@@ -426,13 +427,13 @@ trait ManagesCarePlanReferrals
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
 
             $signPayload = $kind === 'service_request'
-                ? app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
+                ? app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
                     $dbData,
                     $uuids,
                     CarbonImmutable::now(),
                     (string) $this->carePlan->uuid,
                     (string) $activity->uuid
-                ))
+                ), ServiceRequestCreateData::class)->toArray()
                 : app(DeviceRequestPayloads::class)->signedCreate(
                     $dbData,
                     $uuids,
@@ -1042,7 +1043,7 @@ trait ManagesCarePlanReferrals
         );
 
         $dbData = array_replace(app(ObjectMapperInterface::class)->map(
-            new ArrayObject(array_replace($formData, ['intent' => $formData['intent'] ?? 'order'])),
+            new FormCollection(array_replace($formData, ['intent' => $formData['intent'] ?? 'order'])),
             $resolvedKind === 'service_request' ? ServiceRequestModelData::class : DeviceRequestModelData::class
         )->toArray(), [
             'uuid' => (string) Str::uuid(),
@@ -1075,13 +1076,13 @@ trait ManagesCarePlanReferrals
             }
 
             if (!empty($dbData['program_id'])) {
-                $prequalifyPayload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
+                $prequalifyPayload = app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
                     $dbData,
                     $uuids,
                     CarbonImmutable::now(),
                     $carePlan->uuid,
                     (string) $activity->uuid
-                ));
+                ), ServiceRequestPrequalifyData::class)->toArray();
                 EHealth::serviceRequest()->prequalifyAndValidate($carePlan->person->uuid, $prequalifyPayload);
             }
 

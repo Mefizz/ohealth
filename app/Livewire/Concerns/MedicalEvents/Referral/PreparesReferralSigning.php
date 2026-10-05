@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\Concerns\MedicalEvents\Referral;
 
-use App\Mapping\EHealth\Referral\DeviceRequestModelData;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;

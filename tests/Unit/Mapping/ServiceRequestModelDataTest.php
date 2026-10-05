@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
-use App\Mapping\EHealth\Referral\DeviceRequestModelData;
-use ArrayObject;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\FormCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -41,7 +41,7 @@ class ServiceRequestModelDataTest extends TestCase
 
     public function test_the_same_target_maps_local_validated_form_fields(): void
     {
-        $form = new ArrayObject([
+        $form = new FormCollection([
             'started_at' => '30.09.2026', 'ended_at' => '01.10.2026',
             'quantity' => 1.5, 'service_id' => 'service-local', 'program_id' => 'program-local',
             'category' => 'procedure', 'intent' => 'order', 'priority' => 'routine',

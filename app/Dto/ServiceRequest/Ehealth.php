@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Mapping\EHealth\Referral;
+namespace App\Dto\ServiceRequest;
 
-use App\Mapping\EHealth\Shared\EHealthReference;
+use App\Dto\Concerns\PreservesEhealthDocumentValues;
+use App\Dto\Shared\EhealthReference as EHealthReference;
 use App\Mapping\Transforms\AuthMethodId;
 use App\Mapping\Transforms\FhirCodeableConcept;
 use App\Mapping\Transforms\FhirReference;
@@ -12,9 +13,25 @@ use Carbon\CarbonImmutable;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\Condition\IsNotNull;
 use Symfony\Component\ObjectMapper\Transform\MapCollection;
+use Symfony\Component\Serializer\NameConverter\CamelCaseToSnakeCaseNameConverter;
 
-class EHealthServiceRequestBody
+#[Map(source: Input::class)]
+class Ehealth
 {
+    use PreservesEhealthDocumentValues;
+
+    private const array FIELD_ORDER = [
+        'status', 'intent', 'priority', 'code', 'requester_employee', 'requester_legal_entity',
+        'based_on', 'context', 'category', 'quantity', 'occurrence_period', 'supporting_info',
+        'reason_reference', 'patient_instruction', 'inform_with', 'id', 'program',
+    ];
+
+    protected function normalizeMappedData(array $data, CamelCaseToSnakeCaseNameConverter $converter): array
+    {
+        // Inherited properties must keep the byte order of the established KEP document.
+        return array_replace(array_intersect_key(array_fill_keys(self::FIELD_ORDER, null), $data), $data);
+    }
+
     public string $status = 'active';
     public string $intent;
     public string $priority;
@@ -55,7 +72,7 @@ class EHealthServiceRequestBody
     #[Map(source: 'informWith', transform: [new AuthMethodId(), [self::class, 'mapInformWith']])]
     public ?array $inform_with = null;
 
-    public static function mapQuantity(?float $value, ServiceRequestInput $source): ?array
+    public static function mapQuantity(?float $value, Input $source): ?array
     {
         return $value === null ? null : ['value' => $value, 'system' => $source->quantitySystem, 'code' => $source->quantityCode];
     }
@@ -65,7 +82,7 @@ class EHealthServiceRequestBody
         return $value === null ? null : ['auth_method_id' => $value];
     }
 
-    public static function mapOccurrence(CarbonImmutable $now, ServiceRequestInput $source): ?array
+    public static function mapOccurrence(CarbonImmutable $now, Input $source): ?array
     {
         if ($source->startedAt === null && $source->endedAt === null) {
             return null;

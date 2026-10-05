@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Mapping\EHealth\Referral\DeviceRequestModelData;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use Illuminate\Support\Facades\DB;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Dto\ServiceRequest;
 
-use App\Mapping\EHealth\Shared\EHealthReference;
+use App\Dto\Shared\EhealthReference as EHealthReference;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\Transform\MapCollection;
 use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;

@@ -14,8 +14,10 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
 use App\Dto\DeviceRequest\DeviceRequestPayloads;
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
@@ -332,7 +334,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_can_map_to_prequalify_payloads(): void
     {
-        $serviceMapper = app(ServiceRequestPayloads::class);
+        $serviceMapper = app(ObjectMapperInterface::class);
         $deviceMapper = app(DeviceRequestPayloads::class);
 
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
@@ -370,13 +372,13 @@ class ReferralLifecycleTest extends TestCase
             'legal_entity_uuid' => $this->employee->legalEntity->uuid,
         ];
 
-        $servicePrequalify = $serviceMapper->prequalify(ServiceRequestInput::fromArray(
+        $servicePrequalify = $serviceMapper->map(ServiceRequestInput::fromArray(
             $serviceData,
             $uuids,
             CarbonImmutable::now(),
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
-        ));
+        ), ServiceRequestPrequalifyData::class)->toArray();
         $devicePrequalify = $deviceMapper->prequalify(
             $deviceData,
             $uuids,
@@ -459,7 +461,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_can_map_to_create_signed_payloads(): void
     {
-        $serviceMapper = app(ServiceRequestPayloads::class);
+        $serviceMapper = app(ObjectMapperInterface::class);
         $deviceMapper = app(DeviceRequestPayloads::class);
 
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
@@ -513,13 +515,13 @@ class ReferralLifecycleTest extends TestCase
         $this->assertArrayNotHasKey('programs', $deviceSigned);
         $this->assertArrayNotHasKey('device_request', $deviceSigned);
 
-        $serviceSignContent = $serviceMapper->signedCreate(ServiceRequestInput::fromArray(
+        $serviceSignContent = $serviceMapper->map(ServiceRequestInput::fromArray(
             $serviceData,
             $uuids,
             CarbonImmutable::now(),
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
-        ));
+        ), ServiceRequestCreateData::class)->toArray();
         $deviceSignContent = $deviceMapper->signedCreate(
             $deviceData,
             $uuids,

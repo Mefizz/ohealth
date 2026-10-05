@@ -7,6 +7,9 @@ namespace App\Livewire\MedicationRequest;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\LegalEntity;
 use App\Classes\eHealth\EHealth;
+use App\Dto\MedicationRequest\EhealthDraft;
+use App\Dto\MedicationRequest\EhealthDraftPrequalify;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -60,13 +63,8 @@ class MedicationRequestForm extends Component
         $this->validate();
 
         try {
-            EHealth::medicationRequest()->prequalifyAndValidate([
-                'person_id' => $this->patientId,
-                'medical_program_id' => $this->medicalProgram,
-                'programs' => [
-                    ['id' => $this->medicalProgram],
-                ],
-            ]);
+            $payload = app(ObjectMapperInterface::class)->map($this, EhealthDraftPrequalify::class)->toArray();
+            EHealth::medicationRequest()->prequalifyAndValidate($payload);
 
             $this->statusMessage = __('care-plan.prequalify_passed');
         } catch (EHealthValidationException $e) {
@@ -81,18 +79,8 @@ class MedicationRequestForm extends Component
         $this->validate();
 
         try {
-            $created = EHealth::medicationRequest()->createAndResolve([
-                'person_id' => $this->patientId,
-                'medical_program_id' => $this->medicalProgram,
-                'dosage_instruction' => $this->dosageInstruction,
-                'dispense_request' => [
-                    'expected_supply_duration' => [
-                        'value' => (int) $this->duration,
-                        'system' => 'http://unitsofmeasure.org',
-                        'code' => 'd',
-                    ],
-                ],
-            ]);
+            $payload = app(ObjectMapperInterface::class)->map($this, EhealthDraft::class)->toArray();
+            $created = EHealth::medicationRequest()->createAndResolve($payload);
             $response = $created->resolved['data'] ?? $created->resolved;
         } catch (EHealthValidationException $e) {
             $this->failWith($e->getFormattedMessage());

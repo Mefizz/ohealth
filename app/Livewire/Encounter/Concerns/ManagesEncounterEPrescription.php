@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter\Concerns;
 
+use App\Dto\FormCollection;
+
 use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
@@ -431,7 +433,7 @@ trait ManagesEncounterEPrescription
         $formData['category'] ??= 'community';
         $signatureText = !empty($formData['signature_text']) ? $formData['signature_text'] : 'За призначенням лікаря';
         $patientInstruction = !empty($formData['patient_instruction']) ? $formData['patient_instruction'] : $signatureText;
-        $formData['dosage_instructions'] = [new \ArrayObject([
+        $formData['dosage_instructions'] = [new FormCollection([
             'sequence' => 1, 'text' => $signatureText, 'patient_instruction' => $patientInstruction,
             'route' => $formData['route'] ?? 'oral',
             'dose_and_rate' => [['dose_quantity_value' => (float) ($formData['max_dose_per_administration'] ?? 1.0), 'dose_quantity_unit' => $formData['medication_unit'] ?? 'од.']],
@@ -439,8 +441,8 @@ trait ManagesEncounterEPrescription
             'max_dose_per_period' => (float) ($formData['max_dose_per_period'] ?? 1.0),
         ])];
         $dbData = array_replace(app(\Symfony\Component\ObjectMapper\ObjectMapperInterface::class)->map(
-            new \ArrayObject($formData),
-            \App\Dto\MedicationRequest\ModelData::class
+            new FormCollection($formData),
+            \App\Dto\MedicationRequest\Model::class
         )->toSigningFields(), [
             'uuid' => (string) \Illuminate\Support\Str::uuid(),
             'employee_id' => $employeeContext['employee_id'] ?? null,

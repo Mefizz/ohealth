@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Mapping\EHealth\Referral;
+namespace App\Dto\ServiceRequest;
 
 use Carbon\CarbonImmutable;
 use stdClass;
 
-final readonly class ServiceRequestInput
+final readonly class Input
 {
     /** @param list<stdClass> $basedOn @param list<stdClass>|null $supportingInfo @param list<stdClass>|null $reasonReference */
     public function __construct(

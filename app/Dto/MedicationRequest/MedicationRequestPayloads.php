@@ -6,9 +6,6 @@ namespace App\Dto\MedicationRequest;
 
 use Carbon\CarbonImmutable;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
-use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
-use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
-use Symfony\Component\Serializer\Serializer;
 
 final class MedicationRequestPayloads
 {
@@ -30,7 +27,7 @@ final class MedicationRequestPayloads
             'programs' => !empty($data['medication_program_id']) ? [(object) ['id' => $data['medication_program_id']]] : [],
         ];
 
-        return $this->normalize($this->mapper->map($source, EhealthPrequalify::class));
+        return $this->mapper->map($source, EhealthPrequalify::class)->toArray();
     }
 
     /** This is only the fallback for drafts without an accepted raw eHealth document. */
@@ -46,11 +43,7 @@ final class MedicationRequestPayloads
         }
         $source = (object) ['data' => $data, 'uuids' => $uuids, 'mappedAt' => $mappedAt, 'based_on' => $references, 'instructions' => $instructions];
 
-        return array_filter($this->normalize($this->mapper->map($source, Ehealth::class)), static fn (mixed $value): bool => $value !== null && $value !== '');
+        return $this->mapper->map($source, Ehealth::class)->toArray();
     }
 
-    private function normalize(object $value): array
-    {
-        return (new Serializer([new ObjectNormalizer()]))->normalize($value, context: [AbstractObjectNormalizer::SKIP_NULL_VALUES => true]);
-    }
 }

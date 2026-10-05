@@ -6,8 +6,8 @@ namespace App\Repositories\MedicalEvents;
 
 use App\Enums\MedicalEvents\ReferralCompletionResourceType;
 use App\Enums\Person\ServiceRequestStatus;
-use App\Dto\ServiceRequest\UseResponse;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestUse;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -16,7 +16,7 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Concerns\FindsOpenActivityRequests;
 use App\Repositories\MedicalEvents\Concerns\FindsOwnedRequests;
 use App\Repositories\MedicalEvents\Concerns\ResolvesRequestFhirRefs;
-use App\Dto\ServiceRequest\ExternalResponse;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestSearch;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -73,7 +73,7 @@ class ServiceRequestRequestRepository extends BaseRepository
         }
 
         $data = $response['data'] ?? $response;
-        $fields = app(ObjectMapperInterface::class)->map(new UseResponse($data), ServiceRequestModelData::class)->toUseRecord();
+        $fields = app(ObjectMapperInterface::class)->map(new ServiceRequestUse($data), ServiceRequestModelData::class)->toUseRecord();
         $this->store(array_replace($fields, [
             'uuid' => $uuid,
             'status' => ServiceRequestStatus::IN_PROGRESS->value,
@@ -337,7 +337,7 @@ class ServiceRequestRequestRepository extends BaseRepository
      */
     public function storeExternalIfMissing(array $referral, Employee $employee, int $personId): void
     {
-        $data = app(ObjectMapperInterface::class)->map(new ExternalResponse($referral), ServiceRequestModelData::class)->toExternalRecord();
+        $data = app(ObjectMapperInterface::class)->map(new ServiceRequestSearch($referral), ServiceRequestModelData::class)->toExternalRecord();
         $uuid = $data['uuid'] ?? null;
 
         if (blank($uuid) || $this->findByUuid($uuid) !== null) {
@@ -361,7 +361,7 @@ class ServiceRequestRequestRepository extends BaseRepository
 
         $mappedReferrals = collect($referrals)
             ->map(function (array $item): array {
-                $data = app(ObjectMapperInterface::class)->map(new ExternalResponse($item['referral']), ServiceRequestModelData::class)->toExternalRecord();
+                $data = app(ObjectMapperInterface::class)->map(new ServiceRequestSearch($item['referral']), ServiceRequestModelData::class)->toExternalRecord();
 
                 return [
                     'data' => $data,

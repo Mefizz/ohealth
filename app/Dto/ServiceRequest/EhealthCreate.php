@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Mapping\EHealth\Referral;
+namespace App\Dto\ServiceRequest;
 
 use App\Mapping\Transforms\FhirReference;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 
-final class EHealthServiceRequestCreate extends EHealthServiceRequestBody
+final class EhealthCreate extends Ehealth
 {
     #[Map(source: 'uuid')]
     public string $id;

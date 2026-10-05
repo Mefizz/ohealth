@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Mapping\EHealth\Shared;
+namespace App\Dto\Shared;
 
 use App\Mapping\Transforms\FhirIdentifier;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 
-final class EHealthReference
+final class EhealthReference
 {
     #[Map(source: 'uuid', transform: FhirIdentifier::class)]
     public array $identifier;

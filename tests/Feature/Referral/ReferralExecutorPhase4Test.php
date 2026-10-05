@@ -15,8 +15,9 @@ use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
@@ -441,11 +442,11 @@ class ReferralExecutorPhase4Test extends TestCase
 
     public function test_mapper_includes_author_optional_fields(): void
     {
-        $mapper = app(ServiceRequestPayloads::class);
+        $mapper = app(ObjectMapperInterface::class);
         $authUuid = (string) Str::uuid();
         $conditionUuid = (string) Str::uuid();
 
-        $payload = $mapper->prequalify(ServiceRequestInput::fromArray(
+        $payload = $mapper->map(ServiceRequestInput::fromArray(
             [
                 'service_id' => '59300-00',
                 'intent' => 'order',
@@ -465,7 +466,7 @@ class ReferralExecutorPhase4Test extends TestCase
                 'encounter_uuid' => (string) Str::uuid(),
             ],
             CarbonImmutable::now(),
-        ));
+        ), ServiceRequestPrequalifyData::class)->toArray();
 
         $sr = $payload['service_request'];
         $this->assertSame('Підготуватися натще', $sr['patient_instruction']);

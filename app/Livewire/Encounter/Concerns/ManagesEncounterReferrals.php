@@ -5,18 +5,19 @@ declare(strict_types=1);
 namespace App\Livewire\Encounter\Concerns;
 
 use Illuminate\Support\Str;
-use ArrayObject;
+use App\Dto\FormCollection;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Dto\DeviceRequest\DeviceRequestPayloads;
-use App\Mapping\EHealth\Referral\DeviceRequestModelData;
-use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Concerns\MedicalEvents\Referral\SelectsReferralApi;
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
@@ -291,9 +292,10 @@ trait ManagesEncounterReferrals
                 'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
             ];
 
-            $signPayload = app(ServiceRequestPayloads::class)->signedCreate(
-                ServiceRequestInput::fromArray($dbData, $uuids, CarbonImmutable::now())
-            );
+            $signPayload = app(ObjectMapperInterface::class)->map(
+                ServiceRequestInput::fromArray($dbData, $uuids, CarbonImmutable::now()),
+                ServiceRequestCreateData::class
+            )->toArray();
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -444,7 +446,7 @@ trait ManagesEncounterReferrals
     protected function createEncounterReferralDraft(\App\Models\MedicalEvents\Sql\Encounter $encounter, array $formData, float $qty, array $employeeContext): string
     {
         $kind = $formData['kind'] ?? 'service_request';
-        $formSource = new ArrayObject(array_replace($formData, [
+        $formSource = new FormCollection(array_replace($formData, [
             'started_at' => $formData['started_at'] ?? now()->toDateString(),
             'ended_at' => $formData['ended_at'] ?? now()->addMonths(1)->toDateString(),
             'intent' => $formData['intent'] ?? 'order',
@@ -477,11 +479,11 @@ trait ManagesEncounterReferrals
             $dbData['service_id'] = $formData['service_id'] ?? null;
 
             if (!empty($dbData['program_id']) && $personUuid) {
-                $prequalifyPayload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
+                $prequalifyPayload = app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
                     $dbData,
                     $uuids,
                     CarbonImmutable::now()
-                ));
+                ), ServiceRequestPrequalifyData::class)->toArray();
                 EHealth::serviceRequest()->prequalifyAndValidate((string) $personUuid, $prequalifyPayload);
             }
 

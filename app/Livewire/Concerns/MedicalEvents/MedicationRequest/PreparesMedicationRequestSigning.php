@@ -6,7 +6,7 @@ namespace App\Livewire\Concerns\MedicalEvents\MedicationRequest;
 
 use App\Classes\eHealth\EHealth;
 use App\Dto\MedicationRequest\MedicationRequestPayloads;
-use App\Dto\MedicationRequest\ModelData;
+use App\Dto\MedicationRequest\Model as ModelData;
 use App\Models\CarePlan;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;

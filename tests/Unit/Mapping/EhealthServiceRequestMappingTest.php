@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Unit\Mapping;
 
 use App\Classes\Cipher\Api\CipherApi;
-use App\Mapping\EHealth\Referral\ServiceRequestInput;
-use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Mapping\Transforms\FhirIdentifier;
 use App\Services\SignatureService;
 use Carbon\CarbonImmutable;
@@ -18,7 +20,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\ObjectMapper\TransformCallableInterface;
 use Tests\TestCase;
 
-class ServiceRequestPayloadsTest extends TestCase
+class EhealthServiceRequestMappingTest extends TestCase
 {
     protected function tearDown(): void
     {
@@ -48,11 +50,11 @@ class ServiceRequestPayloadsTest extends TestCase
         });
 
         $source = $this->source($input, $now);
-        $payloads = app(ServiceRequestPayloads::class);
+        $mapper = app(ObjectMapperInterface::class);
 
-        $this->assertSame($expected['prequalify'], $payloads->prequalify($source));
-        $this->assertSame($expected['signedCreate'], $payloads->signedCreate($source));
-        $this->assertSame($expected['signedJson'], json_encode($payloads->signedCreate($source), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+        $this->assertSame($expected['prequalify'], $mapper->map($source, ServiceRequestPrequalifyData::class)->toArray());
+        $this->assertSame($expected['signedCreate'], $mapper->map($source, ServiceRequestCreateData::class)->toArray());
+        $this->assertSame($expected['signedJson'], json_encode($mapper->map($source, ServiceRequestCreateData::class)->toArray(), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
         $this->assertSame([], $queries);
         Http::assertNothingSent();
     }
@@ -76,7 +78,7 @@ class ServiceRequestPayloadsTest extends TestCase
         $upload->shouldReceive('getRealPath')->once()->andReturn($keyFile->getRealPath());
 
         $signed = (new SignatureService($cipher))->signData(
-            app(ServiceRequestPayloads::class)->signedCreate($this->source($input, $now)),
+            app(ObjectMapperInterface::class)->map($this->source($input, $now), ServiceRequestCreateData::class)->toArray(),
             'test-password',
             'test-knedp',
             $upload,
@@ -92,7 +94,7 @@ class ServiceRequestPayloadsTest extends TestCase
         $source = $this->source($input, $now);
         CarbonImmutable::setTestNow('2030-01-01T00:00:00+00:00');
 
-        $this->assertSame($expected['signedCreate'], app(ServiceRequestPayloads::class)->signedCreate($source));
+        $this->assertSame($expected['signedCreate'], app(ObjectMapperInterface::class)->map($source, ServiceRequestCreateData::class)->toArray());
     }
 
     public function test_nested_collections_use_the_laravel_transform_locator(): void
@@ -105,7 +107,7 @@ class ServiceRequestPayloadsTest extends TestCase
             }
         });
         [$input, , $now] = iterator_to_array(self::contracts())['care_plan_all_fields'];
-        $payload = app(ServiceRequestPayloads::class)->prequalify($this->source($input, $now));
+        $payload = app(ObjectMapperInterface::class)->map($this->source($input, $now), ServiceRequestPrequalifyData::class)->toArray();
 
         $this->assertSame('test-locator', $payload['service_request']['based_on'][0]['identifier']['system']);
         $this->assertSame('test-locator', $payload['service_request']['supporting_info'][0]['identifier']['system']);

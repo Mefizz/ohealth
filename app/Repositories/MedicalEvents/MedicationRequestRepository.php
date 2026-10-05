@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories\MedicalEvents;
 
 use App\Enums\Person\MedicationRequestStatus;
-use App\Dto\MedicationRequest\ModelData;
+use App\Dto\MedicationRequest\Model as ModelData;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;

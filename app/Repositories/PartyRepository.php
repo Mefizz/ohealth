@@ -231,38 +231,20 @@ class PartyRepository
         Collection $userRequests,
         Collection $stoppedOwnerUserIds
     ): Collection {
-        $pivotEmployeeIds = collect($pivotEmployeeUsers)
-            ->filter(fn (array $item) => $item['user_id'] === $user->id)
-            ->pluck('employee_id')
-            ->all();
-
-        $requestMatchedIds = $partyEmployees
-            ->filter(function (Employee $employee) use ($userRequests) {
-                return $userRequests->contains(function (EmployeeRequest $request) use ($employee) {
-                    if ($request->employeeId !== null && (int) $request->employeeId === (int) $employee->id) {
-                        return true;
-                    }
-
-                    if ($request->employeeType !== $employee->employeeType
-                        || $request->position !== $employee->position
-                    ) {
-                        return false;
-                    }
-
-                    $requestStart = $request->getRawOriginal('start_date');
-                    $employeeStart = $employee->getRawOriginal('start_date');
-
-                    return $requestStart === $employeeStart;
-                });
-            })
-            ->pluck('id')
+        // Ownership for roles/scopes: direct user_id or an employee_request that already
+        // points at this employee_id with the user's email. Do NOT trust:
+        // - pivot alone (legacy party-sharing left poisoned employee_users rows),
+        // - fuzzy type/position/start_date matches (can invent SPECIALIST from old requests).
+        $requestLinkedIds = $userRequests
+            ->filter(fn (EmployeeRequest $request) => $request->employeeId !== null)
+            ->map(fn (EmployeeRequest $request) => (int) $request->employeeId)
+            ->unique()
             ->all();
 
         return $partyEmployees
-            ->filter(function (Employee $employee) use ($user, $pivotEmployeeIds, $requestMatchedIds, $stoppedOwnerUserIds) {
+            ->filter(function (Employee $employee) use ($user, $requestLinkedIds, $stoppedOwnerUserIds) {
                 $belongsToUser = (int) $employee->userId === (int) $user->id
-                    || in_array($employee->id, $pivotEmployeeIds, true)
-                    || in_array($employee->id, $requestMatchedIds, true);
+                    || in_array((int) $employee->id, $requestLinkedIds, true);
 
                 if (!$belongsToUser) {
                     return false;

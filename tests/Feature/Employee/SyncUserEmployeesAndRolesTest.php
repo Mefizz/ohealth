@@ -41,7 +41,7 @@ class SyncUserEmployeesAndRolesTest extends TestCase
         $hrUser = $this->createUser($party, 'hr@example.com', '2026-07-10 10:00:00');
 
         $ownerEmployee = $this->createEmployee($legalEntity, $party, Role::OWNER->value, 'P2', $ownerUser->id, '2026-08-05 12:00:00');
-        $hrEmployee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', null, '2026-07-01 12:00:00');
+        $hrEmployee = $this->createEmployee($legalEntity, $party, Role::HR->value, 'P14', $hrUser->id, '2026-07-01 12:00:00');
 
         EmployeeRequest::create([
             'uuid' => (string) Str::uuid(),
@@ -112,7 +112,7 @@ class SyncUserEmployeesAndRolesTest extends TestCase
     }
 
     #[Test]
-    public function older_employee_is_bound_by_request_email_without_date_filter(): void
+    public function employee_linked_only_via_request_employee_id_grants_role(): void
     {
         $legalEntity = $this->createLegalEntity();
         $party = $this->createParty();
@@ -136,6 +136,7 @@ class SyncUserEmployeesAndRolesTest extends TestCase
             'employee_type' => Role::SPECIALIST->value,
             'email' => $user->email,
             'party_id' => $party->id,
+            'employee_id' => $employee->id,
             'applied_at' => '2026-06-01 10:00:00',
         ]);
 
@@ -149,6 +150,38 @@ class SyncUserEmployeesAndRolesTest extends TestCase
         $this->assertDatabaseHas('employee_users', [
             'employee_id' => $employee->id,
             'user_id' => $user->id,
+        ]);
+    }
+
+    #[Test]
+    public function poisoned_pivot_without_user_id_or_request_link_does_not_keep_role(): void
+    {
+        $legalEntity = $this->createLegalEntity();
+        $party = $this->createParty();
+        $ownerUser = $this->createUser($party, 'outp35@example.com', '2026-07-16 23:59:40');
+
+        $this->createEmployee($legalEntity, $party, Role::OWNER->value, 'P2', $ownerUser->id, '2026-08-05 12:00:00');
+        $specialist = $this->createEmployee($legalEntity, $party, Role::SPECIALIST->value, 'P56', null, '2026-06-01 10:00:00');
+
+        // Legacy party-sharing left a pivot row without employees.user_id.
+        DB::table('employee_users')->insert([
+            'employee_id' => $specialist->id,
+            'user_id' => $ownerUser->id,
+        ]);
+
+        setPermissionsTeamId($legalEntity->id);
+        Auth::shouldUse('ehealth');
+        $ownerUser->assignRole(Role::OWNER->value);
+        $ownerUser->assignRole(Role::SPECIALIST->value);
+
+        Repository::party()->syncUserEmployeesAndRoles($party->fresh(), $legalEntity->fresh());
+
+        $ownerUser->unsetRelation('roles');
+        $this->assertTrue($ownerUser->hasRole(Role::OWNER->value));
+        $this->assertFalse($ownerUser->hasRole(Role::SPECIALIST->value));
+        $this->assertDatabaseMissing('employee_users', [
+            'employee_id' => $specialist->id,
+            'user_id' => $ownerUser->id,
         ]);
     }
 

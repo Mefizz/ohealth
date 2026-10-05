@@ -1,18 +1,19 @@
 # Рефактор eHealth без прикладного сервісного шару
 
-Оновлено 04.10.2026 після порівняння з PR #907: операції розподіляємо між Livewire, API-класами, enum і вузькими трейтами; mapping організовуємо за призначенням ModelData/EHealthData/FormData з підтримкою кількох типів джерел. Валідований Form або підготовлений Model дозволені як прямі джерела. Окремий шар Actions та нові класи Rules/Managers/Coordinators не вводимо.
+Оновлено 05.10.2026 після перенесення referral workflow та картування eRx: операції розподіляємо між Livewire, API-класами, enum і вузькими трейтами; mapping організовуємо за призначенням ModelData/EHealthData/FormData з підтримкою кількох типів джерел. Валідований Form або підготовлений Model дозволені як прямі джерела. Окремий шар Actions та нові класи Rules/Managers/Coordinators не вводимо.
 
 Issue: [#841](https://github.com/openhealths/nationHealth/issues/841). Робоча гілка: `Mefizz/ohealth:i841_object_mapper_service_request`, база upstream main `b2239108` після merge #792 (24.09) і rebase (30.09). Рефактор не публікується в гілку #792. Під час rebase збережено нові сценарії main, включно з eHealth referral search і поточним session-flash/x-message. Стан реалізації та результати тестів: [object-mapper-refactor.md](object-mapper-refactor.md).
 
-## Стан реалізації 01.10
+## Стан реалізації 05.10
 
 - Видалено `CarePlanLifecycleService`, `CarePlanActivityLifecycleService`, `EHealthJobResolver`; callers використовують API, а remote job statuses — окремий enum.
 - Видалено `CarePlanLifecycleGateService`, `CarePlanActivityEHealthGuard`, `InformWith`. Запити відкритих документів — у Repository, властивості статусів — в enum, UI-перевірки — у protected Livewire concerns, auth-method extraction — чистий transform.
 - Видалено `MedicalRequestOwnership`. Scoped lookup — у Repository, контекст закладу передає Livewire явно; approvals обмежені поточним care plan. Збережено Identifier UUID для перевірки Encounter.
 - Patient ServiceRequest/DeviceRequest API виконують signed create/cancel та prequalify з перевіркою job/verdict; ServiceRequest також виконує recall. Транспортні wrappers видалено з referral lifecycle.
-- `ServiceRequestModelData` та `DeviceRequestModelData` приймають локальні поля форми й відповідь eHealth; спільні поля описані в `ReferralModelData`. Інтегровані створення чернетки та inbound sync; captured baseline фіксує правила неповних відповідей.
-- Outbound ServiceRequest JSON на підпис зберігається; device outbound та eRx ще не перенесені.
-- Великий referral lifecycle, guards, ownership та approvals залишаються незавершеною частиною плану. Саме перенесення HTTP wrappers не означає завершення всього рефактору.
+- `ServiceRequestModelData` та `DeviceRequestModelData` приймають локальні поля форми, підготовлену Eloquent-модель і відповідь eHealth. Спільні поля описані в `ReferralModelData`; окремий source `UseResponse` задає мінімальні defaults взяття в роботу, не змінюючи partial GET sync. Relation loading і lookup відбуваються перед mapping.
+- Outbound ServiceRequest, DeviceRequest та eRx create/prequalify/fallback sign перенесені на DTO. Незалежні golden fixtures перевіряють точний JSON на підпис, включно з числовими рядками, zero/false та вкладеним dosage.
+- `ReferralRequestLifecycleService` видалено: take/qualify/complete/cancel usage працюють через спільний protected trait для HTTP і Livewire; draft створюють існуючі concerns; повторювані sign/sync/print кроки — вузькі concerns. API відповідає за verdict/job/SMS, Repository — за persisted поля й акторів. Успішний signed create зберігається до best-effort GET.
+- eRx metadata sync використовує `app/Dto/MedicationRequest/ModelData`; raw document та raw-first signing збережено. `MedicationRequestLifecycleService`, legacy FHIR callers, guards і approvals ще потребують міграції. Не вважаємо картування eRx завершенням його lifecycle.
 
 ## 1. Кінцевий результат
 
@@ -181,12 +182,12 @@ Care plan, encounter і patient registry готують власний конт�
 
 Критерій: перенесений service-request flow не звертається до lifecycle service; bytes/API/job/persist/UI відповідають baseline. Issue не закриваємо лише за наявності DTO.
 
-Оновлення 05.10: complete/cancel usage перенесено з lifecycle service у вузький `app/Traits/MedicalEvents/UpdatesReferralExecution`, спільний для Livewire і HTTP-контролера. Він не залежить від Livewire properties: аргументи явні, DTO формує based_on через MapCollection, Api завершує job, Repository перевіряє пацієнта й зберігає статус лише після успіху. Resource type — enum. Старі методи й ownership helper видалені без delegates. Take-into-work/qualify і решта draft/sign/sync ще потребують окремої міграції. Спільний трейт у `app/Traits`, бо HTTP-контролер не має залежати від Livewire namespace.
+Оновлення 05.10: take/qualify/complete/cancel usage перенесено з lifecycle service у вузький `app/Traits/MedicalEvents/UpdatesReferralExecution`, спільний для Livewire і HTTP-контролера. Він не залежить від Livewire properties: аргументи явні, DTO формує payload, Api завершує job/verdict, Repository зберігає статус лише після успіху. Resource type — enum. Draft creation знаходиться у відповідних care-plan/encounter concerns; signing, sync та print розділені на `PreparesReferralSigning`, `SynchronizesReferrals`, `PrintsReferrals`. Всі callers перенесені; `ReferralRequestLifecycleService` видалено. Наявний quantity guard збережено без зміни області транзакції; його Repository/enum міграція залишається окремим кроком. Legacy toFhir/fromFhir ще мають callers і залишаються до їх міграції.
 
 ### Наступні інкременти
 
-- DeviceRequest outbound завершено 05.10: `app/Dto/DeviceRequest` із окремими create/prequalify контрактами, MapCollection, явним часом/UUID, без SQL/HTTP; усі наявні outbound callers переведені, старі методи — лише сумісні delegates. Вісім незалежних fixtures з `9eb61910` фіксують signed JSON і edge cases. Inbound уже переведено раніше. Залишаються draft/sign/sync/print/SMS orchestration і legacy toFhir/fromFhir: після останнього caller видалити ReferralRequestLifecycleService та старий mapper. Це ще не завершений вертикальний DeviceRequest інкремент.
-- eRx: create/prequalify/dosage/Write, raw-first sign, sync/reject; після міграції всіх callers видалити MedicationRequestLifecycleService. Не переносити весь клас в один трейт.
+- DeviceRequest outbound і спільний referral workflow завершено 05.10: `app/Dto/DeviceRequest` із окремими create/prequalify контрактами, MapCollection, явним часом/UUID, без SQL/HTTP. Вісім незалежних fixtures з `9eb61910` фіксують signed JSON і edge cases. Draft/sign/sync/print/SMS callers вже не залежать від ReferralRequestLifecycleService; клас видалено. Наступний крок — міграція окремих legacy toFhir/fromFhir callers та видалення compatibility mapper.
+- eRx mapping завершено: `app/Dto/MedicationRequest` для create/prequalify/dosage/fallback sign і partial metadata sync. Сім незалежних fixtures з `2ea796ca` фіксують bytes. Наступний крок — перенести draft/sign/reject/sync, print/SMS/block/history із MedicationRequestLifecycleService до API/Repository/вузьких UI concerns, зберігши raw-first sign і eligibility. Після міграції всіх callers видалити сервіс. Не переносити весь клас в один трейт.
 - Care plan: DTO create/patch/read, Repository без payload formatting, Api resolved writes, Livewire completion/cancel concerns; видалити CarePlanLifecycleService й GateService після перенесення їхніх правил.
 - Activities: періоди/product/quantity/readiness, sync orchestration у Livewire, transport у Api; видалити ActivityLifecycle/Validation/EHealthGuard та DeviceProgramParticipationGuard після перевірок усіх гілок.
 - Approvals/OTP і dispense: окремі перевірювані зміни зі збереженням async jobs і read access.

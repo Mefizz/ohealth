@@ -9,7 +9,6 @@ use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Procedure;
 use App\Models\Person\Person;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use App\Traits\MedicalEvents\UpdatesReferralExecution;
 use Exception;
 use Illuminate\Support\Facades\Log;
@@ -81,7 +80,7 @@ class ReferralIndex extends Component
         }
     }
 
-    public function process(string $uuid, string $patientUuid, ReferralRequestLifecycleService $service)
+    public function process(string $uuid, string $patientUuid)
     {
         abort_unless(auth()->user()?->can('service_request:makeinprogress'), 403);
         try {
@@ -101,7 +100,7 @@ class ReferralIndex extends Component
                 }
             }
 
-            $service->takeIntoWork($uuid, $employee, $patientUuid ?: null, array_filter([
+            $this->takeReferralIntoWork($uuid, $employee, $patientUuid ?: null, array_filter([
                 'program_id' => is_string($programId) && $programId !== '' ? $programId : null,
             ]));
 

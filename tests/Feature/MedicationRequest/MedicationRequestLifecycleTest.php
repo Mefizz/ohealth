@@ -45,6 +45,9 @@ class MedicationRequestLifecycleTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $signature = Mockery::mock(\App\Services\SignatureService::class);
+        $signature->shouldReceive('getCertificateAuthorities')->andReturn([]);
+        $this->instance(\App\Services\SignatureService::class, $signature);
 
         // 1. Create Patient
         $this->person = Person::create([
@@ -172,8 +175,8 @@ class MedicationRequestLifecycleTest extends TestCase
             'medication_qty' => 60.0,
             'medication_program_id' => 'program-affordable-medicines',
             'intent' => 'order',
-            'based_on_id' => $this->carePlanActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_uuid' => $this->carePlanActivity->uuid,
+            'context_uuid' => $this->encounter->uuid,
             'dosage_instructions' => [
                 [
                     'sequence' => 1,
@@ -199,7 +202,7 @@ class MedicationRequestLifecycleTest extends TestCase
             'uuid' => $uuid,
             'medication_id' => 'INN-101',
             'person_id' => $this->person->id,
-            'based_on_id' => $this->carePlanActivity->id
+            'based_on_id' => $this->identifierId($this->carePlanActivity->uuid)
         ]);
 
         $this->assertDatabaseHas('dosage_instructions', [
@@ -432,21 +435,22 @@ class MedicationRequestLifecycleTest extends TestCase
             'medication_id' => 'INN-101',
             'medication_qty' => 30.0,
             'intent' => 'order',
-            'based_on_id' => $this->carePlanActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->carePlanActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'request_number' => 'MR-777777',
             'inform_with' => 'otp-method-uuid|OTP|+380991112233'
         ]);
 
         // Mock eHealth reject API
-        $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
-        $mockApi->shouldReceive('getBySearchParams')->andReturn([]);
-        $mockApi->shouldReceive('getById')->andReturn([
+        $mockApi = Mockery::mock(\App\Classes\eHealth\Api\Patient\MedicationRequest::class);
+        $this->instance(\App\Classes\eHealth\Api\Patient\MedicationRequest::class, $mockApi);
+        $mockApi->shouldReceive('getBySearchParams')->andReturn($this->responseWithData([]));
+        $mockApi->shouldReceive('getById')->andReturn($this->responseWithData([
             'id' => $uuid,
             'status' => 'ACTIVE',
             'request_number' => 'MR-777777',
-        ]);
-        $mockApi->shouldReceive('rejectMedicationRequest')->once()->andReturn(['status' => 'rejected']);
+        ]));
+        $mockApi->shouldReceive('reject')->once()->andReturn($this->responseWithData(['status' => 'rejected']));
 
         // Mock SignatureService
         $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);
@@ -491,8 +495,8 @@ class MedicationRequestLifecycleTest extends TestCase
             'medication_id' => 'INN-101',
             'medication_qty' => 30.0,
             'intent' => 'order',
-            'based_on_id' => $this->carePlanActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => $this->identifierId($this->carePlanActivity->uuid),
+            'context_id' => $this->identifierId($this->encounter->uuid),
             'request_number' => 'MR-555555',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -516,5 +520,18 @@ class MedicationRequestLifecycleTest extends TestCase
             ->call('loadPrintoutForm', $uuid)
             ->assertSet('printableContent', '<div>Official eHealth printout</div>')
             ->assertDispatched('printoutLoaded');
+    }
+
+    private function identifierId(string $uuid): int
+    {
+        return (int) \App\Models\MedicalEvents\Sql\Identifier::firstOrCreate(['value' => $uuid])->id;
+    }
+
+    private function responseWithData(array $data): \App\Classes\eHealth\EHealthResponse
+    {
+        $response = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn($data);
+
+        return $response;
     }
 }

@@ -195,7 +195,7 @@ trait ManagesCarePlanEPrescription
         $this->ePrescriptionRemainingQtyWarningMessage = '';
         $this->ePrescriptionSelectedActivity = $activity->toArray();
 
-        $employeeContext = app(MedicationRequestLifecycleService::class)
+        $employeeContext = app(\App\Repositories\EmployeeRepository::class)
             ->resolveEmployeeContext($this->carePlan, null, Auth::user()->activeDoctorEmployee()?->id);
         $eligibleEncounters = app(MedicationRequestLifecycleService::class)
             ->findEligibleEncountersForEPrescription(
@@ -450,7 +450,7 @@ trait ManagesCarePlanEPrescription
     public function submitEPrescriptionRequest(): void
     {
         try {
-            $employeeContext = app(MedicationRequestLifecycleService::class)
+            $employeeContext = app(\App\Repositories\EmployeeRepository::class)
                 ->resolveEmployeeContext($this->carePlan, null, Auth::user()->activeDoctorEmployee()?->id);
             $activity = $this->ownedActivity((int) $this->ePrescriptionForm['activity_id']);
 

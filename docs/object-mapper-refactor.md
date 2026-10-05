@@ -61,6 +61,22 @@ Never push refactor commits to the #792 head branch.
   lookup stays scoped to the current care plan. All Livewire callers pass the facility id explicitly.
 - The encounter authentication select uses its prepared `raw` option value, with the UUID fallback;
   Blade no longer references the removed service. A rendered-view regression covers populated options.
+- Removed `ReferralRequestLifecycleService` after migrating every caller. HTTP processing, referral
+  search and encounter selection share protected take/qualify methods with explicit arguments.
+  `EhealthProcess` allowlists executor UUID references/program; API resolves qualify/process before
+  Repository persists in_progress. A failed qualify/process cannot advance local status.
+- Existing care-plan/encounter concerns create drafts and retain their quantity/prequalify checks.
+  `PreparesReferralSigning`, `SynchronizesReferrals` and `PrintsReferrals` share only the repeated steps.
+  SMS uses the existing patient API; print markup belongs to Blade. Signed-create metadata persists
+  before best-effort enrichment; job envelope statuses never overwrite clinical active status.
+- Referral ModelData targets also accept prepared Eloquent models via SourceClass and ArrayAccess
+  paths for nullable HasCamelCasing fields. Callers preload relations before mapping; DTOs issue no
+  queries. `UseResponse` reuses ServiceRequestModelData with use-specific minimal import defaults,
+  independently of the existing partial GET policy. Employee/Identifier lookups belong to repositories.
+- eRx create/prequalify/fallback-sign uses `app/Dto/MedicationRequest` and MapCollection for dosage
+  and references. Its partial ModelData sync preserves zero/empty scalar updates and excludes nulls;
+  raw payload, dosage, author and links keep their existing Repository semantics. The accepted raw
+  document signing path is unchanged. Legacy outbound methods delegate to the same DTO adapter.
 
 ## Compatibility with main
 
@@ -90,7 +106,7 @@ numeric zero and empty lists, preserves false, and rewrites literal dictionary k
 normalization, signed byte order, raw eRx and partial synchronization remain required. merge-tree on
 heads 45b8ac39 and 9eb61910 found only composer.json/composer.lock content conflicts; resolve package
 requirements/lock together when integrating #907. No application PHP or lock changes were made in
-this review. Implementation status and remaining work below are still the October 1 checkpoint.
+this review. The implementation sections below include the subsequent October 5 increments.
 
 The October 5 DeviceRequest increment follows the resource DTO layout. #907 has since advanced to
 `b4c47459`, adding nominal Collection response sources and Division form/model DTOs. It is still open;
@@ -126,23 +142,34 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   clock `2026-10-05T12:15:30Z` and Europe/Kyiv. Cover both product forms, explicit type precedence,
   program/no-program, encounter/episode/no context, zero/default quantity, sparse/incomplete references,
   expired/inverted/date-only/DST dates. Tests compare arrays and signed JSON and exercise SignatureService.
+- eRx outbound: seven cases captured from unmodified MedicationRequestMapper at `2ea796ca`, with
+  clock `2026-10-05T12:15:30+03:00` and Europe/Kyiv. Cover minimal/full dosage, program/care-plan,
+  zero/defaults, sparse instructions, raw/tuple container dosage, empty lists and numeric strings.
+  Tests compare create/prequalify/sign arrays and exact SignatureService JSON with zero fractions.
 - Never regenerate expectations from the new mapper to make a failing test pass.
 
 ## Remaining work
 
-- Split remaining referral workflow into narrow Livewire concerns, existing APIs and repositories,
-  preserving ownership checks, quantity protection and operation order. The large ReferralRequestLifecycleService
-  is still present and is not considered an acceptable final architecture.
-- Remaining referral operations include take-into-work/qualify, draft creation, sign/sync, print and
-  SMS. Completion/cancel usage have been migrated across both HTTP and Livewire entry points.
 - Migrate separate legacy `toFhir`/`fromFhir` callers before deleting their compatibility classes.
-- eRx, care-plan/activity mapping, approvals and other medical workflows remain
-  staged work. Do not mechanically copy a lifecycle service into a large trait or rename it into Actions.
+- Split `MedicationRequestLifecycleService` into explicit draft/sign/reject/sync and other UI steps,
+  API methods and Repository operations. Outgoing eRx mapping and partial metadata sync are ready;
+  raw-first signing, eligibility, resource identity, print/SMS/block/history still need their migration.
+  Do not mechanically copy a lifecycle service into a large trait or rename it into Actions.
+- Care-plan/activity mapping, quantity/program guards, approvals and other medical workflows remain
+  staged work. Existing quantity protection was retained; its transaction scope was not redesigned here.
 - CarePlanActivityRepository still prepares activity fields for prequalify, now delegated to the device
   DTO mapping. Move that remaining preparation when migrating activity DTOs; it is not final architecture.
 - Real KEP/eHealth UAT is still required before rollout.
 
 ## Validation
+
+October 5 take/draft/sign/sync/eRx increment: **432 tests / 1753 assertions**, no failures, errors or
+risky tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. Includes mapping, API, repositories, enums,
+care-plan/referral/eRx Livewire, encounter diagnostics and approvals. Project Pint passes for all 58
+changed PHP files (the isolated formatter disables the Blade extension). One existing PDO deprecation remains.
+Tests cover blocking qualify/process, local status after failure, minimal use import including zero,
+direct Eloquent sources without SQL, signed-create persistence before failed enrichment, clinical/job
+status separation and independent eRx signed JSON contracts.
 
 October 5 completion/cancel increment: **363 tests / 1520 assertions**, no failures, errors or risky
 tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. Project Pint passes for all 16 changed PHP files.
@@ -155,12 +182,12 @@ mapper841 PHP 8.5.3/PostgreSQL. Includes device golden contracts, actual Signatu
 patient-registry/encounter/care-plan signing, API contracts, partial sync, ownership, eRx raw signing
 and approvals. Project Pint passes for all 13 changed PHP files. One existing PDO deprecation remains.
 
-An additional expanded run included older test files and reported 13 failing scenarios. All 13 also
-fail on an immutable application snapshot of pre-change `9eb61910`: the two older MedicationRequest
-lifecycle test files use stale Identifier FK fixtures/alias mocks and lack Cipher configuration;
-MedicalEventAuthorizationTest's HTTP route test lacks a Vite manifest in the isolated environment.
-These are tracked limitations, not a claim that the complete application test suite is green. The
-current refactor regression excludes those three legacy files; no expectations were weakened.
+An earlier expanded run exposed stale Identifier FK fixtures/alias mocks in two older MedicationRequest
+lifecycle files. These fixtures now use actual Identifier rows and instance API mocks; all 24 tests /
+87 assertions pass and both files are included in the current 432-test regression. Their behavior
+assertions remain intact. MedicalEventAuthorizationTest's HTTP route test still lacks a Vite manifest
+in the isolated environment and is excluded. This is a medical regression, not a claim that the
+complete application suite is green; real KEP/eHealth UAT has not been run.
 
 Final regression (2026-10-01): **286 tests / 1151 assertions**, no failures, errors or risky tests.
 Includes mapping and exact signing bytes, API job/prequalify contracts, partial sync/Identifier links,

@@ -20,7 +20,6 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Services\Dictionary\DictionaryManager;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -141,7 +140,7 @@ class ElectronicReferralAndPrescriptionDiagnosticTest extends TestCase
             'process' => ['status' => ServiceRequestStatus::IN_PROGRESS->value],
         ]);
 
-        $service = app(ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\ReferralExecutionHarness();
         $result = $service->takeIntoWork($referralUuid, $this->employee, $this->person->uuid);
 
         $this->assertSame(ServiceRequestStatus::IN_PROGRESS->value, $result['status'] ?? null);
@@ -201,7 +200,7 @@ class ElectronicReferralAndPrescriptionDiagnosticTest extends TestCase
             ]));
         $this->app->instance(ExecutorServiceRequest::class, $mock);
 
-        $service = app(ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\ReferralExecutionHarness();
         $service->takeIntoWork($referralUuid, $this->employee, $this->person->uuid, [
             'program_id' => $programId,
         ]);

@@ -4,18 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\MedicalEvents;
 
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use App\Dto\ServiceRequest\SignedReferralResult;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Tests\TestCase;
 
 class ReferralRequestLifecycleWriteTest extends TestCase
 {
     public function test_extract_signed_create_entity_unwraps_job_result_data(): void
     {
-        $service = app(ReferralRequestLifecycleService::class);
-        $method = new \ReflectionMethod(ReferralRequestLifecycleService::class, 'extractSignedCreateEntity');
-        $method->setAccessible(true);
-
-        $entity = $method->invoke($service, [
+        $entity = SignedReferralResult::entity([
             'status' => 'processed',
             'result' => [
                 'data' => [
@@ -26,8 +23,9 @@ class ReferralRequestLifecycleWriteTest extends TestCase
             ],
         ]);
 
-        $this->assertSame('sr-uuid', $entity['id']);
-        $this->assertSame('active', $entity['status']);
-        $this->assertSame('0000-AAAA-BBBB-CCCC', $entity['requisition']);
+        $result = app(ObjectMapperInterface::class)->map($entity, SignedReferralResult::class)->toPatch();
+        $this->assertSame('sr-uuid', $result['uuid']);
+        $this->assertSame('active', $result['status']);
+        $this->assertSame('0000-AAAA-BBBB-CCCC', $result['request_number']);
     }
 }

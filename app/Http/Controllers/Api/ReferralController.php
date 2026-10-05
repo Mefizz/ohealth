@@ -11,7 +11,6 @@ use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Http\Controllers\Controller;
 use App\Models\Employee\Employee;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use App\Traits\MedicalEvents\UpdatesReferralExecution;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,7 +44,7 @@ class ReferralController extends Controller
     /**
      * Take a ServiceRequest into work (process).
      */
-    public function process(Request $request, ReferralRequestLifecycleService $lifecycleService): JsonResponse
+    public function process(Request $request): JsonResponse
     {
         $uuid = $this->referralUuid($request);
 
@@ -68,7 +67,7 @@ class ReferralController extends Controller
 
         return $this->respond(
             'process',
-            fn (): array => $lifecycleService->takeIntoWork(
+            fn (): array => $this->takeReferralIntoWork(
                 $uuid,
                 $employee,
                 $patientUuid,

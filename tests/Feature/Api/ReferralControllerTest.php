@@ -8,7 +8,6 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\User;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -233,9 +232,9 @@ class ReferralControllerTest extends TestCase
         ]);
         $this->instance('legalEntity', $otherLegalEntity);
 
-        $mock = Mockery::mock(ReferralRequestLifecycleService::class);
-        $mock->shouldNotReceive('takeIntoWork');
-        $this->app->instance(ReferralRequestLifecycleService::class, $mock);
+        $mock = Mockery::mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class);
+        $mock->shouldNotReceive('processAndResolve');
+        $this->app->instance(\App\Classes\eHealth\Api\Patient\ServiceRequest::class, $mock);
 
         $this->actingAsDoctor()
             ->postJson($this->url('process'), ['patient_uuid' => (string) Str::uuid()])

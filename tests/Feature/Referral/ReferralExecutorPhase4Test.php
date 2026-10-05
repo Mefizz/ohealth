@@ -16,7 +16,6 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -133,7 +132,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $mockApi->shouldReceive('process')->never();
         $this->app->instance(ServiceRequestApi::class, $mockApi);
 
-        $service = app(ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\ReferralExecutionHarness();
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Результати перевірки не дають змоги використати електронне направлення');
@@ -171,7 +170,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $mockApi->shouldReceive('process')->never();
         $this->app->instance(ServiceRequestApi::class, $mockApi);
 
-        $service = app(ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\ReferralExecutionHarness();
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Результати перевірки не дають змоги використати електронне направлення');
@@ -206,15 +205,64 @@ class ReferralExecutorPhase4Test extends TestCase
             ->andReturn($recallResponse);
         $this->app->instance(PatientServiceRequestApi::class, $mockPatientApi);
 
-        $service = app(ReferralRequestLifecycleService::class);
-        $result = $service->recallReferral($this->person->uuid, $referralUuid, [
-            'explanatory_letter' => 'Пацієнт більше не потребує послуги',
-        ]);
-
-        $this->assertSame('recalled', $result['status']);
+        $signature = Mockery::mock(\App\Services\SignatureService::class);
+        $signature->shouldReceive('getCertificateAuthorities')->andReturn([]);
+        $signature->shouldReceive('signData')->once()->andReturn('signed-content');
+        $this->instance(\App\Services\SignatureService::class, $signature);
+        $this->actingAs($this->user);
+        Livewire::test(\App\Livewire\Person\Records\PatientReferrals::class, [
+            'legalEntity' => $this->legalEntity, 'person' => $this->person, 'preperson' => null,
+        ])->call('recallReferral', $referralUuid, 'service_request')
+            ->set('referralExplanatoryLetter', 'Пацієнт більше не потребує послуги')
+            ->set('form.password', 'test-password')->set('form.knedp', 'test-knedp')
+            ->set('form.keyContainerUpload', \Illuminate\Http\UploadedFile::fake()->create('test.dat', 10))
+            ->call('sign')->assertHasNoErrors()->assertSet('showSignatureModal', false);
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $referralUuid,
             'status' => 'recalled',
+        ]);
+    }
+
+    public function test_failed_process_does_not_change_the_local_referral(): void
+    {
+        $uuid = (string) Str::uuid();
+        ServiceRequestRequest::create([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id, 'person_id' => $this->person->id,
+            'status' => 'active', 'service_id' => '59300-00', 'quantity' => 1,
+        ]);
+        $api = Mockery::mock(ServiceRequestApi::class);
+        $api->shouldNotReceive('qualify');
+        $api->shouldReceive('process')->once()->andThrow(new \RuntimeException('Use failed'));
+        $this->instance(ServiceRequestApi::class, $api);
+
+        try {
+            (new \Tests\Support\ReferralExecutionHarness())->takeIntoWork($uuid, $this->employee, $this->person->uuid);
+            $this->fail('A failed use action must propagate.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Use failed', $exception->getMessage());
+            $this->assertDatabaseHas('service_request_requests', ['uuid' => $uuid, 'status' => 'active']);
+        }
+    }
+
+    public function test_search_referral_import_preserves_zero_quantity_and_resolved_author(): void
+    {
+        $uuid = (string) Str::uuid();
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn(['data' => [
+            'requisition' => 'SR-USE-1', 'code' => ['coding' => [['code' => '59300-00']]],
+            'quantity' => ['value' => 0], 'program' => ['id' => 'remote-program'],
+        ]]);
+        $api = Mockery::mock(ServiceRequestApi::class);
+        $api->shouldNotReceive('qualify');
+        $api->shouldReceive('process')->once()->andReturn($response);
+        $this->instance(ServiceRequestApi::class, $api);
+
+        (new \Tests\Support\ReferralExecutionHarness())->takeIntoWork($uuid, $this->employee, $this->person->uuid);
+
+        $this->assertDatabaseHas('service_request_requests', [
+            'uuid' => $uuid, 'status' => 'in_progress', 'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id, 'service_id' => '59300-00', 'quantity' => 0,
+            'program_id' => 'remote-program', 'request_number' => 'SR-USE-1',
         ]);
     }
 

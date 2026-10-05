@@ -19,8 +19,6 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\MedicationRequestRepository;
-use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
-use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Collection;
@@ -32,8 +30,6 @@ use Throwable;
 
 class MedicationRequestLifecycleService extends EHealthRequestLifecycleService implements EHealthRequestLifecycleContract
 {
-    use ResolvesEmployeeContext;
-
     public function preQualify(array $payload): array
     {
         return $this->callEHealth('Prequalify', static fn (): array => MedicationRequest::preQualify($payload));
@@ -238,16 +234,16 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
      */
     private function submitDraft(array $dbData, array $uuids, ?string $carePlanUuid, int $personId): string
     {
-        $mapper = new MedicationRequestMapper();
+        $mapper = app(\App\Dto\MedicationRequest\MedicationRequestPayloads::class);
 
         if (!empty($dbData['medication_program_id'])) {
             $this->runPrequalify(
-                MedicationRequest::preQualify($mapper->toPrequalifyPayload($dbData, $uuids, $carePlanUuid))
+                MedicationRequest::preQualify($mapper->prequalify($dbData, $uuids, \Carbon\CarbonImmutable::now(), $carePlanUuid))
             );
         }
 
         $createResponse = MedicationRequest::createMedicationRequest(
-            $mapper->toCreateRequestPayload($dbData, $uuids, $carePlanUuid)
+            $mapper->create($dbData, $uuids, \Carbon\CarbonImmutable::now(), $carePlanUuid)
         );
 
         // resolve() raises on a failed or unresolved job, so nothing below runs unless
@@ -629,8 +625,8 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             'dosage_instructions' => $dosageInstructions,
         ];
 
-        $mapper = new MedicationRequestMapper();
-        $signedContent = $mapper->toCreateSignedContent($data, $uuids, $carePlanUuid);
+        $mapper = app(\App\Dto\MedicationRequest\MedicationRequestPayloads::class);
+        $signedContent = $mapper->signedContent($data, $uuids, \Carbon\CarbonImmutable::now(), $carePlanUuid);
 
         return $signedContent;
     }

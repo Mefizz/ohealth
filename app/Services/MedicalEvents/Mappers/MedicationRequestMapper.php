@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents\Mappers;
 
 use App\Contracts\FhirMapperContract;
-use App\Mapping\Transforms\AuthMethodId;
 use App\Services\MedicalEvents\FhirResource;
 use Illuminate\Support\Str;
 
@@ -186,193 +185,18 @@ class MedicationRequestMapper implements FhirMapperContract
      */
     public function toCreateRequestPayload(array $data, array $uuids, ?string $carePlanUuid = null): array
     {
-        $request = [
-            'person_id' => $uuids['person_uuid'],
-            'employee_id' => $uuids['employee_uuid'],
-            'division_id' => $uuids['division_uuid'] ?? null,
-            'created_at' => !empty($data['created_at']) ? \Carbon\Carbon::parse($data['created_at'])->format('Y-m-d') : now()->format('Y-m-d'),
-            'started_at' => !empty($data['started_at']) ? \Carbon\Carbon::parse($data['started_at'])->format('Y-m-d') : null,
-            'ended_at' => !empty($data['ended_at']) ? \Carbon\Carbon::parse($data['ended_at'])->format('Y-m-d') : null,
-            'medication_id' => $data['medication_id'],
-            'medication_qty' => (float) $data['medication_qty'],
-            'intent' => $data['intent'] ?? 'order',
-            'category' => $data['category'] ?? 'community',
-        ];
-
-        if (!empty($data['medication_program_id'])) {
-            $request['medical_program_id'] = $data['medication_program_id'];
-        }
-
-        if ($carePlanUuid && !empty($data['based_on_uuid'])) {
-            $request['based_on'] = [
-                FhirResource::make()
-                    ->coding('eHealth/resources', 'care_plan')
-                    ->toIdentifier($carePlanUuid),
-                FhirResource::make()
-                    ->coding('eHealth/resources', 'activity')
-                    ->toIdentifier($data['based_on_uuid']),
-            ];
-        }
-
-        if (!empty($uuids['encounter_uuid'])) {
-            $request['context'] = FhirResource::make()
-                ->coding('eHealth/resources', 'encounter')
-                ->toIdentifier($uuids['encounter_uuid']);
-        }
-
-        if (!empty($data['dosage_instructions'])) {
-            $request['dosage_instruction'] = $this->mapDosageInstructionsForCreate($data['dosage_instructions']);
-        }
-
-        $authMethodId = AuthMethodId::extract($data['inform_with'] ?? null);
-        if ($authMethodId !== null) {
-            $request['inform_with'] = $authMethodId;
-        }
-
-        if (!empty($data['container_dosage'])) {
-            if (is_string($data['container_dosage']) && str_contains($data['container_dosage'], '|')) {
-                [$val, $unit, $code] = array_pad(explode('|', $data['container_dosage']), 3, '');
-                $request['container_dosage'] = [
-                    'system' => 'MEDICATION_UNIT',
-                    'code' => $code ?: ($unit ?: 'PIECE'),
-                    'value' => (float) $val,
-                ];
-            } else {
-                $request['container_dosage'] = $data['container_dosage'];
-            }
-        }
-
-        if (!empty($data['note'])) {
-            $request['note'] = $data['note'];
-        }
-
-        return ['medication_request_request' => array_filter($request, static fn ($value) => $value !== null && $value !== '')];
+        return app(\App\Dto\MedicationRequest\MedicationRequestPayloads::class)->create($data, $uuids, \Carbon\CarbonImmutable::now(), $carePlanUuid);
     }
 
-    /**
-     * Build payload for PreQualify Medication Request Request (ESOZ API-005-044-0001).
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, string|null>  $uuids
-     * @param  string|null  $carePlanUuid
-     * @return array<string, mixed>
-     */
     public function toPrequalifyPayload(array $data, array $uuids, ?string $carePlanUuid = null): array
     {
-        $payload = $this->toCreateRequestPayload($data, $uuids, $carePlanUuid);
-        $request = $payload['medication_request_request'];
-
-        unset($request['medical_program_id']);
-
-        $programs = [];
-        if (!empty($data['medication_program_id'])) {
-            $programs[] = ['id' => $data['medication_program_id']];
-        }
-
-        return [
-            'medication_request_request' => $request,
-            'programs' => $programs,
-        ];
+        return app(\App\Dto\MedicationRequest\MedicationRequestPayloads::class)->prequalify($data, $uuids, \Carbon\CarbonImmutable::now(), $carePlanUuid);
     }
 
-    /**
-     * Build payload content to be digitally signed (ESOZ API-005-044-0006).
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, string|null>  $uuids
-     * @param  string|null  $carePlanUuid
-     * @return array<string, mixed>
-     */
     public function toCreateSignedContent(array $data, array $uuids, ?string $carePlanUuid = null): array
     {
-        $wrapped = $this->toCreateRequestPayload($data, $uuids, $carePlanUuid);
-
-        return $wrapped['medication_request_request'] ?? [];
+        return app(\App\Dto\MedicationRequest\MedicationRequestPayloads::class)->signedContent($data, $uuids, \Carbon\CarbonImmutable::now(), $carePlanUuid);
     }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $instructions
-     * @return array<int, array<string, mixed>>
-     */
-    private function mapDosageInstructionsForCreate(array $instructions): array
-    {
-        return array_values(array_map(function (array $inst, int $index): array {
-            $unit = $inst['dose_and_rate'][0]['dose_quantity_unit'] ?? 'од.';
-            $text = !empty($inst['text']) ? $inst['text'] : 'За призначенням лікаря';
-            $patientInstruction = !empty($inst['patient_instruction']) ? $inst['patient_instruction'] : $text;
-
-            $dosage = [
-                'sequence' => $inst['sequence'] ?? ($index + 1),
-                'text' => $text,
-                'patient_instruction' => $patientInstruction,
-                'as_needed_boolean' => (bool) ($inst['as_needed_boolean'] ?? false),
-            ];
-
-            if (!empty($inst['route'])) {
-                $dosage['route'] = FhirResource::make()
-                    ->coding('eHealth/SNOMED/route_codes', $this->resolveRouteCode((string) $inst['route']))
-                    ->toCodeableConcept();
-            }
-
-            if (!empty($inst['dose_and_rate'])) {
-                $dr = is_array($inst['dose_and_rate'][0] ?? null)
-                    ? $inst['dose_and_rate'][0]
-                    : $inst['dose_and_rate'];
-
-                if (isset($dr['dose_quantity_value'])) {
-                    $dosage['dose_and_rate'] = [
-                        'type' => FhirResource::make()
-                            ->coding('eHealth/dose_and_rate', 'ordered')
-                            ->toCodeableConcept(),
-                        'dose_quantity' => [
-                            'value' => (float) $dr['dose_quantity_value'],
-                            'unit' => $dr['dose_quantity_unit'] ?? null,
-                            'system' => 'eHealth/ucum/units',
-                            'code' => $dr['dose_quantity_code'] ?? ($dr['dose_quantity_unit'] ?? null),
-                        ],
-                    ];
-                }
-            }
-
-            if (isset($inst['max_dose_per_administration'])) {
-                $dosage['max_dose_per_administration'] = [
-                    'value' => (float) $inst['max_dose_per_administration'],
-                    'unit' => $unit,
-                    'system' => 'eHealth/ucum/units',
-                    'code' => $unit,
-                ];
-            }
-
-            if (isset($inst['max_dose_per_period'])) {
-                $dosage['max_dose_per_period'] = [
-                    'numerator' => [
-                        'value' => (float) $inst['max_dose_per_period'],
-                        'unit' => $unit,
-                        'system' => 'eHealth/ucum/units',
-                        'code' => $unit,
-                    ],
-                    'denominator' => [
-                        'value' => 1,
-                        'unit' => 'd',
-                        'system' => 'eHealth/ucum/units',
-                        'code' => 'd',
-                    ],
-                ];
-            }
-
-            return array_filter($dosage, static fn ($value) => $value !== null && $value !== '');
-        }, $instructions, array_keys($instructions)));
-    }
-
-    private function resolveRouteCode(string $route): string
-    {
-        $aliases = [
-            'oral' => '26643006',
-        ];
-
-        return $aliases[strtolower($route)] ?? $route;
-    }
-
     /**
      * Convert FHIR structure (from eHealth response/DB) to flat application format.
      *

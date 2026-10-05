@@ -17,6 +17,20 @@ use Illuminate\Database\Eloquent\Builder;
 
 readonly class EmployeeRepository
 {
+    use \App\Repositories\Concerns\ResolvesMedicalRequestEmployeeContext;
+    /** Resolve optional local foreign keys before passing a snapshot to ObjectMapper. */
+    public function referralExecutorContext(Employee $employee, mixed $programId): \stdClass
+    {
+        return (object) [
+            'employeeUuid' => $employee->uuid,
+            'divisionUuid' => $employee->divisionUuid
+                ?: ($employee->divisionId ? \App\Models\Division::find($employee->divisionId)?->uuid : null),
+            'legalEntityUuid' => $employee->legalEntityUuid
+                ?: ($employee->legalEntityId ? LegalEntity::find($employee->legalEntityId)?->uuid : null),
+            'programId' => $programId,
+        ];
+    }
+
     /**
      * Creates a new EmployeeRequest draft from prepared data.
      * This is a universal method that only handles database persistence.

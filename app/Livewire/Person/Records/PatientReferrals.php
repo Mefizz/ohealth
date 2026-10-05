@@ -21,7 +21,6 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\DeviceRequestRequestRepository;
 use App\Repositories\MedicalEvents\Repository;
 use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
@@ -32,6 +31,9 @@ use Livewire\WithFileUploads;
 
 class PatientReferrals extends BasePatientComponent
 {
+    use \App\Livewire\Concerns\MedicalEvents\Referral\SynchronizesReferrals;
+    use \App\Livewire\Concerns\MedicalEvents\Referral\PrintsReferrals;
+
     use SelectsReferralApi;
     use WithFileUploads;
 
@@ -314,7 +316,7 @@ class PatientReferrals extends BasePatientComponent
 
         try {
             $validated = $this->form->validate($this->form->signingRules());
-            $lifecycle = app(ReferralRequestLifecycleService::class);
+            $employees = app(\App\Repositories\EmployeeRepository::class);
 
             $activity = $requestRecord->basedOn?->value
                 ? CarePlanActivity::query()->where('uuid', $requestRecord->basedOn->value)->first()
@@ -333,10 +335,10 @@ class PatientReferrals extends BasePatientComponent
             $context = $carePlan ?? $encounter;
             $actingEmployeeId = $requestRecord->employeeId ?? Auth::user()?->activeDoctorEmployee()?->id;
             $employeeContext = $context instanceof Encounter
-                ? $lifecycle->resolveEncounterEmployeeContext($context, $actingEmployeeId)
-                : $lifecycle->resolveEmployeeContext($carePlan, $activity, $actingEmployeeId);
+                ? $employees->resolveEncounterEmployeeContext($context, $actingEmployeeId)
+                : $employees->resolveEmployeeContext($carePlan, $activity, $actingEmployeeId);
 
-            $dbData = $lifecycle->buildSignDbData($requestRecord, $activity, $context, $employeeContext);
+            $dbData = $this->referralSignData($requestRecord, $activity, $context, $employeeContext);
 
             $uuids = [
                 'person_uuid' => $this->uuid,
@@ -373,7 +375,7 @@ class PatientReferrals extends BasePatientComponent
 
             $finalResponse = $this->referralApi($kind)->createSignedAndResolve($this->uuid, $signedContent);
 
-            $dbData = $lifecycle->persistAfterSignedCreate(
+            $dbData = $this->persistAfterSignedCreate(
                 $dbData,
                 $finalResponse,
                 $kind,
@@ -409,7 +411,7 @@ class PatientReferrals extends BasePatientComponent
         $this->ownedReferral($uuid);
 
         try {
-            $response = app(ReferralRequestLifecycleService::class)->resendSms($this->uuid, $uuid, $kind);
+            $response = $this->referralApi($kind)->resendSms($this->uuid, $uuid);
 
             if ($response->successful()) {
                 Session::flash('success', __('care-plan.referral_sms_resent'));
@@ -454,7 +456,7 @@ class PatientReferrals extends BasePatientComponent
         }
 
         try {
-            return app(ReferralRequestLifecycleService::class)->buildPrintoutHtml($context, $uuid);
+            return $this->referralPrintoutHtml($context, $uuid);
         } catch (\Throwable $exception) {
             Log::error('PatientReferrals: failed to load printout: '.$exception->getMessage());
             Session::flash('error', 'Не вдалося завантажити друковану форму.');

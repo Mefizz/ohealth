@@ -11,6 +11,15 @@ use InvalidArgumentException;
 
 trait SelectsReferralApi
 {
+    protected function referralRepository(string $kind): \App\Repositories\MedicalEvents\ServiceRequestRequestRepository|\App\Repositories\MedicalEvents\DeviceRequestRequestRepository
+    {
+        return match ($kind) {
+            'service_request' => \App\Repositories\MedicalEvents\Repository::serviceRequest(),
+            'device_request' => \App\Repositories\MedicalEvents\Repository::deviceRequest(),
+            default => throw new InvalidArgumentException(__('care-plan.referral_wrong_activity_kind')),
+        };
+    }
+
     protected function referralApi(string $kind): ServiceRequest|DeviceRequest
     {
         return match ($kind) {

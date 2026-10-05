@@ -20,6 +20,31 @@ class ServiceRequest extends PatientApiBase
 {
     use ResolvesSignedPatientRequests;
 
+    public function qualifyAndValidate(string $id, mixed $programId): void
+    {
+        try {
+            $response = $this->qualify($id, ['programs' => [['id' => $programId]]])->getData();
+            $job = EHealth::job();
+            $job->assertPrequalifyValid($job->resolve(is_array($response) ? $response : []));
+        } catch (EHealthValidationException $exception) {
+            throw new \RuntimeException(__('care-plan.referral_qualify_blocked', [
+                'reason' => $exception->getTranslatedMessage() ?: $exception->getFormattedMessage(),
+            ]), previous: $exception);
+        } catch (\Throwable $exception) {
+            Log::warning('Qualify failed (blocking): '.$exception->getMessage(), ['referral_uuid' => $id]);
+            throw new \RuntimeException(__('care-plan.referral_qualify_blocked', [
+                'reason' => $exception->getMessage(),
+            ]), previous: $exception);
+        }
+    }
+
+    public function processAndResolve(string $id, array $payload): array
+    {
+        $response = $this->process($id, $payload)->getData();
+
+        return EHealth::job()->resolve(is_array($response) ? $response : []);
+    }
+
     public function completeAndResolve(string $id, array $payload): array
     {
         $response = $this->complete($id, $payload)->getData();

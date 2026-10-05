@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
+use Illuminate\Support\Str;
+use ArrayObject;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use App\Services\MedicalEvents\ActivityRemainingQuantityGuard;
+use App\Mapping\EHealth\Referral\DeviceRequestModelData;
+use App\Mapping\EHealth\Referral\ServiceRequestModelData;
+use App\Models\CarePlan;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Dto\DeviceRequest\DeviceRequestPayloads;
@@ -19,7 +26,6 @@ use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Exception;
@@ -33,6 +39,9 @@ use Throwable;
 
 trait ManagesCarePlanReferrals
 {
+    use \App\Livewire\Concerns\MedicalEvents\Referral\SynchronizesReferrals;
+    use \App\Livewire\Concerns\MedicalEvents\Referral\PrintsReferrals;
+
     public function initReferralForm(int $activityId, CarePlanActivityRepository $activityRepository): void
     {
         $this->authorizeCarePlanWrite();
@@ -86,9 +95,9 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $existingDraft = app(ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+        $existingDraft = $this->referralRepository($activity->kind)->findDraftByActivity((string) $activity->uuid);
         if ($existingDraft) {
-            if (app(ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
+            if ($this->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
                 if ($activity->status === 'scheduled') {
                     $activity->update(['status' => 'in-progress']);
                 }
@@ -119,7 +128,7 @@ trait ManagesCarePlanReferrals
 
         // Calculate remaining quantity
         $activityQty = (float) ($activity->quantity ?? 0);
-        $issuedQty = app(ReferralRequestLifecycleService::class)->sumIssuedQuantity($activity);
+        $issuedQty = $this->referralRepository($activity->kind)->sumIssuedQuantityByActivity((string) $activity->uuid);
         $this->referralRemainingQty = $activity->quantity === null
             ? 1.0
             : max(0.0, $activityQty - $issuedQty);
@@ -286,7 +295,7 @@ trait ManagesCarePlanReferrals
             return;
         }
         if ($activity) {
-            $existingDraft = app(ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+            $existingDraft = $this->referralRepository($activity->kind)->findDraftByActivity((string) $activity->uuid);
             if ($existingDraft) {
                 $this->referralRequestIdToSign = $existingDraft->uuid;
                 $signAction = $this->referralForm['kind'] === 'service_request'
@@ -301,13 +310,13 @@ trait ManagesCarePlanReferrals
         try {
             $this->carePlan->loadMissing(['encounter', 'person']);
 
-            $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
+            $employeeContext = app(\App\Repositories\EmployeeRepository::class)->resolveEmployeeContext(
                 $this->carePlan,
                 $activity,
                 Auth::user()?->activeDoctorEmployee()?->id
             );
 
-            $this->referralRequestIdToSign = app(ReferralRequestLifecycleService::class)->createCarePlanDraft(
+            $this->referralRequestIdToSign = $this->createCarePlanReferralDraft(
                 $this->carePlan,
                 $this->referralForm,
                 $qty,
@@ -345,7 +354,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $response = app(ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
+            $response = $this->referralApi($kind)->resendSms($this->carePlan->person->uuid, $requestId);
 
             if ($response->successful()) {
                 Session::flash('success', __('care-plan.referral_sms_resent'));
@@ -442,7 +451,7 @@ trait ManagesCarePlanReferrals
 
             $finalResponse = $this->referralApi($kind)->createSignedAndResolve($this->carePlan->person->uuid, $signedContent);
 
-            $dbData = app(ReferralRequestLifecycleService::class)->persistAfterSignedCreate(
+            $dbData = $this->persistAfterSignedCreate(
                 $dbData,
                 $finalResponse,
                 $kind,
@@ -462,7 +471,7 @@ trait ManagesCarePlanReferrals
                     $activity = $this->ownedActivityByBasedOnUuid($requestRecord->basedOn?->value);
 
                     $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
-                    $dbData = app(ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+                    $dbData = $this->syncReferralFromRemote(
                         $this->carePlan,
                         $activity,
                         $requestRecord,
@@ -645,7 +654,7 @@ trait ManagesCarePlanReferrals
     public function loadReferralPrintoutForm(string $requestId): string
     {
         try {
-            $html = app(ReferralRequestLifecycleService::class)->buildPrintoutHtml($this->carePlan, $requestId);
+            $html = $this->referralPrintoutHtml($this->carePlan, $requestId);
             $this->printableContent = $html;
 
             return $html;
@@ -692,7 +701,7 @@ trait ManagesCarePlanReferrals
             ];
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
-            app(ReferralRequestLifecycleService::class)->syncReferralFromRemote(
+            $this->syncReferralFromRemote(
                 $this->carePlan,
                 $activity,
                 $requestRecord,
@@ -933,7 +942,7 @@ trait ManagesCarePlanReferrals
         ServiceRequestRequest|DeviceRequestRequest $requestRecord,
         CarePlanActivity $activity
     ): array {
-        $context = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
+        $context = app(\App\Repositories\EmployeeRepository::class)->resolveEmployeeContext(
             $this->carePlan,
             $activity,
             $requestRecord->employeeId
@@ -956,7 +965,7 @@ trait ManagesCarePlanReferrals
     ): array {
         $employeeContext = $this->resolveReferralEmployeeContext($requestRecord, $activity);
 
-        return app(ReferralRequestLifecycleService::class)->buildSignDbData(
+        return $this->referralSignData(
             $requestRecord,
             $activity,
             $this->carePlan,
@@ -1002,5 +1011,112 @@ trait ManagesCarePlanReferrals
         $key = 'care-plan.referral_category.' . $category;
 
         return Lang::has($key) ? __($key) : $category;
+    }
+
+    protected function createCarePlanReferralDraft(CarePlan $carePlan, array $formData, float $qty, array $employeeContext): string
+    {
+        $activity = CarePlanActivity::query()
+            ->with('carePlan')
+            ->findOrFail($formData['activity_id']);
+
+        $resolvedKind = $activity->resolvedKind();
+        if (!in_array($resolvedKind, ['service_request', 'device_request'], true)) {
+            throw new \InvalidArgumentException(__('care-plan.referral_wrong_activity_kind'));
+        }
+
+        $formData['kind'] = $resolvedKind;
+
+        app(ActivityRemainingQuantityGuard::class)->assertCanIssue(
+            (int) $activity->id,
+            $qty,
+            function (int $activityId) use ($resolvedKind, $activity): float {
+                $query = $resolvedKind === 'service_request'
+                    ? ServiceRequestRequest::query()
+                    : DeviceRequestRequest::query();
+
+                return (float) $query
+                    ->whereHas('basedOn', fn ($q) => $q->where('value', $activity->uuid))
+                    ->whereNotIn('status', ActivityRemainingQuantityGuard::occupyingStatusesExcluded())
+                    ->sum('quantity');
+            }
+        );
+
+        $dbData = array_replace(app(ObjectMapperInterface::class)->map(
+            new ArrayObject(array_replace($formData, ['intent' => $formData['intent'] ?? 'order'])),
+            $resolvedKind === 'service_request' ? ServiceRequestModelData::class : DeviceRequestModelData::class
+        )->toArray(), [
+            'uuid' => (string) Str::uuid(),
+            'employee_id' => $employeeContext['employee_id'] ?? null,
+            'person_id' => $carePlan->personId,
+            'division_id' => $employeeContext['division_id'] ?? null,
+            'status' => $resolvedKind === 'service_request' ? ServiceRequestStatus::DRAFT->value : \App\Enums\Person\DeviceRequestStatus::DRAFT->value,
+            'quantity' => $qty,
+            'quantity_system' => $activity->quantitySystem ?: 'SERVICE_UNIT',
+            'quantity_code' => $activity->quantityCode ?: 'PIECE',
+            'based_on_uuid' => $activity->uuid,
+            'context_uuid' => $carePlan->encounter?->uuid,
+        ]);
+
+        $uuids = [
+            'person_uuid' => $carePlan->person->uuid,
+            'encounter_uuid' => $carePlan->encounter?->uuid ?? null,
+            'episode_uuid' => $carePlan->episodeUuid(),
+            'employee_uuid' => $employeeContext['employee_uuid'] ?? null,
+            'legal_entity_uuid' => $employeeContext['legal_entity_uuid'] ?? null,
+        ];
+
+        if ($formData['kind'] === 'service_request') {
+            $dbData['service_id'] = $activity->productReference;
+
+            if (!empty($activity->program)) {
+                $dbData['program_id'] = $activity->program;
+            } else {
+                $dbData['program_id'] = null;
+            }
+
+            if (!empty($dbData['program_id'])) {
+                $prequalifyPayload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
+                    $dbData,
+                    $uuids,
+                    CarbonImmutable::now(),
+                    $carePlan->uuid,
+                    (string) $activity->uuid
+                ));
+                EHealth::serviceRequest()->prequalifyAndValidate($carePlan->person->uuid, $prequalifyPayload);
+            }
+
+            $this->referralRepository('service_request')->store($dbData, $carePlan->personId);
+
+            return $dbData['uuid'];
+        }
+
+        $dbData['device_id'] = $activity->productReference ?: $activity->productCodeableConcept;
+        $dbData['device_code_type'] = !empty($activity->productReference) ? 'DEVICE_DEFINITION' : 'CLASSIFICATION_TYPE';
+        if (str_contains(strtolower((string) $activity->kind), 'device')) {
+            $dbData['quantity_system'] = $activity->quantitySystem ?: 'device_unit';
+            $dbData['quantity_code'] = strtolower($activity->quantityCode ?: 'piece');
+        }
+
+        // Prefer activity program when the form left it blank.
+        if (empty($dbData['program_id']) && !empty($activity->program)) {
+            $dbData['program_id'] = $activity->program;
+        }
+
+        // PreQualify schema requires $.programs; Create Device Request allows optional program.
+        // Mirror service_request: only prequalify when a medical program is present.
+        if (!empty($dbData['program_id'])) {
+            $prequalifyPayload = app(DeviceRequestPayloads::class)->prequalify(
+                $dbData,
+                $uuids,
+                CarbonImmutable::now('UTC'),
+                $carePlan->uuid,
+                (string) $activity->uuid
+            );
+            EHealth::deviceRequest()->prequalifyAndValidate($carePlan->person->uuid, $prequalifyPayload);
+        }
+
+        $this->referralRepository('device_request')->store($dbData, $carePlan->personId);
+
+        return $dbData['uuid'];
     }
 }

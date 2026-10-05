@@ -11,5 +11,6 @@ final class ReferralExecutionHarness
     use UpdatesReferralExecution {
         completeReferral as public;
         cancelReferralUsage as public;
+        takeReferralIntoWork as public takeIntoWork;
     }
 }

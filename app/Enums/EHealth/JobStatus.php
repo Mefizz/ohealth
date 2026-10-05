@@ -33,4 +33,10 @@ enum JobStatus: string
             default => false,
         };
     }
+
+    /** Creation responses may contain a job verdict rather than a clinical resource status. */
+    public function isCreationEnvelopeStatus(): bool
+    {
+        return $this->isPending() || in_array($this, [self::Processed, self::Completed, self::Success], true);
+    }
 }

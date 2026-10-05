@@ -209,9 +209,9 @@ class CarePlanShowActionsTest extends TestCase
             'uuid' => $uuid, 'employee_id' => $this->employee->id,
             'person_id' => $otherPerson->id, 'status' => 'new', 'device_id' => (string) Str::uuid(),
         ]);
-        $lifecycle = Mockery::mock(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class);
-        $lifecycle->shouldNotReceive('syncReferralFromRemote');
-        $this->instance(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class, $lifecycle);
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\DeviceRequest::class);
+        $api->shouldNotReceive('getById');
+        $this->instance(\App\Classes\eHealth\Api\Patient\DeviceRequest::class, $api);
 
         Livewire::test(CarePlanShow::class, ['carePlan' => $plan])
             ->call('syncReferralFromEHealth', $uuid, 'device_request')

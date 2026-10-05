@@ -228,7 +228,7 @@ trait ManagesEncounterEPrescription
         }
 
         try {
-            $employeeContext = app(MedicationRequestLifecycleService::class)->resolveEncounterEmployeeContext(
+            $employeeContext = app(\App\Repositories\EmployeeRepository::class)->resolveEncounterEmployeeContext(
                 $encounter,
                 Auth::user()?->activeDoctorEmployee()?->id
             );

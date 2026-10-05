@@ -6,6 +6,8 @@ namespace App\Repositories\MedicalEvents;
 
 use App\Enums\MedicalEvents\ReferralCompletionResourceType;
 use App\Enums\Person\ServiceRequestStatus;
+use App\Dto\ServiceRequest\UseResponse;
+use App\Mapping\EHealth\Referral\ServiceRequestModelData;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -20,6 +22,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
 use Throwable;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
 /**
  * @property ServiceRequestRequest $model
@@ -49,6 +52,35 @@ class ServiceRequestRequestRepository extends BaseRepository
     public function setExecutionStatus(string $uuid, ServiceRequestStatus $status): void
     {
         $this->findByUuid($uuid)?->update(['status' => $status->value]);
+    }
+
+    /** Persist only after eHealth has successfully resolved the use action. */
+    public function persistExecution(string $uuid, Employee $employee, ?string $patientUuid, mixed $programId, array $response): void
+    {
+        $model = $this->findByUuid($uuid);
+        if ($model !== null) {
+            $model->update([
+                'status' => ServiceRequestStatus::IN_PROGRESS->value,
+                'program_id' => $programId ?? $model->programId,
+            ]);
+
+            return;
+        }
+
+        $person = $patientUuid ? \App\Models\Person\Person::where('uuid', $patientUuid)->first() : null;
+        if ($person === null) {
+            return;
+        }
+
+        $data = $response['data'] ?? $response;
+        $fields = app(ObjectMapperInterface::class)->map(new UseResponse($data), ServiceRequestModelData::class)->toUseRecord();
+        $this->store(array_replace($fields, [
+            'uuid' => $uuid,
+            'status' => ServiceRequestStatus::IN_PROGRESS->value,
+            'employee_id' => $employee->id,
+            'division_id' => $employee->divisionId,
+            'program_id' => $programId ?? $fields['program_id'],
+        ]), $person->id);
     }
 
     public function findOwnedReferralByPerson(string $uuid, int $personId, ?int $legalEntityId): ServiceRequestRequest|DeviceRequestRequest

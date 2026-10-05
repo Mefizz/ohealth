@@ -11,7 +11,6 @@ use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
-use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
@@ -46,8 +45,12 @@ class ReferralLifecycleTest extends TestCase
         $id = Repository::serviceRequest()->store($local, $this->person->id);
         $record = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::findOrFail($id);
 
-        app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->syncReferralFromRemote(
-            $this->encounter, $this->serviceActivity, $record, 'service_request', $local,
+        (new \Tests\Support\ReferralSigningHarness())->syncReferralFromRemote(
+            $this->encounter,
+            $this->serviceActivity,
+            $record,
+            'service_request',
+            $local,
             ['id' => $uuid, 'status' => 'active', 'quantity' => ['value' => 0], 'note' => null, 'supporting_info' => [], 'requester_employee' => ['identifier' => ['value' => 'foreign-author']]]
         );
 
@@ -60,6 +63,50 @@ class ReferralLifecycleTest extends TestCase
         $this->assertSame('service-local', $record->serviceId);
         $this->assertSame('Keep this note', $record->note);
         $this->assertSame($local['supporting_info'], $record->supportingInfo);
+    }
+
+    public function test_signed_create_remains_persisted_when_requisition_enrichment_fails(): void
+    {
+        $uuid = (string) Str::uuid();
+        $api = Mockery::mock(ServiceRequestApi::class);
+        $api->shouldReceive('getById')->once()->with($this->person->uuid, $uuid)->andThrow(new \RuntimeException('GET unavailable'));
+        $this->instance(ServiceRequestApi::class, $api);
+        $data = (new \Tests\Support\ReferralSigningHarness())->persistAfterSignedCreate([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id, 'status' => 'draft',
+            'service_id' => 'service-local', 'quantity' => 1, 'intent' => 'order',
+        ], ['status' => 'processed'], 'service_request', $this->person->id);
+
+        $this->assertSame('active', $data['status']);
+        $this->assertNull($data['request_number']);
+        $this->assertDatabaseHas('service_request_requests', ['uuid' => $uuid, 'status' => 'active', 'request_number' => null]);
+    }
+
+    public function test_requisition_enrichment_does_not_replace_clinical_status_with_a_job_status(): void
+    {
+        $uuid = (string) Str::uuid();
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn(['id' => $uuid, 'status' => 'processed', 'requisition' => 'SR-ENRICHED']);
+        $api = Mockery::mock(ServiceRequestApi::class);
+        $api->shouldReceive('getById')->once()->with($this->person->uuid, $uuid)->andReturn($response);
+        $this->instance(ServiceRequestApi::class, $api);
+        (new \Tests\Support\ReferralSigningHarness())->persistAfterSignedCreate([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id, 'service_id' => 'service-local', 'intent' => 'order',
+        ], ['status' => 'processed'], 'service_request', $this->person->id);
+
+        $this->assertDatabaseHas('service_request_requests', ['uuid' => $uuid, 'status' => 'active', 'request_number' => 'SR-ENRICHED']);
+    }
+
+    public function test_signed_entity_metadata_is_used_without_an_extra_get(): void
+    {
+        $uuid = (string) Str::uuid();
+        $api = Mockery::mock(DeviceRequestApi::class);
+        $api->shouldNotReceive('getById');
+        $this->instance(DeviceRequestApi::class, $api);
+        (new \Tests\Support\ReferralSigningHarness())->persistAfterSignedCreate([
+            'uuid' => $uuid, 'employee_id' => $this->employee->id, 'device_id' => 'device-local', 'intent' => 'order',
+        ], ['status' => 'processed', 'result' => ['data' => [['id' => $uuid, 'status' => 'active', 'requisition' => 'DR-1']]]], 'device_request', $this->person->id);
+
+        $this->assertDatabaseHas('device_request_requests', ['uuid' => $uuid, 'status' => 'active', 'request_number' => 'DR-1']);
     }
 
     protected Person $person;
@@ -678,7 +725,7 @@ class ReferralLifecycleTest extends TestCase
         $mockDeviceApi->shouldReceive('prequalify')->never();
         $this->instance(DeviceRequestApi::class, $mockDeviceApi);
 
-        $service = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\CarePlanReferralDraftHarness();
         $carePlan = $this->deviceActivity->carePlan->loadMissing(['person', 'encounter']);
 
         try {
@@ -737,7 +784,7 @@ class ReferralLifecycleTest extends TestCase
             ->andReturn($prequalifyResponse);
         $this->instance(DeviceRequestApi::class, $mockDeviceApi);
 
-        $service = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class);
+        $service = new \Tests\Support\CarePlanReferralDraftHarness();
         $carePlan = $this->deviceActivity->carePlan->loadMissing(['person', 'encounter']);
 
         try {

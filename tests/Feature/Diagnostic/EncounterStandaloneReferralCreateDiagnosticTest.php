@@ -13,7 +13,6 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -142,8 +141,8 @@ class EncounterStandaloneReferralCreateDiagnosticTest extends TestCase
             ->andReturn($prequalifyResponse);
         $this->app->instance(PatientServiceRequest::class, $patientApi);
 
-        $lifecycle = app(ReferralRequestLifecycleService::class);
-        $employeeContext = $lifecycle->resolveEncounterEmployeeContext($this->encounter, $this->employee->id);
+        $lifecycle = new \Tests\Support\EncounterReferralDraftHarness();
+        $employeeContext = app(\App\Repositories\EmployeeRepository::class)->resolveEncounterEmployeeContext($this->encounter, $this->employee->id);
 
         $this->assertSame($this->employee->id, $employeeContext['employee_id']);
 

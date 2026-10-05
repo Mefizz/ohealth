@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\MedicalEvents\Concerns;
+namespace App\Repositories\Concerns;
 
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
@@ -16,7 +16,7 @@ use App\Models\MedicalEvents\Sql\Encounter;
  * The acting employee is never read from the session: callers pass $actingEmployeeId so the
  * same resolution works from HTTP, queued jobs and tests.
  */
-trait ResolvesEmployeeContext
+trait ResolvesMedicalRequestEmployeeContext
 {
     /**
      * @return array{

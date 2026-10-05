@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Mapping\EHealth\Referral;
 
 use App\Mapping\Transforms\FallbackValue;
+use App\Dto\ServiceRequest\UseResponse;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use ArrayObject;
 use stdClass;
 use Symfony\Component\ObjectMapper\Attribute\Map;
@@ -18,44 +21,58 @@ use Symfony\Component\ObjectMapper\Transform\MapCollection;
 abstract class ReferralModelData
 {
     #[Map(source: 'id?', if: new SourceClass(stdClass::class), transform: new FallbackValue('uuid'))]
+    #[Map(source: '[uuid]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
     public ?string $uuid = null;
 
     #[Map(source: 'status?', if: new SourceClass(stdClass::class))]
     public ?string $status = null;
 
     #[Map(source: 'request_number?', if: new SourceClass(stdClass::class), transform: new FallbackValue('requisition', 'requestNumber'))]
+    #[Map(source: 'data[requisition?]', if: new SourceClass(UseResponse::class))]
     public ?string $request_number = null;
 
     #[Map(source: '[started_at?]', if: new SourceClass(ArrayObject::class), transform: [self::class, 'date'])]
     #[Map(source: 'occurrence_period?[start?]', if: new SourceClass(stdClass::class), transform: [new FallbackValue('occurrencePeriod.start', 'started_at'), [self::class, 'date']])]
+    #[Map(source: '[started_at?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]), transform: [self::class, 'date'])]
     public ?string $started_at = null;
 
     #[Map(source: '[ended_at?]', if: new SourceClass(ArrayObject::class), transform: [self::class, 'date'])]
     #[Map(source: 'occurrence_period?[end?]', if: new SourceClass(stdClass::class), transform: [new FallbackValue('occurrencePeriod.end', 'ended_at'), [self::class, 'date']])]
+    #[Map(source: '[ended_at?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]), transform: [self::class, 'date'])]
     public ?string $ended_at = null;
 
     #[Map(source: '[quantity?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'quantity?[value?]', if: new SourceClass(stdClass::class), transform: new FallbackValue('quantityInteger'))]
+    #[Map(source: '[quantity?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
+    #[Map(source: 'data[quantity?][value?]', if: new SourceClass(UseResponse::class), transform: [self::class, 'mapUseQuantity'])]
     public int|float|string|null $quantity = null;
 
     #[Map(source: '[program_id?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'program?[identifier?][value?]', if: new SourceClass(stdClass::class))]
+    #[Map(source: '[program_id?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
+    #[Map(source: 'data[program?][identifier?][value?]', if: new SourceClass(UseResponse::class), transform: new FallbackValue('data.program.id'))]
     public ?string $program_id = null;
 
     #[Map(source: '[intent?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'intent?', if: new SourceClass(stdClass::class))]
+    #[Map(source: '[intent?][code?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
+    #[Map(source: 'data[intent?]', if: new SourceClass(UseResponse::class), transform: [self::class, 'mapUseIntent'])]
     public ?string $intent = null;
 
     #[Map(source: '[category?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'category?[coding?][0?][code?]', if: new SourceClass(stdClass::class), transform: new FallbackValue('category.0.coding.0.code'))]
+    #[Map(source: '[category?][text?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
+    #[Map(source: 'data[category?][coding?][0?][code?]', if: new SourceClass(UseResponse::class))]
     public ?string $category = null;
 
     #[Map(source: '[priority?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'priority?', if: new SourceClass(stdClass::class))]
+    #[Map(source: '[priority?][text?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
     public ?string $priority = null;
 
     #[Map(source: '[note?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'note?', if: new SourceClass(stdClass::class), transform: [self::class, 'noteText'])]
+    #[Map(source: '[note?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
     public ?string $note = null;
 
     #[Map(source: '[patient_instruction?]', if: new SourceClass(ArrayObject::class))]
@@ -68,6 +85,7 @@ abstract class ReferralModelData
 
     #[Map(source: '[supporting_info?]', if: new SourceClass(ArrayObject::class))]
     #[Map(source: 'supporting_info?', if: new SourceClass(stdClass::class), transform: [new FallbackValue('supportingInfo'), [self::class, 'completeReferenceSources'], new MapCollection(targetClass: ReferralReferenceData::class)])]
+    #[Map(source: '[supporting_info?]', if: new SourceClass([ServiceRequestRequest::class, DeviceRequestRequest::class]))]
     public ?array $supporting_info = null;
 
     #[Map(source: '[reason_reference?]', if: new SourceClass(ArrayObject::class))]
@@ -100,7 +118,21 @@ abstract class ReferralModelData
 
     public static function date(mixed $value): ?string
     {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
+        }
+
         return $value === null || $value === '' ? null : convertToYmd($value);
+    }
+
+    public static function mapUseQuantity(mixed $value): int|float|string
+    {
+        return $value ?? 1;
+    }
+
+    public static function mapUseIntent(mixed $value): string
+    {
+        return $value ?? 'order';
     }
 
     public static function noteText(mixed $value): ?string

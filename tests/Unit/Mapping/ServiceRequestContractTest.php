@@ -2,25 +2,28 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Services\MedicalEvents;
+namespace Tests\Unit\Mapping;
 
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Mapping\EHealth\Referral\ServiceRequestInput;
+use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
-class ServiceRequestMapperTest extends TestCase
+class ServiceRequestContractTest extends TestCase
 {
     #[Test]
     public function prequalify_keeps_programs_envelope(): void
     {
         $programId = (string) Str::uuid();
-        $payload = (new ServiceRequestMapper())->toPrequalifyPayload(
+        $payload = app(ServiceRequestPayloads::class)->prequalify(ServiceRequestInput::fromArray(
             $this->serviceData($programId),
             $this->uuids(),
+            CarbonImmutable::now(),
             (string) Str::uuid(),
             (string) Str::uuid()
-        );
+        ));
 
         $this->assertArrayHasKey('service_request', $payload);
         $this->assertArrayHasKey('programs', $payload);
@@ -34,12 +37,13 @@ class ServiceRequestMapperTest extends TestCase
         $programId = (string) Str::uuid();
         $requestId = (string) Str::uuid();
 
-        $payload = (new ServiceRequestMapper())->toCreateSignedContent(
+        $payload = app(ServiceRequestPayloads::class)->signedCreate(ServiceRequestInput::fromArray(
             $this->serviceData($programId, $requestId),
             $this->uuids(),
+            CarbonImmutable::now(),
             (string) Str::uuid(),
             (string) Str::uuid()
-        );
+        ));
 
         $this->assertArrayNotHasKey('service_request', $payload);
         $this->assertArrayNotHasKey('programs', $payload);

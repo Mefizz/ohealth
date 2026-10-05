@@ -8,7 +8,6 @@ use App\Classes\Cipher\Api\CipherApi;
 use App\Mapping\EHealth\Referral\ServiceRequestInput;
 use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
 use App\Mapping\Transforms\FhirIdentifier;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\SignatureService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -56,18 +55,6 @@ class ServiceRequestPayloadsTest extends TestCase
         $this->assertSame($expected['signedJson'], json_encode($payloads->signedCreate($source), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
         $this->assertSame([], $queries);
         Http::assertNothingSent();
-    }
-
-    #[DataProvider('contracts')]
-    public function test_legacy_entrypoints_preserve_the_captured_contract(array $input, array $expected, string $now): void
-    {
-        CarbonImmutable::setTestNow($now);
-        $mapper = new ServiceRequestMapper();
-        $arguments = [$input['data'], $input['uuids'], $input['carePlanUuid'] ?? null, $input['activityUuid'] ?? null];
-
-        $this->assertSame($expected['prequalify'], $mapper->toPrequalifyPayload(...$arguments));
-        $this->assertSame($expected['signedCreate'], $mapper->toCreateSignedContent(...$arguments));
-        $this->assertSame($expected['legacySignedEnvelope'], $mapper->toCreateSignedPayload(...$arguments));
     }
 
     public function test_signature_service_receives_the_original_json_bytes(): void

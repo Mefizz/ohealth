@@ -14,7 +14,6 @@ use App\Services\MedicalEvents\Mappers\EpisodeMapper;
 use App\Services\MedicalEvents\Mappers\ImmunizationMapper;
 use App\Services\MedicalEvents\Mappers\ObservationMapper;
 use App\Services\MedicalEvents\Mappers\ProcedureMapper;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\Mappers\DetectedIssueMapper;
 use App\Services\MedicalEvents\Mappers\DeviceDispenseMapper;
 use App\Services\MedicalEvents\Mappers\SpecimenMapper;
@@ -84,11 +83,6 @@ final class Fhir
     public static function procedure(): ProcedureMapper
     {
         return app(ProcedureMapper::class);
-    }
-
-    public static function serviceRequest(): ServiceRequestMapper
-    {
-        return app(ServiceRequestMapper::class);
     }
 
     public static function encounterPackage(): EncounterPackageBuilder

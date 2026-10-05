@@ -101,7 +101,14 @@ Base: upstream main `b2239108`, rebased 2026-09-30 after #792 merged on Septembe
   remained, including dynamic/config/route references. Retired their unused FHIR facade methods.
   Existing tests of active wire contracts now use DTO adapters with an explicit clock; independent
   golden fixtures and signing-byte assertions remain. Obsolete wrapper-only tests and four tests of
-  uncalled toFhir contracts were retired. ServiceRequestMapper still has two live repository import callers.
+  uncalled toFhir contracts were retired.
+- Both external ServiceRequest search-import callers now map ExternalResponse into the same
+  ServiceRequestModelData target. SourceClass preserves full-import alias priority, original timestamps,
+  incomplete Identifier rows and zero separately from use defaults and partial GET patch rules.
+  Repositories still resolve links and select the author/patient; blank, existing and duplicate documents
+  retain their previous skip/first-author behavior. ServiceRequestMapper and its unused facade method
+  are removed. Ten independent full-import baselines were captured before deletion at c8e5f5ce;
+  tests verify mapping has no SQL/HTTP and that the same JSON selects different import/sync rules.
 
 ## Compatibility with main
 
@@ -172,26 +179,40 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   zero/defaults, sparse instructions, raw/tuple container dosage, empty lists and numeric strings.
   Tests compare create/prequalify/sign arrays and exact SignatureService JSON with zero fractions.
 - Never regenerate expectations from the new mapper to make a failing test pass.
+- External ServiceRequest import: ten inputs captured from ServiceRequestMapper::fromFhir at
+  `c8e5f5ce` before deletion. Cover camel/flat/null/empty alias priorities, raw dates, zero and fractional
+  quantity, incomplete/scalar reference rows, ignored local reference aliases and absent fields.
+  The fixture is distinct from partial GET baselines; Repository tests cover persisted author/patient,
+  Identifier links, defaults, existing-document protection and first-duplicate selection.
 
 ## Remaining work
 
-- Migrate the two remaining ServiceRequestMapper::fromFhir import callers in Repository, preserving
-  their full-import semantics separately from partial GET patches. Other encounter/FHIR callers remain.
-  Device/eRx request mappers and all three request lifecycle services are gone.
+- Other encounter/FHIR callers remain. All three request array mappers and request lifecycle services
+  are gone; external search import no longer depends on the old ServiceRequestMapper.
 - The older standalone eRx form still prepares its distinct simple string-dosage payload directly.
-  Verify that wire contract independently before unifying it with structured DTO mapping.
+  Verify that wire contract independently before mapping validated screen fields into standalone DTOs.
+  Preserve string dosage, its transport envelope and accepted raw-response signing.
 - Care-plan/activity mapping, quantity/program guards, approvals and other medical workflows remain
   staged work. Existing quantity protection was retained; its transaction scope was not redesigned here.
 - CarePlanActivityRepository still prepares activity fields for prequalify, now delegated to the device
   DTO mapping. Move that remaining preparation when migrating activity DTOs; it is not final architecture.
 - Real KEP/eHealth UAT is still required before rollout.
 - Rebase/integrate current main and the actual merged #907 response-source/Composer changes before ready.
-  The refactor still has 28 PHP files in Services/MedicalEvents: 15 mappers, seven workflow/guard/
+  The refactor still has 27 PHP files in Services/MedicalEvents: 14 mappers, seven workflow/guard/
   package classes, four approval result/enum classes and two FHIR helpers. The whole folder is not retired.
 
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 5 external ServiceRequest import: **486 tests / 1941 assertions**, no failures, errors or risky
+tests, in the same disposable mapper841 PHP 8.5.3/PostgreSQL environment. Covers full-import baselines,
+distinct SourceClass import/sync policies, no SQL/HTTP during mapping, actual persisted links and author,
+zero/default quantity, existing-document protection and first-duplicate selection. The expanded medical
+suite retains referral/eRx/device/care-plan/encounter/approval coverage. PHP Pint passes all 12 changed
+PHP files; git diff --check passes. One existing PDO deprecation remains. Eight wrapper-only cases were
+removed with the last mapper; active outbound tests and previous golden expectations are unchanged.
+No new containers were created; the open draft PR still needs the retained test environment and UAT.
 
 October 5 device lifecycle/mapper retirement: **480 tests / 1902 assertions**, no failures, errors or
 risky tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. The same expanded medical suite includes

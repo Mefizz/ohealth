@@ -16,7 +16,7 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Concerns\FindsOpenActivityRequests;
 use App\Repositories\MedicalEvents\Concerns\FindsOwnedRequests;
 use App\Repositories\MedicalEvents\Concerns\ResolvesRequestFhirRefs;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Dto\ServiceRequest\ExternalResponse;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -337,7 +337,7 @@ class ServiceRequestRequestRepository extends BaseRepository
      */
     public function storeExternalIfMissing(array $referral, Employee $employee, int $personId): void
     {
-        $data = new ServiceRequestMapper()->fromFhir($referral);
+        $data = app(ObjectMapperInterface::class)->map(new ExternalResponse($referral), ServiceRequestModelData::class)->toExternalRecord();
         $uuid = $data['uuid'] ?? null;
 
         if (blank($uuid) || $this->findByUuid($uuid) !== null) {
@@ -361,7 +361,7 @@ class ServiceRequestRequestRepository extends BaseRepository
 
         $mappedReferrals = collect($referrals)
             ->map(function (array $item): array {
-                $data = new ServiceRequestMapper()->fromFhir($item['referral']);
+                $data = app(ObjectMapperInterface::class)->map(new ExternalResponse($item['referral']), ServiceRequestModelData::class)->toExternalRecord();
 
                 return [
                     'data' => $data,

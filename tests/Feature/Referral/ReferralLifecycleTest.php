@@ -14,7 +14,9 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
 use App\Dto\DeviceRequest\DeviceRequestPayloads;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Mapping\EHealth\Referral\ServiceRequestInput;
+use App\Mapping\EHealth\Referral\ServiceRequestPayloads;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -330,7 +332,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_can_map_to_prequalify_payloads(): void
     {
-        $serviceMapper = new ServiceRequestMapper();
+        $serviceMapper = app(ServiceRequestPayloads::class);
         $deviceMapper = app(DeviceRequestPayloads::class);
 
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
@@ -368,12 +370,13 @@ class ReferralLifecycleTest extends TestCase
             'legal_entity_uuid' => $this->employee->legalEntity->uuid,
         ];
 
-        $servicePrequalify = $serviceMapper->toPrequalifyPayload(
+        $servicePrequalify = $serviceMapper->prequalify(ServiceRequestInput::fromArray(
             $serviceData,
             $uuids,
+            CarbonImmutable::now(),
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
-        );
+        ));
         $devicePrequalify = $deviceMapper->prequalify(
             $deviceData,
             $uuids,
@@ -456,7 +459,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_can_map_to_create_signed_payloads(): void
     {
-        $serviceMapper = new ServiceRequestMapper();
+        $serviceMapper = app(ServiceRequestPayloads::class);
         $deviceMapper = app(DeviceRequestPayloads::class);
 
         $carePlanUuid = $this->serviceActivity->carePlan->uuid;
@@ -492,12 +495,6 @@ class ReferralLifecycleTest extends TestCase
             'legal_entity_uuid' => $this->employee->legalEntity->uuid,
         ];
 
-        $serviceSigned = $serviceMapper->toCreateSignedPayload(
-            $serviceData,
-            $uuids,
-            $carePlanUuid,
-            (string) $this->serviceActivity->uuid
-        );
         $deviceSigned = $deviceMapper->signedCreate(
             $deviceData,
             $uuids,
@@ -505,11 +502,6 @@ class ReferralLifecycleTest extends TestCase
             $carePlanUuid,
             (string) $this->deviceActivity->uuid
         );
-
-        $this->assertEquals($requestUuid, $serviceSigned['service_request']['id']);
-        $this->assertEquals('active', $serviceSigned['service_request']['status']);
-        $this->assertArrayHasKey('authored_on', $serviceSigned['service_request']);
-        $this->assertArrayHasKey('programs', $serviceSigned);
 
         // Create Device Request signed payload is a flat Device Request (API-007-020-0003),
         // not the PreQualify envelope {device_request, programs}.
@@ -521,12 +513,13 @@ class ReferralLifecycleTest extends TestCase
         $this->assertArrayNotHasKey('programs', $deviceSigned);
         $this->assertArrayNotHasKey('device_request', $deviceSigned);
 
-        $serviceSignContent = $serviceMapper->toCreateSignedContent(
+        $serviceSignContent = $serviceMapper->signedCreate(ServiceRequestInput::fromArray(
             $serviceData,
             $uuids,
+            CarbonImmutable::now(),
             $carePlanUuid,
             (string) $this->serviceActivity->uuid
-        );
+        ));
         $deviceSignContent = $deviceMapper->signedCreate(
             $deviceData,
             $uuids,

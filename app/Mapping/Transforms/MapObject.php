@@ -26,8 +26,8 @@ final class MapObject implements TransformCallableInterface, ObjectMapperAwareIn
         return $clone;
     }
 
-    public function __invoke(mixed $value, object $source, ?object $target): object
+    public function __invoke(mixed $value, object $source, ?object $target): ?object
     {
-        return $this->objectMapper->map($value, $this->targetClass);
+        return $value === null ? null : $this->objectMapper->map($value, $this->targetClass);
     }
 }

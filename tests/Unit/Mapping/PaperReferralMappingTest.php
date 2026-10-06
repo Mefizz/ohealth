@@ -11,7 +11,8 @@ use App\Dto\PaperReferral\Form;
 use App\Enums\Person\DiagnosticReportStatus;
 use App\Models\LegalEntity;
 use App\Services\MedicalEvents\Mappers\DiagnosticReportMapper;
-use App\Services\MedicalEvents\Mappers\ProcedureMapper;
+use App\Dto\Procedure\Ehealth as ProcedureEhealth;
+use App\Dto\Procedure\Form as ProcedureForm;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -47,14 +48,13 @@ class PaperReferralMappingTest extends TestCase
         ];
         $uuids = ['procedure' => 'procedure', 'diagnosticReport' => 'diagnostic', 'employee' => 'employee'];
         $parents = [
-            app(ProcedureMapper::class)->toFhir($fields, $uuids),
+            Arr::toCamelCase($mapper->map(new FormCollection($fields), new ProcedureEhealth('procedure', 'legal-entity', 'employee'))->toArray()),
             app(DiagnosticReportMapper::class)->toFhir($fields, $uuids, DiagnosticReportStatus::FINAL),
         ];
         foreach ($parents as $parent) {
             $this->assertSame($expected['outbound'], $parent['paperReferral'] ?? null);
         }
-        foreach ([ProcedureMapper::class, DiagnosticReportMapper::class] as $class) {
-            $form = app($class)->fromFhir($input['inbound']);
+        foreach ([$mapper->map(new Collection($input['inbound']), ProcedureForm::class)->toArray(), app(DiagnosticReportMapper::class)->fromFhir($input['inbound'])] as $form) {
             $this->assertSame($expected['form'], Arr::only($form, array_keys($expected['form'])));
         }
         $this->assertSame([], $queries);

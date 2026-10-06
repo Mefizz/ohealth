@@ -9,6 +9,7 @@ use App\Dto\Device\Form as DeviceForm;
 use App\Dto\DeviceAssociation\Form as DeviceAssociationForm;
 use App\Dto\DeviceDispense\Form as DeviceDispenseForm;
 use App\Dto\Specimen\Form as SpecimenForm;
+use App\Dto\Procedure\Form as ProcedureForm;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Collection;
 use RuntimeException;
@@ -170,7 +171,7 @@ class EncounterPackageLoader
         );
 
         return collect($procedures)
-            ->map(static fn (array $procedure) => Fhir::procedure()->fromFhir($procedure, $detailsMap))
+            ->map(static fn (array $procedure) => app(ObjectMapperInterface::class)->map(new Collection($procedure), new ProcedureForm($detailsMap))->toArray())
             ->toArray();
     }
 

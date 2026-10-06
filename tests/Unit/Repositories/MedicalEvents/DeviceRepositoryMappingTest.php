@@ -8,13 +8,13 @@ use App\Models\MedicalEvents\Sql\Device;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Repositories\MedicalEvents\DeviceRepository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
-use App\Services\MedicalEvents\EncounterPackageLoader;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
+use Tests\Support\EncounterPackageHarness as EncounterPackageBuilder;
+use Tests\Support\EncounterPackageHarness as EncounterPackageLoader;
 use Tests\TestCase;
 
 class DeviceRepositoryMappingTest extends TestCase

@@ -9,8 +9,6 @@ use App\Dto\DetectedIssue\Ehealth;
 use App\Dto\DetectedIssue\Form;
 use App\Dto\FormCollection;
 use App\Repositories\MedicalEvents\DetectedIssueRepository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
-use App\Services\MedicalEvents\EncounterPackageLoader;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -18,6 +16,8 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Tests\Support\EncounterPackageHarness as EncounterPackageBuilder;
+use Tests\Support\EncounterPackageHarness as EncounterPackageLoader;
 use Tests\TestCase;
 
 class DetectedIssueMappingTest extends TestCase

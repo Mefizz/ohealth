@@ -4,24 +4,25 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
-use Illuminate\Support\Str;
-use App\Dto\FormCollection;
-use Symfony\Component\ObjectMapper\ObjectMapperInterface;
-use App\Enums\MedicalEvents\RequestQuantityStatus;
-use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
-use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
-use App\Models\CarePlan;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
-use App\Dto\DeviceRequest\DeviceRequestPayloads;
+use App\Dto\DeviceRequest\Ehealth as DeviceRequestEhealth;
+
+use App\Dto\DeviceRequest\EhealthCreate as DeviceRequestEhealthCreate;
+use App\Dto\DeviceRequest\EhealthPrequalify as DeviceRequestEhealthPrequalify;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Enums\CarePlanStatus;
+use App\Enums\MedicalEvents\RequestQuantityStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Dto\ServiceRequest\Input as ServiceRequestInput;
-use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
-use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
@@ -35,12 +36,15 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Throwable;
 
 trait ManagesCarePlanReferrals
 {
     use \App\Livewire\Concerns\MedicalEvents\Referral\SynchronizesReferrals;
+
     use \App\Livewire\Concerns\MedicalEvents\Referral\PrintsReferrals;
 
     public function initReferralForm(int $activityId, CarePlanActivityRepository $activityRepository): void
@@ -434,13 +438,13 @@ trait ManagesCarePlanReferrals
                     (string) $this->carePlan->uuid,
                     (string) $activity->uuid
                 ), ServiceRequestCreateData::class)->toArray()
-                : app(DeviceRequestPayloads::class)->signedCreate(
+                : app(ObjectMapperInterface::class)->map(DeviceRequestEhealth::source(
                     $dbData,
                     $uuids,
                     CarbonImmutable::now('UTC'),
                     (string) $this->carePlan->uuid,
                     (string) $activity->uuid
-                );
+                ), DeviceRequestEhealthCreate::class)->toArray();
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -1106,13 +1110,13 @@ trait ManagesCarePlanReferrals
         // PreQualify schema requires $.programs; Create Device Request allows optional program.
         // Mirror service_request: only prequalify when a medical program is present.
         if (!empty($dbData['program_id'])) {
-            $prequalifyPayload = app(DeviceRequestPayloads::class)->prequalify(
+            $prequalifyPayload = app(ObjectMapperInterface::class)->map(DeviceRequestEhealth::source(
                 $dbData,
                 $uuids,
                 CarbonImmutable::now('UTC'),
                 $carePlan->uuid,
                 (string) $activity->uuid
-            );
+            ), DeviceRequestEhealthPrequalify::class)->toArray();
             EHealth::deviceRequest()->prequalifyAndValidate($carePlan->person->uuid, $prequalifyPayload);
         }
 

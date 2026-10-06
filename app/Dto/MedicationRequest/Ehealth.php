@@ -55,13 +55,13 @@ final class Ehealth
     #[Map(source: 'data[medication_program_id?]', transform: [self::class, 'mapOptional'])]
     public mixed $medical_program_id = null;
 
-    #[Map(if: 'count', transform: new MapCollection(targetClass: EhealthReference::class))]
+    #[Map(source: 'data[based_on_uuid?]', transform: [[self::class, 'basedOnRows'], new MapCollection(targetClass: EhealthReference::class), [self::class, 'nonempty']])]
     public ?array $based_on = null;
 
     #[Map(source: 'uuids[encounter_uuid?]', transform: [self::class, 'mapEncounter'])]
     public ?array $context = null;
 
-    #[Map(source: 'instructions', if: 'count', transform: new MapCollection(targetClass: EhealthDosage::class))]
+    #[Map(source: 'data[dosage_instructions?]', transform: [[self::class, 'instructionRows'], new MapCollection(targetClass: EhealthDosage::class), [self::class, 'nonempty']])]
     public ?array $dosage_instruction = null;
 
     #[Map(source: 'data[inform_with?]', transform: [AuthMethodId::class, 'extract'])]
@@ -72,6 +72,34 @@ final class Ehealth
 
     #[Map(source: 'data[note?]', transform: [self::class, 'mapOptional'])]
     public mixed $note = null;
+
+    public static function source(array $data, array $uuids, CarbonImmutable $mappedAt, ?string $carePlanUuid = null): object
+    {
+        return (object) ['data' => $data, 'uuids' => $uuids, 'mappedAt' => $mappedAt, 'carePlanUuid' => $carePlanUuid];
+    }
+
+    public static function basedOnRows(mixed $value, object $source): array
+    {
+        return !empty($source->carePlanUuid) && !empty($value) ? [
+            (object) ['type' => 'care_plan', 'uuid' => $source->carePlanUuid],
+            (object) ['type' => 'activity', 'uuid' => $value],
+        ] : [];
+    }
+
+    public static function instructionRows(?array $value): array
+    {
+        $rows = [];
+        foreach ($value ?? [] as $index => $instruction) {
+            $rows[] = (object) ['data' => $instruction, 'sequence' => $instruction['sequence'] ?? ($index + 1)];
+        }
+
+        return $rows;
+    }
+
+    public static function nonempty(array $value): ?array
+    {
+        return $value ?: null;
+    }
 
     public static function mapCreatedDate(mixed $value, object $source): string
     {

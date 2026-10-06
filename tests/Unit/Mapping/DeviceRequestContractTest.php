@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\Support\DeviceRequestPayloads;
 use Tests\TestCase;
 
 class DeviceRequestContractTest extends TestCase

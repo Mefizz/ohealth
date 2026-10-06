@@ -7,23 +7,23 @@ namespace Tests\Feature\Referral;
 use App\Classes\eHealth\Api\Patient\DeviceRequest as DeviceRequestApi;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
 use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
-use App\Dto\DeviceRequest\DeviceRequestPayloads;
-use App\Dto\ServiceRequest\Input as ServiceRequestInput;
-use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
-use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
-use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Mockery;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Tests\Support\DeviceRequestPayloads;
 use Tests\TestCase;
 
 class ReferralLifecycleTest extends TestCase

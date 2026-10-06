@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Unit\Mapping;
 
 use App\Classes\Cipher\Api\CipherApi;
-use App\Dto\DeviceRequest\DeviceRequestPayloads;
 use App\Services\SignatureService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -13,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\DeviceRequestPayloads;
 use Tests\TestCase;
 
 class DeviceRequestPayloadsTest extends TestCase

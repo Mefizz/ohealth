@@ -9,8 +9,6 @@ use App\Dto\DeviceAssociation\Ehealth;
 use App\Dto\DeviceAssociation\Form;
 use App\Dto\FormCollection;
 use App\Repositories\MedicalEvents\DeviceAssociationRepository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
-use App\Services\MedicalEvents\EncounterPackageLoader;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +17,8 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Tests\Support\EncounterPackageHarness as EncounterPackageBuilder;
+use Tests\Support\EncounterPackageHarness as EncounterPackageLoader;
 use Tests\TestCase;
 
 class DeviceAssociationMappingTest extends TestCase

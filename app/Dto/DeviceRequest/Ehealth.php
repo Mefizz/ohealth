@@ -55,6 +55,26 @@ class Ehealth
     #[Map(source: 'supporting_info', if: [self::class, 'hasReason'], transform: [[self::class, 'mapReferences'], new MapCollection(targetClass: EHealthReference::class)])]
     public ?array $reason = null;
 
+    public static function source(array $data, array $uuids, CarbonImmutable $mappedAt, ?string $carePlanUuid = null, ?string $activityUuid = null): stdClass
+    {
+        // Native object adaptation of the existing validated arrays. Resolved context is explicit.
+        return (object) array_replace($data, [
+            'uuid' => $data['uuid'] ?? null,
+            'intent' => $data['intent'] ?? 'order',
+            'priority' => $data['priority'] ?? 'routine',
+            'quantity' => $data['quantity'] ?? 1,
+            'device_id' => (string) ($data['device_id'] ?? ''),
+            'device_code_type' => $data['device_code_type'] ?? null,
+            'supporting_info' => $data['supporting_info'] ?? null,
+            'program_id' => !empty($data['program_id']) ? (string) $data['program_id'] : null,
+            'employeeUuid' => (string) $uuids['employee_uuid'],
+            'uuids' => $uuids,
+            'mappedAt' => $mappedAt,
+            'carePlanUuid' => $carePlanUuid,
+            'activityUuid' => $activityUuid,
+        ]);
+    }
+
     public static function mapQuantity(mixed $value, stdClass $source): array
     {
         return ['value' => (int) $value, 'system' => 'device_unit', 'code' => strtolower((string) ($source->quantity_code ?? 'piece'))];

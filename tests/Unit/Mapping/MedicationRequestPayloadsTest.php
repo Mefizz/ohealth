@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Dto\MedicationRequest\MedicationRequestPayloads;
 use App\Classes\Cipher\Api\CipherApi;
 use App\Services\SignatureService;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Http\UploadedFile;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\MedicationRequestPayloads;
 use Tests\TestCase;
 
 class MedicationRequestPayloadsTest extends TestCase

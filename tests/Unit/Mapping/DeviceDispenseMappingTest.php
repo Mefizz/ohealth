@@ -15,8 +15,6 @@ use App\Repositories\MedicalEvents\EncounterRepository;
 use App\Repositories\MedicalEvents\EpisodeRepository;
 use App\Repositories\MedicalEvents\ObservationRepository;
 use App\Repositories\MedicalEvents\ProcedureRepository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
-use App\Services\MedicalEvents\EncounterPackageLoader;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -24,6 +22,8 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Tests\Support\EncounterPackageHarness as EncounterPackageBuilder;
+use Tests\Support\EncounterPackageHarness as EncounterPackageLoader;
 use Tests\TestCase;
 
 class DeviceDispenseMappingTest extends TestCase

@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace Tests\Unit\Mapping;
 
 use App\Core\Arr;
+use App\Dto\DiagnosticReport\Ehealth as DiagnosticEhealth;
+use App\Dto\DiagnosticReport\Form as DiagnosticForm;
 use App\Dto\FormCollection;
 use App\Dto\PaperReferral\Ehealth;
 use App\Dto\PaperReferral\Form;
-use App\Enums\Person\DiagnosticReportStatus;
-use App\Models\LegalEntity;
-use App\Services\MedicalEvents\Mappers\DiagnosticReportMapper;
 use App\Dto\Procedure\Ehealth as ProcedureEhealth;
 use App\Dto\Procedure\Form as ProcedureForm;
+use App\Enums\Person\DiagnosticReportStatus;
+use App\Models\LegalEntity;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -49,12 +50,12 @@ class PaperReferralMappingTest extends TestCase
         $uuids = ['procedure' => 'procedure', 'diagnosticReport' => 'diagnostic', 'employee' => 'employee'];
         $parents = [
             Arr::toCamelCase($mapper->map(new FormCollection($fields), new ProcedureEhealth('procedure', 'legal-entity', 'employee'))->toArray()),
-            app(DiagnosticReportMapper::class)->toFhir($fields, $uuids, DiagnosticReportStatus::FINAL),
+            Arr::toCamelCase($mapper->map(new FormCollection($fields), new DiagnosticEhealth('diagnostic', DiagnosticReportStatus::FINAL, 'legal-entity', 'employee'))->toArray()),
         ];
         foreach ($parents as $parent) {
             $this->assertSame($expected['outbound'], $parent['paperReferral'] ?? null);
         }
-        foreach ([$mapper->map(new Collection($input['inbound']), ProcedureForm::class)->toArray(), app(DiagnosticReportMapper::class)->fromFhir($input['inbound'])] as $form) {
+        foreach ([$mapper->map(new Collection($input['inbound']), ProcedureForm::class)->toArray(), $mapper->map(new Collection($input['inbound']), DiagnosticForm::class)->toArray()] as $form) {
             $this->assertSame($expected['form'], Arr::only($form, array_keys($expected['form'])));
         }
         $this->assertSame([], $queries);

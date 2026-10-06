@@ -80,7 +80,7 @@ final class Form
     #[Map(source: '[reasonReferences?]', transform: [[self::class, 'resolvedRows'], new MapCollection(targetClass: FormReason::class)])]
     public array $reasonReferences;
 
-    #[Map(source: '[usedCodes?]', transform: [[self::class, 'rows'], new MapCollection(targetClass: FormCode::class)])]
+    #[Map(source: '[usedCodes?]', transform: [[self::class, 'rows'], new MapCollection(targetClass: \App\Dto\Shared\FormConceptCode::class)])]
     public array $usedCodes;
 
     #[Map(source: '[usedReferences?]', transform: [[self::class, 'usedRows'], new MapCollection(targetClass: FormUsedReference::class)])]
@@ -95,42 +95,52 @@ final class Form
     public function __construct(#[Map(if: false)] private readonly array $detailsMap = [])
     {
     }
+
     public static function sourceObject(mixed $value, Collection $source): Collection
     {
         return $source;
     }
+
     public static function performerValue(?array $value): mixed
     {
         return data_get($value, '0.identifier.value', data_get($value, 'identifier.value', ''));
     }
+
     public static function basedOnValue(?array $value): mixed
     {
         return data_get($value, '0.identifier.value', data_get($value, 'identifier.value', ''));
     }
+
     public static function performedTypeValue(mixed $value, Collection $source): string
     {
         return !empty($value) ? 'date_time' : (!empty($source['performedPeriodStartDate']) ? 'period' : '');
     }
+
     public static function dateValue(mixed $value): string
     {
         return $value ? convertToAppDateFormat($value) : '';
     }
+
     public static function timeValue(mixed $value): string
     {
         return $value ? CarbonImmutable::parse($value)->format('H:i') : '';
     }
+
     public static function rows(?array $value): array
     {
         return array_map(static fn (array $row): Collection => new Collection($row), $value ?? []);
     }
+
     public static function usedRows(?array $value): array
     {
         return self::rows(array_values(array_filter($value ?? [], static fn (array $row): bool => !empty($row['identifier']['value']))));
     }
+
     public static function resolvedRows(?array $value, Collection $source, self $target): array
     {
         return array_map(static fn (array $row): Collection => new Collection([...$row, 'resolvedDetails' => $target->detailsMap[$row['identifier']['value'] ?? null] ?? []]), $value ?? []);
     }
+
     public function toArray(): array
     {
         $result = [];
@@ -157,5 +167,4 @@ final class Form
 
         return $result;
     }
-
 }

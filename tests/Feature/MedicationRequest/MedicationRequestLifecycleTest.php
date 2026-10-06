@@ -7,18 +7,18 @@ namespace Tests\Feature\MedicationRequest;
 use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
 use App\Classes\eHealth\Api\Person as PersonApi;
 use App\Classes\eHealth\EHealthResponse;
+use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 use App\Models\CarePlanActivity;
-use App\Models\Person\Person;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
-use App\Dto\MedicationRequest\MedicationRequestPayloads;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Str;
-use Mockery;
-use Tests\TestCase;
 use Livewire\Livewire;
-use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
+use Mockery;
+use Tests\Support\MedicationRequestPayloads;
+use Tests\TestCase;
 
 class MedicationRequestLifecycleTest extends TestCase
 {

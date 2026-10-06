@@ -20,10 +20,6 @@ use App\Livewire\Specimen\SpecimenCreate;
 use App\Livewire\Specimen\SpecimenIndex;
 use App\Models\LegalEntity;
 use App\Repositories\MedicalEvents\SpecimenRepository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
-use App\Services\MedicalEvents\EncounterPackageLoader;
-use App\Services\MedicalEvents\Mappers\ObservationMapper;
-use App\Services\MedicalEvents\Mappers\DiagnosticReportMapper;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -31,6 +27,8 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Tests\Support\EncounterPackageHarness as EncounterPackageBuilder;
+use Tests\Support\EncounterPackageHarness as EncounterPackageLoader;
 use Tests\TestCase;
 
 class SpecimenMappingTest extends TestCase
@@ -68,9 +66,6 @@ class SpecimenMappingTest extends TestCase
 
         app()->instance('legalEntity', new LegalEntity()->forceFill(['uuid' => 'legal-entity']));
         if (!empty($input['encounter'])) {
-            $this->mock(ObservationMapper::class, function ($mock): void {
-                $mock->shouldReceive('toFhir')->andReturn([]);
-            });
             $documents = $this->package($input['outbound'], $input['encounter'])['specimens'];
             $this->assertSame($expected['json'], $this->documentJson($documents[0]));
             $this->assertSame($expected['signedJson'], $this->documentJson(Arr::toSnakeCase($documents[0])));
@@ -118,8 +113,6 @@ class SpecimenMappingTest extends TestCase
     public function test_package_resolves_references_from_both_resource_lists_and_ignores_input_flags(): void
     {
         app()->instance('legalEntity', new LegalEntity()->forceFill(['uuid' => 'legal-entity']));
-        $this->mock(ObservationMapper::class)->shouldReceive('toFhir')->andReturn([]);
-        $this->mock(DiagnosticReportMapper::class)->shouldReceive('toFhir')->andReturn([]);
         $contracts = require dirname(__DIR__, 2).'/Fixtures/Mapping/specimen-inputs.php';
         $row = $contracts['full sparse containers']['outbound'];
         $payload = app(EncounterPackageBuilder::class)->toFhir([
@@ -128,8 +121,8 @@ class SpecimenMappingTest extends TestCase
                 42 => array_replace($row, ['uuid' => 'report-reference']),
                 78 => array_replace($row, ['uuid' => 'unreferenced']),
             ],
-            'observations' => [['specimenId' => 'observation-reference'], ['specimenId' => '']],
-            'diagnosticReports' => [['specimenIds' => [5 => 'report-reference', 42 => 'report-reference', 78 => null]]],
+            'observations' => [$this->observation('observation-reference'), $this->observation('')],
+            'diagnosticReports' => [(require dirname(__DIR__, 2).'/Fixtures/Mapping/diagnostic-report-inputs.php')['minimal']['outbound'] + ['specimenIds' => [5 => 'report-reference', 42 => 'report-reference', 78 => '']]],
             'encounter' => $this->encounter(),
         ], ['encounter' => 'encounter', 'visit' => 'visit', 'episode' => 'episode', 'employee' => 'employee'])['specimens'];
         $this->assertTrue(array_is_list($payload));
@@ -164,11 +157,16 @@ class SpecimenMappingTest extends TestCase
         return ['periodDate' => '05.10.2026', 'periodStart' => '10:00', 'periodEnd' => '11:00', 'classCode' => 'AMB', 'typeCode' => 'consultation', 'performerId' => 'employee', 'referralType' => '', 'diagnoses' => []];
     }
 
+    private function observation(string $specimen): array
+    {
+        return (require dirname(__DIR__, 2).'/Fixtures/Mapping/observation-inputs.php')['minimal']['outbound'] + ['specimenId' => $specimen];
+    }
+
     private function package(array $specimen, string $encounter): array
     {
         return app(EncounterPackageBuilder::class)->toFhir([
             'specimens' => [42 => $specimen],
-            'observations' => !empty($specimen['isReferenced']) ? [['specimenId' => $specimen['uuid']]] : [],
+            'observations' => !empty($specimen['isReferenced']) ? [$this->observation($specimen['uuid'])] : [],
             'encounter' => $this->encounter(),
         ], ['encounter' => $encounter, 'visit' => 'visit', 'episode' => 'episode', 'employee' => 'employee']);
     }

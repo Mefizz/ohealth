@@ -6,14 +6,15 @@ namespace App\Livewire\Person\Records;
 
 use App\Core\Arr;
 use App\Core\BaseForm as Form;
-use App\Dto\DeviceRequest\DeviceRequestPayloads;
+
+use App\Dto\DeviceRequest\Ehealth as DeviceRequestEhealth;
+use App\Dto\DeviceRequest\EhealthCreate as DeviceRequestEhealthCreate;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Concerns\MedicalEvents\Referral\SelectsReferralApi;
-use App\Dto\ServiceRequest\Input as ServiceRequestInput;
-use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
-use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -29,13 +30,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\WithFileUploads;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
 class PatientReferrals extends BasePatientComponent
 {
     use \App\Livewire\Concerns\MedicalEvents\Referral\SynchronizesReferrals;
+
     use \App\Livewire\Concerns\MedicalEvents\Referral\PrintsReferrals;
 
     use SelectsReferralApi;
+
     use WithFileUploads;
 
     public Form $form;
@@ -358,13 +362,13 @@ class PatientReferrals extends BasePatientComponent
                     $carePlan !== null ? (string) $carePlan->uuid : null,
                     $activity !== null ? (string) $activity->uuid : null
                 ), ServiceRequestCreateData::class)->toArray()
-                : app(DeviceRequestPayloads::class)->signedCreate(
+                : app(ObjectMapperInterface::class)->map(DeviceRequestEhealth::source(
                     $dbData,
                     $uuids,
                     CarbonImmutable::now('UTC'),
                     $carePlan !== null ? (string) $carePlan->uuid : null,
                     $activity !== null ? (string) $activity->uuid : null
-                );
+                ), DeviceRequestEhealthCreate::class)->toArray();
 
             $signedContent = signatureService()->signData(
                 $signPayload,

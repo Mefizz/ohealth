@@ -1,395 +1,105 @@
-# ObjectMapper refactor — #841
+# ObjectMapper implementation — #841
 
-Issue: https://github.com/openhealths/nationHealth/issues/841
-
-Full plan: [ehealth-object-mapper-plan.md](ehealth-object-mapper-plan.md).
+Draft PR: [#898](https://github.com/openhealths/nationHealth/pull/898). Issue: [#841](https://github.com/openhealths/nationHealth/issues/841).
 Branch: `Mefizz/ohealth:i841_object_mapper_service_request`.
-Base: upstream main `1cf8b92e`, integrated 2026-10-05 including merged #907; #792 is already in main.
-
-## Implemented
-
-- Symfony ObjectMapper/Serializer 8.1.8 from merged #907, Laravel provider and explicit callable bindings.
-- ServiceRequest prequalify and signed-create contracts, preserving the exact JSON passed to KEP.
-  The source snapshot carries caller-supplied time and resolved UUID context. HTTP and persistence stay outside mapping.
-- Encounter/care-plan prequalify and encounter/care-plan/patient-registry signing use these contracts.
-  Callers map directly into EhealthCreate/EhealthPrequalify and call toArray(); ServiceRequestPayloads is removed.
-- DeviceRequest outbound now maps to `app/Dto/DeviceRequest/Ehealth`, `EhealthCreate` and
-  `EhealthPrequalify`. Signing callers in care plan/patient registry and the existing prequalify callers
-  use the DTO mapping directly. Collections use `MapCollection`; small pure device transformations
-  stay beside the DTO. The adapter only prepares native objects, supplies explicit UUID/time context
-  and invokes the DTO; wire serialization belongs to the DTO. It performs no lifecycle operations.
-- Device create remains flat, with a fixed active status, one of code/reference and optional program;
-  prequalify uses its separate envelope. Exact legacy field order, integer quantities including zero,
-  invalid-reference empty lists, UTC clock skew and occurrence-date rules are preserved.
-  The old DeviceRequestMapper has been removed after the last production caller migrated.
-- `app/Dto/ServiceRequest/Model` and `app/Dto/DeviceRequest/Model` accept validated local fields (`FormCollection`)
-  and eHealth JSON (`stdClass`) through `SourceClass`. These are one-line adapters, not new source DTOs.
-  Shared metadata lives in `app/Dto/Referral/Model`; resource-specific fields stay on the corresponding target.
-- Draft creation and inbound synchronization use these targets. Remote reference rows use `MapCollection`;
-  already local array rows retain their form representation. Mapping performs no SQL or HTTP.
-- `toSyncPatch()` preserves the old import contract: null/empty scalars and empty reference lists do not
-  clear local fields. Zero remains an update; `inform_with: []` keeps its distinct previous behavior.
-  Author and Identifier relationships come from the authorized caller and are resolved by Repository.
-- Removed `CarePlanLifecycleService` and `CarePlanActivityLifecycleService`. Livewire calls the existing
-  APIs through `createSignedAndResolve`, `cancelAndResolve`, `completeAndResolve`; GET callers use
-  `getDetails()->getData()`. Existing low-level methods and response types remain unchanged.
-- Removed `EHealthJobResolver`. Polling, 404 href fallback, timeout and verdict checks now belong to
-  `Api/Job`. `Enums/EHealth/JobStatus` describes remote statuses separately from local queue statuses.
-  Async approval/OTP jobs retain their existing workflow.
-- Removed `CarePlanLifecycleGateService`. Request repositories find open documents through Identifier
-  relationships; activity/document enums describe status properties. Protected Livewire methods produce
-  the existing cancellation/completion blocking messages.
-- Removed `CarePlanActivityEHealthGuard`. A narrow Livewire registration concern uses the existing API.
-  Only a 404 becomes "activity absent"; authorization and server errors retain their transport exception.
-- Removed `InformWith`. `AuthMethodId` extracts the identifier as a pure ObjectMapper transform;
-  selection/display formatting stays in the encounter concern.
-- Patient ServiceRequest/DeviceRequest APIs now own signed create/cancel and prequalify resolution.
-  ServiceRequest owns recall resolution. Livewire callers choose the API explicitly; the referral
-  lifecycle no longer exposes these transport wrappers. INVALID prequalify verdicts remain blocking.
-- ServiceRequest completion/cancel usage no longer call the lifecycle service. HTTP controller,
-  referral search UI and encounter completion share two protected methods in
-  `app/Traits/MedicalEvents/UpdatesReferralExecution`, with explicit arguments and no component state.
-  `EhealthComplete` maps the allowlisted completion reference collection; supported resource types
-  live in `Enums/MedicalEvents/ReferralCompletionResourceType`. Repository keeps the existing
-  same-patient/resource-exists checks and local status writes. Patient ServiceRequest API owns
-  completion job resolution; status is persisted only after that API call succeeds.
-  Cancel usage retains its existing synchronous response semantics. Both old lifecycle methods and
-  its duplicated completion ownership helper have been deleted, without compatibility delegates.
-- Removed `MedicalRequestOwnership`. Request repositories resolve UUIDs within the patient/encounter
-  and explicit facility context; the shared query concern uses no session/container context. Approval
-  lookup stays scoped to the current care plan. All Livewire callers pass the facility id explicitly.
-- The encounter authentication select uses its prepared `raw` option value, with the UUID fallback;
-  Blade no longer references the removed service. A rendered-view regression covers populated options.
-- Removed `ReferralRequestLifecycleService` after migrating every caller. HTTP processing, referral
-  search and encounter selection share protected take/qualify methods with explicit arguments.
-  `EhealthProcess` allowlists executor UUID references/program; API resolves qualify/process before
-  Repository persists in_progress. A failed qualify/process cannot advance local status.
-- Existing care-plan/encounter concerns create drafts and retain their quantity/prequalify checks.
-  `PreparesReferralSigning`, `SynchronizesReferrals` and `PrintsReferrals` share only the repeated steps.
-  SMS uses the existing patient API; print markup belongs to Blade. Signed-create metadata persists
-  before best-effort enrichment; job envelope statuses never overwrite clinical active status.
-- Referral ModelData targets also accept prepared Eloquent models via SourceClass and ArrayAccess
-  paths for nullable HasCamelCasing fields. Callers preload relations before mapping; DTOs issue no
-  queries. `ServiceRequestUse` reuses ServiceRequestModelData with use-specific minimal import defaults,
-  independently of the existing partial GET policy. Employee/Identifier lookups belong to repositories.
-- eRx create/prequalify/fallback-sign uses `app/Dto/MedicationRequest` and MapCollection for dosage
-  and references. Its partial ModelData sync preserves zero/empty scalar updates and excludes nulls;
-  raw payload, dosage, author and links keep their existing Repository semantics. The accepted raw
-  document signing path is unchanged. The old MedicationRequestMapper has now been removed.
-- Removed `MedicationRequestLifecycleService` and the unused static `Api/MedicationRequest` wrapper.
-  Existing care-plan/encounter actions use narrow protected draft, sign, reject, signing-document,
-  active-identity, signature-validation, message and print concerns. Patient API owns prequalify/job
-  resolution and reject-document fetching; Repository owns eligible encounters and loaded signing context.
-  There is no replacement lifecycle class or universal workflow trait.
-- eRx ModelData now accepts validated local fields, a preloaded MedicationRequestRequest and remote
-  stdClass metadata. DosageModelData maps local dosage through MapCollection. The seven-field remote
-  patch allowlist keeps these new local fields out of partial synchronization. Mapping issues no SQL.
-- Raw-first signing/reject preserves unknown clinical fields. DraftResult retains the original accepted
-  document when a create job returns only metadata. Failure cannot persist active/rejected status.
-  Standalone prequalify/sign now validates verdict and waits for the job before showing success.
-- SMS, print and dispense history retain active-resource identity resolution; block/unblock now also
-  use the active UUID rather than the local draft UUID. The local status changes only after API success.
-  Print markup is in Blade. Multiple-prescription sync, ownership, eligibility and quantity checks remain.
-  Existing quantity guard transaction scope was not redesigned during this migration.
-- Removed DeviceRequestLifecycleService, the now-unused EHealthRequestLifecycleService base and
-  EHealthRequestLifecycleContract. The standalone DeviceRequestForm maps directly to EhealthDraft
-  and EhealthDraftPrequalify; the existing standalone API resolves prequalify/create/sign jobs.
-  Its /api/device_requests endpoint, SNOMED coding, integer quantity and signed_device_request_request
-  envelope remain separate from the Patient API. DraftResult retains raw content independently of job metadata.
-  A response containing only job metadata cannot enable signing without an accepted clinical document.
-- Removed DeviceRequestMapper and MedicationRequestMapper after confirming no production callers
-  remained, including dynamic/config/route references. Retired their unused FHIR facade methods.
-  Existing tests of active wire contracts now use DTO adapters with an explicit clock; independent
-  golden fixtures and signing-byte assertions remain. Obsolete wrapper-only tests and four tests of
-  uncalled toFhir contracts were retired.
-- Both external ServiceRequest search-import callers now map ServiceRequestSearch into the same
-  ServiceRequestModelData target. SourceClass preserves full-import alias priority, original timestamps,
-  incomplete Identifier rows and zero separately from use defaults and partial GET patch rules.
-  Repositories still resolve links and select the author/patient; blank, existing and duplicate documents
-  retain their previous skip/first-author behavior. ServiceRequestMapper and its unused facade method
-  are removed. Ten independent full-import baselines were captured before deletion at c8e5f5ce;
-  tests verify mapping has no SQL/HTTP and that the same JSON selects different import/sync rules.
-
-
-- CarePlan remote sync uses the same Model target as validated CarePlanForm, with SourceClass and
-  explicit fallback context. Model-to-Form hydration and the distinct legacy model-source signPlan
-  now have actual Form/EhealthDraft targets; four independent old model contracts preserve JSON.
-- CarePlanActivity draft, remote sync, preloaded-model create and edit hydration use resource DTOs.
-  Ten old create/hydration contracts and five write contracts retain product priority, date clipping,
-  quantity casts, whole-object alias precedence and local null-clearing. Dictionary/relation preparation
-  is a protected Livewire concern; ActivityRepository retains persistence/sync rather than payload builders.
-  Cancel changes only detail.status_reason in the complete raw remote snapshot. Complete maps the
-  validated component to its own unsigned PATCH DTO; outcome lists use MapCollection. Dead, uncalled
-  signing/prequalify helpers and their obsolete implementation-only tests were removed.
-- ActivityRemainingQuantityGuard is removed. Repository owns the existing transaction/row lock;
-  RequestQuantityStatus owns the exact excluded SQL statuses. The lock scope is unchanged: this is
-  not a claim that concurrent issuance became atomic. Validation/program guards are removed;
-  protected concerns own UI decisions, API owns complete pagination/catalog lookup, Repository owns
-  contract persistence, and ActivityRequirements/DeviceDefinition Program map explicit data without IO.
-- CarePlanApprovalService is removed. Protected request/access/queue/poll concerns preserve async jobs,
-  inpatient/read access, OTP and resend throttling. Approval HTTP confirmation/deactivation checks belong
-  to the API. Repository owns pending approval/link persistence, scoped polling and provisional UUID
-  replacement. Outcomes live in Enums and results in Dto; no lifecycle service was renamed.
-- MedicationDispenseLifecycleService is removed. The pharmacy component maps validated quantity into
-  its Ehealth DTO, qualifies through the existing API, signs the accepted raw document and resolves the
-  process job. Employee SQL lookup is in Repository. Five old independent contracts retain minimum
-  quantity, fixed price defaults, exact JSON and unknown-field/raw signing behavior.
-- Activity edit/save/delete/sign lookups are scoped to the current care plan. Approval polling cannot
-  read or replace a UUID through a foreign care-plan link. Contract sync uses the explicitly supplied
-  legal entity even when the session is bound to another entity; tests exercise both contexts.
-
-- PaperReferralMapper is removed. Procedure/DiagnosticReport map the shared Ehealth/Form targets.
-  Nine old a6618f05 contracts preserve exact wire JSON, missing versus explicit null and paper/electronic
-  priority. SourceHasPath checks plain input presence without IO. Only the legacy parent adapters
-  restore camelCase; that intermediate conversion disappears with their own DTO migration.
-
-- DetectedIssueMapper and DeviceAssociationMapper are removed with both facade methods. The actual
-  package builder/loader map Ehealth/Form DTOs. Twenty-nine independent old 1084b17e baseline cases
-  preserve exact JSON, null versus missing fields, empty author objects, sparse lists and timestamp
-  order. The caller owns IDs and the clock, including the minute separating an opening/closing pair.
-  Existing timestamps remain untouched. Shared transforms add opt-in text without changing defaults.
-  Only the remaining builder adapts DTO keys to its camelCase package contract; repository persistence
-  remains unchanged. No new workflow service was introduced.
-
-## Compatibility with main
-
-The September 30 rebase includes personal-data sync, separate specimen/diagnostic pages and eHealth
-referral search (#865). It preserves the session-flash/x-message convention and does not restore the
-removed `InteractsWithFlashMessages` trait. The old referral regression fixture was adjusted to the
-current ACTIVE referral selection and diagnostic edit contract; diagnostic create now searches eHealth.
-
-Other preserved contracts: complete contract pagination before transactional sync; explicit approval
-success checks; multiple-prescription eRx sync; loading-state recovery; medication resource/source and
-care-plan terms enums. The raw eRx document signing path, ownership and quantity protection are unchanged.
+Base: upstream main `1cf8b92e`, integrated October 5 including merged #792/#907.
+Updated October 6 after completing all legacy medical mapper migrations.
 
 ## Mapping boundaries
 
-### Alignment with merged #907 (2026-10-05)
+Symfony ObjectMapper/Serializer 8.1.8 and the shared EhealthMapping trait follow merged #907.
+Targets live in `app/Dto/<Resource>`: Model for persistence projection, Ehealth for API contracts,
+Form for real hydration callers. Class/property Map and SourceClass select different form/model/import
+policies in one target. A validated Livewire Form or preloaded Model is a direct source when useful;
+existing FormCollection/response Collections/stdClass adapt flat or validated array boundaries.
 
-The actual merged PR head is b4c47459; main integration is 1cf8b92e. Composer requirements were
-reconciled with its lock, updating only mapper/serializer to 8.1.8 in the isolated environment.
-The merged Division DTOs, FormCollection, response Collection family and EHealthResponse union
-are present. Division workflow classes are unchanged by this refactor.
+ObjectMapperInterface uses Laravel PSR-11 transform/condition locators. Class-name callables are bound
+explicitly, while attribute-instantiated pure MapObject/SourceClass/SourceHasPath need no registration.
+ObjectMapper is final and is used through composition rather than inheritance.
 
-All former app/Mapping/EHealth targets now live in app/Dto/<Resource>. ServiceRequest, DeviceRequest
-and MedicationRequest use Model DTOs with explicit class-level sources and property-level SourceClass.
-Prepared local values use the upstream FormCollection. Search/use JSON is adapted into distinct
-ServiceRequestSearch/ServiceRequestUse response collections under Api/Responses/Collections.
-The same Model target preserves full-import, minimal-use and partial-GET policies.
+UUIDs, operation time, writer/legal entity, dictionary labels and reference display details come from
+the authorized caller. Mapping has no SQL, HTTP, auth/session access, UUID generation or clock reads.
+Small pure transformations stay on DTOs; shared FHIR/reference/concept transforms remain reusable.
+MapCollection handles object lists. Distinct Create/Prequalify/Update/Cancel contracts correspond to
+different wire shapes rather than introducing DTOs for every possible arrow.
 
-ServiceRequestPayloads has been removed: care-plan, encounter and registry callers use
-map(source, EhealthCreate/EhealthPrequalify::class)->toArray(). Input remains only for the resolved
-UUID/time snapshot needed by signing. Standalone device and eRx map their validated screen directly;
-eRx EhealthDraft/EhealthDraftPrequalify keep string dosage, selected programs and duration conversion.
-UI state, password, key files and accepted raw clinical documents are excluded from mapping.
+Livewire owns validation/access/UI and operation order, with protected concerns for repeated steps.
+API owns HTTP/envelope/validation/pagination/job/verdict. Repository owns Identifier/FK resolution,
+queries, aggregate persistence and transactions. Enums describe pure statuses/type rules.
+No replacement Actions/Manager/lifecycle layer is introduced.
 
-The shared EhealthMapping trait from #907 now delegates its post-normalization rules to one protected
-hook. Its default Division behavior is unchanged. Medical DTOs reuse the same serializer through
-PreservesEhealthDocumentValues, preserving zero, false, explicit lists and literal nested keys.
-Each signed resource owns its established key order; medical golden expectations are unchanged.
-Device/eRx context adapters retain source preparation only and no longer own serializer instances.
+Medical DTOs reuse EhealthMapping with a protected normalization hook, preserving Division's default
+behavior. Exact signed key order, missing/null/[], zero/false, literal dictionary keys and date/time/DST
+semantics are verified against independent old fixtures. Raw accepted documents are stored/signed
+separately from create projections so unknown clinical fields survive.
 
-Repository receives explicitly projected DTO arrays because Identifier/FK resolution and relational
-persistence belong there. A toModel() method that silently dropped unresolved links would not preserve
-this contract; no unused model conversion or SQL inside DTOs is added. Model-to-form hydration remains
-implemented for CarePlan and CarePlanActivity through Form targets with actual hydration callers.
+## Completed workflows
 
-Use one ModelData/EHealthData/FormData contract for each purpose, with multiple source classes where
-useful. Do not create a DTO for every arrow, duplicate Write/ModelData classes, or add an Actions layer.
-Separate prequalify envelopes and signed documents where their wire contracts differ.
-FormData is introduced only when an actual form-hydration path is migrated.
+- ServiceRequest/DeviceRequest: create/prequalify, full search import/minimal use/partial sync,
+  draft/sign/print/SMS, take/qualify/complete/cancel usage. Signed create persists before enrichment GET.
+- eRx: dosage/create/prequalify, standalone string dosage, raw-first sign/reject, fallback document,
+  active UUID/block/unblock, print and metadata sync. Distinct request/prescription identities remain.
+- CarePlan: direct Form→Model/Ehealth, remote→Model, Model→Form and legacy model signPlan.
+  Activity draft/sync/create/edit, raw cancel and unsigned complete; no Repository payload builders.
+- Quantity/status guards: existing SQL row lock/transaction scope in Repository, pure lists in enums,
+  UI validation in protected concerns, participation HTTP/pagination in API.
+- Approvals: queue/link polling, patient/care-plan scopes, read/inpatient/OTP paths, throttle and
+  provisional UUID replacement. All contract pages validate before persistence.
+- Pharmacy dispense: validated Form→Ehealth, qualify/raw signing/process, Repository employee lookup.
+- All 17 former array mappers: ServiceRequest, DeviceRequest, MedicationRequest, PaperReferral,
+  DetectedIssue, DeviceAssociation, Device, DeviceDispense, Specimen, Procedure, Condition,
+  Immunization, ClinicalImpression, Observation, DiagnosticReport, Episode and Encounter.
 
-Repository writes receive explicit arrays because Identifier relationships and aggregate persistence
-already belong there. The outbound snapshot still carries resolved context and the operation clock;
-simplifying it must preserve signed bytes and avoid lazy relation queries. `(object)` adapts the top level;
-only collection rows need explicit object adaptation. No recursive JSON round-trip is required.
+There are no PHP files left in `app/Services/MedicalEvents`. EncounterPackageBuilder/Loader,
+Fhir/FhirResource and FhirMapperContract are removed. BuildsEncounterPackage/LoadsEncounterPackage
+contain protected workflow/context preparation and call the DTOs. `toRepositoryDocument()` explicitly
+adapts snake_case wire projections to the existing camelCase Repository contract, preserving nested
+objects; field-level mapping is not duplicated.
 
-Laravel's PSR-11 `has()` does not advertise every autowirable class. Bind class-name transforms and
-conditions explicitly; attribute-instantiated pure callables need no registration.
+ServiceRequestPayloads/DeviceRequestPayloads/MedicationRequestPayloads are removed from application
+code. Callers map directly; pure source factories receive context explicitly. Tests/Support harnesses
+only expose those real concerns/DTOs to existing behavior assertions.
 
-## Independent contract fixtures
+Episode accepts its actual create/cancel/close Livewire forms as well as FormCollection. DiagnosticReport
+and Encounter cancellation retain full snapshots, unknown fields and strict selected-record semantics.
+EncounterRecordType retains the previous supported sections; Conditions cannot be cancelled separately
+and DeviceDispense is not added to an unsupported cancellation endpoint.
 
-- Care-plan form create: eight payloads captured from `CarePlanRepository::formatCarePlanRequest`
-  at `17955764` before replacement. Cover sparse lists, Unicode, empty optional fields, null author,
-  same-day encounter clipping, exact encounter midnight and both DST boundaries. Arrays and exact
-  signing JSON are compared independently, including SignatureService's call to the mocked Cipher.
-- Outbound: eight cases captured from the unmodified #792 mapper at `4b1f0e7`, using a fixed clock and
-  Europe/Kyiv. Expected prequalify, signed document and exact SignatureService JSON bytes are retained.
-- Inbound: eight service-request and ten device-request cases captured from the original lifecycle on
-  main `b2239108` before replacing its mapping. Cover aliases, partial/empty values, reference filtering,
-  search-service fallback, device definitions/classification and zero quantities.
-- Device outbound: eight cases captured before changing DeviceRequestMapper at `9eb61910`, with
-  clock `2026-10-05T12:15:30Z` and Europe/Kyiv. Cover both product forms, explicit type precedence,
-  program/no-program, encounter/episode/no context, zero/default quantity, sparse/incomplete references,
-  expired/inverted/date-only/DST dates. Tests compare arrays and signed JSON and exercise SignatureService.
-- eRx outbound: seven cases captured from unmodified MedicationRequestMapper at `2ea796ca`, with
-  clock `2026-10-05T12:15:30+03:00` and Europe/Kyiv. Cover minimal/full dosage, program/care-plan,
-  zero/defaults, sparse instructions, raw/tuple container dosage, empty lists and numeric strings.
-  Tests compare create/prequalify/sign arrays and exact SignatureService JSON with zero fractions.
-- Never regenerate expectations from the new mapper to make a failing test pass.
-- Standalone eRx: four inputs captured from the unchanged component at `a58ca2c1` before replacing
-  its payload construction. Cover string dosage, Unicode, quotes, newlines and duration casts
-  (normal, fractional, scientific and leading zero). Tests compare arrays and exact create JSON;
-  feature tests also cover validation before mapping and preservation of unknown accepted raw fields.
-- External ServiceRequest import: ten inputs captured from ServiceRequestMapper::fromFhir at
-  `c8e5f5ce` before deletion. Cover camel/flat/null/empty alias priorities, raw dates, zero and fractional
-  quantity, incomplete/scalar reference rows, ignored local reference aliases and absent fields.
-  The fixture is distinct from partial GET baselines; Repository tests cover persisted author/patient,
-  Identifier links, defaults, existing-document protection and first-duplicate selection.
+## Independent baselines and persistence
 
-- CarePlan model-source sign and hydration: four contracts captured from 606d2c94 before replacement.
-- CarePlanActivity: ten payload/JSON/hydration contracts and five draft/remote write contracts captured
-  from 606d2c94. The old field order, clock, null-clearing and whole-object alias priority remain fixed.
-- Pharmacy dispense: five old 606d2c94 contracts cover defaults, qualified minimum quantity, zero,
-  exact create JSON and completion without an extra signature. Browser price keys remain ignored.
-- Activity transitions: existing raw-cancel assertions are retained; complete is checked against the
-  previous component PATCH builder, including sparse reference keys and the false-like outcome code.
+Expectations were captured before replacing each implementation and are not regenerated from the DTOs:
 
-- DeviceMapper and Fhir::device() are removed. Device/Ehealth and Form map typed Name, Identifier
-  and Property collections through MapCollection. Sixteen old b6d85983 contracts preserve exact
-  JSON, sparse lists, null/zero/false and nullable quantity/range metadata without mapping IO.
-  Two actual PostgreSQL builder/store/loader tests cover Person/Preperson, ownership, FHIR links
-  and all six property variants. Existing Quantity float casts remain unchanged. The temporary
-  camelCase package adapter handles nested DTO fields; Repository still owns persistence.
+- ServiceRequest outbound `4b1f0e7`; DeviceRequest `9eb61910`; eRx `2ea796ca`.
+- CarePlan form payload `17955764`; independent model/sign/hydration and activity/dispense contracts.
+- PaperReferral old JSON and actual parent calls; DetectedIssue/DeviceAssociation `1084b17e`.
+- Device `b6d85983`, DeviceDispense `3fefa411`, Specimen `62602e72`, Procedure `f83d1c68`.
+- The final seven clinical resources: unchanged legacy implementations at `c86c92c2` before migration.
 
-- DeviceDispenseMapper and its facade method are removed. Ehealth/Form map details and
-  supportingInfo through MapCollection. UUID and encounter context stay with the caller;
-  supporting-document queries stay in the loader/Repository. A private preloaded details map
-  does not leak into form data. Sixteen old 3fefa411 baselines preserve model/type contracts,
-  integer casts, exact JSON, missing/null, duplicates, sparse lists, first-detail selection and DST.
-  The two legacy payload tests now use DTOs and retain their behavior assertions. Four real
-  PostgreSQL store/sync/load tests cover Person/Preperson and model/type, FHIR links, quantity=0,
-  supporting condition metadata and performer/legal entity display fields. Mapping has no IO.
+Procedure adds 18 tests including actual callers and SQL round-trips. The final seven resources add
+79 mapping tests and 10 Person/Preperson PostgreSQL round-trips. Existing signing/no-IO assertions
+are preserved when obsolete wrappers retire. Specimen signing tests substitute Cipher and are not
+real KEP integration tests.
 
-- SpecimenMapper and Fhir::specimen() are removed after migrating every caller. Specimen/Ehealth supports validated FormCollection and the actual SpecimenForm; standalone save/sign map a validated clone without mutating UI state. MapCollection handles containers/parents, while MapObject forwards the configured mapper to the nested collection DTO. StatusReasonType selects reject/invalidate dictionaries for one shared reason DTO. Cancellation retains the full raw snapshot and changes only status/status_reason. Seventeen create/hydration and three action contracts were captured from old 62602e72. Thirty-nine new tests cover exact JSON, no mapping IO, UUID/reference resolution, actual PostgreSQL persistence for Person/Preperson and date_time/period, and Livewire save/sign/process/reject/invalidate/cancel/search handlers. Signing tests use a fake Cipher and do not replace real KEP UAT. Existing Api and Repository own transport and persistence.
-
-## Remaining work
-
-- The encounter/FHIR wave still has 12 PHP files in Services/MedicalEvents: 8 array mappers,
-  EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
-  helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
-  Next: Procedure and the remaining clinical resources, with independent old baselines.
-  Builder/loader retirement follows all callers.
-- Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
-  encounter forms. Their DTOs already own serialization; do not hide SQL or orchestration in a mapper.
-- Real KEP/eHealth UAT, concurrency assessment and the HTTP authorization suite with built Vite assets
-  are required before ready. This refactor preserves the old quantity transaction scope.
-- Keep main current and address the independently reproduced Division baseline failures separately.
-  Nonmedical Services and the agreed Signature/Dictionary infrastructure exceptions are outside #841.
-
-Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
+Observation store previously lost its specimen Identifier. It now persists that reference and eagerly
+loads it for hydration; SQL tests cover loading, clearing and avoiding duplicate rows.
+Immunization's existing integer dose column still rejects fractional values despite numeric form
+validation. Golden JSON preserves 1.5; SQL tests use supported integer/ML. Schema remediation is separate.
 
 ## Validation
 
-October 6 Specimen increment: **673 tests / 3713 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Thirty-nine new tests cover independent old wire/hydration/action contracts, actual Livewire validation/policy/sign/cancel handlers (with a fake Cipher), UUID and reference resolution, and real PostgreSQL store/sync/load. Pint passes all 25 PHP files; git diff --check passes. The existing isolated Docker environment is retained for continued work and UAT. No schema or Composer changes. The remaining inventory is 12 files, including 8 array mappers.
+Медична регресія: **780 тестів / 4303 assertions**, без failures/errors/skipped/risky tests; одне наявне PDO deprecation. Перевірено mapping і точні signing bytes, API/job, Repository/Identifier links, PostgreSQL round-trip, care plan/activity, referrals, eRx/device, registry, approvals і pharmacy dispense, standalone Encounter/Specimen/Procedure callers. Додатковий фінальний прогін direct callers/cancellation/SQL: **63 тести / 359 assertions**, без failures/errors, з тим самим PDO deprecation. Pint перевіряє 107 PHP-файлів останнього інкременту; `git diff --check` проходить.
 
-October 6 DeviceDispense increment: **634 tests / 3234 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Twenty-one new tests cover independent wire/hydration baselines and real PostgreSQL store/sync/load; two legacy behavior tests are retained on DTOs. Pint passes all 12 PHP files; git diff --check passes. Existing mapper841 PHP 8.5.3/PostgreSQL containers remain available for the open draft PR. No schema or Composer changes. The remaining inventory is 13 files, including 9 array mappers.
+Використано наявні isolated mapper841 PHP 8.5.3/PostgreSQL контейнери. Нових контейнерів не створено, робочі ohealth/employee середовища й дані не змінено. Нових application migrations та змін Composer у цьому інкременті немає. У disposable testing DB застосовано вже наявну DiagnosticReport migration `2026_03_31_124801`, щоб узгодити тестову схему з поточною базою main.
 
-October 6 Device increment: **613 tests / 2819 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Nineteen new tests cover independent old wire/hydration contracts and real PostgreSQL persistence. Pint passes all 14 PHP files; git diff --check passes. Existing mapper841 containers were restarted and their empty disposable database restored using install migrations; no application migrations changed. The temporary bootstrap was removed and user ohealth environments were preserved. The remaining inventory is 14 files, including 10 array mappers.
+## Before ready
 
-October 5 detected-issue/device-association increment: **594 tests / 2579 assertions**,
-no failures, errors or risky tests. One existing PDO deprecation remains. Includes 31 new tests for
-independent old wire/hydration contracts, actual builder/loader callers, sparse lists, missing/null
-IDs, no mapping IO and caller-owned opening/closing timestamps. Pint passes all 14 PHP files in this
-increment; git diff --check passes. Isolated mapper841 PHP 8.5.3/PostgreSQL is retained for the open
-draft PR. The remaining medical service inventory is 15 files, including 11 array mappers.
+1. Реальний КЕП/eHealth UAT для create/sign/cancel/sync та HTTP authorization suite з Vite assets. Тестова заміна Cipher перевіряє workflow, але не замінює інтеграційний підпис.
+2. Перевірка конкурентних issuance/sign операцій. Область наявної quantity-транзакції збережено; атомарність усього сценарію не заявляється.
+3. Окреме виправлення схеми Immunization: форма дозволяє дробову дозу, а чинна колонка `value` — integer. DTO зберігає 1.5 без округлення (golden test), але така доза поки не записується у чинну SQL-схему. Це попереднє обмеження, не виправлене цим рефактором; PostgreSQL round-trip використовує допустимі integer/ML.
+4. Окреме виправлення Division baseline failures і перевірка актуальності main перед ready. Повний Division feature suite має 91 тест / 401 assertions, 5 errors, 1 failure і 4 risky tests; ті самі збої відтворено на незміненому main `1cf8b92e`. Application-wide green не заявляється.
 
-October 5 paper-referral increment: **563 tests / 2331 assertions**, no failures, errors or risky tests.
-Adds nine independent PaperReferral contracts, both actual parent mapper adapters and ProcedureRepository
-coverage to the expanded medical regression. Pint passes the seven changed/new PHP files (the prior
-care-plan/activity/approval/dispense increment passed all 84 PHP files). Git diff --check passes.
-One existing PDO deprecation remains. The remaining Services/MedicalEvents inventory is 17 files:
-13 array mappers, two package classes and two FHIR helpers; UAT and the separate encounter wave remain open.
+Signature/Dictionary infrastructure and non-medical Services are outside #841. No standalone Composition
+mapper/Livewire workflow exists in the base main `1cf8b92e` inventory; existing composition API paths remain unchanged.
+No unused Composition DTO is introduced. Issue stays open and the PR stays draft.
 
-
-October 5 care-plan/activity/approval/dispense completion: **553 tests / 2249 assertions**, no failures,
-errors or risky tests in retained mapper841 PHP 8.5.3/PostgreSQL. Includes multi-source CarePlan/activity
-mapping, actual Form hydration and legacy signPlan, old activity/dispense JSON, raw cancel and unsigned
-complete, scoped activity/polling operations, explicit contract entity context, complete pagination,
-quantity transaction/rollback behavior and the expanded referral/eRx/device/encounter medical suite.
-PHP Pint passes all 84 changed/new PHP files; git diff --check passes. One existing PDO deprecation
-remains. No Composer change or new Docker environment; real KEP/eHealth UAT and concurrency assessment
-remain pending. The quantity lock scope is unchanged. The separate encounter/FHIR wave remains open.
-
-
-October 5 care-plan form increment: **518 tests / 2076 assertions**, no failures, errors or risky
-tests, in retained mapper841 PHP 8.5.3/PostgreSQL. This adds eight independent outbound care-plan
-contracts, exact SignatureService bytes, local draft/null-clearing contracts and CarePlan Repository/
-activity unit coverage to the previous expanded medical suite. Actual Livewire create/update/sign
-and existing sync pass. PHP Pint passes all nine changed PHP files; git diff --check passes.
-The final direct shared-trait DTOs also passed 11 tests / 51 assertions after simplification.
-One existing PDO deprecation remains. Composer dependencies were unchanged after the previous
-successful validation; no new containers were created. Remote care-plan and activity DTO migration
-remain pending, and the independently reproduced Division baseline failures remain separate.
-
-October 5 alignment with merged #907: **496 tests / 1983 assertions**, no failures, errors or risky
-tests, in the retained mapper841 PHP 8.5.3/PostgreSQL environment. Covers medical mapping, API,
-repositories, care plan, referral, eRx, device, registry, encounter and approvals, including the new
-standalone eRx contracts and main's device-dispense tests. One existing PDO deprecation remains.
-Composer validate --strict --no-check-publish, PHP Pint for all 50 changed PHP files and git diff
---check pass. Division payload mapping also passes in the targeted suite.
-
-The full Division feature suite has **91 tests / 401 assertions, five errors, one failure and four
-risky tests** on an independently loaded, unchanged `origin/main` archive at `1cf8b92e`, with the same
-failures seen in the refactor worktree. These concern mapping-exception handling and Division
-persistence; they are recorded separately rather than treated as a green application-wide baseline.
-No new Docker containers were created or existing application data removed.
-
-October 5 external ServiceRequest import: **486 tests / 1941 assertions**, no failures, errors or risky
-tests, in the same disposable mapper841 PHP 8.5.3/PostgreSQL environment. Covers full-import baselines,
-distinct SourceClass import/sync policies, no SQL/HTTP during mapping, actual persisted links and author,
-zero/default quantity, existing-document protection and first-duplicate selection. The expanded medical
-suite retains referral/eRx/device/care-plan/encounter/approval coverage. PHP Pint passes all 12 changed
-PHP files; git diff --check passes. One existing PDO deprecation remains. Eight wrapper-only cases were
-removed with the last mapper; active outbound tests and previous golden expectations are unchanged.
-No new containers were created; the open draft PR still needs the retained test environment and UAT.
-
-October 5 device lifecycle/mapper retirement: **480 tests / 1902 assertions**, no failures, errors or
-risky tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. The same expanded medical suite includes
-direct standalone Form mapping, distinct device endpoints/signing envelopes, INVALID and failed-job
-UI behavior, raw-document preservation and refusal to sign job metadata without a clinical document.
-Current contract tests use DTO adapters; obsolete wrapper/dead-contract tests were removed, while
-independent golden expectations remain unchanged. Project PHP Pint passes all 16 changed PHP files;
-git diff --check passes. One existing PDO deprecation remains. Real KEP/eHealth UAT is still pending.
-
-October 5 eRx lifecycle removal: **481 tests / 1900 assertions**, no failures, errors or risky tests,
-in isolated mapper841 PHP 8.5.3/PostgreSQL. This extends the medical regression with Unit API/Job
-contracts, the older standalone MedicationRequest tests and new lifecycle failure/identity cases.
-One existing PHP 8.5 PDO deprecation remains. All 29 changed PHP files pass the project's PHP Pint
-rules; the isolated formatter disables the Blade extension. git diff --check passes.
-New coverage includes direct preloaded Model/dosage to exact golden signing JSON without SQL,
-opaque document envelopes, original create document when the job returns metadata, failed sign/reject,
-INVALID prequalify preventing creation, cached active identity and block/unblock success/failure.
-
-October 5 take/draft/sign/sync/eRx increment: **432 tests / 1753 assertions**, no failures, errors or
-risky tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. Includes mapping, API, repositories, enums,
-care-plan/referral/eRx Livewire, encounter diagnostics and approvals. Project Pint passes for all 58
-changed PHP files (the isolated formatter disables the Blade extension). One existing PDO deprecation remains.
-Tests cover blocking qualify/process, local status after failure, minimal use import including zero,
-direct Eloquent sources without SQL, signed-create persistence before failed enrichment, clinical/job
-status separation and independent eRx signed JSON contracts.
-
-October 5 completion/cancel increment: **363 tests / 1520 assertions**, no failures, errors or risky
-tests, in isolated mapper841 PHP 8.5.3/PostgreSQL. Project Pint passes for all 16 changed PHP files.
-Targeted tests cover all three completion resource types, cross-patient rejection, missing/unsupported
-resources, completion job timeout, HTTP payload allowlisting/error translation and cancellation
-success/failure persistence. One existing PDO deprecation remains.
-
-Earlier October 5 device checkpoint: **348 tests / 1477 assertions**, no failures, errors or risky tests, in isolated
-mapper841 PHP 8.5.3/PostgreSQL. Includes device golden contracts, actual SignatureService bytes,
-patient-registry/encounter/care-plan signing, API contracts, partial sync, ownership, eRx raw signing
-and approvals. Project Pint passes for all 13 changed PHP files. One existing PDO deprecation remains.
-
-An earlier expanded run exposed stale Identifier FK fixtures/alias mocks in two older MedicationRequest
-lifecycle files. These fixtures now use actual Identifier rows and instance API mocks; all 24 tests /
-87 assertions passed at that checkpoint and both files remain in the current expanded regression. Their behavior
-assertions remain intact. MedicalEventAuthorizationTest's HTTP route test still lacks a Vite manifest
-in the isolated environment and is excluded. This is a medical regression, not a claim that the
-complete application suite is green; real KEP/eHealth UAT has not been run.
-
-Final regression (2026-10-01): **286 tests / 1151 assertions**, no failures, errors or risky tests.
-Includes mapping and exact signing bytes, API job/prequalify contracts, partial sync/Identifier links,
-explicit ownership scopes, rendered authentication options, eRx raw-signing and approval workflows.
-One existing PHP 8.5 PDO constant deprecation remains. New mapping/enum/concern/API/test files pass
-the project's PHP Pint rules; the Blade extension is disabled in the isolated PHP formatter.
-Tests run only in isolated mapper841 PHP 8.5.3/PostgreSQL, never the user's application DB.
+Full [plan](ehealth-object-mapper-plan.md) and [progress report](object-mapper-progress-report.md).

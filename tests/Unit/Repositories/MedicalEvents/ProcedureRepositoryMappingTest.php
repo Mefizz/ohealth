@@ -10,18 +10,19 @@ use App\Models\MedicalEvents\Sql\Procedure;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Repositories\MedicalEvents\ProcedureRepository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
-use App\Services\MedicalEvents\EncounterPackageLoader;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
+use Tests\Support\EncounterPackageHarness as EncounterPackageBuilder;
+use Tests\Support\EncounterPackageHarness as EncounterPackageLoader;
 use Tests\TestCase;
 
 class ProcedureRepositoryMappingTest extends TestCase
 {
     use DatabaseTransactions;
+
     #[DataProvider('patientsAndTiming')]
     public function test_actual_package_sync_and_form_loader_preserve_owner_timing_and_fhir_links(string $patientType, string $timing): void
     {
@@ -84,6 +85,7 @@ class ProcedureRepositoryMappingTest extends TestCase
         $this->assertSame(1, Procedure::whereUuid($row['uuid'])->count());
         Http::assertNothingSent();
     }
+
     private function load(string $encounter): array
     {
         $rows = new ReflectionMethod(EncounterPackageLoader::class, 'loadProcedures')->invoke(app(EncounterPackageLoader::class), $encounter);
@@ -91,6 +93,7 @@ class ProcedureRepositoryMappingTest extends TestCase
 
         return array_values($rows)[0];
     }
+
     public static function patientsAndTiming(): iterable
     {
         foreach ([Person::class, Preperson::class] as $patient) {

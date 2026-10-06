@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\Concerns\MedicalEvents\MedicationRequest;
 
 use App\Classes\eHealth\EHealth;
-use App\Dto\MedicationRequest\MedicationRequestPayloads;
+
+use App\Dto\MedicationRequest\Ehealth as MedicationRequestEhealth;
 use App\Dto\MedicationRequest\Model as ModelData;
 use App\Models\CarePlan;
 use App\Models\MedicalEvents\Sql\Encounter;
@@ -49,6 +50,9 @@ trait PreparesMedicationRequestSigning
         $fields['based_on_uuid'] = $context['activity_uuid'];
         $fields['inform_with'] = $informWith !== '' ? $informWith : ($requestRecord->informWith ?? '');
 
-        return app(MedicationRequestPayloads::class)->signedContent($fields, $context['uuids'], CarbonImmutable::now(), $context['care_plan_uuid']);
+        return app(ObjectMapperInterface::class)->map(
+            MedicationRequestEhealth::source($fields, $context['uuids'], CarbonImmutable::now(), $context['care_plan_uuid']),
+            MedicationRequestEhealth::class,
+        )->toArray();
     }
 }

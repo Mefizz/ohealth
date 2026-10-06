@@ -34,7 +34,7 @@ class MedicationRequestModelDataTest extends TestCase
 
         $fields = app(ObjectMapperInterface::class)->map($source, ModelData::class)->toSigningFields();
         $fields['based_on_uuid'] = $fixture['data']['based_on_uuid'];
-        $payload = app(\App\Dto\MedicationRequest\MedicationRequestPayloads::class)->signedContent(
+        $payload = app(\Tests\Support\MedicationRequestPayloads::class)->signedContent(
             $fields,
             $fixture['uuids'],
             \Carbon\CarbonImmutable::parse('2026-10-05 12:15:30', 'Europe/Kyiv'),

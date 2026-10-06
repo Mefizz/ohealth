@@ -19,10 +19,9 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\EncounterPackageBuilder;
 use App\Traits\EnsuresEntityExists;
-use App\Traits\SubmitsEHealthEncounter;
 use App\Traits\MedicalEvents\UpdatesReferralExecution;
+use App\Traits\SubmitsEHealthEncounter;
 use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Support\Facades\Auth;
@@ -36,10 +35,10 @@ use Throwable;
 class EncounterCreate extends EncounterComponent
 {
     use EnsuresEntityExists;
-    use SubmitsEHealthEncounter;
-    use UpdatesReferralExecution;
 
-    private EncounterPackageBuilder $packageBuilder;
+    use SubmitsEHealthEncounter;
+
+    use UpdatesReferralExecution;
 
     public ?int $prepersonId = null;
 
@@ -179,12 +178,6 @@ class EncounterCreate extends EncounterComponent
         }
     }
 
-    public function boot(): void
-    {
-        parent::boot();
-        $this->packageBuilder = app(EncounterPackageBuilder::class);
-    }
-
     public function mount(LegalEntity $legalEntity, ?Person $person = null, ?Preperson $preperson = null): void
     {
         if ($preperson !== null) {
@@ -279,7 +272,7 @@ class EncounterCreate extends EncounterComponent
             return;
         }
 
-        $formattedData = $this->packageBuilder->build($validated, $this->episodeType, Status::DRAFT);
+        $formattedData = $this->buildEncounterPackage($validated, $this->episodeType, Status::DRAFT);
         $formattedData['encounter']['status'] = EncounterStatus::DRAFT->value;
 
         try {
@@ -369,7 +362,7 @@ class EncounterCreate extends EncounterComponent
             return;
         }
 
-        $formattedData = $this->packageBuilder->build($validatedData, $this->episodeType);
+        $formattedData = $this->buildEncounterPackage($validatedData, $this->episodeType);
 
         try {
             $this->syncRegisteredConditions($validatedData['conditions'] ?? []);

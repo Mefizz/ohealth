@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
-use App\Dto\MedicationRequest\MedicationRequestPayloads;
+use Tests\Support\MedicationRequestPayloads;
 use Tests\TestCase;
 
 /**
@@ -184,5 +184,4 @@ class MedicationRequestContractTest extends TestCase
             $payload['medication_request_request']['dosage_instruction'][0]['text']
         );
     }
-
 }

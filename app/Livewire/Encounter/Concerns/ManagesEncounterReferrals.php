@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace App\Livewire\Encounter\Concerns;
 
-use Illuminate\Support\Str;
-use App\Dto\FormCollection;
-use Symfony\Component\ObjectMapper\ObjectMapperInterface;
-use App\Dto\DeviceRequest\DeviceRequestPayloads;
-use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
-use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Classes\eHealth\EHealth;
+use App\Dto\DeviceRequest\Ehealth as DeviceRequestEhealth;
+
+use App\Dto\DeviceRequest\EhealthPrequalify as DeviceRequestEhealthPrequalify;
+use App\Dto\DeviceRequest\Model as DeviceRequestModelData;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
+use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
+use App\Dto\ServiceRequest\Input as ServiceRequestInput;
+use App\Dto\ServiceRequest\Model as ServiceRequestModelData;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Livewire\Concerns\MedicalEvents\Referral\SelectsReferralApi;
-use App\Dto\ServiceRequest\Input as ServiceRequestInput;
-use App\Dto\ServiceRequest\EhealthCreate as ServiceRequestCreateData;
-use App\Dto\ServiceRequest\EhealthPrequalify as ServiceRequestPrequalifyData;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
@@ -28,14 +28,17 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use RuntimeException;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Throwable;
 
 trait ManagesEncounterReferrals
 {
     use \App\Livewire\Concerns\MedicalEvents\Referral\SynchronizesReferrals;
+
     use \App\Livewire\Concerns\MedicalEvents\Referral\PrintsReferrals;
 
     use SelectsReferralApi;
@@ -495,13 +498,13 @@ trait ManagesEncounterReferrals
         $dbData['device_id'] = $formData['device_id'] ?? null;
         $dbData['device_code_type'] = $formData['device_code_type'] ?? 'DEVICE_DEFINITION';
         if ($personUuid && !empty($dbData['program_id'])) {
-            $prequalifyPayload = app(DeviceRequestPayloads::class)->prequalify(
+            $prequalifyPayload = app(ObjectMapperInterface::class)->map(DeviceRequestEhealth::source(
                 $dbData,
                 $uuids,
                 CarbonImmutable::now('UTC'),
                 null,
                 null
-            );
+            ), DeviceRequestEhealthPrequalify::class)->toArray();
             EHealth::deviceRequest()->prequalifyAndValidate((string) $personUuid, $prequalifyPayload);
         }
 

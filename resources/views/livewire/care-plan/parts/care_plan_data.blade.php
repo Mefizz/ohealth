@@ -124,7 +124,7 @@
                     type="text"
                     name="period_end"
                     id="period_end"
-                    class="datepicker-input with-leading-icon input peer dark:text-white @error('form.periodEnd') input-error @enderror"
+                    class="datepicker-input with-leading-icon input peer dark:text-white @error('form.periodEnd') input-error border-red-500 @enderror"
                     placeholder=" "
                     autocomplete="off"
                     datepicker-autohide

@@ -171,4 +171,41 @@ class EHealthValidationExceptionCarePlanMessageTest extends TestCase
         $this->assertStringNotContainsString('Primary diagnosis condition codes', $translated);
         $this->assertStringNotContainsString('encounter.identifier.value', $translated);
     }
+
+    public function test_period_end_before_start_message_is_translated(): void
+    {
+        $exception = new EHealthValidationException([
+            'error' => [
+                'type' => 'validation_failed',
+                'message' => 'Validation failed. You can find validators description at our API Manifest: http://docs.apimanifest.apiary.io/#introduction/interacting-with-api/errors.',
+                'invalid' => [
+                    [
+                        'entry' => '$.period.end',
+                        'entry_type' => 'json_data_property',
+                        'rules' => [
+                            [
+                                'description' => 'End date must be greater than or equal the start date',
+                                'params' => [],
+                                'rule' => null,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->assertTrue($exception->isCarePlanPeriodEndBeforeStart());
+
+        $formatted = $exception->getFormattedMessage();
+        $translated = $exception->getTranslatedMessage();
+        $expected = __('errors.ehealth.messages.period_end_before_start');
+
+        $this->assertStringContainsString($expected, $formatted);
+        $this->assertStringNotContainsString('End date must be greater', $formatted);
+        $this->assertStringNotContainsString('$.period.end', $formatted);
+
+        $this->assertStringContainsString($expected, $translated);
+        $this->assertStringContainsString(__('care-plan.date_and_time_end'), $translated);
+        $this->assertStringNotContainsString('End date must be greater', $translated);
+    }
 }

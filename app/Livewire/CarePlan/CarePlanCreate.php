@@ -1162,6 +1162,18 @@ class CarePlanCreate extends BasePatientComponent
 
             Session::flash('error', $msg);
             $this->showSignatureModal = false;
+
+            // eHealth reports the rule on encounter, but the user must change care plan category.
+            if (
+                $exception instanceof EHealthValidationException
+                && $exception->isCarePlanCategoryDiagnosisMismatch()
+            ) {
+                $this->addError(
+                    'form.category',
+                    __('errors.ehealth.messages.care_plan_category_diagnosis_mismatch')
+                );
+                $this->dispatch('scroll-to-element', selector: '#category');
+            }
         } catch (RuntimeException $exception) {
             $this->carePlanUuid = $generatedUuid ?? $this->carePlanUuid;
             Log::error('CarePlan: runtime error: ' . $exception->getMessage());

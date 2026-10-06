@@ -8,6 +8,7 @@ use App\Dto\DetectedIssue\Form as DetectedIssueForm;
 use App\Dto\Device\Form as DeviceForm;
 use App\Dto\DeviceAssociation\Form as DeviceAssociationForm;
 use App\Dto\DeviceDispense\Form as DeviceDispenseForm;
+use App\Dto\Specimen\Form as SpecimenForm;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Collection;
 use RuntimeException;
@@ -182,7 +183,8 @@ class EncounterPackageLoader
     private function loadSpecimens(string $encounterId): array
     {
         return collect(Repository::specimen()->get($encounterId))
-            ->map(static fn (array $specimen): array => Fhir::specimen()->fromFhir($specimen))
+            ->map(static fn (array $specimen): array => app(ObjectMapperInterface::class)
+                ->map(new Collection($specimen), SpecimenForm::class)->toArray())
             ->toArray();
     }
 

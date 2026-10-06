@@ -12,7 +12,6 @@ use App\Services\MedicalEvents\Mappers\EpisodeMapper;
 use App\Services\MedicalEvents\Mappers\ImmunizationMapper;
 use App\Services\MedicalEvents\Mappers\ObservationMapper;
 use App\Services\MedicalEvents\Mappers\ProcedureMapper;
-use App\Services\MedicalEvents\Mappers\SpecimenMapper;
 
 final class Fhir
 {
@@ -49,11 +48,6 @@ final class Fhir
     public static function diagnosticReport(): DiagnosticReportMapper
     {
         return app(DiagnosticReportMapper::class);
-    }
-
-    public static function specimen(): SpecimenMapper
-    {
-        return app(SpecimenMapper::class);
     }
 
     public static function procedure(): ProcedureMapper

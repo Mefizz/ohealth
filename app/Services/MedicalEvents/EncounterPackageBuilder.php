@@ -9,6 +9,7 @@ use App\Dto\Device\Ehealth as DeviceEhealth;
 use App\Dto\DeviceAssociation\Ehealth as DeviceAssociationEhealth;
 use App\Dto\DeviceDispense\Ehealth as DeviceDispenseEhealth;
 use App\Dto\FormCollection;
+use App\Dto\Specimen\Ehealth as SpecimenEhealth;
 use App\Enums\DeviceAssociation\Status as DeviceAssociationStatus;
 use App\Enums\Episode\Status;
 use App\Enums\Person\ConditionClinicalStatus;
@@ -180,10 +181,15 @@ class EncounterPackageBuilder
             ->all();
 
         $fhirSpecimens = collect($data['specimens'] ?? [])
-            ->map(static function (array $specimen) use ($referencedSpecimenIds, $uuids): array {
-                $specimen['isReferenced'] = in_array($specimen['uuid'], $referencedSpecimenIds, true);
+            ->map(function (array $specimen) use ($referencedSpecimenIds, $uuids): array {
+                $specimen['isReferenced'] = in_array($specimen['uuid'] ?? null, $referencedSpecimenIds, true);
 
-                return Fhir::specimen()->toFhir($specimen, $uuids);
+                return $this->toPackageDocument(app(ObjectMapperInterface::class)->map(new FormCollection($specimen), new SpecimenEhealth(
+                    id: $specimen['uuid'] ?? Str::uuid()->toString(),
+                    legalEntity: legalEntity()->uuid,
+                    employee: $uuids['employee'],
+                    encounter: $uuids['encounter'],
+                ))->toArray());
             })
             ->values()
             ->toArray();

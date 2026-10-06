@@ -261,12 +261,14 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   PostgreSQL store/sync/load tests cover Person/Preperson and model/type, FHIR links, quantity=0,
   supporting condition metadata and performer/legal entity display fields. Mapping has no IO.
 
+- SpecimenMapper and Fhir::specimen() are removed after migrating every caller. Specimen/Ehealth supports validated FormCollection and the actual SpecimenForm; standalone save/sign map a validated clone without mutating UI state. MapCollection handles containers/parents, while MapObject forwards the configured mapper to the nested collection DTO. StatusReasonType selects reject/invalidate dictionaries for one shared reason DTO. Cancellation retains the full raw snapshot and changes only status/status_reason. Seventeen create/hydration and three action contracts were captured from old 62602e72. Thirty-nine new tests cover exact JSON, no mapping IO, UUID/reference resolution, actual PostgreSQL persistence for Person/Preperson and date_time/period, and Livewire save/sign/process/reject/invalidate/cancel/search handlers. Signing tests use a fake Cipher and do not replace real KEP UAT. Existing Api and Repository own transport and persistence.
+
 ## Remaining work
 
-- The encounter/FHIR wave still has 13 PHP files in Services/MedicalEvents: 9 array mappers,
+- The encounter/FHIR wave still has 12 PHP files in Services/MedicalEvents: 8 array mappers,
   EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
   helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
-  Next: Specimen and the remaining clinical resources, with independent old baselines.
+  Next: Procedure and the remaining clinical resources, with independent old baselines.
   Builder/loader retirement follows all callers.
 - Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
   encounter forms. Their DTOs already own serialization; do not hide SQL or orchestration in a mapper.
@@ -278,6 +280,8 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 6 Specimen increment: **673 tests / 3713 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Thirty-nine new tests cover independent old wire/hydration/action contracts, actual Livewire validation/policy/sign/cancel handlers (with a fake Cipher), UUID and reference resolution, and real PostgreSQL store/sync/load. Pint passes all 25 PHP files; git diff --check passes. The existing isolated Docker environment is retained for continued work and UAT. No schema or Composer changes. The remaining inventory is 12 files, including 8 array mappers.
 
 October 6 DeviceDispense increment: **634 tests / 3234 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Twenty-one new tests cover independent wire/hydration baselines and real PostgreSQL store/sync/load; two legacy behavior tests are retained on DTOs. Pint passes all 12 PHP files; git diff --check passes. Existing mapper841 PHP 8.5.3/PostgreSQL containers remain available for the open draft PR. No schema or Composer changes. The remaining inventory is 13 files, including 9 array mappers.
 

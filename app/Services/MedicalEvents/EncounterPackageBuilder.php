@@ -7,6 +7,7 @@ namespace App\Services\MedicalEvents;
 use App\Dto\DetectedIssue\Ehealth as DetectedIssueEhealth;
 use App\Dto\Device\Ehealth as DeviceEhealth;
 use App\Dto\DeviceAssociation\Ehealth as DeviceAssociationEhealth;
+use App\Dto\DeviceDispense\Ehealth as DeviceDispenseEhealth;
 use App\Dto\FormCollection;
 use App\Enums\DeviceAssociation\Status as DeviceAssociationStatus;
 use App\Enums\Episode\Status;
@@ -162,7 +163,12 @@ class EncounterPackageBuilder
             ->toArray();
 
         $fhirDeviceDispenses = collect($data['deviceDispenses'] ?? [])
-            ->map(fn (array $deviceDispense) => Fhir::deviceDispense()->toFhir($deviceDispense, $uuids))
+            ->map(function (array $deviceDispense) use ($uuids): array {
+                return $this->toPackageDocument(app(ObjectMapperInterface::class)->map(new FormCollection($deviceDispense), new DeviceDispenseEhealth(
+                    id: $deviceDispense['uuid'] ?? Str::uuid()->toString(),
+                    encounter: $uuids['encounter'],
+                ))->toArray());
+            })
             ->values()
             ->toArray();
 

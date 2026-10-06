@@ -7,6 +7,7 @@ namespace App\Services\MedicalEvents;
 use App\Dto\DetectedIssue\Form as DetectedIssueForm;
 use App\Dto\Device\Form as DeviceForm;
 use App\Dto\DeviceAssociation\Form as DeviceAssociationForm;
+use App\Dto\DeviceDispense\Form as DeviceDispenseForm;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Collection;
 use RuntimeException;
@@ -223,7 +224,8 @@ class EncounterPackageLoader
         );
 
         return collect($deviceDispenses)
-            ->map(static fn (array $deviceDispense) => Fhir::deviceDispense()->fromFhir($deviceDispense, $detailsMap))
+            ->map(static fn (array $deviceDispense): array => app(ObjectMapperInterface::class)
+                ->map(new Collection($deviceDispense), new DeviceDispenseForm($detailsMap))->toArray())
             ->toArray();
     }
 

@@ -252,12 +252,21 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
   and all six property variants. Existing Quantity float casts remain unchanged. The temporary
   camelCase package adapter handles nested DTO fields; Repository still owns persistence.
 
+- DeviceDispenseMapper and its facade method are removed. Ehealth/Form map details and
+  supportingInfo through MapCollection. UUID and encounter context stay with the caller;
+  supporting-document queries stay in the loader/Repository. A private preloaded details map
+  does not leak into form data. Sixteen old 3fefa411 baselines preserve model/type contracts,
+  integer casts, exact JSON, missing/null, duplicates, sparse lists, first-detail selection and DST.
+  The two legacy payload tests now use DTOs and retain their behavior assertions. Four real
+  PostgreSQL store/sync/load tests cover Person/Preperson and model/type, FHIR links, quantity=0,
+  supporting condition metadata and performer/legal entity display fields. Mapping has no IO.
+
 ## Remaining work
 
-- The encounter/FHIR wave still has 14 PHP files in Services/MedicalEvents: 10 array mappers,
+- The encounter/FHIR wave still has 13 PHP files in Services/MedicalEvents: 9 array mappers,
   EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
   helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
-  Next: DeviceDispense and the remaining clinical resources, with independent old baselines.
+  Next: Specimen and the remaining clinical resources, with independent old baselines.
   Builder/loader retirement follows all callers.
 - Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
   encounter forms. Their DTOs already own serialization; do not hide SQL or orchestration in a mapper.
@@ -269,6 +278,8 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 6 DeviceDispense increment: **634 tests / 3234 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Twenty-one new tests cover independent wire/hydration baselines and real PostgreSQL store/sync/load; two legacy behavior tests are retained on DTOs. Pint passes all 12 PHP files; git diff --check passes. Existing mapper841 PHP 8.5.3/PostgreSQL containers remain available for the open draft PR. No schema or Composer changes. The remaining inventory is 13 files, including 9 array mappers.
 
 October 6 Device increment: **613 tests / 2819 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Nineteen new tests cover independent old wire/hydration contracts and real PostgreSQL persistence. Pint passes all 14 PHP files; git diff --check passes. Existing mapper841 containers were restarted and their empty disposable database restored using install migrations; no application migrations changed. The temporary bootstrap was removed and user ohealth environments were preserved. The remaining inventory is 14 files, including 10 array mappers.
 

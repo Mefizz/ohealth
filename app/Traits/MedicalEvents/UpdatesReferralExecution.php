@@ -7,6 +7,7 @@ namespace App\Traits\MedicalEvents;
 use App\Classes\eHealth\EHealth;
 use App\Dto\ServiceRequest\EhealthComplete;
 use App\Dto\ServiceRequest\EhealthProcess;
+use App\Dto\ServiceRequest\EhealthQualify;
 use App\Enums\MedicalEvents\ReferralCompletionResourceType;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Repositories\MedicalEvents\Repository;
@@ -21,18 +22,41 @@ trait UpdatesReferralExecution
     {
         $repository = Repository::serviceRequest();
         $model = $repository->findByUuid($uuid);
-        $programId = $model?->programId ?? $input['program_id'] ?? data_get($input, 'program.identifier.value');
-        $programId = is_string($programId) ? (trim($programId) !== '' ? $programId : null) : ($programId ?: null);
-        $source = app(EmployeeRepository::class)->referralExecutorContext($employee, $programId);
-        $payload = app(ObjectMapperInterface::class)->map($source, EhealthProcess::class)->toArray();
-        $api = EHealth::serviceRequest();
-
-        if ($programId) {
-            $api->qualifyAndValidate($uuid, $programId);
+        $patientUuid ??= $model?->person?->uuid;
+        if (!$patientUuid || ($model !== null && $model->person?->uuid !== $patientUuid)) {
+            throw new \InvalidArgumentException(__('Направлення не належить поточному пацієнту.'));
         }
 
-        $response = $api->processAndResolve($uuid, $payload);
-        $repository->persistExecution($uuid, $employee, $patientUuid, $programId, $response);
+        $api = EHealth::serviceRequest();
+        $remote = $api->getById($patientUuid, $uuid)->getData();
+        if (($remote['id'] ?? null) !== $uuid
+            || data_get($remote, 'subject.identifier.value') !== $patientUuid) {
+            throw new \InvalidArgumentException(__('Направлення не належить поточному пацієнту.'));
+        }
+
+        $status = ServiceRequestStatus::tryFrom(strtolower((string) ($remote['status'] ?? '')));
+        $processingStatus = ServiceRequestStatus::tryFrom(strtolower((string) ($remote['program_processing_status'] ?? '')));
+        if ($status !== ServiceRequestStatus::ACTIVE || $processingStatus === ServiceRequestStatus::COMPLETED) {
+            throw new \RuntimeException(__('Направлення недоступне для взяття в роботу.'));
+        }
+
+        $programId = data_get($remote, 'program.identifier.value')
+            ?? $model?->programId ?? $input['program_id'] ?? data_get($input, 'program.identifier.value');
+        $programId = is_string($programId) ? (trim($programId) !== '' ? $programId : null) : ($programId ?: null);
+        $source = app(EmployeeRepository::class)->referralExecutorContext($employee, $programId);
+        $mapper = app(ObjectMapperInterface::class);
+        $payload = $mapper->map($source, EhealthProcess::class)->toArray();
+        $usedByLegalEntity = data_get($remote, 'used_by_legal_entity.identifier.value');
+        $alreadyUsed = $processingStatus === ServiceRequestStatus::IN_PROGRESS
+            && is_string($usedByLegalEntity) && $usedByLegalEntity !== ''
+            && $usedByLegalEntity === $source->legalEntityUuid;
+
+        if (!$alreadyUsed && $programId) {
+            $api->qualifyAndValidate($uuid, $mapper->map($source, EhealthQualify::class)->toArray());
+        }
+
+        $response = $alreadyUsed ? $remote : $api->processAndResolve($uuid, $payload);
+        $repository->persistExecution($uuid, $employee, $patientUuid, $programId, $response, $remote);
 
         return $response;
     }

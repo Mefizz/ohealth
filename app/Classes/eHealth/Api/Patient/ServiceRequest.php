@@ -20,10 +20,10 @@ class ServiceRequest extends PatientApiBase
 {
     use ResolvesSignedPatientRequests;
 
-    public function qualifyAndValidate(string $id, mixed $programId): void
+    public function qualifyAndValidate(string $id, array $payload): void
     {
         try {
-            $response = $this->qualify($id, ['programs' => [['id' => $programId]]])->getData();
+            $response = $this->qualify($id, $payload)->getData();
             $job = EHealth::job();
             $job->assertPrequalifyValid($job->resolve(is_array($response) ? $response : []));
         } catch (EHealthValidationException $exception) {

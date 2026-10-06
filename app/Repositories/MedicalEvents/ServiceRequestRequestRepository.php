@@ -55,7 +55,7 @@ class ServiceRequestRequestRepository extends BaseRepository
     }
 
     /** Persist only after eHealth has successfully resolved the use action. */
-    public function persistExecution(string $uuid, Employee $employee, ?string $patientUuid, mixed $programId, array $response): void
+    public function persistExecution(string $uuid, Employee $employee, ?string $patientUuid, mixed $programId, array $response, array $remote = []): void
     {
         $model = $this->findByUuid($uuid);
         if ($model !== null) {
@@ -72,7 +72,7 @@ class ServiceRequestRequestRepository extends BaseRepository
             return;
         }
 
-        $data = $response['data'] ?? $response;
+        $data = array_replace($remote, $response['data'] ?? $response);
         $fields = app(ObjectMapperInterface::class)->map(new ServiceRequestUse($data), ServiceRequestModelData::class)->toUseRecord();
         $this->store(array_replace($fields, [
             'uuid' => $uuid,
@@ -426,12 +426,12 @@ class ServiceRequestRequestRepository extends BaseRepository
      * @param  array<int, string>  $columns
      * @return Collection<int, ServiceRequestRequest>
      */
-    public function getByPersonIdAndStatus(int $personId, string $status, array $columns = ['*']): Collection
+    public function getByPersonIdAndStatus(int $personId, string|array $status, array $columns = ['*']): Collection
     {
         return $this->model
             ->newQuery()
             ->where('person_id', $personId)
-            ->where('status', $status)
+            ->whereIn('status', (array) $status)
             ->get($columns);
     }
 

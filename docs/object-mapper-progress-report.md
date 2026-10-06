@@ -1,4 +1,4 @@
-# Звіт про рефактор ObjectMapper — 05.10.2026
+# Звіт про рефактор ObjectMapper — 06.10.2026
 
 Робота за [issue #841](https://github.com/openhealths/nationHealth/issues/841) залишається у [draft PR #898](https://github.com/openhealths/nationHealth/pull/898). База — main `1cf8b92e`, включно зі змердженим PR #907. Повне усунення медичного сервісного шару ще не завершено. Детальний [план](ehealth-object-mapper-plan.md) та [стан реалізації](object-mapper-refactor.md) актуалізовано.
 
@@ -32,9 +32,11 @@ PaperReferralMapper також видалено. Procedure/DiagnosticReport ви
 
 DetectedIssueMapper і DeviceAssociationMapper видалено разом із відповідними Fhir facade methods. EncounterPackageBuilder/Loader тепер використовують app/Dto/DetectedIssue та app/Dto/DeviceAssociation (Ehealth/Form). 29 незалежних baseline cases зі старого HEAD 1084b17e перевіряють точний JSON, missing/null, author={}, scalar zero/false, sparse lists і фактичних callers. UUID та час нових записів готує caller; різницю в одну хвилину для opening/closing pair і вже записані timestamps збережено. Спільні FhirReference/FhirCodeableConcept підтримують явно запитаний text, без зміни своїх defaults. Тимчасова адаптація snake_case DTO до старого camelCase package boundary залишається в builder і зникне разом із його міграцією. SQL persistence цих ресурсів залишається у чинних Repository.
 
+DeviceMapper і Fhir::device() видалено. Фактичні EncounterPackageBuilder/Loader використовують app/Dto/Device/Ehealth та Form; вкладені names, identifiers і properties проходять через MapCollection. Name спільний для обох напрямків, Identifier/Property мають окремі API/form контракти через різну структуру збережених relations. 16 незалежних baseline cases із b6d85983 фіксують старі JSON bytes, missing/null, 0/false, sparse lists, nullable quantity/range metadata і no-IO mapping. UUID генерує caller. Два PostgreSQL round-trip тести перевіряють фактичний builder → Repository → loader для Person/Preperson, FHIR links та всі шість типів property. Старий Quantity float cast збережено. Тимчасовий camelCase package adapter конвертує також вкладені DTO; persistence лишається в Repository.
+
 ## Перевірки
 
-Остання медична регресія після DetectedIssue/DeviceAssociation: **594 тести / 2579 assertions**, без failures/errors/risky tests; одне попереднє PDO deprecation. Перевірено mapping/JSON/no-IO, реальні encounter builder/loader callers, API/job, Repository/Identifier links, care plan, referrals, eRx/device, registry, approvals і pharmacy dispense. Pint пройшов для 14 PHP-файлів цього інкременту; git diff --check проходить. Використано наявний isolated mapper841 PHP 8.5.3/PostgreSQL; нових контейнерів не створено. Composer не змінювався. Реальний КЕП/eHealth UAT та HTTP authorization suite із Vite assets ще потрібні.
+Остання медична регресія після Device: **613 тестів / 2819 assertions**, без failures/errors/skipped/risky tests; одне попереднє PDO deprecation. Перевірено mapping/JSON/no-IO, фактичні encounter builder/loader та PostgreSQL round-trip, API/job, Repository/Identifier links, care plan, referrals, eRx/device, registry, approvals і pharmacy dispense. Pint пройшов для 14 PHP-файлів цього інкременту; git diff --check проходить. Відновлено наявний isolated mapper841 PHP 8.5.3/PostgreSQL після зупинки; порожню disposable test DB ініціалізовано install-міграціями, тимчасовий bootstrap прибрано. Робочі ohealth контейнери й дані не змінювалися; нових контейнерів не створено. Composer не змінювався. Реальний КЕП/eHealth UAT та HTTP authorization suite із Vite assets ще потрібні.
 
 Окремо повний Division feature suite має **91 тест / 401 assertions, п'ять errors, один failure та чотири risky tests**. Ті самі збої підтверджено на незалежно завантаженому незміненому main `1cf8b92e`: обробка mapping exceptions і persistence Division. Вони не замовчуються й не включаються у твердження про успішну медичну регресію. Application-wide suite поки не є green.
 
@@ -42,7 +44,7 @@ DetectedIssueMapper і DeviceAssociationMapper видалено разом із 
 
 ## Що ще потрібно
 
-1. Окрема encounter/FHIR хвиля: 11 array-маперів, EncounterPackageBuilder/Loader і Fhir/FhirResource. У Services/MedicalEvents лишається **15 PHP-файлів**. Після останнього caller видалити facade/helpers/FhirMapperContract; Composition входить у цю хвилю.
+1. Окрема encounter/FHIR хвиля: 10 array-маперів, EncounterPackageBuilder/Loader і Fhir/FhirResource. У Services/MedicalEvents лишається **14 PHP-файлів**. Після останнього caller видалити facade/helpers/FhirMapperContract; Composition входить у цю хвилю.
 2. Спростити DeviceRequest/MedicationRequest context adapters під час міграції складних encounter форм. Вони вже делегують серіалізацію DTO; не додавати порожні Form DTO без реального hydration caller.
 3. Перед ready провести реальний КЕП/eHealth UAT, перевірити конкурентні issuance/sign операції й HTTP authorization suite з Vite assets. Збережений quantity lock сам по собі не робить весь issuance атомарним.
 4. Підтримати актуальність main та окремо усунути підтверджені Division baseline failures до заяви про application-wide green.

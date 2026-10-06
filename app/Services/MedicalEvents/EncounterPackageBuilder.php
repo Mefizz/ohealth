@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Dto\DetectedIssue\Ehealth as DetectedIssueEhealth;
+use App\Dto\Device\Ehealth as DeviceEhealth;
 use App\Dto\DeviceAssociation\Ehealth as DeviceAssociationEhealth;
 use App\Dto\FormCollection;
 use App\Enums\DeviceAssociation\Status as DeviceAssociationStatus;
@@ -121,10 +122,13 @@ class EncounterPackageBuilder
             ->toArray();
 
         $fhirDevices = collect($data['devices'] ?? [])
-            ->map(
-                fn (array $device) =>
-                    Fhir::device()->toFhir($device, $uuids)
-            )
+            ->map(function (array $device) use ($uuids): array {
+                return $this->toPackageDocument(app(ObjectMapperInterface::class)->map(new FormCollection($device), new DeviceEhealth(
+                    id: $device['uuid'] ?? Str::uuid()->toString(),
+                    encounter: $uuids['encounter'],
+                    recorder: $uuids['employee'],
+                ))->toArray());
+            })
             ->values()
             ->toArray();
 
@@ -222,7 +226,8 @@ class EncounterPackageBuilder
     {
         $document = [];
         foreach ($payload as $field => $value) {
-            $document[Str::camel($field)] = $value;
+            $key = is_string($field) ? Str::camel($field) : $field;
+            $document[$key] = is_array($value) ? $this->toPackageDocument($value) : $value;
         }
 
         return $document;

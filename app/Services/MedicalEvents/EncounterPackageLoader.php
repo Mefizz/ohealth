@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Dto\DetectedIssue\Form as DetectedIssueForm;
+use App\Dto\Device\Form as DeviceForm;
 use App\Dto\DeviceAssociation\Form as DeviceAssociationForm;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Support\Collection;
@@ -233,7 +234,8 @@ class EncounterPackageLoader
     private function loadDevices(string $encounterId): array
     {
         return collect(Repository::device()->get($encounterId))
-            ->map(static fn (array $device) => Fhir::device()->fromFhir($device))
+            ->map(static fn (array $device): array => app(ObjectMapperInterface::class)
+                ->map(new Collection($device), DeviceForm::class)->toArray())
             ->toArray();
     }
 

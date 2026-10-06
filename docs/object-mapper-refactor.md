@@ -245,13 +245,20 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 - Activity transitions: existing raw-cancel assertions are retained; complete is checked against the
   previous component PATCH builder, including sparse reference keys and the false-like outcome code.
 
+- DeviceMapper and Fhir::device() are removed. Device/Ehealth and Form map typed Name, Identifier
+  and Property collections through MapCollection. Sixteen old b6d85983 contracts preserve exact
+  JSON, sparse lists, null/zero/false and nullable quantity/range metadata without mapping IO.
+  Two actual PostgreSQL builder/store/loader tests cover Person/Preperson, ownership, FHIR links
+  and all six property variants. Existing Quantity float casts remain unchanged. The temporary
+  camelCase package adapter handles nested DTO fields; Repository still owns persistence.
+
 ## Remaining work
 
-- The encounter/FHIR wave still has 15 PHP files in Services/MedicalEvents: 11 array mappers,
+- The encounter/FHIR wave still has 14 PHP files in Services/MedicalEvents: 10 array mappers,
   EncounterPackageBuilder/Loader and Fhir/FhirResource. Their callers must migrate before the facade,
   helper and FhirMapperContract can be retired. Composition remains part of that separate wave.
-  Next: Device names/identifiers/properties with typed MapCollection mapping and independent old
-  baselines, then the remaining clinical resources. Builder/loader retirement follows all callers.
+  Next: DeviceDispense and the remaining clinical resources, with independent old baselines.
+  Builder/loader retirement follows all callers.
 - Simplify remaining DeviceRequest/MedicationRequest context adapters while migrating the complex
   encounter forms. Their DTOs already own serialization; do not hide SQL or orchestration in a mapper.
 - Real KEP/eHealth UAT, concurrency assessment and the HTTP authorization suite with built Vite assets
@@ -262,6 +269,8 @@ conditions explicitly; attribute-instantiated pure callables need no registratio
 Completion report: [object-mapper-progress-report.md](object-mapper-progress-report.md).
 
 ## Validation
+
+October 6 Device increment: **613 tests / 2819 assertions**, no failures, errors, skipped or risky tests. One existing PDO deprecation remains. Nineteen new tests cover independent old wire/hydration contracts and real PostgreSQL persistence. Pint passes all 14 PHP files; git diff --check passes. Existing mapper841 containers were restarted and their empty disposable database restored using install migrations; no application migrations changed. The temporary bootstrap was removed and user ohealth environments were preserved. The remaining inventory is 14 files, including 10 array mappers.
 
 October 5 detected-issue/device-association increment: **594 tests / 2579 assertions**,
 no failures, errors or risky tests. One existing PDO deprecation remains. Includes 31 new tests for

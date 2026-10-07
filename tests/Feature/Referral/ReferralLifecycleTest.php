@@ -195,8 +195,8 @@ class ReferralLifecycleTest extends TestCase
             'quantity' => 2.0,
             'intent' => 'order',
             'category' => 'procedure',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_uuid' => $this->serviceActivity->uuid,
+            'context_uuid' => $this->encounter->uuid,
             'priority' => 'routine',
             'note' => 'Please perform procedure ASAP',
         ];
@@ -208,8 +208,8 @@ class ReferralLifecycleTest extends TestCase
             'device_id' => 'D-707',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->deviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_uuid' => $this->deviceActivity->uuid,
+            'context_uuid' => $this->encounter->uuid,
             'priority' => 'urgent',
             'note' => 'Patient needs wheelchair',
         ];
@@ -225,7 +225,6 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $serviceUuid,
             'service_id' => '59300-00',
             'person_id' => $this->person->id,
-            'based_on_id' => $this->serviceActivity->id,
         ]);
 
         $this->assertDatabaseHas('device_request_requests', [
@@ -233,8 +232,14 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $deviceUuid,
             'device_id' => 'D-707',
             'person_id' => $this->person->id,
-            'based_on_id' => $this->deviceActivity->id,
         ]);
+
+        $service = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::findOrFail($serviceId);
+        $device = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::findOrFail($deviceId);
+        $this->assertSame($this->serviceActivity->uuid, $service->basedOn->value);
+        $this->assertSame($this->deviceActivity->uuid, $device->basedOn->value);
+        $this->assertSame($this->encounter->uuid, $service->context->value);
+        $this->assertSame($this->encounter->uuid, $device->context->value);
     }
 
     public function test_can_map_to_fhir_payloads(): void
@@ -587,8 +592,9 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $draftUuid,
             'status' => 'draft',
             'quantity' => 3.0,
-            'based_on_id' => $this->serviceActivity->id,
         ]);
+        $referral = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $draftUuid)->firstOrFail();
+        $this->assertSame($this->serviceActivity->uuid, $referral->basedOn->value);
     }
 
     public function test_livewire_skips_prequalify_when_activity_has_no_program(): void
@@ -616,8 +622,9 @@ class ReferralLifecycleTest extends TestCase
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $draftUuid,
             'status' => 'draft',
-            'based_on_id' => $this->serviceActivity->id,
         ]);
+        $referral = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $draftUuid)->firstOrFail();
+        $this->assertSame($this->serviceActivity->uuid, $referral->basedOn->value);
     }
 
     public function test_create_care_plan_device_draft_skips_prequalify_without_program(): void
@@ -839,8 +846,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => Identifier::firstOrCreate(['value' => $this->serviceActivity->uuid])->id,
+            'context_id' => Identifier::firstOrCreate(['value' => $this->encounter->uuid])->id,
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -879,11 +886,12 @@ class ReferralLifecycleTest extends TestCase
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $signedUuid,
             'employee_id' => $this->employee->id,
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
             'status' => 'active',
             'request_number' => 'SR-12345678',
         ]);
+        $referral = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::where('uuid', $signedUuid)->firstOrFail();
+        $this->assertSame($this->serviceActivity->uuid, $referral->basedOn->value);
+        $this->assertSame($this->encounter->uuid, $referral->context->value);
     }
 
     public function test_sign_referral_syncs_when_ehealth_reports_already_exists(): void
@@ -901,8 +909,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => Identifier::firstOrCreate(['value' => $this->serviceActivity->uuid])->id,
+            'context_id' => Identifier::firstOrCreate(['value' => $this->encounter->uuid])->id,
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -984,8 +992,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => Identifier::firstOrCreate(['value' => $this->serviceActivity->uuid])->id,
+            'context_id' => Identifier::firstOrCreate(['value' => $this->encounter->uuid])->id,
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -1034,8 +1042,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => Identifier::firstOrCreate(['value' => $this->serviceActivity->uuid])->id,
+            'context_id' => Identifier::firstOrCreate(['value' => $this->encounter->uuid])->id,
             'priority' => 'routine',
             'category' => 'procedure',
             'started_at' => '2026-06-01',
@@ -1048,7 +1056,7 @@ class ReferralLifecycleTest extends TestCase
         ]);
 
         $linkedReferrals = collect($component->get('activeReferrals'))
-            ->where('based_on_id', $this->serviceActivity->id);
+            ->where('based_on_uuid', $this->serviceActivity->uuid);
 
         $this->assertCount(1, $linkedReferrals);
         $referral = $linkedReferrals->first();
@@ -1074,8 +1082,8 @@ class ReferralLifecycleTest extends TestCase
             'service_id' => '59300-00',
             'quantity' => 1.0,
             'intent' => 'order',
-            'based_on_id' => $this->serviceActivity->id,
-            'context_id' => $this->encounter->id,
+            'based_on_id' => Identifier::firstOrCreate(['value' => $this->serviceActivity->uuid])->id,
+            'context_id' => Identifier::firstOrCreate(['value' => $this->encounter->uuid])->id,
             'priority' => 'routine',
             'started_at' => '2026-06-01',
             'ended_at' => '2026-09-01',
@@ -1165,7 +1173,7 @@ class ReferralLifecycleTest extends TestCase
 
         $mockGuard = Mockery::mock(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class);
         $mockGuard->shouldReceive('resolveParticipatingProgramIds')->andReturn([$programId]);
-        $mockGuard->shouldReceive('assess')->andReturn(new \App\Services\MedicalEvents\DeviceActivityReadinessAssessment([], []));
+        $mockGuard->shouldReceive('assess')->andReturn(new \App\Dto\MedicalEvents\DeviceActivityReadinessAssessment([], []));
         $this->instance(\App\Services\MedicalEvents\DeviceProgramParticipationGuard::class, $mockGuard);
 
         $mockSignatureService = Mockery::mock(\App\Services\SignatureService::class);

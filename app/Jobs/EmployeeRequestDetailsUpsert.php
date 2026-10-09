@@ -19,6 +19,7 @@ use Illuminate\Queue\SerializesModels;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\Employee\RevisionStatus;
 use App\Models\Employee\EmployeeRequest;
+use App\Services\Employee\EmployeeLegalEntityGuard;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\Middleware\RateLimited;
@@ -61,7 +62,7 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
                 throw $exception;
             }
 
-            Log::warning('Employee request details are unavailable in the current legal entity.', ['legal_entity_id' => $this->legalEntity->id, 'status' => $exception->response->status()]);
+            Log::warning('Employee request details are unavailable in the current legal entity.', ['legalEntityId' => $this->legalEntity->id, 'status' => $exception->response->status()]);
 
             return null;
         }
@@ -80,11 +81,12 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
 
         $validatedData = $response->validate();
         $requestUuid = $this->requestUuid();
+        $legalEntityGuard = app(EmployeeLegalEntityGuard::class);
 
         try {
-            app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($validatedData, $this->legalEntity, $requestUuid);
+            $legalEntityGuard->assertRemote($validatedData, $this->legalEntity, $requestUuid);
         } catch (\UnexpectedValueException $exception) {
-            Log::warning('Rejected employee request from another legal entity.', ['legal_entity_id' => $this->legalEntity->id]);
+            Log::warning('Rejected employee request from another legal entity.', ['legalEntityId' => $this->legalEntity->id]);
 
             return;
         }
@@ -93,9 +95,9 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
 
         if ($request->exists) {
             try {
-                app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertLocal($request, $this->legalEntity);
+                $legalEntityGuard->assertLocal($request, $this->legalEntity);
             } catch (\UnexpectedValueException $exception) {
-                Log::warning('Rejected inconsistent employee request.', ['request_id' => $request->id, 'legal_entity_id' => $this->legalEntity->id]);
+                Log::warning('Rejected inconsistent employee request.', ['requestId' => $request->id, 'legalEntityId' => $this->legalEntity->id]);
 
                 return;
             }
@@ -103,7 +105,7 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
 
         $validatedData['inserted_at'] = Carbon::parse($validatedData['inserted_at'])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s');
 
-        Log::info('Processing EmployeeRequestDetailsUpsert.', ['request_id' => $request->id, 'legal_entity_id' => $this->legalEntity->id]);
+        Log::info('Processing EmployeeRequestDetailsUpsert.', ['requestId' => $request->id, 'legalEntityId' => $this->legalEntity->id]);
 
         $userEmail = Arr::get($validatedData, 'party.email');
 
@@ -142,8 +144,8 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
                 app(\App\Services\Employee\EmployeeRequestProcessor::class)->applyApprovedRequest($request, $validatedData);
             }
 
-            $fillData['user_id'] ??= $request->user_id;
-            $fillData['party_id'] ??= $request->party_id;
+            $fillData['user_id'] ??= $request->userId;
+            $fillData['party_id'] ??= $request->partyId;
             $request->fill($fillData)->save();
             Repository::revision()->saveRevision($request, $revisionData);
         });

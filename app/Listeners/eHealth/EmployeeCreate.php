@@ -24,10 +24,15 @@ use App\Enums\Employee\RequestStatus;
 use App\Enums\Employee\RevisionStatus;
 use App\Models\Employee\EmployeeRequest;
 use App\Services\Employee\EmployeeRequestMatcher;
+use App\Services\Employee\EmployeeLegalEntityGuard;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 
 class EmployeeCreate
 {
+    public function __construct(private readonly EmployeeLegalEntityGuard $legalEntityGuard)
+    {
+    }
+
     /**
      * @throws Throwable
      */
@@ -158,7 +163,7 @@ class EmployeeCreate
                 ->values();
 
             foreach ($employees as $eHealthEmployee) {
-                app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertEmployeeUuid($eHealthEmployee['uuid'], $event->legalEntity);
+                $this->legalEntityGuard->assertEmployeeUuid($eHealthEmployee['uuid'], $event->legalEntity);
                 $employeeRequest = $this->findMatchingLocalRequest($requestsForMatch, $eHealthEmployee);
 
                 if (!$employeeRequest) {

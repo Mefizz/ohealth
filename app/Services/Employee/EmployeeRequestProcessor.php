@@ -28,8 +28,10 @@ class EmployeeRequestProcessor
     public const string OUTCOME_PENDING = 'pending';
     public const string OUTCOME_FAILED = 'failed';
 
-    public function __construct(private EmployeeRequestMatcher $matcher)
-    {
+    public function __construct(
+        private readonly EmployeeRequestMatcher $matcher,
+        private readonly EmployeeLegalEntityGuard $legalEntityGuard,
+    ) {
     }
 
     /**
@@ -39,7 +41,7 @@ class EmployeeRequestProcessor
      */
     public function syncSinglePendingRequest(EmployeeRequest $request, LegalEntity $legalEntity): array
     {
-        app(EmployeeLegalEntityGuard::class)->assertLocal($request, $legalEntity);
+        $this->legalEntityGuard->assertLocal($request, $legalEntity);
 
         if (!$request->isPendingEhealth() || !$request->uuid) {
             return [
@@ -61,7 +63,7 @@ class EmployeeRequestProcessor
             ->getDetails($request->uuid)
             ->validate();
 
-        app(EmployeeLegalEntityGuard::class)->assertRemote($remoteData, $legalEntity, $request->uuid);
+        $this->legalEntityGuard->assertRemote($remoteData, $legalEntity, $request->uuid);
 
         $remoteStatus = $remoteData['status'] instanceof \BackedEnum
             ? $remoteData['status']->value
@@ -164,8 +166,8 @@ class EmployeeRequestProcessor
     public function applyApprovedRequest(EmployeeRequest $request, array $eHealthData): void
     {
         $legalEntity = $request->legalEntity;
-        app(EmployeeLegalEntityGuard::class)->assertLocal($request, $legalEntity);
-        app(EmployeeLegalEntityGuard::class)->assertRemote($eHealthData, $legalEntity);
+        $this->legalEntityGuard->assertLocal($request, $legalEntity);
+        $this->legalEntityGuard->assertRemote($eHealthData, $legalEntity);
 
         Log::info('[EmployeeRequestProcessor] Start Apply.', [
             'request_uuid' => $request->uuid,
@@ -202,7 +204,7 @@ class EmployeeRequestProcessor
             // 3. Find existing Employee by UUID or instantiate a new one
             $employee = Employee::where('uuid', $employeeUuid)->first();
 
-            if ($employee && (int) $employee->legal_entity_id !== (int) $legalEntity->id) {
+            if ($employee && (int) $employee->legalEntityId !== (int) $legalEntity->id) {
                 throw new \UnexpectedValueException('Employee belongs to another legal entity.');
             }
 

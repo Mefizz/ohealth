@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Livewire\Employee;
 
 use AllowDynamicProperties;
-use App\Classes\eHealth\Api\EmployeeRequest as EHealthEmployeeRequest;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\Employee\RequestStatus;
@@ -153,7 +152,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
             $requestToSign = $this->validateAndGetDraft();
             $signedContent = $this->signDataWithCipher($requestToSign);
 
-            $eHealthResponseAsArray = new EHealthEmployeeRequest()->create($signedContent);
+            $eHealthResponseAsArray = EHealth::employeeRequest()->create($signedContent);
 
             if (isset($eHealthResponseAsArray['error'])) {
                 throw new EHealthValidationException($eHealthResponseAsArray);

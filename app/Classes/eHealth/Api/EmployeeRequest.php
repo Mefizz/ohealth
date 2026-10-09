@@ -15,6 +15,8 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use App\Models\Division;
 use App\Models\LegalEntity;
+use App\Services\Employee\EmployeeLegalEntityGuard;
+use Illuminate\Http\Client\Factory;
 use Carbon\Carbon;
 use Illuminate\Validation\Rule;
 use Log;
@@ -27,6 +29,14 @@ class EmployeeRequest extends EHealthRequest
      * The API endpoint for employee requests.
      */
     public const string ENDPOINT = '/api/v2/employee_requests';
+
+    public function __construct(
+        private readonly EmployeeLegalEntityGuard $legalEntityGuard,
+        ?Factory $factory = null,
+        array $middleware = [],
+    ) {
+        parent::__construct($factory, $middleware);
+    }
 
     /**
      * Creates a new Employee Request in eHealth using a signed data payload.
@@ -94,7 +104,7 @@ class EmployeeRequest extends EHealthRequest
     // Trasform Employee Request data received from eHealth to the format suitable for save to DB
     public function mapRequestCreate(array $ehealthData, LegalEntity $legalEntity, ?int $userId = null, ?int $partyId = null): array
     {
-        app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($ehealthData, $legalEntity);
+        $this->legalEntityGuard->assertRemote($ehealthData, $legalEntity);
 
         $mappedData['legal_entity_id'] = $legalEntity->id;
         $mappedData['user_id'] = $userId;
@@ -109,7 +119,7 @@ class EmployeeRequest extends EHealthRequest
                 case 'division_uuid':
                     $mappedData['division_uuid'] = $value;
 
-                    $mappedData['division_id'] = Division::where('legal_entity_id', $legalEntity->id)->where('uuid', $value)->first()?->id;
+                    $mappedData['division_id'] = Division::whereLegalEntityId($legalEntity->id)->where('uuid', $value)->value('id');
 
                     break;
                 case 'legal_entity_uuid':
@@ -609,7 +619,7 @@ class EmployeeRequest extends EHealthRequest
 
     public function mapRevisionData(EHealthResponse $response, LegalEntity $legalEntity): array
     {
-        app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($response->getData(), $legalEntity);
+        $this->legalEntityGuard->assertRemote($response->getData(), $legalEntity);
         $mappedData = [];
         foreach ($response->getData() as $key => $value) {
 
@@ -627,7 +637,7 @@ class EmployeeRequest extends EHealthRequest
                     $mappedData['employee_request_data'][$key] = $value;
                     break;
                 case 'division_id':
-                    $mappedData['employee_request_data'][$key] = Division::where('legal_entity_id', $legalEntity->id)->where('uuid', $value)->value('id');
+                    $mappedData['employee_request_data'][$key] = Division::whereLegalEntityId($legalEntity->id)->where('uuid', $value)->value('id');
                     break;
                 case 'party':
                     $mappedData['party']['last_name'] = $value['last_name'];

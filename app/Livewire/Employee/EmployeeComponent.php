@@ -12,6 +12,7 @@ use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
+use App\Services\Employee\EmployeeLegalEntityGuard;
 use App\Traits\FormTrait;
 use Gate;
 use Livewire\Attributes\Computed;
@@ -183,7 +184,7 @@ abstract class EmployeeComponent extends Component
 
             $validatedData = $response->validate();
 
-            app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote([
+            app(EmployeeLegalEntityGuard::class)->assertRemote([
                 'legal_entity_id' => data_get($response->getData(), 'legal_entity.id'),
                 'id' => data_get($response->getData(), 'id'),
                 'division_id' => data_get($response->getData(), 'division.id'),
@@ -247,6 +248,8 @@ abstract class EmployeeComponent extends Component
             return;
         }
 
+        $legalEntityGuard = app(EmployeeLegalEntityGuard::class);
+
         foreach ($pendingRequests as $request) {
             try {
                 // Fetch specific request status from eHealth by UUID
@@ -261,7 +264,7 @@ abstract class EmployeeComponent extends Component
                     continue;
                 }
 
-                app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($remoteRequestData, legalEntity(), $request->uuid);
+                $legalEntityGuard->assertRemote($remoteRequestData, legalEntity(), $request->uuid);
 
                 $remoteStatus = $remoteRequestData['status'] ?? null;
 

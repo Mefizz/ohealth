@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use App\Classes\eHealth\EHealthResponse;
 use App\Models\Employee\EmployeeRequest;
+use App\Services\Employee\EmployeeLegalEntityGuard;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\Middleware\RateLimited;
@@ -63,10 +64,10 @@ class EmployeeDetailsUpsert extends EHealthJob
     {
         $validatedData = $response->validate();
 
-        if ((int) $this->employee->legal_entity_id !== (int) $this->legalEntity->id) {
+        if ((int) $this->employee->legalEntityId !== (int) $this->legalEntity->id) {
             throw new \UnexpectedValueException('Employee details belong to another legal entity.');
         }
-        app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote([
+        app(EmployeeLegalEntityGuard::class)->assertRemote([
             'legal_entity_id' => data_get($response->getData(), 'legal_entity.id'),
             'id' => data_get($response->getData(), 'id'),
             'division_id' => data_get($response->getData(), 'division.id'),
@@ -75,7 +76,7 @@ class EmployeeDetailsUpsert extends EHealthJob
         Log::info('Processing EmployeeDetailsUpsert for employee:' . $this->employee->id . ', LE:' . ($this->legalEntity->id ?? 'N/A'));
 
         $divisionUuid = Arr::get($validatedData['division'], 'uuid');
-        $divisionId = $divisionUuid ? Division::where('legal_entity_id', $this->legalEntity->id)->where('uuid', $divisionUuid)->value('id') : null;
+        $divisionId = $divisionUuid ? Division::whereLegalEntityId($this->legalEntity->id)->where('uuid', $divisionUuid)->value('id') : null;
 
         $this->employee->legalEntityUuid = $this->legalEntity?->uuid;
 
@@ -95,16 +96,15 @@ class EmployeeDetailsUpsert extends EHealthJob
         $this->employee->setSyncStatus(JobStatus::COMPLETED);
         $this->employee->refresh();
 
-        $roleName = $this->employee->employee_type;
-        $legalEntityId = $this->employee->legal_entity_id;
+        $roleName = $this->employee->employeeType;
+        $legalEntityId = $this->employee->legalEntityId;
 
         setPermissionsTeamId($legalEntityId);
 
-        $startdate = $validatedData['employee']['start_date'] ?? null;
+        $startDate = $validatedData['employee']['start_date'] ?? null;
 
-        $employeeEmployeeRequest = EmployeeRequest::where('legal_entity_id', $legalEntityId)
-            ->forLegalEntity($this->legalEntity)
-            ->where('party_id', $this->employee->party_id)
+        $employeeEmployeeRequest = EmployeeRequest::forLegalEntity($this->legalEntity)
+            ->wherePartyId($this->employee->partyId)
             ->where("employee_type", $roleName)
             ->where('position', $this->employee->position)
             ->when(
@@ -113,13 +113,13 @@ class EmployeeDetailsUpsert extends EHealthJob
                 fn ($query) => $query->where('division_uuid', $divisionUuid)
             )
             ->when(
-                $startdate === null,
+                $startDate === null,
                 fn ($query) => $query->whereNull('start_date'),
-                fn ($query) => $query->where('start_date', $startdate)
+                fn ($query) => $query->where('start_date', $startDate)
             )
             ->latest('applied_at')->first();
 
-        $userID = User::where('email', $employeeEmployeeRequest?->email)->first()?->id ?? null;
+        $userId = User::where('email', $employeeEmployeeRequest?->email)->value('id');
 
         $employeeEmployeeRequest?->update(['employee_id' => $this->employee->id]);
 
@@ -127,7 +127,7 @@ class EmployeeDetailsUpsert extends EHealthJob
             'division_uuid' => $divisionUuid,
             'inserted_at' => Carbon::parse($employeeEmployeeRequest?->appliedAt)->format('Y-m-d H:i:s'),
             'division_id' => $divisionId,
-            'user_id' => $this->employee->userId ?? $userID
+            'user_id' => $this->employee->userId ?? $userId
         ]);
 
         Repository::party()->syncUserEmployeesAndRoles($this->employee->party, $this->legalEntity);

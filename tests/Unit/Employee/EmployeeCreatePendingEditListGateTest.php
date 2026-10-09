@@ -30,7 +30,7 @@ class EmployeeCreatePendingEditListGateTest extends TestCase
             'employee_id' => $employeeId,
         ]);
 
-        $listener = new EmployeeCreate();
+        $listener = $this->app->make(EmployeeCreate::class);
         $method = new ReflectionMethod(EmployeeCreate::class, 'shouldSkipPendingEditOnLogin');
 
         $this->assertSame($expectedSkip, $method->invoke($listener, $request));
@@ -64,7 +64,7 @@ class EmployeeCreatePendingEditListGateTest extends TestCase
             'employee_id' => 55,
         ]);
 
-        $listener = new EmployeeCreate();
+        $listener = $this->app->make(EmployeeCreate::class);
         $skipMethod = new ReflectionMethod(EmployeeCreate::class, 'shouldSkipPendingEditOnLogin');
 
         $this->assertTrue($skipMethod->invoke($listener, $pendingEdit));
@@ -89,7 +89,7 @@ class EmployeeCreatePendingEditListGateTest extends TestCase
         $newerPending->id = 2;
         $newerPending->created_at = now();
 
-        $listener = new EmployeeCreate();
+        $listener = $this->app->make(EmployeeCreate::class);
         $method = new ReflectionMethod(EmployeeCreate::class, 'hasNewerPendingEdit');
 
         $this->assertTrue($method->invoke($listener, $older, collect([$older, $newerPending])));

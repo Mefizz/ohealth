@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Employee;
 
 use App\Classes\eHealth\Api\EmployeeRequest as EmployeeRequestApi;
+use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\Employee\RevisionStatus;
 use App\Events\EHealthUserLogin;
@@ -188,6 +189,51 @@ class EmployeeLegalEntityIsolationTest extends TestCase
     {
         $this->expectException(UnexpectedValueException::class);
         app(EmployeeLegalEntityGuard::class)->assertRemote(['id' => (string) Str::uuid()], $this->entity());
+    }
+
+    public function test_api_uses_the_guard_bound_in_the_container(): void
+    {
+        $entity = $this->entity();
+        $data = ['legal_entity_uuid' => $entity->uuid];
+        $guard = Mockery::mock(EmployeeLegalEntityGuard::class);
+        $guard->shouldReceive('assertRemote')->once()->with($data, $entity)
+            ->andThrow(new UnexpectedValueException('Rejected by the injected guard.'));
+        $this->instance(EmployeeLegalEntityGuard::class, $guard);
+
+        $this->expectException(UnexpectedValueException::class);
+        $this->expectExceptionMessage('Rejected by the injected guard.');
+        EHealth::employeeRequest()->mapRequestCreate($data, $entity);
+    }
+
+    public function test_http_details_mapping_preserves_current_division_and_party_filters(): void
+    {
+        $a = $this->entity();
+        $b = $this->entity();
+        $party = $this->party();
+        $otherParty = $this->party();
+        $division = $this->division($b);
+        $own = $this->request($b, ['party_id' => $party->id]);
+        $this->request($a, ['party_id' => $party->id]);
+        $this->request($b, ['party_id' => $otherParty->id]);
+        config()->set('ehealth.api.domain', 'https://ehealth.example.invalid');
+        session()->put(config('ehealth.api.oauth.bearer_token'), 'synthetic-token');
+        $raw = $this->details($b, $own->uuid, ['division_id' => $division->uuid])->getData();
+        Http::fake();
+        $api = EHealth::employeeRequest()
+            ->stub([fn () => Http::response(['data' => $raw])])
+            ->preventStrayRequests();
+        $response = $api->getDetails($own->uuid);
+        $mapped = $response->map($response->validate(), $b, null, $party->id);
+
+        $this->assertSame($b->id, $mapped['legal_entity_id']);
+        $this->assertSame($division->id, $mapped['division_id']);
+        $this->assertSame($division->id, $api->mapRevisionData($response, $b)['employee_request_data']['division_id']);
+        $this->assertSame($own->id, EmployeeRequest::forLegalEntity($b)->wherePartyId($party->id)->sole()->id);
+        $this->assertSame($b->id, $own->legalEntityId);
+        $this->assertSame($party->id, $own->partyId);
+        Http::assertSent(fn ($request) => $request->url() === 'https://ehealth.example.invalid/api/employee_requests/' . $own->uuid
+            && $request->hasHeader('Authorization', 'Bearer synthetic-token'));
+        Http::assertSentCount(1);
     }
 
     public function test_foreign_employee_or_division_in_details_is_rejected(): void

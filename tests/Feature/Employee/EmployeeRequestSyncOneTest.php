@@ -11,6 +11,7 @@ use App\Enums\Employee\RevisionStatus;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Models\Revision;
+use App\Services\Employee\EmployeeLegalEntityGuard;
 use App\Services\Employee\EmployeeRequestMatcher;
 use App\Services\Employee\EmployeeRequestProcessor;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -208,7 +209,7 @@ class EmployeeRequestSyncOneTest extends TestCase
         $matcher->shouldNotReceive('findApprovedForRequest');
         $this->instance(EmployeeRequestMatcher::class, $matcher);
 
-        $processor = Mockery::mock(EmployeeRequestProcessor::class, [$matcher])->makePartial();
+        $processor = Mockery::mock(EmployeeRequestProcessor::class, [$matcher, $this->app->make(EmployeeLegalEntityGuard::class)])->makePartial();
         $processor->shouldAllowMockingProtectedMethods();
         $processor->shouldNotReceive('applyApprovedRequest');
 
@@ -275,7 +276,7 @@ class EmployeeRequestSyncOneTest extends TestCase
         $matcher->shouldReceive('findApprovedForRequest')->once()->andReturn(null);
         $this->instance(EmployeeRequestMatcher::class, $matcher);
 
-        $processor = Mockery::mock(EmployeeRequestProcessor::class, [$matcher])->makePartial();
+        $processor = Mockery::mock(EmployeeRequestProcessor::class, [$matcher, $this->app->make(EmployeeLegalEntityGuard::class)])->makePartial();
         $processor->shouldAllowMockingProtectedMethods();
         $processor->shouldReceive('applyApprovedRequest')->once()->withArgs(
             function (EmployeeRequest $req, array $payload) use ($request, $employeeUuid): bool {

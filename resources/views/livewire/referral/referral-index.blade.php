@@ -5,15 +5,19 @@
     <x-header-navigation class="items-start">
         <x-slot name="title">{{ __('referrals.title') }}</x-slot>
 
+        @if ($hasSearched)
         <div class="mt-3 ml-0 flex flex-col sm:flex-row sm:flex-wrap gap-2 self-start">
             <button
                 type="button"
+                wire:click="search"
+                wire:loading.attr="disabled"
                 class="button-sync flex items-center gap-2 whitespace-nowrap !bg-green-700 !text-white hover:!bg-green-800"
             >
                 @icon('refresh', 'w-4 h-4')
-                <span>{{ __('forms.synchronise_with_eHealth') }}</span>
+                <span>{{ __('referrals.refresh_results') }}</span>
             </button>
         </div>
+        @endif
 
         <x-slot name="navigation">
             <div class="-my-4 flex flex-col">
@@ -35,13 +39,14 @@
                                 x-on:input="
                                     $event.target.value = $event.target.value
                                         .replace(/[^A-Za-z0-9]/g, '')
-                                        .replace(/(.{4})(?! $)/g, '$1-')
+                                        .replace(/(.{4})(?=.)/g, '$1-')
                                         .toUpperCase()
                                         .slice(0, 19)
                                 "
                                 autocomplete="off"
                             />
                             <label for="requisition" class="label">{{ __('referrals.requisition') }}</label>
+                            @error('requisition') <p class="text-error">{{ $message }}</p> @enderror
                         </div>
 
                         <div class="form-group group">
@@ -50,10 +55,10 @@
                                 id="patient"
                                 placeholder=" "
                                 class="input peer"
-                                wire:model.defer="patient"
+                                wire:model.live.debounce.300ms="patient"
                                 autocomplete="off"
                             />
-                            <label for="patient" class="label">{{ __('forms.patient') }}</label>
+                            <label for="patient" class="label">{{ __('referrals.patient_filter') }}</label>
                         </div>
                     </div>
 
@@ -72,6 +77,8 @@
                             <x-forms.multiselect
                                 bind="status"
                                 :initial="$status"
+                                :live="true"
+                                wire:key="referral-status-{{ implode('-', $status) }}"
                                 :options="$statusOptions"
                                 label="{{ __('referrals.show') }}"
                                 placeholder="{{ __('referrals.placeholder_status') }}"
@@ -113,6 +120,8 @@
                 </div>
             @endif
 
+            @error('referral') <p class="text-error">{{ $message }}</p> @enderror
+
             @php
                 $statusesTranslations = [
                     'active' => __('referrals.status_labels.active'),
@@ -128,7 +137,7 @@
                 ];
             @endphp
 
-            @if ($hasSearched && empty($errorMessage) && !empty($searchResults))
+            @if ($hasSearched && empty($errorMessage) && !empty($visibleReferrals))
                 <div class="index-table-wrapper">
                     <table class="index-table">
                         <thead class="index-table-thead">
@@ -146,7 +155,7 @@
                         </thead>
 
                         <tbody>
-                            @foreach ($searchResults as $referral)
+                            @foreach ($visibleReferrals as $referral)
                                 <tr class="index-table-tr" wire:key="referral-{{ $referral['id'] ?? $loop->index }}">
                                     <td class="index-table-td">
                                         @php
@@ -222,7 +231,7 @@
                                         @endif
                                     </td>
                                     <td class="index-table-td">
-                                        {{ $referral['id'] ?? '-' }}
+                                        {{ $referral['requisition'] ?? $referral['id'] ?? '-' }}
                                     </td>
                                     <td class="index-table-td-actions text-center align-middle whitespace-nowrap">
                                         <div class="flex justify-center relative">
@@ -277,47 +286,50 @@
                                                     :id="$id('dropdown-button')"
                                                     class="absolute right-0 mt-2 w-56 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-md z-50 divide-y divide-gray-100 dark:divide-gray-600"
                                                 >
-                                                    @if(($referral['status'] ?? '') === 'draft')
+                                                    <div class="py-1">
+                                                        <button type="button" wire:click="openDetailsModal('{{ $referral['id'] }}')" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                                            @icon('eye', 'w-5 h-5')
+                                                            {{ __('forms.view_details') }}
+                                                        </button>
+                                                    </div>
+                                                    @if ($this->canAct($referral, 'process'))
                                                         <div class="py-1">
-                                                            <a href="#" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                                                @icon('file-plus', 'w-5 h-5 text-gray-600 dark:text-gray-300') 
-                                                                {{ __('referrals.actions.create_en') }}
-                                                            </a>
-                                                            <a href="#" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                                                @icon('edit', 'w-5 h-5 text-gray-600 dark:text-gray-300') 
-                                                                {{ __('forms.edit') }}
-                                                            </a>
-                                                        </div>
-                                                        <div class="py-1">
-                                                            <a href="#" wire:click.prevent="openCancelModal('{{ $referral['id'] }}')" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-600">
-                                                                @icon('trash', 'w-5 h-5 text-red-600 dark:text-red-400') 
-                                                                {{ __('referrals.actions.delete_request') }}
-                                                            </a>
-                                                        </div>
-                                                    @else
-                                                        <div class="py-1">
-                                                            <a href="#" wire:click.prevent="process('{{ $referral['id'] }}', '{{ $referral['subject']['identifier']['value'] ?? '' }}')" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                                                @icon('referrals', 'w-5 h-5 text-gray-600 dark:text-gray-300') 
+                                                            <button type="button" wire:click="process('{{ $referral['id'] }}', '{{ $referral['subject']['identifier']['value'] ?? '' }}')" wire:loading.attr="disabled" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                                                @icon('referrals', 'w-5 h-5')
                                                                 {{ __('referrals.actions.take_in_work') }}
-                                                            </a>
-                                                            <a href="#" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                                                @icon('eye', 'w-5 h-5 text-gray-600 dark:text-gray-300') 
-                                                                {{ __('forms.view_details') }}
-                                                            </a>
-                                                            <a href="#" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                                                @icon('printer', 'w-5 h-5 text-gray-600 dark:text-gray-300') 
-                                                                {{ __('referrals.actions.print_memo') }}
-                                                            </a>
+                                                            </button>
                                                         </div>
+                                                    @endif
+                                                    @if ($this->canAct($referral, 'complete'))
                                                         <div class="py-1">
-                                                            <a href="#" wire:click.prevent="openCancelModal('{{ $referral['id'] }}')" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-600">
-                                                                @icon('cancel', 'w-5 h-5 text-red-600 dark:text-red-400') 
-                                                                {{ __('referrals.actions.cancel_referral') }}
-                                                            </a>
-                                                            <a href="#" wire:click.prevent="openErrorModal('{{ $referral['id'] }}')" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-600">
-                                                                @icon('cancel', 'w-5 h-5 text-red-600 dark:text-red-400') 
+                                                            <button type="button" wire:click="openCompleteModal('{{ $referral['id'] }}')" wire:loading.attr="disabled" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                                                @icon('referrals', 'w-5 h-5')
+                                                                {{ __('referrals.actions.complete') }}
+                                                            </button>
+                                                        </div>
+                                                    @endif
+                                                    @if ($this->canAct($referral, 'cancel_usage'))
+                                                        <div class="py-1">
+                                                            <button type="button" wire:click="openCancelModal('{{ $referral['id'] }}')" wire:loading.attr="disabled" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                                                @icon('cancel', 'w-5 h-5')
+                                                                {{ __('referrals.actions.cancel_usage') }}
+                                                            </button>
+                                                        </div>
+                                                    @endif
+                                                    @if ($this->canAct($referral, 'recall_referral'))
+                                                        <div class="py-1">
+                                                            <button type="button" wire:click="openRecallModal('{{ $referral['id'] }}')" wire:loading.attr="disabled" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                                                @icon('cancel', 'w-5 h-5')
+                                                                {{ __('referrals.actions.recall') }}
+                                                            </button>
+                                                        </div>
+                                                    @endif
+                                                    @if ($this->canAct($referral, 'cancel_referral'))
+                                                        <div class="py-1">
+                                                            <button type="button" wire:click="openErrorModal('{{ $referral['id'] }}')" wire:loading.attr="disabled" class="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                                                @icon('cancel', 'w-5 h-5')
                                                                 {{ __('referrals.actions.mark_as_error') }}
-                                                            </a>
+                                                            </button>
                                                         </div>
                                                     @endif
                                                 </div>
@@ -329,6 +341,10 @@
                         </tbody>
                     </table>
                 </div>
+            @elseif ($hasSearched && empty($errorMessage))
+                <p class="text-gray-500 dark:text-gray-400">{{ __('referrals.messages.not_found') }}</p>
+            @else
+                <p class="text-gray-500 dark:text-gray-400">{{ __('referrals.messages.search_hint') }}</p>
             @endif
         </div>
     </div>
@@ -350,13 +366,14 @@
                 </label>
                 <textarea
                     id="cancelLetter"
-                    wire:model="cancelExplanatoryLetter"
+                    wire:model.live.debounce.300ms="cancelExplanatoryLetter"
                     rows="5"
                     class="block w-full rounded-md border border-gray-300 bg-[#F9FAFB] p-3 text-[14px] text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 placeholder:text-[#9CA3AF]"
                     placeholder="{{ __('forms.write_comment_here') }}"
                 ></textarea>
             </div>
 
+            @error('cancelExplanatoryLetter') <p class="text-error">{{ $message }}</p> @enderror
             <div class="flex items-center gap-4">
                 <button
                     wire:click="$set('showCancelModal', false)"
@@ -367,6 +384,7 @@
                 </button>
                 <button
                     wire:click="confirmCancelUsage"
+                    wire:loading.attr="disabled"
                     type="button"
                     class="rounded-md bg-[#B91C1C] px-6 py-2.5 text-[14px] font-medium text-white hover:bg-red-800 focus:outline-none disabled:opacity-50"
                     {{ empty(trim($cancelExplanatoryLetter ?? '')) ? 'disabled' : '' }}
@@ -394,28 +412,15 @@
                 </label>
                 <select
                     id="errorReason"
-                    wire:model="errorReason"
+                    wire:model.change="errorReason"
                     class="block w-full border-0 border-b border-gray-300 bg-transparent px-0 py-2.5 text-[14px] text-gray-900 focus:border-blue-600 focus:ring-0 dark:border-gray-600 dark:text-white"
                 >
                     <option value="">{{ __('referrals.modals.error.dropdown_placeholder') }}</option>
                     <option value="entered_in_error">{{ __('referrals.modals.error.entered_in_error') }}</option>
-                    <option value="other">{{ __('referrals.modals.error.other') }}</option>
                 </select>
             </div>
 
-            <div class="mb-10">
-                <label for="errorLetter" class="mb-2 block text-[13px] font-medium text-[#1F2937] dark:text-white">
-                    {{ __('referrals.modals.error.reason_label') }}
-                </label>
-                <textarea
-                    id="errorLetter"
-                    wire:model="errorExplanatoryLetter"
-                    rows="5"
-                    class="block w-full rounded-md border border-gray-300 bg-[#F9FAFB] p-3 text-[14px] text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 placeholder:text-[#9CA3AF]"
-                    placeholder="{{ __('forms.write_comment_here') }}"
-                ></textarea>
-            </div>
-
+            @error('errorReason') <p class="text-error">{{ $message }}</p> @enderror
             <div class="flex items-center gap-4">
                 <button
                     wire:click="$set('showErrorModal', false)"
@@ -426,13 +431,79 @@
                 </button>
                 <button
                     wire:click="confirmErrorUsage"
+                    wire:loading.attr="disabled"
                     type="button"
                     class="rounded-md bg-[#B91C1C] px-6 py-2.5 text-[14px] font-medium text-white hover:bg-red-800 focus:outline-none disabled:opacity-50"
-                    {{ empty(trim($errorReason ?? '')) || empty(trim($errorExplanatoryLetter ?? '')) ? 'disabled' : '' }}
+                    {{ empty(trim($errorReason ?? '')) ? 'disabled' : '' }}
                 >
                     {{ __('referrals.modals.error.btn_confirm') }}
                 </button>
             </div>
         </div>
     </x-modal>
+
+    <x-modal wire:model="showRecallModal" maxWidth="3xl">
+        <div class="px-8 py-8">
+            <h3 class="modal-header">{{ __('referrals.modals.recall.title') }}</h3>
+            <p class="mb-6 text-gray-600 dark:text-gray-300">{{ __('referrals.modals.recall.warning') }}</p>
+            <label for="recallLetter" class="label-modal">{{ __('referrals.modals.recall.reason_label') }} *</label>
+            <textarea id="recallLetter" wire:model.live.debounce.300ms="recallExplanatoryLetter" class="input-modal w-full" rows="4"></textarea>
+            @error('recallExplanatoryLetter') <p class="text-error">{{ $message }}</p> @enderror
+            <div class="mt-6 flex gap-4">
+                <button type="button" wire:click="$set('showRecallModal', false)" class="button-minor">{{ __('forms.cancel') }}</button>
+                <button type="button" wire:click="confirmRecall" wire:loading.attr="disabled" class="button-primary">{{ __('referrals.continue_to_sign') }}</button>
+            </div>
+        </div>
+    </x-modal>
+
+    <x-modal wire:model="showCompleteModal" maxWidth="3xl">
+        <div class="px-8 py-8">
+            <h3 class="modal-header">{{ __('referrals.actions.complete') }}</h3>
+            <p class="mb-6 text-gray-600 dark:text-gray-300">{{ __('referrals.modals.complete.hint') }}</p>
+            <label for="referralEmzType" class="label-modal">{{ __('referrals.modals.complete.type') }}</label>
+            <select id="referralEmzType" wire:model.change="selectedEmzType" class="input-modal w-full">
+                @foreach ($emzTypes as $type)
+                    <option value="{{ $type }}">{{ __('referrals.emz_types.'.$type) }}</option>
+                @endforeach
+            </select>
+            @error('selectedEmzType') <p class="text-error">{{ $message }}</p> @enderror
+            <label for="referralEmzUuid" class="label-modal mt-4">{{ __('referrals.modals.complete.resource') }}</label>
+            <select id="referralEmzUuid" wire:model="selectedEmzUuid" class="input-modal w-full">
+                <option value="">{{ __('forms.select') }}</option>
+                @foreach ($availableEmzResources as $resource)
+                    <option value="{{ $resource['uuid'] }}">{{ $resource['label'] }}</option>
+                @endforeach
+            </select>
+            @if ($availableEmzResources === [])
+                <p class="text-gray-500 mt-2">{{ __('referrals.modals.complete.empty') }}</p>
+            @endif
+            @error('selectedEmzUuid') <p class="text-error">{{ $message }}</p> @enderror
+            <div class="mt-6 flex gap-4">
+                <button type="button" wire:click="$set('showCompleteModal', false)" class="button-minor">{{ __('forms.cancel') }}</button>
+                <button type="button" wire:click="confirmComplete" wire:loading.attr="disabled" class="button-primary">{{ __('referrals.actions.complete') }}</button>
+            </div>
+        </div>
+    </x-modal>
+
+    <x-modal wire:model="showDetailsModal" maxWidth="3xl">
+        <div class="px-8 py-8">
+            <h3 class="modal-header">{{ __('forms.view_details') }}</h3>
+            <dl class="space-y-3">
+                <div><dt class="text-gray-500">{{ __('referrals.table.number') }}</dt><dd>{{ $referralDetails['requisition'] ?? $referralDetails['id'] ?? '—' }}</dd></div>
+                <div><dt class="text-gray-500">{{ __('forms.patient') }}</dt><dd>{{ data_get($referralDetails, 'subject.display', '—') }}</dd></div>
+                <div><dt class="text-gray-500">{{ __('referrals.table.service') }}</dt><dd>{{ data_get($referralDetails, 'code.coding.0.display', data_get($referralDetails, 'code.coding.0.code', '—')) }}</dd></div>
+                <div><dt class="text-gray-500">{{ __('forms.status.label') }}</dt><dd>{{ $statusesTranslations[$referralDetails['status'] ?? ''] ?? ($referralDetails['status'] ?? '—') }}</dd></div>
+                <div><dt class="text-gray-500">{{ __('care-plan.note') }}</dt><dd>{{ $referralDetails['note'] ?? '—' }}</dd></div>
+            </dl>
+            <button type="button" wire:click="$set('showDetailsModal', false)" class="button-minor mt-6">{{ __('forms.close') }}</button>
+        </div>
+    </x-modal>
+
+    @if ($showSignatureModal)
+        <x-signature-modal
+            method="sign"
+            :only-actions="['cancel_referral', 'recall_referral']"
+            :agreement-text="$actionType === 'cancel_referral' ? __('referrals.modals.error.signing_warning') : __('referrals.modals.recall.warning')"
+        />
+    @endif
 </div>

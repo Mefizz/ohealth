@@ -539,6 +539,11 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
      */
     protected function authorizeEmployeeFormAction(): void
     {
+        if ($this->employeeRequestId) {
+            $request = EmployeeRequest::forLegalEntity(legalEntity())->findOrFail($this->employeeRequestId);
+            $this->authorize('update', $request);
+        }
+
         if ($this->employee instanceof Employee) {
             $this->authorize('update', $this->employee);
 
@@ -593,7 +598,9 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
         //    ->with('party') tells Eloquent: "when you find the User,
         //    please also eager-load their related Party model,
         //    using the 'party()' relationship from the User model"
-        $userByEmail = User::where('email', $email)->with('party')->first();
+        $userByEmail = User::where('email', $email)->with('party')
+            ->whereHas('employees', fn ($employees) => $employees->where('legal_entity_id', legalEntity()->id))
+            ->first();
 
         // 3. CHECK IF THE USER EXISTS AND HAS AN ASSOCIATED PARTY
         //    This is your condition: "if a user already exists and has a party associated with them"
@@ -864,7 +871,7 @@ abstract class AbstractEmployeeFormManager extends EmployeeComponent
     {
         $request = $this->employeeRequest instanceof EmployeeRequest
             ? $this->employeeRequest
-            : ($this->employeeRequestId ? EmployeeRequest::query()->find($this->employeeRequestId) : null);
+            : ($this->employeeRequestId ? EmployeeRequest::forLegalEntity(legalEntity())->findOrFail($this->employeeRequestId) : null);
 
         if (!$request instanceof EmployeeRequest || $request->isLocalDraft()) {
             return false;

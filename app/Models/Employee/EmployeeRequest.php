@@ -66,6 +66,25 @@ class EmployeeRequest extends BaseEmployee
 
     // --- REQUEST-SPECIFIC RELATIONS ---
 
+    public function scopeForLegalEntity(Builder $query, \App\Models\LegalEntity $legalEntity): Builder
+    {
+        return $query->where('legal_entity_id', $legalEntity->id)
+            ->where(fn (Builder $entity) => $entity->whereNull('legal_entity_uuid')->orWhere('legal_entity_uuid', $legalEntity->uuid))
+            ->where(fn (Builder $employee) => $employee->whereNull('employee_id')
+                ->orWhereHas('employee', fn (Builder $related) => $related->where('legal_entity_id', $legalEntity->id)))
+            ->where(fn (Builder $division) => $division->whereNull('division_id')
+                ->orWhereHas('division', fn (Builder $related) => $related->where('legal_entity_id', $legalEntity->id)))
+            ->where(fn (Builder $revision) => $revision->whereDoesntHave('revision')
+                ->orWhereHas('revision', fn (Builder $related) => $related->where(fn (Builder $response) => $response
+                    ->whereNull('ehealth_response->data->legal_entity_id')
+                    ->orWhere('ehealth_response->data->legal_entity_id', $legalEntity->uuid))));
+    }
+
+    public function belongsToLegalEntity(\App\Models\LegalEntity $legalEntity): bool
+    {
+        return static::query()->forLegalEntity($legalEntity)->whereKey($this->getKey())->exists();
+    }
+
     /**
      * The employee this request is associated with (can be null for new employees).
      */

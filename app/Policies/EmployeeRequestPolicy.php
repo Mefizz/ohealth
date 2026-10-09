@@ -30,7 +30,7 @@ class EmployeeRequestPolicy
 
     public function view(User $user, EmployeeRequest $employeeRequest): Response
     {
-        if ((int) $employeeRequest->legal_entity_id !== (int) legalEntity()->id) {
+        if (!$employeeRequest->belongsToLegalEntity(legalEntity())) {
             return Response::denyWithStatus(404);
         }
 
@@ -42,7 +42,7 @@ class EmployeeRequestPolicy
     public function create(User $user, ?Party $party = null): Response
     {
         if ($party) {
-            if ($party->employees->isEmpty()) {
+            if (!$party->employees()->where('legal_entity_id', legalEntity()->id)->exists()) {
                 return Response::deny(__('employees.policy.req.add_position_denied_for_draft'));
             }
         }
@@ -54,7 +54,7 @@ class EmployeeRequestPolicy
 
     public function update(User $user, EmployeeRequest $employeeRequest): Response
     {
-        if ((int) $employeeRequest->legal_entity_id !== (int) legalEntity()->id) {
+        if (!$employeeRequest->belongsToLegalEntity(legalEntity())) {
             return Response::denyWithStatus(404);
         }
 
@@ -69,7 +69,7 @@ class EmployeeRequestPolicy
 
     public function delete(User $user, EmployeeRequest $employeeRequest): Response
     {
-        if ((int) $employeeRequest->legal_entity_id !== (int) legalEntity()->id) {
+        if (!$employeeRequest->belongsToLegalEntity(legalEntity())) {
             return Response::denyWithStatus(404);
         }
 

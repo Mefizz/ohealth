@@ -63,10 +63,19 @@ class EmployeeDetailsUpsert extends EHealthJob
     {
         $validatedData = $response->validate();
 
+        if ((int) $this->employee->legal_entity_id !== (int) $this->legalEntity->id) {
+            throw new \UnexpectedValueException('Employee details belong to another legal entity.');
+        }
+        app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote([
+            'legal_entity_id' => data_get($response->getData(), 'legal_entity.id'),
+            'id' => data_get($response->getData(), 'id'),
+            'division_id' => data_get($response->getData(), 'division.id'),
+        ], $this->legalEntity, $this->employee->uuid);
+
         Log::info('Processing EmployeeDetailsUpsert for employee:' . $this->employee->id . ', LE:' . ($this->legalEntity->id ?? 'N/A'));
 
         $divisionUuid = Arr::get($validatedData['division'], 'uuid');
-        $divisionId = $divisionUuid ? Division::where('uuid', $divisionUuid)->value('id') : null;
+        $divisionId = $divisionUuid ? Division::where('legal_entity_id', $this->legalEntity->id)->where('uuid', $divisionUuid)->value('id') : null;
 
         $this->employee->legalEntityUuid = $this->legalEntity?->uuid;
 
@@ -94,6 +103,8 @@ class EmployeeDetailsUpsert extends EHealthJob
         $startdate = $validatedData['employee']['start_date'] ?? null;
 
         $employeeEmployeeRequest = EmployeeRequest::where('legal_entity_id', $legalEntityId)
+            ->forLegalEntity($this->legalEntity)
+            ->where('party_id', $this->employee->party_id)
             ->where("employee_type", $roleName)
             ->where('position', $this->employee->position)
             ->when(

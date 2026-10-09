@@ -24,6 +24,7 @@ class EmployeeEdit extends AbstractEmployeeFormManager
     {
         // MERGE STRATEGY: Instead of redirecting, check for an existing OPEN draft.
         $existingDraft = EmployeeRequest::where('employee_id', $employee->id)
+            ->forLegalEntity($legalEntity)
             ->whereNull('uuid') // Only drafts (not signed/approved)
             ->whereNull('applied_at')
             ->latest()
@@ -35,7 +36,7 @@ class EmployeeEdit extends AbstractEmployeeFormManager
 
         // Check if the Party of this employee holds the Owner position
         $isOwnerParty = $employee->party->employees()
-            ->where('employee_type', \App\Enums\User\Role::OWNER->value)
+            ->activeOwners($legalEntity->id)
             ->exists();
 
         $this->isPersonalDataLocked = $isOwnerParty;
@@ -64,7 +65,7 @@ class EmployeeEdit extends AbstractEmployeeFormManager
     public function boot(): void
     {
         if ($this->employeeId) {
-            $this->employee = Employee::findOrFail($this->employeeId);
+            $this->employee = Employee::where('legal_entity_id', legalEntity()->id)->findOrFail($this->employeeId);
         }
     }
 
@@ -129,7 +130,7 @@ class EmployeeEdit extends AbstractEmployeeFormManager
         $employeeRequestData['employee_id'] = $this->employee->id;
 
         if ($this->employeeRequestId) {
-            $existingRequest = EmployeeRequest::find($this->employeeRequestId);
+            $existingRequest = EmployeeRequest::forLegalEntity(legalEntity())->where('employee_id', $this->employee->id)->findOrFail($this->employeeRequestId);
 
             if ($existingRequest && is_null($existingRequest->uuid)) {
                 $existingRequest->fill($employeeRequestData)->save();

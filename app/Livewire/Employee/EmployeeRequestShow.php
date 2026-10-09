@@ -23,6 +23,8 @@ class EmployeeRequestShow extends EmployeeComponent
 
     public function mount(LegalEntity $legalEntity, EmployeeRequest $employee_request): void
     {
+        abort_unless($employee_request->belongsToLegalEntity($legalEntity), 404);
+
         $this->loadDictionaries();
         $this->loadDivisions($legalEntity);
         $this->employee = $employee_request;
@@ -33,7 +35,7 @@ class EmployeeRequestShow extends EmployeeComponent
     public function boot(): void
     {
         if ($this->employeeRequestId) {
-            $this->employee = EmployeeRequest::findOrFail($this->employeeRequestId);
+            $this->employee = EmployeeRequest::forLegalEntity(legalEntity())->findOrFail($this->employeeRequestId);
         }
     }
 
@@ -41,8 +43,8 @@ class EmployeeRequestShow extends EmployeeComponent
     {
         $partyExistingPositions = null;
         if ($this->employee->party) {
-            $this->employee->party->loadMissing(['employees.division', 'employeeRequests.division']);
-            $partyExistingPositions = $this->employee->party->employees->merge($this->employee->party->employeeRequests);
+            $partyExistingPositions = $this->employee->party->employees()->where('legal_entity_id', legalEntity()->id)->with('division')->get()
+                ->merge($this->employee->party->employeeRequests()->forLegalEntity(legalEntity())->with('division')->get());
         }
 
         return view('livewire.employee.employee-show', [

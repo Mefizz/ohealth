@@ -49,7 +49,7 @@ class EmployeeSync extends EHealthJob
             ]);
         }
 
-        $employees = $response->validate();
+        $employees = app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->prepareEmployeeBatch($response->validate(), $this->legalEntity);
 
         data_forget($employees, '*.party');
         data_forget($employees, '*.doctor');
@@ -58,12 +58,16 @@ class EmployeeSync extends EHealthJob
 
         $divisionUuids = collect($employees)->pluck('division_id')->filter(fn ($id) => is_string($id) && strlen($id) === 36)->unique();
         if ($divisionUuids->isNotEmpty()) {
-            $divisions = \App\Models\Division::whereIn('uuid', $divisionUuids)->pluck('id', 'uuid');
+            if (\App\Models\Division::whereIn('uuid', $divisionUuids)->where('legal_entity_id', '!=', $this->legalEntity->id)->exists()) {
+                throw new \UnexpectedValueException('Synchronized division belongs to another legal entity.');
+            }
+            $divisions = \App\Models\Division::where('legal_entity_id', $this->legalEntity->id)->whereIn('uuid', $divisionUuids)->pluck('id', 'uuid');
             foreach ($employees as &$emp) {
                 if (!empty($emp['division_id']) && is_string($emp['division_id']) && isset($divisions[$emp['division_id']])) {
                     $emp['division_id'] = $divisions[$emp['division_id']];
                 }
             }
+            unset($emp);
         }
 
         Employee::upsert($employees, uniqueBy: ['uuid']);

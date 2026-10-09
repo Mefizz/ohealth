@@ -84,7 +84,7 @@ class EmployeePositionAdd extends AbstractEmployeeFormManager
         $employeeRequestData['party_id'] = $this->party->id;
 
         if ($this->employeeRequestId) {
-            $existingRequest = EmployeeRequest::find($this->employeeRequestId);
+            $existingRequest = EmployeeRequest::forLegalEntity(legalEntity())->where('party_id', $this->partyId)->findOrFail($this->employeeRequestId);
             if ($existingRequest && is_null($existingRequest->uuid)) {
                 $existingRequest->fill($employeeRequestData)->save();
                 $existingRequest->revision?->update(['data' => $nestedDataForRevision]);
@@ -112,7 +112,7 @@ class EmployeePositionAdd extends AbstractEmployeeFormManager
     protected function getEmployeeRequestForSave(): ?EmployeeRequest
     {
         if (!empty($this->employeeRequestId)) {
-            return EmployeeRequest::find($this->employeeRequestId);
+            return EmployeeRequest::forLegalEntity(legalEntity())->where('party_id', $this->partyId)->findOrFail($this->employeeRequestId);
         }
 
         return null;

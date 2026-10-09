@@ -36,6 +36,7 @@ class EmployeeCreate
         $user = $event->user;
 
         $employeeRequests = EmployeeRequest::with('revision')
+            ->forLegalEntity($event->legalEntity)
             ->where('email', $user->email)
             ->where(
                 fn (EloquentBuilder $q) => $q
@@ -157,6 +158,7 @@ class EmployeeCreate
                 ->values();
 
             foreach ($employees as $eHealthEmployee) {
+                app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertEmployeeUuid($eHealthEmployee['uuid'], $event->legalEntity);
                 $employeeRequest = $this->findMatchingLocalRequest($requestsForMatch, $eHealthEmployee);
 
                 if (!$employeeRequest) {

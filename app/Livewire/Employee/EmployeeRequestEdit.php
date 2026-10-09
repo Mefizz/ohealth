@@ -16,6 +16,8 @@ class EmployeeRequestEdit extends AbstractEmployeeFormManager
 {
     public function mount(LegalEntity $legalEntity, EmployeeRequest $employee_request): void
     {
+        abort_unless($employee_request->belongsToLegalEntity($legalEntity), 404);
+
         $this->employeeRequest = $employee_request;
         $this->employeeRequestId = $employee_request->id;
 
@@ -51,7 +53,7 @@ class EmployeeRequestEdit extends AbstractEmployeeFormManager
     public function boot(): void
     {
         if ($this->employeeRequestId) {
-            $this->employeeRequest = EmployeeRequest::findOrFail($this->employeeRequestId);
+            $this->employeeRequest = EmployeeRequest::forLegalEntity(legalEntity())->findOrFail($this->employeeRequestId);
             $this->redirectIfEmployeeRequestAlreadyProcessed();
         }
     }

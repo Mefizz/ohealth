@@ -94,6 +94,8 @@ class EmployeeRequest extends EHealthRequest
     // Trasform Employee Request data received from eHealth to the format suitable for save to DB
     public function mapRequestCreate(array $ehealthData, LegalEntity $legalEntity, ?int $userId = null, ?int $partyId = null): array
     {
+        app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($ehealthData, $legalEntity);
+
         $mappedData['legal_entity_id'] = $legalEntity->id;
         $mappedData['user_id'] = $userId;
         $mappedData['party_id'] = $partyId;
@@ -107,7 +109,7 @@ class EmployeeRequest extends EHealthRequest
                 case 'division_uuid':
                     $mappedData['division_uuid'] = $value;
 
-                    $mappedData['division_id'] = Division::where('uuid', $value)->first()?->id;
+                    $mappedData['division_id'] = Division::where('legal_entity_id', $legalEntity->id)->where('uuid', $value)->first()?->id;
 
                     break;
                 case 'legal_entity_uuid':
@@ -222,6 +224,7 @@ class EmployeeRequest extends EHealthRequest
             '*.inserted_at' => 'required|date',
             '*.edrpou' => 'required|string',
             '*.legal_entity_name' => 'required|string',
+            '*.legal_entity_uuid' => 'sometimes|nullable|uuid',
             '*.no_tax_id' => 'sometimes|boolean',
             '*.first_name' => 'required|string',
             '*.last_name' => 'required|string',
@@ -604,8 +607,10 @@ class EmployeeRequest extends EHealthRequest
         ];
     }
 
-    public function mapRevisionData(EHealthResponse $response): array
+    public function mapRevisionData(EHealthResponse $response, LegalEntity $legalEntity): array
     {
+        app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($response->getData(), $legalEntity);
+        $mappedData = [];
         foreach ($response->getData() as $key => $value) {
 
             switch ($key) {
@@ -622,7 +627,7 @@ class EmployeeRequest extends EHealthRequest
                     $mappedData['employee_request_data'][$key] = $value;
                     break;
                 case 'division_id':
-                    $mappedData['employee_request_data'][$key] = Division::where('uuid', $value)->first()?->id;
+                    $mappedData['employee_request_data'][$key] = Division::where('legal_entity_id', $legalEntity->id)->where('uuid', $value)->value('id');
                     break;
                 case 'party':
                     $mappedData['party']['last_name'] = $value['last_name'];

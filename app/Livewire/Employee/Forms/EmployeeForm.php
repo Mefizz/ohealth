@@ -447,6 +447,8 @@ class EmployeeForm extends Form
             if ($user) {
                 return $user->email;
             }
+
+            return null;
         }
 
         $party->loadMissing('users');
@@ -456,6 +458,7 @@ class EmployeeForm extends Form
 
     private function hydrateFromEmployee(Employee $employee): void
     {
+        abort_unless((int) $employee->legal_entity_id === (int) legalEntity()->id, 404);
         $employee->loadMissing(['party.phones', 'party.documents', 'educations', 'specialities', 'qualifications', 'scienceDegree']);
         if ($employee->party) {
             $this->populatePartyData($employee->party);
@@ -504,6 +507,7 @@ class EmployeeForm extends Form
      */
     private function hydrateFromEmployeeRequest(EmployeeRequest $request): void
     {
+        abort_unless($request->belongsToLegalEntity(legalEntity()), 404);
         $request->loadMissing(['party', 'revision', 'employee']); // Load original employee too
         $revisionData = $request->revision->data ?? [];
 
@@ -626,7 +630,7 @@ class EmployeeForm extends Form
 
         $needsRevisionCheck = empty($this->documents);
         if ($needsRevisionCheck) {
-            $latestRequest = $party->employeeRequests()->with('revision')->latest()->first();
+            $latestRequest = legalEntity() ? $party->employeeRequests()->forLegalEntity(legalEntity())->with('revision')->latest()->first() : null;
             if ($latestRequest && $latestRequest->revision) {
                 $revisionData = $latestRequest->revision->data;
 

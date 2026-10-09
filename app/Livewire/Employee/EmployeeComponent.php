@@ -183,6 +183,12 @@ abstract class EmployeeComponent extends Component
 
             $validatedData = $response->validate();
 
+            app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote([
+                'legal_entity_id' => data_get($response->getData(), 'legal_entity.id'),
+                'id' => data_get($response->getData(), 'id'),
+                'division_id' => data_get($response->getData(), 'division.id'),
+            ], legalEntity(), $employee->uuid);
+
             // 3. Database Update via Repository
             // We use app() helper to resolve the repository
             Repository::employee()->updateDetails(
@@ -232,6 +238,7 @@ abstract class EmployeeComponent extends Component
     protected function actualizePendingRequests(Employee $employee, string $token): void
     {
         $pendingRequests = EmployeeRequest::query()
+            ->forLegalEntity(legalEntity())
             ->where('employee_id', $employee->id)
             ->pendingEhealth()
             ->get();
@@ -245,14 +252,16 @@ abstract class EmployeeComponent extends Component
                 // Fetch specific request status from eHealth by UUID
                 $response = EHealth::employeeRequest()
                     ->withToken($token)
-                    ->getMany(['id' => $request->uuid]);
+                    ->getDetails($request->uuid);
 
                 $data = $response->validate();
-                $remoteRequestData = $data[0] ?? null;
+                $remoteRequestData = $data;
 
                 if (!$remoteRequestData) {
                     continue;
                 }
+
+                app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($remoteRequestData, legalEntity(), $request->uuid);
 
                 $remoteStatus = $remoteRequestData['status'] ?? null;
 

@@ -37,12 +37,14 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
     protected const int RATE_LIMIT_DELAY = 3;
 
     public function __construct(
-        public EmployeeRequest $employeeRequest,
+        public EmployeeRequest|string $employeeRequest,
         public ?LegalEntity $legalEntity,
         protected ?EHealthJob $nextEntity = null,
         public bool $standalone = false,
+        protected bool $isFirstLogin = false,
     ) {
-        parent::__construct(legalEntity: $legalEntity, nextEntity: $nextEntity, standalone: $standalone);
+        $this->employeeRequest = $employeeRequest instanceof EmployeeRequest ? $employeeRequest->uuid : $employeeRequest;
+        parent::__construct(legalEntity: $legalEntity, nextEntity: $nextEntity, standalone: $standalone, isFirstLogin: $isFirstLogin);
     }
 
     /**
@@ -52,7 +54,17 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
      */
     protected function sendRequest(string $token): PromiseInterface|EHealthResponse|null
     {
-        return EHealth::employeeRequest()->withToken($token)->getDetails($this->employeeRequest->uuid);
+        try {
+            return EHealth::employeeRequest()->withToken($token)->getDetails($this->requestUuid());
+        } catch (\App\Exceptions\EHealth\EHealthResponseException $exception) {
+            if (!in_array($exception->response->status(), [403, 404], true)) {
+                throw $exception;
+            }
+
+            Log::warning('Employee request details are unavailable in the current legal entity.', ['legal_entity_id' => $this->legalEntity->id, 'status' => $exception->response->status()]);
+
+            return null;
+        }
     }
 
     /**
@@ -62,17 +74,42 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
      */
     protected function processResponse(?EHealthResponse $response): void
     {
+        if ($response === null) {
+            return;
+        }
+
         $validatedData = $response->validate();
+        $requestUuid = $this->requestUuid();
+
+        try {
+            app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertRemote($validatedData, $this->legalEntity, $requestUuid);
+        } catch (\UnexpectedValueException $exception) {
+            Log::warning('Rejected employee request from another legal entity.', ['legal_entity_id' => $this->legalEntity->id]);
+
+            return;
+        }
+
+        $request = EmployeeRequest::firstOrNew(['uuid' => $requestUuid, 'legal_entity_id' => $this->legalEntity->id]);
+
+        if ($request->exists) {
+            try {
+                app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->assertLocal($request, $this->legalEntity);
+            } catch (\UnexpectedValueException $exception) {
+                Log::warning('Rejected inconsistent employee request.', ['request_id' => $request->id, 'legal_entity_id' => $this->legalEntity->id]);
+
+                return;
+            }
+        }
 
         $validatedData['inserted_at'] = Carbon::parse($validatedData['inserted_at'])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s');
 
-        Log::info('Processing EmployeeRequestDetailsUpsert for employee_request:' . $this->employeeRequest->id . ', LE:' . ($this->legalEntity->id ?? 'N/A'));
-
-        $this->employeeRequest->legalEntityUuid = $this->legalEntity?->uuid;
+        Log::info('Processing EmployeeRequestDetailsUpsert.', ['request_id' => $request->id, 'legal_entity_id' => $this->legalEntity->id]);
 
         $userEmail = Arr::get($validatedData, 'party.email');
 
-        $employeeRequestUser = User::where('email', $userEmail)->first();
+        $employeeRequestUser = User::where('email', $userEmail)
+            ->whereHas('employees', fn ($employees) => $employees->where('legal_entity_id', $this->legalEntity->id))
+            ->first();
 
         $employeeRequestPartyId = $employeeRequestUser?->partyId;
 
@@ -94,15 +131,28 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
                 ->format('Y-m-d H:i:s');
         }
 
-        $this->employeeRequest->fill($fillData);
-
-        $this->employeeRequest->save();
-
-        $revisionData['data'] = Ehealth::employeeRequest()->mapRevisionData($response);
+        $revisionData['data'] = Ehealth::employeeRequest()->mapRevisionData($response, $this->legalEntity);
         $revisionData['ehealth_response'] = [ 'data' => $response->getData()];
-        $revisionData['status'] = RevisionStatus::APPLIED->value;
+        $revisionData['status'] = in_array($remoteStatus, ['REJECTED', 'EXPIRED'], true)
+            ? RevisionStatus::OUTDATED->value
+            : ($remoteStatus === 'APPROVED' ? RevisionStatus::APPLIED->value : RevisionStatus::PENDING->value);
 
-        Repository::revision()->saveRevision($this->employeeRequest, $revisionData);
+        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $validatedData, $remoteStatus, $fillData, $revisionData) {
+            if ($remoteStatus === 'APPROVED' && $request->exists && $request->isPendingEhealth() && $request->revision) {
+                app(\App\Services\Employee\EmployeeRequestProcessor::class)->applyApprovedRequest($request, $validatedData);
+            }
+
+            $fillData['user_id'] ??= $request->user_id;
+            $fillData['party_id'] ??= $request->party_id;
+            $request->fill($fillData)->save();
+            Repository::revision()->saveRevision($request, $revisionData);
+        });
+    }
+
+    private function requestUuid(): string
+    {
+        // Jobs queued before this change can still contain a serialized model.
+        return $this->employeeRequest instanceof EmployeeRequest ? $this->employeeRequest->uuid : $this->employeeRequest;
     }
 
     /**

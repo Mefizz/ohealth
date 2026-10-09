@@ -603,7 +603,7 @@ class EmployeeIndex extends EmployeeComponent
             return;
         }
 
-        $employees = $response->validate();
+        $employees = app(\App\Services\Employee\EmployeeLegalEntityGuard::class)->prepareEmployeeBatch($response->validate(), $this->legalEntity);
         data_forget($employees, '*.party');
         data_forget($employees, '*.doctor');
         data_fill($employees, '*.legal_entity_id', legalEntity()->id);

@@ -9,7 +9,6 @@ use App\Enums\JobStatus;
 use App\Models\LegalEntity;
 use App\Classes\eHealth\EHealth;
 use App\Models\Employee\Employee;
-use App\Services\Employee\EmployeeLegalEntityGuard;
 use App\Traits\BatchLegalEntityQueries;
 use GuzzleHttp\Promise\PromiseInterface;
 use App\Classes\eHealth\EHealthResponse;
@@ -50,7 +49,7 @@ class EmployeeSync extends EHealthJob
             ]);
         }
 
-        $employees = app(EmployeeLegalEntityGuard::class)->prepareEmployeeBatch($response->validate(), $this->legalEntity);
+        $employees = $response->validate();
 
         data_forget($employees, '*.party');
         data_forget($employees, '*.doctor');
@@ -59,16 +58,12 @@ class EmployeeSync extends EHealthJob
 
         $divisionUuids = collect($employees)->pluck('division_id')->filter(fn ($id) => is_string($id) && strlen($id) === 36)->unique();
         if ($divisionUuids->isNotEmpty()) {
-            if (\App\Models\Division::whereIn('uuid', $divisionUuids)->where('legal_entity_id', '!=', $this->legalEntity->id)->exists()) {
-                throw new \UnexpectedValueException('Synchronized division belongs to another legal entity.');
-            }
-            $divisions = \App\Models\Division::whereLegalEntityId($this->legalEntity->id)->whereIn('uuid', $divisionUuids)->pluck('id', 'uuid');
+            $divisions = \App\Models\Division::whereIn('uuid', $divisionUuids)->pluck('id', 'uuid');
             foreach ($employees as &$emp) {
                 if (!empty($emp['division_id']) && is_string($emp['division_id']) && isset($divisions[$emp['division_id']])) {
                     $emp['division_id'] = $divisions[$emp['division_id']];
                 }
             }
-            unset($emp);
         }
 
         Employee::upsert($employees, uniqueBy: ['uuid']);

@@ -28,10 +28,8 @@ class EmployeeRequestProcessor
     public const string OUTCOME_PENDING = 'pending';
     public const string OUTCOME_FAILED = 'failed';
 
-    public function __construct(
-        private readonly EmployeeRequestMatcher $matcher,
-        private readonly EmployeeLegalEntityGuard $legalEntityGuard,
-    ) {
+    public function __construct(private EmployeeRequestMatcher $matcher)
+    {
     }
 
     /**
@@ -41,8 +39,6 @@ class EmployeeRequestProcessor
      */
     public function syncSinglePendingRequest(EmployeeRequest $request, LegalEntity $legalEntity): array
     {
-        $this->legalEntityGuard->assertLocal($request, $legalEntity);
-
         if (!$request->isPendingEhealth() || !$request->uuid) {
             return [
                 'outcome' => self::OUTCOME_FAILED,
@@ -63,7 +59,11 @@ class EmployeeRequestProcessor
             ->getDetails($request->uuid)
             ->validate();
 
-        $this->legalEntityGuard->assertRemote($remoteData, $legalEntity, $request->uuid);
+        if ((int) $request->legalEntityId !== (int) $legalEntity->id
+            || strtolower($remoteData['legal_entity_uuid'] ?? '') !== strtolower($legalEntity->uuid)
+            || ($remoteData['uuid'] ?? null) !== $request->uuid) {
+            throw new \UnexpectedValueException('Employee request details do not belong to the current legal entity.');
+        }
 
         $remoteStatus = $remoteData['status'] instanceof \BackedEnum
             ? $remoteData['status']->value
@@ -165,16 +165,12 @@ class EmployeeRequestProcessor
      */
     public function applyApprovedRequest(EmployeeRequest $request, array $eHealthData): void
     {
-        $legalEntity = $request->legalEntity;
-        $this->legalEntityGuard->assertLocal($request, $legalEntity);
-        $this->legalEntityGuard->assertRemote($eHealthData, $legalEntity);
-
         Log::info('[EmployeeRequestProcessor] Start Apply.', [
             'request_uuid' => $request->uuid,
             'eHealth_status' => $eHealthData['status'] ?? 'N/A',
         ]);
 
-        DB::transaction(function () use ($request, $eHealthData, $legalEntity) {
+        DB::transaction(function () use ($request, $eHealthData) {
             // 1. Prepare Local Data (Source of Truth for content)
             $revisionData = $request->revision->data;
             $mappedLocalData = EHealth::employeeRequest()->mapCreate($revisionData);
@@ -204,13 +200,9 @@ class EmployeeRequestProcessor
             // 3. Find existing Employee by UUID or instantiate a new one
             $employee = Employee::where('uuid', $employeeUuid)->first();
 
-            if ($employee && (int) $employee->legalEntityId !== (int) $legalEntity->id) {
-                throw new \UnexpectedValueException('Employee belongs to another legal entity.');
-            }
-
             // Fallback for update scenarios (if we have a local link)
             if (!$employee && $request->employeeId) {
-                $employee = Employee::where('legal_entity_id', $legalEntity->id)->findOrFail($request->employeeId);
+                $employee = Employee::find($request->employeeId);
             }
 
             $isNew = false;
@@ -233,17 +225,12 @@ class EmployeeRequestProcessor
             if (isset($eHealthData['division_id'])) {
                 $divisionUuid = $eHealthData['division_id'];
                 if (is_string($divisionUuid) && strlen($divisionUuid) === 36) {
-                    $division = Division::where('legal_entity_id', $legalEntity->id)->where('uuid', $divisionUuid)->first();
+                    $division = Division::where('uuid', $divisionUuid)->first();
                     if ($division) {
                         $systemOverrides['division_id'] = $division->id;
-                    } elseif (Division::where('uuid', $divisionUuid)->exists()) {
-                        throw new \UnexpectedValueException('Division belongs to another legal entity.');
                     }
                     // If not found locally, we rely on the Revision data (mappedLocalData) which has the correct int ID
                 } else {
-                    if (!Division::where('legal_entity_id', $legalEntity->id)->whereKey($divisionUuid)->exists()) {
-                        throw new \UnexpectedValueException('Division belongs to another legal entity.');
-                    }
                     $systemOverrides['division_id'] = $divisionUuid;
                 }
             }
@@ -251,13 +238,8 @@ class EmployeeRequestProcessor
             // 5. Merge Data: Revision (Base) + System Overrides
             $finalEmployeeData = array_merge(
                 $mappedLocalData['employee'],
-                $systemOverrides,
-                ['legal_entity_id' => $legalEntity->id, 'legal_entity_uuid' => $legalEntity->uuid]
+                $systemOverrides
             );
-
-            if (!empty($finalEmployeeData['division_id']) && !Division::where('legal_entity_id', $legalEntity->id)->whereKey($finalEmployeeData['division_id'])->exists()) {
-                throw new \UnexpectedValueException('Revision division belongs to another legal entity.');
-            }
 
             // 6. Fill Model
             $employee->fill($finalEmployeeData);
@@ -326,7 +308,8 @@ class EmployeeRequestProcessor
     }
 
     /**
-     * Collect candidates for details verification; the EDRPOU list does not prove tenant ownership.
+     * Collect UUIDs for details verification before any local writes.
+     * The EDRPOU list may contain requests from multiple legal entities.
      *
      * @return list<string>
      */
@@ -338,8 +321,8 @@ class EmployeeRequestProcessor
 
         $requestUuids = [];
         foreach ($eHealthData as $data) {
-            $remoteEntity = $data['legal_entity_uuid'] ?? $data['legal_entity_id'] ?? null;
-            if ($remoteEntity !== null && strtolower((string) $remoteEntity) !== strtolower($legalEntity->uuid)) {
+            $remoteEntityUuid = $data['legal_entity_uuid'] ?? $data['legal_entity_id'] ?? null;
+            if ($remoteEntityUuid !== null && strtolower((string) $remoteEntityUuid) !== strtolower($legalEntity->uuid)) {
                 continue;
             }
 

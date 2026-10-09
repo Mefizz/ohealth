@@ -12,7 +12,6 @@ use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
-use App\Services\Employee\EmployeeLegalEntityGuard;
 use App\Traits\FormTrait;
 use Gate;
 use Livewire\Attributes\Computed;
@@ -184,12 +183,6 @@ abstract class EmployeeComponent extends Component
 
             $validatedData = $response->validate();
 
-            app(EmployeeLegalEntityGuard::class)->assertRemote([
-                'legal_entity_id' => data_get($response->getData(), 'legal_entity.id'),
-                'id' => data_get($response->getData(), 'id'),
-                'division_id' => data_get($response->getData(), 'division.id'),
-            ], legalEntity(), $employee->uuid);
-
             // 3. Database Update via Repository
             // We use app() helper to resolve the repository
             Repository::employee()->updateDetails(
@@ -239,7 +232,6 @@ abstract class EmployeeComponent extends Component
     protected function actualizePendingRequests(Employee $employee, string $token): void
     {
         $pendingRequests = EmployeeRequest::query()
-            ->forLegalEntity(legalEntity())
             ->where('employee_id', $employee->id)
             ->pendingEhealth()
             ->get();
@@ -248,23 +240,19 @@ abstract class EmployeeComponent extends Component
             return;
         }
 
-        $legalEntityGuard = app(EmployeeLegalEntityGuard::class);
-
         foreach ($pendingRequests as $request) {
             try {
                 // Fetch specific request status from eHealth by UUID
                 $response = EHealth::employeeRequest()
                     ->withToken($token)
-                    ->getDetails($request->uuid);
+                    ->getMany(['id' => $request->uuid]);
 
                 $data = $response->validate();
-                $remoteRequestData = $data;
+                $remoteRequestData = $data[0] ?? null;
 
                 if (!$remoteRequestData) {
                     continue;
                 }
-
-                $legalEntityGuard->assertRemote($remoteRequestData, legalEntity(), $request->uuid);
 
                 $remoteStatus = $remoteRequestData['status'] ?? null;
 

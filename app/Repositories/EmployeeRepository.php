@@ -29,21 +29,10 @@ readonly class EmployeeRepository
      */
     public function createEmployeeRequestDraft(array $employeeRequestData, LegalEntity $legalEntity, ?Employee $employee = null): EmployeeRequest
     {
-        $employeeId = $employee?->id ?? $employeeRequestData['employee_id'] ?? null;
-        if ($employeeId !== null && !Employee::where('legal_entity_id', $legalEntity->id)->whereKey($employeeId)->exists()) {
-            throw new \UnexpectedValueException('Draft employee belongs to another legal entity.');
-        }
-
-        $divisionId = $employeeRequestData['division_id'] ?? null;
-        if ($divisionId !== null && !\App\Models\Division::where('legal_entity_id', $legalEntity->id)->whereKey($divisionId)->exists()) {
-            throw new \UnexpectedValueException('Draft division belongs to another legal entity.');
-        }
-
         $employeeRequest = new EmployeeRequest();
         $employeeRequest->fill($employeeRequestData);
         $employeeRequest->status = RequestStatus::NEW;
         $employeeRequest->legalEntity()->associate($legalEntity);
-        $employeeRequest->legal_entity_uuid = $legalEntity->uuid;
 
         if ($employee) {
             $employeeRequest->employee()->associate($employee);

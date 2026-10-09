@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Party;
 
 use AllowDynamicProperties;
+use App\Enums\Status;
 use App\Livewire\Employee\AbstractEmployeeFormManager;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
@@ -21,9 +22,6 @@ class PartyEdit extends AbstractEmployeeFormManager
     #[Locked]
     public ?int $partyId = null;
 
-    #[Locked]
-    public ?int $employeeId = null;
-
     public function mount(LegalEntity $legalEntity, Party $party): void
     {
         $this->loadDictionaries();
@@ -35,17 +33,13 @@ class PartyEdit extends AbstractEmployeeFormManager
         // Fetch the latest employee record strictly within the current Legal Entity
         $employee = $party->employees()
             ->where('legal_entity_id', $legalEntity->id)
-            ->active()
             ->latest('start_date')
-            ->firstOrFail();
-
-        $this->employeeId = $employee->id;
+            ->first();
 
         // MERGE STRATEGY
         $existingDraft = null;
         if ($employee) {
             $existingDraft = EmployeeRequest::where('employee_id', $employee->id)
-                ->forLegalEntity($legalEntity)
                 ->whereNull('uuid')
                 ->whereNull('applied_at')
                 ->latest()
@@ -90,9 +84,8 @@ class PartyEdit extends AbstractEmployeeFormManager
     protected function handleDraftPersistence(): EmployeeRequest
     {
         $employee = $this->party->employees()
-            ->where('legal_entity_id', legalEntity()->id)
-            ->active()
-            ->whereKey($this->employeeId)
+            ->where('status', '!=', Status::DISMISSED->value)
+            ->latest('start_date')
             ->firstOrFail();
 
         $preparedData = $this->form->getPreparedData();
@@ -113,7 +106,7 @@ class PartyEdit extends AbstractEmployeeFormManager
         ];
 
         if ($this->employeeRequestId) {
-            $existingRequest = EmployeeRequest::forLegalEntity(legalEntity())->where('employee_id', $employee->id)->findOrFail($this->employeeRequestId);
+            $existingRequest = EmployeeRequest::find($this->employeeRequestId);
             if ($existingRequest && is_null($existingRequest->uuid)) {
                 $existingRequest->fill($employeeRequestData)->save();
                 $existingRequest->revision?->update(['data' => $nestedDataForRevision]);

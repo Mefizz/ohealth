@@ -20,7 +20,6 @@ use App\Models\User;
 use App\Notifications\EmployeeSyncCompleted;
 use App\Notifications\SyncNotification;
 use App\Repositories\Repository;
-use App\Services\Employee\EmployeeLegalEntityGuard;
 use App\Services\Party\PartyVerificationCache;
 use App\Models\Relations\Party;
 use App\Traits\BatchLegalEntityQueries;
@@ -604,7 +603,7 @@ class EmployeeIndex extends EmployeeComponent
             return;
         }
 
-        $employees = app(EmployeeLegalEntityGuard::class)->prepareEmployeeBatch($response->validate(), $this->legalEntity);
+        $employees = $response->validate();
         data_forget($employees, '*.party');
         data_forget($employees, '*.doctor');
         data_fill($employees, '*.legal_entity_id', legalEntity()->id);

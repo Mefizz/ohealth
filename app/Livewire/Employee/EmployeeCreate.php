@@ -38,7 +38,7 @@ class EmployeeCreate extends AbstractEmployeeFormManager
         }
 
         if ($this->employeeRequestId) {
-            $existingRequest = EmployeeRequest::forLegalEntity(legalEntity())->findOrFail($this->employeeRequestId);
+            $existingRequest = EmployeeRequest::find($this->employeeRequestId);
 
             // Ensure we are only updating an unsigned draft
             if ($existingRequest && is_null($existingRequest->uuid)) {
@@ -67,7 +67,7 @@ class EmployeeCreate extends AbstractEmployeeFormManager
     protected function getEmployeeRequestForSave(): ?EmployeeRequest
     {
         if (!empty($this->employeeRequestId)) {
-            return EmployeeRequest::forLegalEntity(legalEntity())->findOrFail($this->employeeRequestId);
+            return EmployeeRequest::find($this->employeeRequestId);
         }
 
         return null;

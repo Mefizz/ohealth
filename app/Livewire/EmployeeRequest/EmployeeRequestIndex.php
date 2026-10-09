@@ -144,7 +144,7 @@ class EmployeeRequestIndex extends EmployeeComponent
         Log::info("[SyncOne] Started for Request ID: {$requestId}");
 
         $localRequest = EmployeeRequest::with(['revision', 'employee', 'party', 'division'])
-            ->forLegalEntity(legalEntity())
+            ->whereLegalEntityId(legalEntity()->id)
             ->find($requestId);
 
         if (!$localRequest) {
@@ -367,7 +367,9 @@ class EmployeeRequestIndex extends EmployeeComponent
     {
         return EmployeeRequest::query()
             ->with(['party', 'division', 'revision'])
-            ->forLegalEntity(legalEntity())
+            ->whereLegalEntityId(legalEntity()->id)
+            ->where(fn ($query) => $query->whereNull('legal_entity_uuid')
+                ->orWhere('legal_entity_uuid', legalEntity()->uuid))
             ->whereHas('revision')
             ->when($this->search, fn ($query) => $query->searchByFullName($this->search))
             ->when($this->status !== '', function ($query) {

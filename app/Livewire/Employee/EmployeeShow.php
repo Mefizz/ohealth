@@ -47,7 +47,7 @@ class EmployeeShow extends EmployeeComponent
     public function boot(): void
     {
         if ($this->employeeId) {
-            $this->employee = Employee::where('legal_entity_id', legalEntity()->id)->findOrFail($this->employeeId);
+            $this->employee = Employee::findOrFail($this->employeeId);
         }
     }
 
@@ -152,8 +152,8 @@ class EmployeeShow extends EmployeeComponent
     {
         $partyExistingPositions = null;
         if ($this->employee->party) {
-            $partyExistingPositions = $this->employee->party->employees()->where('legal_entity_id', legalEntity()->id)->with('division')->get()
-                ->merge($this->employee->party->employeeRequests()->forLegalEntity(legalEntity())->with('division')->get());
+            $this->employee->party->loadMissing(['employees.division', 'employeeRequests.division']);
+            $partyExistingPositions = $this->employee->party->employees->merge($this->employee->party->employeeRequests);
         }
 
         return view('livewire.employee.employee-show', [

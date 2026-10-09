@@ -17,7 +17,7 @@ class EmployeeCreateTaxIdCollectionTest extends TestCase
     #[Test]
     public function collect_tax_ids_includes_every_pending_request_not_only_the_first(): void
     {
-        $listener = $this->app->make(EmployeeCreate::class);
+        $listener = new EmployeeCreate();
         $method = new ReflectionMethod(EmployeeCreate::class, 'collectTaxIds');
 
         $first = new EmployeeRequest();
@@ -39,7 +39,7 @@ class EmployeeCreateTaxIdCollectionTest extends TestCase
     #[Test]
     public function collect_tax_ids_skips_empty_and_duplicates(): void
     {
-        $listener = $this->app->make(EmployeeCreate::class);
+        $listener = new EmployeeCreate();
         $method = new ReflectionMethod(EmployeeCreate::class, 'collectTaxIds');
 
         $withTax = new EmployeeRequest();

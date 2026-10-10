@@ -1,4 +1,5 @@
 name: Azure OpenAI PR review
+run-name: 'Azure review · PR #${{ github.event.pull_request.number || inputs.pull_request_number }}'
 
 on:
   pull_request_target:
@@ -10,21 +11,43 @@ on:
         description: Open PR number to review
         required: true
         type: string
+      expected_head_sha:
+        description: Commit from the automatic PR event (leave empty for manual runs)
+        required: false
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: azure-review-${{ github.event.pull_request.number || inputs.pull_request_number }}
+  group: azure-review-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pull_request_number }}
   cancel-in-progress: true
 
 jobs:
+  dispatch-review:
+    # PR events have a different OIDC subject. Queue a main-branch run without Azure access.
+    if: >-
+      github.repository == 'openhealths/nationHealth' && github.ref == 'refs/heads/main' &&
+      github.event_name == 'pull_request_target' && !github.event.pull_request.draft &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Queue trusted main review for this PR commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh workflow run azure-openai-review.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f pull_request_number="$PR_NUMBER" -f expected_head_sha="$EXPECTED_HEAD_SHA"
+
   review:
     # Only trusted main code runs with Azure credentials. Fork code is fetched as JSON patches.
     if: >-
       github.repository == 'openhealths/nationHealth' && github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
-      (!github.event.pull_request.draft &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)))
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -36,8 +59,8 @@ jobs:
       AZURE_CORE_OUTPUT: none
       AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
-      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
-      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+      EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Load the trusted review script from main

@@ -8,6 +8,8 @@ Workflow `.github/workflows/azure-openai-review.yml` надсилає текст
 - Вручну: Actions → Azure OpenAI PR review → Run workflow, вибрати `main`, вказати номер відкритого PR. Так можна перевірити вже наявний PR або PR зовнішнього автора.
 - Draft і закриті PR пропускаються. PR в інші гілки не аналізуються.
 
+Подія `pull_request_target` лише ставить завдання на рев’ю через `workflow_dispatch` з `ref: main` і номером/head SHA PR. Цей dispatcher має тільки `actions: write`, не отримує Azure-токен і не завантажує код PR. Аналіз виконується в окремому запуску `workflow_dispatch` на довіреному `main`: його OIDC subject відповідає вже налаштованому federated credential `repo:openhealths/nationHealth:ref:refs/heads/main`. Прямий Azure Login із події PR мав би subject `repo:openhealths/nationHealth:pull_request` і завершувався б AADSTS700213. Запуск на `main` повторно звіряє очікуваний head; застаріле завдання пропускається. Ручний запуск використовує той самий шлях; поле `expected_head_sha` можна залишити порожнім. Dispatch і аналіз мають окремі concurrency-групи, щоб запуск аналізу не скасовував власний dispatcher.
+
 ## Що відбувається
 
 У PR в секції перевірок і на вкладці **Checks** з’являється `Azure OpenAI PR review`, прив’язаний до head commit PR. Статус реєструється до Azure Login: спочатку «Рев’ю взято в роботу», далі «Виконується: порція N із M», після публікації коментаря — «Рев’ю завершено: зауважень N». Деталі містять прогрес і посилання на запуск Actions. Підсумковий коментар явно позначений «✅ Рев’ю завершено» й містить deployment моделі та посилання на запуск.

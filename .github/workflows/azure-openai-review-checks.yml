@@ -1,0 +1,35 @@
+name: Azure review script checks
+
+on:
+  pull_request:
+    paths:
+      - .github/scripts/azure-openai-review.php
+      - .github/tests/azure-openai-review-test.php
+      - .github/workflows/azure-openai-review*.yml
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/azure-openai-review.php
+      - .github/tests/azure-openai-review-test.php
+      - .github/workflows/azure-openai-review*.yml
+
+permissions:
+  contents: read
+
+jobs:
+  script-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code for checks without cloud credentials
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Check PHP runtime and syntax
+        run: |
+          php --version
+          php -r 'exit(extension_loaded("curl") && extension_loaded("mbstring") ? 0 : 1);'
+          php -l .github/scripts/azure-openai-review.php
+          php -l .github/tests/azure-openai-review-test.php
+      - name: Verify review behavior without network access
+        run: php .github/tests/azure-openai-review-test.php

@@ -53,7 +53,7 @@ function simulateReview(array $options = []): array
         if ($method === 'GET' && str_ends_with($url, '/pulls/123')) {
             $prReads++;
 
-            return $prReads > 1 ? array_replace_recursive($pr, $options['currentPr'] ?? []) : $pr;
+            return $prReads > 1 && $modelCalls > 0 ? array_replace_recursive($pr, $options['currentPr'] ?? []) : $pr;
         }
         if (in_array($method, ['POST', 'PATCH'], true) && str_contains($url, '/comments')) {
             $published[] = ['method' => $method, 'url' => $url, 'body' => $payload['body']];
@@ -114,8 +114,8 @@ $files = [];
 for ($index = 0; $index < 25; $index++) {
     $files[] = ['filename' => "app/File$index.php", 'status' => 'added', 'patch' => "@@ -0,0 +1 @@\n+example"];
 }
-check(count(reviewDiffs($files)) === 20, 'Review must respect its file limit');
-check(reviewDiffs([['filename' => 'app/Huge.php', 'status' => 'added', 'patch' => str_repeat('x', 60001)]]) === [], 'Oversized patches must be skipped as a whole');
+check(count(reviewDiffs($files)) === 25, 'Review must not silently omit files after the twentieth');
+check(reviewBatches(reviewDiffs([['filename' => 'app/Huge.php', 'status' => 'added', 'patch' => str_repeat('x', 60001)]]))['skippedLines'] === 1, 'An indivisible fragment must be reported');
 check(!str_contains(reviewText('@team [link](https://example.com)', 200), '@team'), 'Model output must not notify mentioned users');
 
 $result = simulateReview(['repository' => 'attacker/fork']);
@@ -125,4 +125,34 @@ check($result['failure'] !== null && $result['modelCalls'] === 0, 'Another ref m
 $result = simulateReview(['number' => '123/../456']);
 check($result['failure'] !== null && $result['modelCalls'] === 0, 'PR input must not change the API path');
 
-echo "16 review safety and behavior checks passed.\n";
+$result = simulateReview(['files' => $files, 'findings' => [], 'pr' => ['changed_files' => 25]]);
+check($result['failure'] === null && str_contains($result['published'][0]['body'], '25 із 25'), 'All 25 eligible files must be reviewed and reported');
+
+$prioritized = reviewDiffs([
+    ['filename' => 'resources/view.php', 'status' => 'modified', 'patch' => '+view'],
+    ['filename' => 'routes/web.php', 'status' => 'modified', 'patch' => '+route'],
+    ['filename' => 'app/Action.php', 'status' => 'modified', 'patch' => '+action'],
+    ['filename' => 'database/change.php', 'status' => 'modified', 'patch' => '+schema'],
+]);
+check(array_keys($prioritized) === ['app/Action.php', 'database/change.php', 'routes/web.php', 'resources/view.php'], 'Backend logic must precede frontend paths');
+
+$largeLines = [];
+for ($index = 1; $index <= 2000; $index++) {
+    $largeLines[] = '+'.str_repeat('a', 40).$index;
+}
+$largePatch = "@@ -0,0 +1,2000 @@\n".implode("\n", $largeLines);
+$parts = reviewPatchParts($largePatch);
+check(count($parts['patches']) > 1 && $parts['skippedLines'] === 0, 'Large valid hunks must be split rather than discarded');
+$visibleLines = [];
+foreach ($parts['patches'] as $part) {
+    check(strlen($part) <= 60000, 'A split part exceeded the request size');
+    $visibleLines += reviewLines($part);
+}
+check(count($visibleLines) === 2000 && isset($visibleLines[1], $visibleLines[2000]), 'Splitting must preserve every new-side line number');
+$result = simulateReview(['files' => [['filename' => 'app/Large.php', 'status' => 'added', 'patch' => $largePatch]], 'findings' => []]);
+check($result['failure'] === null && $result['modelCalls'] > 1 && count($result['published']) === 1, 'Multiple model calls must produce one final comment');
+$result = simulateReview(['files' => [['filename' => 'app/Large.php', 'status' => 'added', 'patch' => $largePatch]],
+    'findings' => [], 'currentPr' => ['head' => ['sha' => str_repeat('c', 40)]]]);
+check($result['modelCalls'] === 1 && $result['published'] === [], 'A head change must stop the remaining batches without publishing partial results');
+
+echo "22 review safety and behavior checks passed.\n";

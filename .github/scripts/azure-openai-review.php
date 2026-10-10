@@ -79,13 +79,21 @@ function reviewPages(string $url, callable $request): array
     return $items;
 }
 
+function reviewKeyFile(string $path): bool
+{
+    return preg_match('~(^|/)id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?(?:$|\.(?!pub$))|\.(?:pem|key|ppk|p12|pfx|jks|keystore)$~i', $path) === 1;
+}
+
 function reviewDiffs(array $files): array
 {
     $selected = [];
     foreach ($files as $file) {
         $path = $file['filename'];
         $patch = $file['patch'] ?? '';
-        if ($patch === '' || preg_match('~(^|/)(vendor|node_modules|build)/|(^|/)\.env(?!\.example$)|\.(lock|pem|key)$|(^|/)package-lock\.json$~', $path)) {
+        $containsKeyMaterial = preg_match('~-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----|^[-+ ]?PuTTY-User-Key-File-\d+:~m', $patch) === 1;
+        if ($patch === '' || reviewKeyFile($path) || reviewKeyFile($file['previous_filename'] ?? '')
+            || $containsKeyMaterial
+            || preg_match('~(^|/)(vendor|node_modules|build)/|(^|/)\.env(?!\.example$)|\.lock$|(^|/)package-lock\.json$~', $path)) {
             continue;
         }
         $selected[$path] = ['path' => $path, 'status' => $file['status'], 'patch' => $patch];

@@ -110,6 +110,29 @@ check($result['published'][0]['method'] === 'PATCH', 'A later head should update
 $result = simulateReview(['files' => [['filename' => '.env', 'status' => 'modified', 'patch' => '+SECRET=example']]]);
 check($result['modelCalls'] === 0 && str_contains($result['published'][0]['body'], 'Немає доступних'), 'Secret files must not be sent to the model');
 
+$keyPaths = ['id_rsa', '.ssh/id_ed25519', 'keys/id_dsa', 'keys/id_ecdsa', 'keys/id_ed25519_sk',
+    'keys/id_rsa.backup', 'private.pem', 'private.KEY', 'client.ppk', 'client.p12', 'client.PFX', 'client.jks', 'client.keystore'];
+foreach ($keyPaths as $keyPath) {
+    $result = simulateReview(['files' => [['filename' => $keyPath, 'status' => 'added', 'patch' => '+synthetic key fixture']]]);
+    check($result['failure'] === null && $result['modelCalls'] === 0, 'Private-key path reached the model: '.$keyPath);
+}
+
+$result = simulateReview(['files' => [['filename' => 'keys/renamed.txt', 'previous_filename' => '.ssh/id_rsa',
+    'status' => 'renamed', 'patch' => '+synthetic renamed fixture']]]);
+check($result['modelCalls'] === 0, 'Renaming a private-key file must not bypass its exclusion');
+
+foreach (['-----BEGIN PRIVATE KEY-----', '-----BEGIN RSA PRIVATE KEY-----', '-----BEGIN ENCRYPTED PRIVATE KEY-----',
+    'PuTTY-User-Key-File-3: ssh-ed25519'] as $keyHeader) {
+    $result = simulateReview(['files' => [['filename' => 'keys/custom-name.txt', 'status' => 'added', 'patch' => '+'.$keyHeader]]]);
+    check($result['modelCalls'] === 0, 'Recognizable private-key material reached the model');
+}
+$allowedFiles = reviewDiffs([
+    ['filename' => '.env.example', 'status' => 'added', 'patch' => '+EXAMPLE=value'],
+    ['filename' => '.ssh/id_ed25519.pub', 'status' => 'added', 'patch' => '+synthetic public key'],
+    ['filename' => 'app/KeyService.php', 'status' => 'added', 'patch' => '+application logic'],
+]);
+check(count($allowedFiles) === 3, 'Key filtering must preserve public keys, env examples and ordinary application code');
+
 $files = [];
 for ($index = 0; $index < 25; $index++) {
     $files[] = ['filename' => "app/File$index.php", 'status' => 'added', 'patch' => "@@ -0,0 +1 @@\n+example"];
@@ -155,4 +178,4 @@ $result = simulateReview(['files' => [['filename' => 'app/Large.php', 'status' =
     'findings' => [], 'currentPr' => ['head' => ['sha' => str_repeat('c', 40)]]]);
 check($result['modelCalls'] === 1 && $result['published'] === [], 'A head change must stop the remaining batches without publishing partial results');
 
-echo "22 review safety and behavior checks passed.\n";
+echo "25 review safety and behavior checks passed.\n";

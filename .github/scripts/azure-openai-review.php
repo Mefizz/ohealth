@@ -435,23 +435,26 @@ PROMPT;
 
         return;
     }
-    $body = REVIEW_MARKER."\n".$fingerprint."\n### Azure OpenAI: рев’ю змін\n\n";
+    $body = REVIEW_MARKER."\n".$fingerprint."\n### Azure OpenAI: код-рев’ю\n\n";
     $body .= "**✅ Рев’ю завершено.** Модель: `".reviewText($deployment, 100)."`.\n\n";
+    $body .= 'Переглянуто **'.count($reviewedPaths).' із '.$pr['changed_files']." файлів**.\n\n";
+    $body .= 'Commit: [`'.substr($headSha, 0, 7).'`](https://github.com/'.REVIEW_REPOSITORY.'/commit/'.$headSha.').';
     if (reviewRunUrl() !== '') {
-        $body .= '[Деталі запуску]('.reviewRunUrl().")\n\n";
+        $body .= ' [Запуск]('.reviewRunUrl().').';
     }
-    $body .= 'Commit: `'.$headSha.'`. Переглянуто '.count($reviewedPaths).' із '.$pr['changed_files'].
-        ' змінених файлів, запитів до моделі: '.count($plan['batches']).".\n\n";
-    $body .= "Ліміту кількості файлів немає. Першими аналізуються `app/`, `database/`, `routes/`, `tests/`.\n\n";
+    $body .= "\n\n";
     if ($findings === []) {
-        $body .= $reviewedPaths === [] ? "Немає доступних текстових змін для аналізу.\n" : "У переглянутих змінах модель не виявила явних помилок рівня P1/P2.\n";
+        $body .= $reviewedPaths === [] ? "Немає доступних змін для перевірки.\n" : "Зауважень немає.\n";
+    } else {
+        $body .= '### Зауваження ('.count($findings).")\n\n";
     }
     uasort($findings, static fn (array $first, array $second): int => $first['priority'] <=> $second['priority']);
     $shownFindings = 0;
     foreach ($findings as $finding) {
         $path = implode('/', array_map('rawurlencode', explode('/', $finding['path'])));
         $url = 'https://github.com/'.REVIEW_REPOSITORY."/blob/$headSha/$path#L".$finding['line'];
-        $entry = '- **['.$finding['priority'].'] '.reviewText($finding['title'], 200)."** — [код]($url)\n\n";
+        $entry = '- **['.$finding['priority'].'] '.reviewText($finding['title'], 200).
+            '** — ['.reviewText($finding['path'], 250).':'.$finding['line']."]($url)\n\n";
         $entry .= '  '.reviewText($finding['explanation'], 1800)."\n\n";
         if (strlen($body) + strlen($entry) > 55_000) {
             break;
@@ -460,18 +463,17 @@ PROMPT;
         $shownFindings++;
     }
     if ($shownFindings < count($findings)) {
-        $body .= "\nЧерез розмір коментаря показано ".$shownFindings.' із '.count($findings)." висновків.\n";
+        $body .= "\nПоказано зауважень: ".$shownFindings.' із '.count($findings).".\n";
     }
     if ($plan['skippedLines'] > 0) {
-        $body .= "\nПропущено наддовгих рядків/неподільних фрагментів: ".$plan['skippedLines'].".\n";
+        $body .= "\nПропущено фрагментів: ".$plan['skippedLines'].".\n";
     }
-    $body .= "\nАналіз виконується порціями patches до 60 000 байтів і 6000 токенів відповіді на запит. Бінарні/недоступні patches, lock-файли та файли ключів пропускаються. Модель не бачить повного контексту між порціями. Це рекомендації AI для перевірки людиною. Тести не запускалися; approval не надається.\n";
     $method = $comment === null ? 'POST' : 'PATCH';
     $url = $comment === null ? "$api/issues/$number/comments" : "$api/issues/comments/".$comment['id'];
     $request($method, $url, ['body' => $body]);
     reviewCheck($request, 'Рев’ю завершено: зауважень '.count($findings),
         'Переглянуто '.count($reviewedPaths).' із '.$pr['changed_files'].' файлів. Порцій: '.$batchCount.
-        '. Зауважень: '.count($findings).'. Результат опублікований у коментарі PR. Це завершення аналізу, не approval чи результат тестів.',
+        '. Зауважень: '.count($findings).'. Результат опублікований у коментарі PR.',
         $reviewedPaths === [] ? 'neutral' : 'success', $body);
     echo 'Review comment published; findings: '.count($findings).".\n";
     $summary = getenv('GITHUB_STEP_SUMMARY');

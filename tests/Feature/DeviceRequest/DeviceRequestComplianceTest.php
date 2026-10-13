@@ -327,6 +327,63 @@ class DeviceRequestComplianceTest extends TestCase
         $this->assertSame($data['encounter_uuid'], $prepared['payload']['encounter']['identifier']['value']);
     }
 
+    public static function requestsWithoutProgram(): array
+    {
+        return [
+            'null program, type' => [['program_id' => null], false],
+            'empty program, type' => [['program_id' => ''], false],
+            'missing program, type' => [[], false],
+            'null program, model' => [['program_id' => null], true],
+            'empty program, model' => [['program_id' => ''], true],
+            'missing program, model' => [[], true],
+        ];
+    }
+
+    #[DataProvider('requestsWithoutProgram')]
+    public function test_request_without_program_reaches_prequalify_without_program_or_quantity(array $programData, bool $byModel): void
+    {
+        [, $data] = $this->preparation();
+        unset($data['program_id']);
+        $data = array_replace($data, $programData);
+        $modelId = (string) Str::uuid();
+        if ($byModel) {
+            $data['device_code_type'] = 'DEVICE_DEFINITION';
+            $data['device_id'] = $modelId;
+        }
+        $service = $this->service();
+        $service->shouldNotReceive('program');
+        $service->shouldReceive('encounter')->once()->andReturn(new Encounter());
+        $service->shouldReceive('authMethods')->once()->andReturn([]);
+        $service->shouldReceive('permittedTypes')->once()->with(false)->andReturn(['assistive_devices|test' => []]);
+        $service->shouldReceive('dictionary')->once()->with('device_request_code_parameter')->andReturn([]);
+        $definitions = Mockery::mock(DeviceDefinition::class);
+        if ($byModel) {
+            $definitions->shouldReceive('getById')->once()->with($modelId)->andReturn($this->response([
+                'id' => $modelId, 'is_active' => true, 'classification_types' => [['system' => 'assistive_devices', 'code' => 'test']],
+            ]));
+        }
+        $definitions->shouldReceive('getMany')->once()->with([
+            'classification_type_system' => 'assistive_devices', 'classification_type_code' => 'test',
+            'medical_program_id' => null, 'is_active' => true, 'page' => 1,
+        ])->andReturn($this->response([], paging: ['page_number' => 1, 'total_pages' => 1]));
+        $this->instance(DeviceDefinition::class, $definitions);
+        $configuration = Mockery::mock(Configuration::class);
+        $configuration->shouldReceive('getDevices')->once()->andReturn($this->response([], paging: ['page_number' => 1, 'total_pages' => 1]));
+        $configuration->shouldReceive('getDeviceParameters')->once()->andReturn($this->response([], paging: ['page_number' => 1, 'total_pages' => 1]));
+        $this->instance(Configuration::class, $configuration);
+        $api = Mockery::mock(DeviceRequestApi::class);
+        $api->shouldReceive('prequalify')->once()->withArgs(static fn (string $patientId, array $payload): bool =>
+            $patientId !== '' && !isset($payload['programs']) && !isset($payload['device_request']['quantity']))
+            ->andReturn($this->response([['status' => 'VALID']]));
+        $this->instance(DeviceRequestApi::class, $api);
+        $prepared = $service->prepare($this->person, $this->legalEntity, $data);
+        $this->assertSame('', $prepared['data']['program_id']);
+        $this->assertNull($prepared['data']['quantity']);
+        $this->assertArrayNotHasKey('program', $prepared['payload']);
+        $this->assertArrayNotHasKey('quantity', $prepared['payload']);
+        $this->assertArrayHasKey($byModel ? 'code_reference' : 'code', $prepared['payload']);
+    }
+
     public function test_current_device_configs_produce_all_packaging_and_typed_parameters(): void
     {
         $programId = (string) Str::uuid();

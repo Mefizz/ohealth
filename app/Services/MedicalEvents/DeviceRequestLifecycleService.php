@@ -319,6 +319,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             'reason_reference.*.type' => ['required', 'in:condition,observation,diagnostic_report'],
             'reason_reference.*.uuid' => ['required', 'uuid'], 'parameter_values' => ['nullable', 'array'],
         ])->validate();
+        $data['program_id'] ??= '';
         $this->encounter($person, $employee, $data['encounter_uuid']);
         $options = $this->prescribingOptions($data);
         $period = $this->occurrenceDates($data);

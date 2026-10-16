@@ -11,11 +11,13 @@ use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\Person\Person;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use App\Services\MedicalEvents\EHealthJobResolver;
+use App\Services\Dictionary\DictionaryManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
@@ -75,15 +77,22 @@ class DeviceRequestForm extends Component
         $this->encounters = $person->encounters()->with(['period', 'performer'])->whereStatus('finished')->get()
             ->filter(fn ($encounter): bool => $encounter->performer?->value === $employee->uuid
                 && $encounter->period?->end && CarbonImmutable::parse($encounter->period->end)->isToday())
-            ->map(fn ($encounter): array => ['uuid' => $encounter->uuid, 'label' => $encounter->period->end.' · '.$encounter->uuid])->values()->all();
+            ->map(fn ($encounter): array => ['id' => $encounter->id, 'uuid' => $encounter->uuid, 'label' => $encounter->period->end.' · №'.$encounter->id])->values()->all();
         $this->request['encounter_uuid'] = $this->encounters[0]['uuid'] ?? '';
         try {
             if (request()->filled('encounter')) {
-                $encounterUuid = request()->string('encounter')->toString();
+                $this->request['encounter_uuid'] = '';
+                $validated = Validator::make(['encounter' => request()->query('encounter')], ['encounter' => 'required|integer|min:1'])->validate();
+                $encounter = collect($this->encounters)->firstWhere('id', (int) $validated['encounter']);
+                if ($encounter === null) {
+                    throw ValidationException::withMessages(['encounter' => __('device-requests.messages.encounter_unavailable')]);
+                }
+                $encounterUuid = $encounter['uuid'];
                 $service->encounter($person, $employee, $encounterUuid);
                 $this->request['encounter_uuid'] = $encounterUuid;
             }
-            $this->programs = $service->collectPages(fn (int $page) => EHealth::medicalProgram()->getMany(['type' => 'DEVICE', 'is_active' => true, 'page' => $page]));
+            $this->programs = app(DictionaryManager::class)->medicalPrograms()
+                ->where('type', 'DEVICE')->where('is_active', true)->values()->all();
             $this->authMethods = $service->authMethods($person);
             $default = collect($this->authMethods)->firstWhere('type', 'OTP') ?? ($this->authMethods[0] ?? []);
             $this->request['inform_with'] = $default['id'] ?? '';

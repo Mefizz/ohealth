@@ -103,7 +103,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     public function program(string $id, bool $requireActive = true): array
     {
-        $program = EHealth::medicalProgram()->getById($id)->getData();
+        $program = EHealth::medicalProgram()->asMis()->getById($id)->getData();
         if (($program['id'] ?? '') !== $id || ($program['type'] ?? '') !== 'DEVICE'
             || ($requireActive && !($program['is_active'] ?? false))) {
             $this->invalid('program_id', 'Медична програма недоступна або неактивна.');

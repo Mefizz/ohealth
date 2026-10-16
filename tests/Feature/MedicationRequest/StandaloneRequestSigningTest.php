@@ -17,6 +17,8 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Cache;
+use App\Services\Dictionary\Dictionaries\MedicalProgramDictionary;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Mockery;
@@ -55,6 +57,8 @@ class StandaloneRequestSigningTest extends TestCase
     {
         parent::setUp();
         $this->mockBasicDictionaries();
+        Cache::put(MedicalProgramDictionary::KEY, [], now()->addDay());
+        Cache::put(MedicalProgramDictionary::KEY.':fresh', true, now()->addDay());
 
         $party = Party::create([
             'uuid' => (string) Str::uuid(),
@@ -253,6 +257,92 @@ class StandaloneRequestSigningTest extends TestCase
             ->assertHasNoErrors();
     }
 
+    private function createDeviceEncounter(\App\Models\Person\Person $person, Employee $employee): \App\Models\MedicalEvents\Sql\Encounter
+    {
+        $encounter = \App\Models\MedicalEvents\Sql\Encounter::create([
+            'uuid' => (string) Str::uuid(), 'person_id' => $person->id, 'status' => 'finished',
+            'episode_id' => \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) Str::uuid()])->id,
+            'performer_id' => \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $employee->uuid])->id,
+            'class_id' => \App\Models\MedicalEvents\Sql\Coding::create(['code' => 'AMB', 'system' => 'eHealth/encounter_classes'])->id,
+            'type_id' => \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id, 'ehealth_inserted_at' => now(),
+        ]);
+        $encounter->period()->create(['start' => now()->subHour()->toIso8601String(), 'end' => now()->toIso8601String()]);
+
+        return $encounter;
+    }
+
+    public function test_device_form_uses_local_encounter_id_and_cached_device_programs(): void
+    {
+        $employee = $this->user->employees()->firstOrFail();
+        $person = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+        $encounter = $this->createDeviceEncounter($person, $employee);
+        $deviceProgram = ['id' => (string) Str::uuid(), 'name' => 'Вироби', 'type' => 'DEVICE', 'is_active' => true];
+        Cache::put(MedicalProgramDictionary::KEY, [$deviceProgram, ['id' => (string) Str::uuid(), 'name' => 'Неактивна', 'type' => 'DEVICE', 'is_active' => false],
+            ['id' => (string) Str::uuid(), 'name' => 'Ліки', 'type' => 'MEDICATION', 'is_active' => true]], now()->addDay());
+        $api = Mockery::mock(\App\Classes\eHealth\Api\MedicalProgram::class);
+        $api->shouldNotReceive('getMany');
+        $this->instance(\App\Classes\eHealth\Api\MedicalProgram::class, $api);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class);
+        $service->shouldReceive('authorizeAction')->andReturn($employee);
+        $service->shouldReceive('encounter')->once()->withArgs(fn ($patient, $actor, string $uuid): bool =>
+            $patient->id === $person->id && $actor->id === $employee->id && $uuid === $encounter->uuid)->andReturn($encounter);
+        $service->shouldReceive('authMethods')->andReturn([]);
+        $service->shouldReceive('permittedTypes')->andReturn([]);
+        $this->instance(DeviceRequestLifecycleService::class, $service);
+        Livewire::withQueryParams(['encounter' => $encounter->id])->test(DeviceRequestForm::class, ['legalEntity' => $this->legalEntity, 'person' => $person])
+            ->assertSet('request.encounter_uuid', $encounter->uuid)
+            ->assertSet('programs', [$deviceProgram])
+            ->assertHasNoErrors();
+    }
+
+    public function test_device_form_rejects_encounter_from_another_patient(): void
+    {
+        $employee = $this->user->employees()->firstOrFail();
+        $person = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+        $otherPerson = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'FEMALE']);
+        $this->createDeviceEncounter($person, $employee);
+        $otherEncounter = $this->createDeviceEncounter($otherPerson, $employee);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class);
+        $service->shouldReceive('authorizeAction')->andReturn($employee);
+        $service->shouldNotReceive('encounter');
+        $this->instance(DeviceRequestLifecycleService::class, $service);
+        Livewire::withQueryParams(['encounter' => $otherEncounter->id])->test(DeviceRequestForm::class, ['legalEntity' => $this->legalEntity, 'person' => $person])
+            ->assertSet('request.encounter_uuid', '')
+            ->assertHasErrors(['encounter']);
+    }
+
+    public function test_device_form_requires_local_id_instead_of_uuid_in_query(): void
+    {
+        $employee = $this->user->employees()->firstOrFail();
+        $person = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+        $encounter = $this->createDeviceEncounter($person, $employee);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class);
+        $service->shouldReceive('authorizeAction')->andReturn($employee);
+        $service->shouldNotReceive('encounter');
+        $this->instance(DeviceRequestLifecycleService::class, $service);
+        Livewire::withQueryParams(['encounter' => $encounter->uuid])->test(DeviceRequestForm::class, ['legalEntity' => $this->legalEntity, 'person' => $person])
+            ->assertSet('request.encounter_uuid', '')
+            ->assertHasErrors(['encounter']);
+    }
+
+    public function test_encounter_device_request_link_uses_local_id(): void
+    {
+        $employee = $this->user->employees()->firstOrFail();
+        $person = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+        $encounter = $this->createDeviceEncounter($person, $employee);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class);
+        $service->shouldReceive('authorizeAction')->andReturn($employee);
+        $service->shouldReceive('encounter')->once()->withArgs(fn ($patient, $actor, string $uuid): bool =>
+            $patient->id === $person->id && $uuid === $encounter->uuid)->andReturn($encounter);
+        $this->instance(DeviceRequestLifecycleService::class, $service);
+        $component = new DeviceEncounterLinkHarness();
+        $component->personId = $person->id;
+        $component->encounterId = $encounter->id;
+        $component->encounterUuid = $encounter->uuid;
+        $component->openDeviceRequest();
+        $this->assertSame(route('device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
+    }
+
     public function test_assistant_with_write_scope_cannot_prescribe_devices(): void
     {
         $this->grantMedicalEventAbilities($this->user);
@@ -315,5 +405,15 @@ class StandaloneRequestSigningTest extends TestCase
             ->assertSet('request.ended_at', today()->addDays(5)->toDateString())
             ->assertSet('request.phone_confirmed', false)
             ->assertSet('request.confirmed_phone', '');
+    }
+}
+
+class DeviceEncounterLinkHarness extends \App\Livewire\Encounter\EncounterEdit
+{
+    public string $redirectedUrl = '';
+
+    public function redirect($url, $navigate = false): void
+    {
+        $this->redirectedUrl = (string) $url;
     }
 }

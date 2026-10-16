@@ -14,6 +14,27 @@ use Tests\TestCase;
 
 class DeviceRequestPrescribingTest extends TestCase
 {
+    public function test_fresh_medical_program_details_use_mis_credentials_without_changing_user_token(): void
+    {
+        $programId = (string) \Illuminate\Support\Str::uuid();
+        config(['ehealth.api.domain' => 'https://ehealth.example', 'ehealth.api.mis_token' => 'mis-token',
+            'ehealth.api.mis_api_key' => 'mis-api-key', 'ehealth.api.oauth.bearer_token' => 'userBearer']);
+        session()->put('userBearer', 'doctor-token');
+        Http::fake(['*' => Http::response(['data' => ['id' => $programId, 'type' => 'DEVICE', 'is_active' => true]], 200)]);
+        $factory = Http::getFacadeRoot();
+        $api = new \App\Classes\eHealth\Api\MedicalProgram($factory);
+        $api->stub((function () {
+            return $this->stubCallbacks;
+        })->call($factory));
+        $api->preventStrayRequests();
+        $this->instance(\App\Classes\eHealth\Api\MedicalProgram::class, $api);
+        $program = app(DeviceRequestLifecycleService::class)->program($programId);
+        $this->assertSame($programId, $program['id']);
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ehealth.example/api/medical_programs/'.$programId
+            && $request->hasHeader('Authorization', 'Bearer mis-token') && $request->hasHeader('API-key', 'mis-api-key'));
+        $this->assertSame('doctor-token', session('userBearer'));
+    }
+
     public function test_quantity_may_match_any_available_packaging_variant(): void
     {
         $service = app(DeviceRequestLifecycleService::class);

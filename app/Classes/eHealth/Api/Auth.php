@@ -132,8 +132,7 @@ class Auth extends EHealthRequest
         $validator = Validator::make($response->getData(), [
             'expires_at' => ['required', 'integer'],
             'value' => ['required', 'string'],
-            'details.refresh_token' => ['required', 'string'],
-            'details.scope' => ['sometimes', 'string'],
+            'details.refresh_token' => ['required', 'string']
         ]);
 
         if ($validator->fails()) {

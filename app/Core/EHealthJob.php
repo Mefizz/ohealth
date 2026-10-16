@@ -25,9 +25,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use App\Classes\eHealth\EHealthResponse;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use App\Auth\EHealth\Services\SyncTokenContext;
-use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\EHealth\EHealthTokenScopeException;
 
 abstract class EHealthJob implements ShouldQueue
 {
@@ -60,12 +57,6 @@ abstract class EHealthJob implements ShouldQueue
      * @var string
      */
     protected string $token = '';
-
-    /** @var list<string> */
-    protected array $tokenScopes = [];
-
-    /** @var list<string> */
-    protected array $attemptedTokenHashes = [];
 
     /**
      * The user associated with the job, if has an active session
@@ -105,7 +96,8 @@ abstract class EHealthJob implements ShouldQueue
      */
     public function middleware(): array
     {
-        $this->user = $this->batch()?->options['user'] ?? $this->user;
+        // Ensure the job has a user with an active session
+        $this->user ??= $this->batch()->options['user'];
 
         return $this->getAdditionalMiddleware();
     }
@@ -131,28 +123,8 @@ abstract class EHealthJob implements ShouldQueue
         }
 
         $this->token = Crypt::decryptString($this->batch()->options['token'] ?? '');
-        $scopes = $this->batch()?->options['tokenScopes'] ?? ($this->tokenScopes ?: null);
-        $this->tokenScopes = is_array($scopes) ? $scopes : (
-            $this->user ? (app(SyncTokenContext::class)->find($this->user, $this->legalEntity, token: $this->token)['scopes'] ?? []) : []
-        );
 
-        if (!$this->canRunWithScopes($this->tokenScopes)) {
-            $this->fail(new EHealthTokenScopeException($this->requiredScope()));
-
-            return;
-        }
-
-        try {
-            $response = $this->sendRequest($this->token);
-        } catch (EHealthResponseException $exception) {
-            if (!$exception->isMissingAllowances()) {
-                throw $exception;
-            }
-
-            $this->fail($exception);
-
-            return;
-        }
+        $response = $this->sendRequest($this->token);
 
         $this->processResponse($response);
 
@@ -163,9 +135,9 @@ abstract class EHealthJob implements ShouldQueue
         // Check if there are more pages to process
         if ($response?->isNotLast()) {
             echo "Scheduling next page job: " . static::BATCH_NAME . " Page: " . $this->page . " Next Page: " . ($this->page + 1) . PHP_EOL;
-            $nextPage = new static(legalEntity: $this->legalEntity, page: $this->page + 1, isFirstLogin: $this->isFirstLogin, nextEntity: $this->nextEntity, standalone: $this->standalone);
-            $nextPage->tokenScopes = $this->tokenScopes;
-            $this->batch()?->add($nextPage->delay(now()->addSeconds(self::RATE_LIMIT_DELAY)));
+            $this->batch()
+                ?->add(new static(legalEntity: $this->legalEntity, page: $this->page + 1, isFirstLogin: $this->isFirstLogin, nextEntity: $this->nextEntity, standalone: $this->standalone)
+                    ->delay(now()->addSeconds(self::RATE_LIMIT_DELAY)));
 
             return;
         }
@@ -190,7 +162,6 @@ abstract class EHealthJob implements ShouldQueue
                 ->name($nextJob::BATCH_NAME)
                 ->withOption('legal_entity_id', $this->legalEntity->id)
                 ->withOption('token', Crypt::encryptString($this->token)) // Passing the same token to the next job
-                ->withOption('tokenScopes', $this->tokenScopes)
                 ->withOption('user', $this->user) // Passing the same user to the next job
                 ->withOption('sync_entity', $syncEntity)
                 ->onQueue('sync')
@@ -202,15 +173,15 @@ abstract class EHealthJob implements ShouldQueue
     public function failed(?Throwable $exception): void
     {
         // It is need because if job is failed the middleware doesn't called
-        $oldUser = $this->batch()?->options['user'] ?? $this->user;
+        $olduser = $this->user ?? ($this->batch()->options['user'] ?? null);
 
         Log::channel('e_health_errors')->error('Sync job failed: ', [
-            'exception' => $exception::class,
+            'EXCEPTION' => $exception::class,
             'message' => $exception->getMessage(),
             'attempts' => $this->attempts(),
-            'batchId' => $this->batch()?->id,
-            'batchName' => static::BATCH_NAME,
-            'userId' => $oldUser?->id,
+            'batch_id' => $this->batch()?->id,
+            'batch_name' => static::BATCH_NAME,
+            'user_id' => $olduser?->id,
         ]);
 
         echo "Job FAILED: " . static::BATCH_NAME . " Exception type: " . $exception::class . " Code: " . $exception->getCode() . " Error: " . $exception->getMessage() . PHP_EOL;
@@ -219,20 +190,17 @@ abstract class EHealthJob implements ShouldQueue
         if (!in_array($exception->getCode(), static::ERR_TO_RETRY, true)) {
             $this->setEntityStatus(JobStatus::FAILED);
 
-            $oldUser?->notify(new SyncNotification('legal_entity', 'failed'));
+            $olduser?->notify(new SyncNotification('legal_entity', 'failed'));
 
             return;
         }
 
-        $this->token = Crypt::decryptString($this->batch()?->options['token'] ?? '');
-        $this->attemptedTokenHashes = array_values(array_unique([
-            ...($this->batch()?->options['attemptedTokenHashes'] ?? []),
-            hash('sha256', $this->token),
-        ]));
-        $this->user = $oldUser ? $this->getUserWithActiveSession($oldUser) : null;
+        $this->user = $this->getUserWithActiveSession($olduser);
         echo "Retrying with new user: " . ($this->user ? $this->user->id : 'No user found') . PHP_EOL;
 
         if ($this->user) {
+            $this->token = $this->getToken();
+
             $reflection = new ReflectionClass(static::class);
 
             $args = [];
@@ -260,8 +228,6 @@ abstract class EHealthJob implements ShouldQueue
                 ->name(name: $retryName)
                 ->withOption('legal_entity_id', $this->legalEntity->id)
                 ->withOption('token', Crypt::encryptString($this->token)) // Passing the same token to the next job
-                ->withOption('tokenScopes', $this->tokenScopes)
-                ->withOption('attemptedTokenHashes', $this->attemptedTokenHashes)
                 ->withOption('user', $this->user)
                 ->withOption('sync_entity', $this->batch()?->options['sync_entity'] ?? null)
                 ->withOption('patient_uuid', $this->batch()?->options['patient_uuid'] ?? null)
@@ -285,8 +251,30 @@ abstract class EHealthJob implements ShouldQueue
 
             // Notifications should be last in the failed() method beacuse it stopped job working
             // TODO: find out why notification stopped job's working
-            $oldUser?->notify(new SyncNotification('legal_entity', 'paused'));
+            $olduser->notify(new SyncNotification('legal_entity', 'paused'));
         }
+    }
+
+    /**
+     * Get authentication token with deferred initialization
+     *
+     * @return string
+     */
+    protected function getToken(): string
+    {
+        if (!$this->user) {
+            return '';
+        }
+
+        $session = DB::table('sessions')->where('user_id', $this->user->id)->first();
+
+        if (!$session) {
+            return '';
+        }
+
+        $payload = unserialize(base64_decode($session->payload));
+
+        return $payload['auth_token'] ?? '';
     }
 
     /**
@@ -350,10 +338,9 @@ abstract class EHealthJob implements ShouldQueue
         setPermissionsTeamId($legalEntity->id);
 
         // Execute complex query to find users matching three criteria
-        $users = User::query()
+        $users = User::with('roles', 'permissions')
             // FIRST CRITERIA: Exclude current user's party from search (if it still logined but if here (error occurs), we need to find another user)
-            ->whereNot('users.id', $user->id)
-            ->when($user->partyId !== null, fn ($query) => $query->whereNot('users.party_id', $user->partyId))
+            ->whereNot('users.party_id', $user->party_id ?? 0)
             // SECOND CRITERIA: User must be employee of this legal entity
             // This uses nested whereHas to check User -> Employee relationship
             // SQL equivalent: EXISTS (SELECT 1 FROM employees WHERE employees.user_id = users.id AND employees.legal_entity_id = ?)
@@ -373,31 +360,19 @@ abstract class EHealthJob implements ShouldQueue
 
         echo "Found " . $users->count() . " users with active sessions for legal entity {$legalEntity->id}" . PHP_EOL;
 
-        foreach ($users as $candidate) {
-            $context = app(SyncTokenContext::class)->find($candidate, $legalEntity, $this->requiredScope(), excludedTokenHashes: $this->attemptedTokenHashes);
+        // $users here is a Collection of User models. $userKey is the key/index of the first user that has the required scope/permission
+        $userKey = empty($this->requiredScope())
+            ? $users->keys()->first()
+            : $users->search(fn (User $user) => $user->hasPermissionTo($this->requiredScope(), 'ehealth'));
 
-            if ($context !== null && !hash_equals($this->token, $context['token'])) {
-                $this->token = $context['token'];
-                $this->tokenScopes = $context['scopes'];
-
-                return $candidate;
-            }
-        }
-
-        return null;
+        // If no user found with required scope, return null
+        return $users->get($userKey);
     }
 
-    /** @param list<string> $scopes */
-    public function canRunWithScopes(array $scopes): bool
+    /** Check saved steps without creating or running the next synchronization job. */
+    public function requiresScope(string $scope): bool
     {
-        return $this->requiredScope() === '' || in_array($this->requiredScope(), $scopes, true);
-    }
-
-    public function useUser(User $user): void
-    {
-        $this->user = $user;
-
-        $this->nextEntity?->useUser($user);
+        return $this->requiredScope() === $scope || ($this->nextEntity?->requiresScope($scope) ?? false);
     }
 
     /**

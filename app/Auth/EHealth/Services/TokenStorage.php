@@ -40,9 +40,6 @@ class TokenStorage
         Session::put($this->tokenKey, $tokenData['value']);
         Session::put($this->expiresAtKey, $tokenData['expires_at']);
         Session::put($this->refreshTokenKey, $tokenData['details']['refresh_token']);
-        Session::put(SyncTokenContext::GRANTED_SCOPES_KEY, array_values(array_filter(
-            explode(' ', trim((string) data_get($tokenData, 'details.scope', '')))
-        )));
         Session::save();
     }
 
@@ -115,7 +112,6 @@ class TokenStorage
             $this->expiresAtKey,
             $this->refreshTokenKey,
             $this->tokenScopesKey,
-            SyncTokenContext::GRANTED_SCOPES_KEY,
         ]);
 
         Session::save();
@@ -141,13 +137,7 @@ class TokenStorage
                 $entity->clientSecret,
                 $this->getRefreshToken()
             );
-            $tokenData = $response->validate();
-
-            if (data_get($tokenData, 'details.scope') === null) {
-                $tokenData['details']['scope'] = implode(' ', Session::get(SyncTokenContext::GRANTED_SCOPES_KEY, []));
-            }
-
-            $this->store($tokenData);
+            $this->store($response->validate());
 
             return true;
         } catch (EHealthException|EHealthConnectionException $exception) {

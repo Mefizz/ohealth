@@ -32,12 +32,11 @@ use App\Jobs\EmployeeRequestDetailsUpsert;
 use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Jobs\DeclarationRequestDetailsSync;
 use App\Jobs\PartyVerificationDetailsUpsert;
+use App\Services\Party\PartyVerificationBulkAccess;
+use App\Repositories\EHealthDatabaseBatchRepository;
 use App\Models\Connection as ConnectionModel;
 use App\Models\EhealthJob as EHealthJobModel;
 use App\Models\Relations\AuthenticationMethod;
-use App\Auth\EHealth\Services\SyncTokenContext;
-use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Trait for querying batches by legal_entity_id
@@ -121,46 +120,43 @@ trait BatchLegalEntityQueries
      * @param  User  $user  The user context for the new batch execution
      * @param  string  $token  Encrypted authentication token for API requests
      * @param  LegalEntity|null  $legalEntity  The legal entity context for the batch (optional)
-     * @param  list<string>|null  $scopes  Actual scopes of the supplied token, when provided by the login event.
-     * @return bool Whether any jobs were restarted.
+     * @param  list<string>|null  $scopes  Granted OAuth scopes when resuming after login.
+     * @return bool Whether the batch was restarted.
      */
     protected function restartBatch(stdClass $batch, User $user, string $token, ?LegalEntity $legalEntity = null, ?array $scopes = null): bool
     {
         $legalEntity = $legalEntity ?? legalEntity();
+        /** @var EHealthDatabaseBatchRepository $repository */
+        $repository = app(BatchRepository::class);
 
-        if ((int) $batch->legal_entity_id !== $legalEntity->id) {
-            return false;
-        }
-
-        $scopes ??= app(SyncTokenContext::class)->find($user, $legalEntity, token: Crypt::decryptString($token))['scopes'] ?? [];
-
-        return DB::transaction(function () use ($batch, $user, $token, $legalEntity, $scopes): bool {
-            $batch = DB::table('job_batches')->where('id', $batch->id)->lockForUpdate()->first();
+        return $repository->transaction(function () use ($repository, $batch, $user, $token, $legalEntity, $scopes): bool {
+            $batch = $repository->findForUpdate($batch->id);
 
             if ($batch === null) {
                 return false;
             }
 
-            $pendingJobs = array_filter(
-                $this->extractPendingJobsFromBatches($batch),
-                static fn ($job) => $job instanceof EHealthJob && $job->canRunWithScopes($scopes)
-            );
+            $pendingJobs = $this->extractPendingJobsFromBatches($batch);
 
             if ($pendingJobs === []) {
-                Log::info('Synchronization batch left paused: no jobs available for token scopes.', [
-                    'batchId' => $batch->id,
-                    'legalEntityId' => $legalEntity->id,
-                    'userId' => $user->id,
-                ]);
-
                 return false;
             }
 
             foreach ($pendingJobs as $job) {
-                $job->useUser($user);
+                if ($scopes !== null && !PartyVerificationBulkAccess::canBulkSync($scopes)
+                    && $job instanceof EHealthJob && $job->requiresScope(PartyVerificationBulkAccess::BULK_SCOPE)
+                ) {
+                    return false;
+                }
             }
 
-            $this->restartFailedBatch($user, $batch, $token, $legalEntity, $pendingJobs, $scopes);
+            foreach ($pendingJobs as $job) {
+                if ($job instanceof EHealthJob) {
+                    $job->user = $user;
+                }
+            }
+
+            $this->restartFailedBatch($user, $batch, $token, $legalEntity, $pendingJobs);
 
             return true;
         });
@@ -208,13 +204,12 @@ trait BatchLegalEntityQueries
      * @return void
      * @throws Exception If batch creation or deletion fails
      */
-    protected function restartFailedBatch(User $user, stdClass $batch, string $token, LegalEntity $legalEntity, array $pendingJobs, array $scopes): void
+    protected function restartFailedBatch(User $user, stdClass $batch, string $token, LegalEntity $legalEntity, array $pendingJobs): void
     {
-        $batchOptions = Bus::batch(array_values($pendingJobs))
+        $batchOptions = Bus::batch($pendingJobs)
             ->name($batch->name)
             ->withOption('legal_entity_id', $legalEntity->id)
             ->withOption('token', $token) // Here token is encrypted
-            ->withOption('tokenScopes', $scopes)
             ->withOption('user', $user)
             ->onQueue('sync');
 
@@ -231,20 +226,14 @@ trait BatchLegalEntityQueries
             echo 'Dispatched new batch: ' . $newBatch->name . ' id: ' . $newBatch->id . PHP_EOL;
         }
 
-        $restartedIds = array_keys($pendingJobs);
-        DB::table('failed_jobs')->whereIn('uuid', $restartedIds)->delete();
+        /** @var EHealthDatabaseBatchRepository $repository */
+        $repository = app(BatchRepository::class);
+        $repository->deleteFailedJobs($batch);
+        $repository->delete($batch->id);
 
-        $remainingIds = array_values(array_diff(json_decode($batch->failed_job_ids, true), $restartedIds));
-
-        if ($remainingIds === []) {
-            app(BatchRepository::class)->delete($batch->id);
-        } else {
-            DB::table('job_batches')->where('id', $batch->id)->update([
-                'failed_job_ids' => json_encode($remainingIds),
-                'failed_jobs' => count($remainingIds),
-                'pending_jobs' => max(0, $batch->pending_jobs - count($restartedIds)),
-                'total_jobs' => max(0, $batch->total_jobs - count($restartedIds)),
-            ]);
+        // Here do echo only into the job context where legalEntity() is not set
+        if (!legalEntity()) {
+            echo 'Deleted old failed batch: ' . $batch->name . ' id: ' . $batch->id . PHP_EOL;
         }
     }
 
@@ -264,9 +253,9 @@ trait BatchLegalEntityQueries
             return [];
         }
 
-        $jobs = DB::table('failed_jobs')
-            ->whereIn('uuid', $failedJobsIds)
-            ->get();
+        /** @var EHealthDatabaseBatchRepository $repository */
+        $repository = app(BatchRepository::class);
+        $jobs = $repository->getFailedJobs($batch);
 
         foreach ($jobs as $job) {
             if (!isset($job->payload)) {
@@ -276,7 +265,7 @@ trait BatchLegalEntityQueries
             $payload = json_decode($job->payload, true);
 
             if (isset($payload['data']['command'])) {
-                $pendingJobs[$job->uuid] = unserialize($payload['data']['command']);
+                $pendingJobs[] = unserialize($payload['data']['command']);
             }
         }
 

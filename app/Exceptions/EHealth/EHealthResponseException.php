@@ -113,12 +113,6 @@ class EHealthResponseException extends EHealthException
             && str_contains($this->response->json('error.message', ''), 'Party is not verified');
     }
 
-    public function isMissingAllowances(): bool
-    {
-        return $this->response->status() === 403
-            && str_contains((string) $this->response->json('error.message', ''), 'Missing allowances:');
-    }
-
     /**
      * Returns true when the eHealth API denied the request because the
      * employee's party is marked as deceased (BLOCK_DECEASED_PARTY_USERS=true).

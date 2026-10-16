@@ -38,7 +38,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 {
     public const string BATCH_NAME = 'RemoteEHealthLinksProcessing';
 
-    public const string SCOPE_REQUIRED = 'job:read';
+    public const string SCOPE_REQUIRED = 'approval:create';
 
     protected const int TIME_TO_RETRY = 5; // Time in seconds to wait before retrying the job
 

@@ -62,7 +62,6 @@ class OnRegularLoginSyncronization implements ShouldQueue
             if ($batch->name === self::FIRST_LOGIN_BATCH_NAME) {
                 $event->legalEntity?->setEntityStatus(JobStatus::PROCESSING);
             }
-
         }
 
         if ($resumed) {

@@ -340,15 +340,22 @@ class DeviceRequestComplianceTest extends TestCase
     public function test_request_prequalify_waits_for_async_verdict(): void
     {
         [$service, $data] = $this->preparation();
+        $data['program_id'] = (string) Str::uuid();
+        $data['quantity'] = 50;
         $api = Mockery::mock(DeviceRequestApi::class);
-        $api->shouldReceive('prequalify')->once()->andReturn($this->response(['links' => [['href' => '/api/Jobs/123']]]));
+        $api->shouldReceive('prequalify')->once()->withArgs(fn (string $patientId, array $payload): bool =>
+            $patientId === $this->person->uuid
+            && data_get($payload, 'programs.0.identifier.value') === $data['program_id']
+            && data_get($payload, 'device_request.quantity.value') === 50)
+            ->andReturn($this->response(['links' => [['href' => '/api/Jobs/123']]]));
         $this->instance(DeviceRequestApi::class, $api);
         $resolver = Mockery::mock(\App\Services\MedicalEvents\EHealthJobResolver::class);
         $resolver->shouldReceive('resolve')->once()->andReturn([['status' => 'VALID']]);
         $resolver->shouldReceive('assertPrequalifyValid')->once()->with([['status' => 'VALID']]);
         $this->instance(\App\Services\MedicalEvents\EHealthJobResolver::class, $resolver);
         $prepared = $service->prepare($this->person, $this->legalEntity, $data);
-        $this->assertArrayNotHasKey('quantity', $prepared['payload']);
+        $this->assertSame(50, $prepared['payload']['quantity']['value']);
+        $this->assertSame($data['program_id'], $prepared['payload']['program']['identifier']['value']);
         $this->assertSame('order', $prepared['payload']['intent']);
         $this->assertSame($data['encounter_uuid'], $prepared['payload']['encounter']['identifier']['value']);
     }
@@ -366,7 +373,7 @@ class DeviceRequestComplianceTest extends TestCase
     }
 
     #[DataProvider('requestsWithoutProgram')]
-    public function test_request_without_program_reaches_prequalify_without_program_or_quantity(array $programData, bool $byModel): void
+    public function test_request_without_program_is_prepared_for_create_without_prequalify(array $programData, bool $byModel): void
     {
         [, $data] = $this->preparation();
         unset($data['program_id']);
@@ -398,9 +405,7 @@ class DeviceRequestComplianceTest extends TestCase
         $configuration->shouldReceive('getDeviceParameters')->once()->andReturn($this->response([], paging: ['page_number' => 1, 'total_pages' => 1]));
         $this->instance(Configuration::class, $configuration);
         $api = Mockery::mock(DeviceRequestApi::class);
-        $api->shouldReceive('prequalify')->once()->withArgs(static fn (string $patientId, array $payload): bool =>
-            $patientId !== '' && !isset($payload['programs']) && !isset($payload['device_request']['quantity']))
-            ->andReturn($this->response([['status' => 'VALID']]));
+        $api->shouldNotReceive('prequalify');
         $this->instance(DeviceRequestApi::class, $api);
         $prepared = $service->prepare($this->person, $this->legalEntity, $data);
         $this->assertSame('', $prepared['data']['program_id']);
@@ -408,6 +413,40 @@ class DeviceRequestComplianceTest extends TestCase
         $this->assertArrayNotHasKey('program', $prepared['payload']);
         $this->assertArrayNotHasKey('quantity', $prepared['payload']);
         $this->assertArrayHasKey($byModel ? 'code_reference' : 'code', $prepared['payload']);
+    }
+
+    public function test_request_without_program_preserves_optional_quantity_without_prequalify(): void
+    {
+        [$service, $data] = $this->preparation();
+        $data['quantity'] = 50;
+        $api = Mockery::mock(DeviceRequestApi::class);
+        $api->shouldNotReceive('prequalify');
+        $this->instance(DeviceRequestApi::class, $api);
+
+        $prepared = $service->prepare($this->person, $this->legalEntity, $data);
+
+        $this->assertArrayNotHasKey('program', $prepared['payload']);
+        $this->assertSame(50, $prepared['payload']['quantity']['value']);
+        $this->assertSame('piece', $prepared['payload']['quantity']['code']);
+    }
+
+    public function test_request_with_program_cannot_be_prepared_when_prequalify_rejects_it(): void
+    {
+        [$service, $data] = $this->preparation();
+        $data['program_id'] = (string) Str::uuid();
+        $data['quantity'] = 50;
+        $api = Mockery::mock(DeviceRequestApi::class);
+        $api->shouldReceive('prequalify')->once()->andReturn($this->response([
+            ['status' => 'INVALID', 'rejection_reason' => 'Device is not available under this program'],
+        ]));
+        $this->instance(DeviceRequestApi::class, $api);
+
+        try {
+            $service->prepare($this->person, $this->legalEntity, $data);
+            $this->fail('An invalid program prequalification must block preparation.');
+        } catch (\App\Exceptions\EHealth\EHealthValidationException $exception) {
+            $this->assertSame('Device is not available under this program', $exception->getDetails()['error']['message']);
+        }
     }
 
     public function test_current_device_configs_produce_all_packaging_and_typed_parameters(): void

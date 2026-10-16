@@ -372,12 +372,15 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             'person_uuid' => $person->uuid, 'encounter_uuid' => $data['encounter_uuid'],
             'employee_uuid' => $employee->uuid, 'legal_entity_uuid' => $legalEntity->uuid,
         ], $carePlanUuid, $activityUuid);
-        $prequalify = app(Mappers\DeviceRequestMapper::class)->toPrequalifyPayload($data, [
-            'person_uuid' => $person->uuid, 'encounter_uuid' => $data['encounter_uuid'],
-            'employee_uuid' => $employee->uuid, 'legal_entity_uuid' => $legalEntity->uuid,
-        ], $carePlanUuid, $activityUuid);
-        $resolver = app(EHealthJobResolver::class);
-        $resolver->assertPrequalifyValid($resolver->resolve(EHealth::deviceRequest()->prequalify($person->uuid, $prequalify)->getData()));
+        // PreQualify requires a program and quantity; Create also supports requests without them.
+        if ($data['program_id'] !== '') {
+            $prequalify = app(Mappers\DeviceRequestMapper::class)->toPrequalifyPayload($data, [
+                'person_uuid' => $person->uuid, 'encounter_uuid' => $data['encounter_uuid'],
+                'employee_uuid' => $employee->uuid, 'legal_entity_uuid' => $legalEntity->uuid,
+            ], $carePlanUuid, $activityUuid);
+            $resolver = app(EHealthJobResolver::class);
+            $resolver->assertPrequalifyValid($resolver->resolve(EHealth::deviceRequest()->prequalify($person->uuid, $prequalify)->getData()));
+        }
 
         return ['payload' => $payload, 'data' => $data, 'employee' => $employee, 'authType' => $method['type'] ?? ''];
     }

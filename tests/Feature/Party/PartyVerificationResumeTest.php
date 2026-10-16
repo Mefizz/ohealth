@@ -11,6 +11,7 @@ use App\Events\EHealthUserLogin;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Jobs\CompleteSync;
 use App\Jobs\EmployeeSync;
+use App\Jobs\ObservationConfigurationSync;
 use App\Jobs\PartyVerificationSync;
 use App\Listeners\OnRegularLoginSyncronization;
 use App\Models\LegalEntity;
@@ -52,6 +53,7 @@ class PartyVerificationResumeTest extends TestCase
         config(['queue.default' => 'database']);
         Notification::fake();
         Http::preventStrayRequests();
+        app('queue')->connection('database')->push(new ObservationConfigurationSync());
         Event::listen(JobFailed::class, static function (JobFailed $event): void {
             app('queue.failer')->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
         });
@@ -78,7 +80,7 @@ class PartyVerificationResumeTest extends TestCase
 
         $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
         $this->assertDatabaseCount('failed_jobs', 1);
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSyncJobsCount(0);
         Notification::assertNothingSent();
     }
 
@@ -92,7 +94,7 @@ class PartyVerificationResumeTest extends TestCase
 
         $this->assertDatabaseMissing('job_batches', ['id' => $batch->id]);
         $this->assertDatabaseCount('failed_jobs', 0);
-        $this->assertDatabaseCount('jobs', 1);
+        $this->assertSyncJobsCount(1);
         $queued = $this->queuedJob();
         $options = app(BatchRepository::class)->find($queued->batchId)->options;
         $this->assertSame($this->user->id, $queued->user->id);
@@ -112,7 +114,7 @@ class PartyVerificationResumeTest extends TestCase
 
         $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
         $this->assertDatabaseCount('failed_jobs', 1);
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSyncJobsCount(0);
     }
 
     public function test_mixed_batch_stays_intact_until_party_verification_can_resume(): void
@@ -126,7 +128,7 @@ class PartyVerificationResumeTest extends TestCase
 
         $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 2, 'pending_jobs' => 2, 'total_jobs' => 2]);
         $this->assertDatabaseCount('failed_jobs', 2);
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSyncJobsCount(0);
     }
 
     public function test_other_sync_jobs_keep_their_existing_resume_behavior(): void
@@ -150,7 +152,7 @@ class PartyVerificationResumeTest extends TestCase
 
         $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
         $this->assertDatabaseCount('failed_jobs', 1);
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSyncJobsCount(0);
         Notification::assertNothingSent();
     }
 
@@ -202,7 +204,7 @@ class PartyVerificationResumeTest extends TestCase
         $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
         $this->assertDatabaseCount('job_batches', 1);
         $this->assertDatabaseCount('failed_jobs', 1);
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSyncJobsCount(0);
     }
 
     public function test_missing_allowances_stops_worker_retries_and_preserves_job_for_next_login(): void
@@ -213,7 +215,7 @@ class PartyVerificationResumeTest extends TestCase
         $this->runNextJob();
         $this->login([]);
 
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSyncJobsCount(0);
         $this->assertDatabaseCount('failed_jobs', 1);
         $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->partyVerificationSyncStatus);
         $this->assertSame(JobStatus::COMPLETED->value, $this->legalEntity->fresh()->syncStatus);
@@ -272,7 +274,10 @@ class PartyVerificationResumeTest extends TestCase
     private function login(array $scopes): void
     {
         (new OnRegularLoginSyncronization())->handle(new EHealthUserLogin(
-            $this->user, $this->legalEntity, $this->user->uuid, $scopes
+            $this->user,
+            $this->legalEntity,
+            $this->user->uuid,
+            $scopes
         ));
     }
 
@@ -320,9 +325,14 @@ class PartyVerificationResumeTest extends TestCase
 
     private function queuedJob(): object
     {
-        $payload = json_decode(DB::table('jobs')->orderBy('id')->value('payload'), true);
+        $payload = json_decode(DB::table('jobs')->where('queue', 'sync')->orderBy('id')->value('payload'), true);
 
         return unserialize($payload['data']['command']);
+    }
+
+    private function assertSyncJobsCount(int $expected): void
+    {
+        $this->assertSame($expected, DB::table('jobs')->where('queue', 'sync')->count());
     }
 
     private function runNextJob(): void

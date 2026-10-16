@@ -100,7 +100,7 @@ class LegalEntityDetailsSync extends EHealthJob
             $this->user->unsetRelation('roles')->unsetRelation('permissions');
 
             // Reapply granted token scopes through the refreshed role/type filters without promoting inherited permissions.
-            $this->user->syncPermissions($this->scopes);
+            $this->user->syncPermissions($this->tokenScopes);
         }
     }
 
@@ -121,7 +121,7 @@ class LegalEntityDetailsSync extends EHealthJob
     {
         // Synchronize the next entities chain (first login) if needed
         if ($this->isFirstLogin && !$this->standalone && !$this->nextEntity) {
-            return app(FirstLoginSyncChain::class)->build($this->legalEntity, $this->scopes);
+            return app(FirstLoginSyncChain::class)->build($this->legalEntity, $this->tokenScopes);
         }
 
         return $this->standalone || !$this->nextEntity

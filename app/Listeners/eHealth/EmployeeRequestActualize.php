@@ -57,6 +57,7 @@ class EmployeeRequestActualize
                 ->name('Full Employee Requests Sync for LE: ' . $legalEntity->id)
                 ->withOption('legal_entity_id', $legalEntity->id)
                 ->withOption('token', $encryptedToken)
+                ->withOption('tokenScopes', $event->scopes)
                 ->withOption('user', $user)
                 ->withOption('sync_entity', LegalEntity::ENTITY_EMPLOYEE_REQUEST_FULL)
                 ->catch(function (Batch $batch, Throwable $e) use ($user) {

@@ -81,6 +81,7 @@ class PartyVerificationSyncStatusOnLogin
                 ->name('Party Verification Status Sync')
                 ->withOption('legal_entity_id', $legalEntity->id)
                 ->withOption('token', Crypt::encryptString($token))
+                ->withOption('tokenScopes', $event->scopes)
                 ->withOption('user', $user)
                 ->withOption('sync_entity', LegalEntity::ENTITY_PARTY_VERIFICATION)
                 ->catch(function (Batch $batch, Throwable $e) use ($user) {

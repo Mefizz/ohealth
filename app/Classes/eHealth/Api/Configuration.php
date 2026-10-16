@@ -83,7 +83,7 @@ class Configuration extends Request
     {
         $this->setDefaultPageSize();
 
-        return $this->get(self::URL_DEVICES, $query);
+        return $this->get(self::URL_DEVICES, $this->normalizeActiveFilter($query));
     }
 
     /**
@@ -109,7 +109,7 @@ class Configuration extends Request
     {
         $this->setDefaultPageSize();
 
-        return $this->get(self::URL_DEVICE_PARAMETERS, $query);
+        return $this->get(self::URL_DEVICE_PARAMETERS, $this->normalizeActiveFilter($query));
     }
 
     /**
@@ -134,7 +134,7 @@ class Configuration extends Request
     {
         $this->setDefaultPageSize();
 
-        return $this->get(self::URL_DICTIONARIES, $query);
+        return $this->get(self::URL_DICTIONARIES, $this->normalizeActiveFilter($query));
     }
 
     /**
@@ -161,5 +161,15 @@ class Configuration extends Request
         $this->setDefaultPageSize();
 
         return $this->get(self::URL_OBSERVATIONS, $query);
+    }
+
+    /** Configuration search accepts literal true/false, not Guzzle's boolean 1/0. */
+    private function normalizeActiveFilter(array $query): array
+    {
+        if (isset($query['is_active']) && is_bool($query['is_active'])) {
+            $query['is_active'] = $query['is_active'] ? 'true' : 'false';
+        }
+
+        return $query;
     }
 }

@@ -163,13 +163,4 @@ class Configuration extends Request
         return $this->get(self::URL_OBSERVATIONS, $query);
     }
 
-    /** Configuration search accepts literal true/false, not Guzzle's boolean 1/0. */
-    private function normalizeActiveFilter(array $query): array
-    {
-        if (isset($query['is_active']) && is_bool($query['is_active'])) {
-            $query['is_active'] = $query['is_active'] ? 'true' : 'false';
-        }
-
-        return $query;
-    }
 }

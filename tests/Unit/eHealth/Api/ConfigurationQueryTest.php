@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\eHealth\Api;
 
 use App\Classes\eHealth\Api\Configuration;
+use App\Classes\eHealth\Api\Dictionary;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -15,9 +16,14 @@ class ConfigurationQueryTest extends TestCase
     public static function activeFilters(): array
     {
         $cases = [];
-        foreach (['getDictionaries' => '/api/dictionaries_configurations', 'getDevices' => '/api/devices_configurations', 'getDeviceParameters' => '/api/device_parameters_configurations'] as $method => $path) {
+        foreach ([
+            [Configuration::class, 'getDictionaries', '/api/dictionaries_configurations'],
+            [Configuration::class, 'getDevices', '/api/devices_configurations'],
+            [Configuration::class, 'getDeviceParameters', '/api/device_parameters_configurations'],
+            [Dictionary::class, 'getMany', '/api/v2/dictionaries'],
+        ] as [$apiClass, $method, $path]) {
             foreach (['active boolean' => [true, 'true'], 'inactive boolean' => [false, 'false'], 'active literal' => ['true', 'true'], 'inactive literal' => ['false', 'false'], 'omitted' => [null, null]] as $name => [$input, $expected]) {
-                $cases[$method.' '.$name] = [$method, $path, $input, $expected];
+                $cases[$method.' '.$name] = [$apiClass, $method, $path, $input, $expected];
             }
         }
 
@@ -25,12 +31,12 @@ class ConfigurationQueryTest extends TestCase
     }
 
     #[DataProvider('activeFilters')]
-    public function test_active_filter_is_encoded_as_api_boolean_literal(string $method, string $path, bool|string|null $input, ?string $expected): void
+    public function test_active_filter_is_encoded_as_api_boolean_literal(string $apiClass, string $method, string $path, bool|string|null $input, ?string $expected): void
     {
         config(['ehealth.api.domain' => 'https://ehealth.example']);
         Http::fake(['*' => Http::response(['data' => []], 200)]);
         $factory = Http::getFacadeRoot();
-        $api = new Configuration($factory);
+        $api = new $apiClass($factory);
         $api->stub((function () {
             return $this->stubCallbacks;
         })->call($factory));

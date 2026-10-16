@@ -12,6 +12,7 @@ use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
+use App\Services\Dictionary\Collections\BasicDictionaryCollection;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -55,21 +56,11 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
     public function dictionary(string $name): array
     {
         $rows = EHealth::dictionary()->getMany(['name' => $name, 'is_active' => true])->getData();
-        $values = [];
-        foreach ($rows as $row) {
-            foreach ($row['values'] ?? [] as $code => $value) {
-                if (is_array($value)) {
-                    if (($value['is_active'] ?? true) !== true) {
-                        continue;
-                    }
-                    $values[(string) ($value['code'] ?? $code)] = (string) ($value['description'] ?? $value['display_value'] ?? $code);
-                } else {
-                    $values[(string) $code] = (string) $value;
-                }
-            }
+        if ($rows === []) {
+            return [];
         }
 
-        return $values;
+        return BasicDictionaryCollection::make($rows)->byName($name)->flattenedChildValues()->all();
     }
 
     public function permittedTypes(bool $withProgram): array

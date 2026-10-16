@@ -67,6 +67,32 @@ class DeviceRequestComplianceTest extends TestCase
         $this->assertCount(3, $items);
     }
 
+    public function test_nested_device_dictionary_codes_are_available_and_inactive_branches_are_excluded(): void
+    {
+        $config = Mockery::mock(Configuration::class);
+        $config->shouldReceive('getDictionaries')->once()->with(['name' => 'assistive_devices', 'is_active' => true, 'page' => 1])
+            ->andReturn($this->response([['settings' => [['system' => 'eHealth/assistive_devices', 'codes' => ['leaf', 'inactive-leaf', 'hidden-leaf']]]]], paging: ['page_number' => 1, 'total_pages' => 1]));
+        $this->instance(Configuration::class, $config);
+        $dictionary = Mockery::mock(\App\Classes\eHealth\Api\Dictionary::class);
+        $dictionary->shouldReceive('getMany')->once()->with(['name' => 'eHealth/assistive_devices', 'is_active' => true])
+            ->andReturn($this->response([['name' => 'eHealth/assistive_devices', 'values' => [
+                ['code' => 'parent', 'description' => 'Категорія', 'is_active' => true, 'child_values' => [
+                    ['code' => 'branch', 'description' => 'Група', 'is_active' => true, 'child_values' => [
+                        ['code' => 'leaf', 'description' => 'Виріб', 'is_active' => true],
+                        ['code' => 'inactive-leaf', 'description' => 'Неактивний виріб', 'is_active' => false],
+                    ]],
+                ]],
+                ['code' => 'inactive-parent', 'description' => 'Неактивна категорія', 'is_active' => false, 'child_values' => [
+                    ['code' => 'hidden-leaf', 'description' => 'Прихований виріб', 'is_active' => true],
+                ]],
+            ]]]));
+        $this->instance(\App\Classes\eHealth\Api\Dictionary::class, $dictionary);
+        $this->assertSame(
+            ['eHealth/assistive_devices|leaf' => ['system' => 'eHealth/assistive_devices', 'code' => 'leaf', 'label' => 'Виріб']],
+            app(DeviceRequestLifecycleService::class)->permittedTypes(false)
+        );
+    }
+
     public function test_plan_details_preserve_remote_references_and_status_reason(): void
     {
         $record = [

@@ -16,6 +16,10 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Repositories\MedicalEvents\Repository;
+use App\Repositories\CarePlanRepository;
+use App\Repositories\CarePlanActivityRepository;
+use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Services\MedicalEvents\Fhir;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -186,6 +190,49 @@ class ReferralSignPayloadTest extends TestCase
         $uuid = app(ReferralRequestLifecycleService::class)->createEncounterDraft($this->encounter, ['kind' => 'service_request', 'service_id' => (string) Str::uuid(), 'started_at' => $period['start'], 'ended_at' => $period['end'], 'category' => 'diagnostic_procedure'], 1.25, ['employee_id' => $this->employee->id]);
         $actual = Repository::serviceRequest()->getResource(Repository::serviceRequest()->findByUuid($uuid));
         $this->assertSame($period, $actual['occurrencePeriod']);
+    }
+
+    public function test_normalized_service_group_activity_creates_and_signs_a_lossless_referral(): void
+    {
+        if (!method_exists(CarePlanActivityRepository::class, 'getResource')) {
+            $this->markTestSkipped('Requires the complete Care Plan FHIR module from PR #998.');
+        }
+        $planResource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
+        $planResource['status'] = 'active';
+        $planResource['author']['identifier']['value'] = $this->employee->uuid;
+        $planResource['encounter']['identifier']['value'] = $this->encounter->uuid;
+        $plan = app(CarePlanRepository::class)->storeResource($planResource, $this->person->id, $this->legalEntity->id);
+        $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true, flags: JSON_THROW_ON_ERROR);
+        $resource['detail']['kind'] = 'service_request';
+        $resource['detail']['productReference']['identifier']['type']['coding'][0]['code'] = 'service_group';
+        $resource['detail']['quantity'] = ['value' => 1.2345, 'system' => 'SERVICE_UNIT', 'code' => 'PROCEDURE'];
+        $resource['detail']['remainingQuantity'] = $resource['detail']['quantity'];
+        unset($resource['detail']['dailyAmount']);
+        $programId = '10050000-0000-4000-8000-000000000099';
+        $resource['detail']['program'] = ['identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'medical_program']]], 'value' => $programId]];
+        $api = \Mockery::mock(ServiceRequestApi::class)->makePartial();
+        $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn([['status' => 'VALID']]);
+        $api->shouldReceive('prequalify')->once()->with($this->person->uuid, \Mockery::on(fn ($payload) => data_get($payload, 'programs.0.identifier.value') === $programId && data_get($payload, 'service_request.code.identifier.type.coding.0.code') === 'service_group'))->andReturn($response);
+        $this->instance(ServiceRequestApi::class, $api);
+        $activity = app(CarePlanActivityRepository::class)->storeResource($resource, $plan);
+        $lifecycle = app(ReferralRequestLifecycleService::class);
+        $employee = ['employee_id' => $this->employee->id, 'division_id' => null, 'employee_uuid' => $this->employee->uuid, 'legal_entity_uuid' => $this->legalEntity->uuid];
+        $uuid = $lifecycle->createCarePlanDraft($plan, ['activity_id' => $activity->id, 'kind' => 'service_request', 'program_id' => null, 'priority' => 'routine', 'category' => 'diagnostic_procedure', 'intent' => 'order', 'started_at' => '2026-11-01T10:00:00.123456Z', 'ended_at' => '2026-11-02T10:00:00.654321Z'], 0.123456, $employee);
+        $record = Repository::serviceRequest()->findByUuid($uuid);
+        $actual = Repository::serviceRequest()->getResource($record);
+        $this->assertSame('service_group', data_get($actual, 'code.identifier.type.coding.0.code'));
+        $this->assertSame(0.123456, $actual['quantity']['value']);
+        $this->assertSame('2026-11-01T10:00:00.123456Z', $actual['occurrencePeriod']['start']);
+        $this->assertSame('2026-11-02T10:00:00.654321Z', $actual['occurrencePeriod']['end']);
+        $this->assertSame('PROCEDURE', $actual['quantity']['code']);
+        $this->assertSame($programId, data_get($actual, 'program.identifier.value'));
+        $this->assertSame(['care_plan', 'activity'], array_map(fn ($ref) => data_get($ref, 'identifier.type.coding.0.code'), $actual['basedOn']));
+        $form = $lifecycle->buildSignDbData($record, $activity, $plan, $employee);
+        $content = app(ServiceRequestApi::class)->buildCreateContent(Fhir::serviceRequest()->toFhir($form, $employee));
+        $this->assertSame('service_group', data_get($content, 'code.identifier.type.coding.0.code'));
+        $this->assertSame($actual['quantity'], $content['quantity']);
+        $this->assertSame($actual['occurrencePeriod'], $content['occurrence_period']);
     }
 
     public function test_legacy_draft_cannot_be_signed_using_invented_units_or_author(): void

@@ -16,6 +16,31 @@ use Illuminate\Validation\ValidationException;
 
 class ServiceRequest extends PatientApiBase
 {
+    public function buildCreateContent(array $resource): array
+    {
+        Validator::make($resource, ['id' => ['required', 'uuid'], 'code.identifier.value' => ['required'], 'requesterEmployee.identifier.value' => ['required', 'uuid'], 'requesterLegalEntity.identifier.value' => ['required', 'uuid']])->validate();
+
+        return \App\Services\MedicalEvents\Fhir::serviceRequest()->createContent($resource);
+    }
+
+    /** Fetch and return the raw signed contract, before any application normalization. */
+    public function fetchSignedSnapshot(string $patientUuid, string $requestUuid): array
+    {
+        $resource = $this->getById($patientUuid, $requestUuid)->getData();
+        Validator::make($resource, ['id' => ['required', 'in:'.$requestUuid], 'status' => ['required', 'in:active']])->validate();
+
+        return $resource;
+    }
+
+    public function buildStatusContent(array $snapshot, string $reason, string $explanatoryLetter): array
+    {
+        Validator::make(['snapshot' => $snapshot, 'reason' => $reason, 'letter' => trim($explanatoryLetter)], ['snapshot.id' => ['required', 'uuid'], 'reason' => ['required', 'string'], 'letter' => ['required', 'string']])->validate();
+        $snapshot['status_reason'] = $reason;
+        $snapshot['explanatory_letter'] = $explanatoryLetter;
+
+        return $snapshot;
+    }
+
     /**
      * Create a signed Service Request in eHealth (PKCS#7).
      *

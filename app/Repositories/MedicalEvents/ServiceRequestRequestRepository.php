@@ -397,14 +397,18 @@ class ServiceRequestRequestRepository extends BaseRepository
         $type = $activity->productReferenceIdentifier?->type?->first()?->coding?->first()?->code;
         $system = $activity->quantitySystem;
         $code = $activity->quantityCode;
+        $serviceId = $activity->productReference;
+        $programId = $activity->program;
         if (($activity->getAttributes()['fhir_version'] ?? null) === 1 && method_exists(\App\Repositories\CarePlanActivityRepository::class, 'getResource')) {
             $resource = app(\App\Repositories\CarePlanActivityRepository::class)->getResource($activity->id);
             $system = data_get($resource, 'detail.quantity.system');
             $code = data_get($resource, 'detail.quantity.code');
             $type = data_get($resource, 'detail.productReference.identifier.type.coding.0.code');
+            $serviceId = data_get($resource, 'detail.productReference.identifier.value');
+            $programId = data_get($resource, 'detail.program.identifier.value');
         }
 
-        return array_filter(['care_plan_uuid' => $activity->carePlan->uuid, 'service_type' => $type, 'quantity_system' => $system, 'quantity_code' => $code], static fn ($value) => $value !== null);
+        return array_filter(['care_plan_uuid' => $activity->carePlan->uuid, 'service_id' => $serviceId, 'program_id' => $programId, 'service_type' => $type, 'quantity_system' => $system, 'quantity_code' => $code], static fn ($value) => $value !== null);
     }
 
     public function formData(ServiceRequestRequest $request): array

@@ -180,6 +180,14 @@ class ReferralSignPayloadTest extends TestCase
         $this->assertSame($activity->uuid, $payload['based_on_uuid']);
     }
 
+    public function test_encounter_draft_keeps_subsecond_occurrence_before_persistence(): void
+    {
+        $period = ['start' => '2026-11-01T10:20:30.123456Z', 'end' => '2026-11-02T10:20:30.654321Z'];
+        $uuid = app(ReferralRequestLifecycleService::class)->createEncounterDraft($this->encounter, ['kind' => 'service_request', 'service_id' => (string) Str::uuid(), 'started_at' => $period['start'], 'ended_at' => $period['end'], 'category' => 'diagnostic_procedure'], 1.25, ['employee_id' => $this->employee->id]);
+        $actual = Repository::serviceRequest()->getResource(Repository::serviceRequest()->findByUuid($uuid));
+        $this->assertSame($period, $actual['occurrencePeriod']);
+    }
+
     public function test_legacy_draft_cannot_be_signed_using_invented_units_or_author(): void
     {
         $record = $this->createDraft();

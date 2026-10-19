@@ -21,6 +21,7 @@ use Illuminate\Support\Str;
 use Mockery;
 use Tests\Concerns\CreatesFhirRequestIdentifiers;
 use Tests\Concerns\MocksBasicDictionaries;
+use Tests\Concerns\CreatesFhirCarePlans;
 use Tests\TestCase;
 use Livewire\Livewire;
 use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
@@ -29,6 +30,7 @@ class ReferralLifecycleTest extends TestCase
 {
     use CreatesFhirRequestIdentifiers;
     use DatabaseTransactions;
+    use CreatesFhirCarePlans;
     use MocksBasicDictionaries;
 
     protected Person $person;
@@ -102,6 +104,9 @@ class ReferralLifecycleTest extends TestCase
     {
         parent::setUp();
         $this->mockBasicDictionaries();
+        $signatureService = Mockery::mock(\App\Services\SignatureService::class);
+        $signatureService->shouldReceive('getCertificateAuthorities')->andReturn([]);
+        $this->instance(\App\Services\SignatureService::class, $signatureService);
 
         // 1. Create Patient
         $this->person = Person::create([
@@ -181,7 +186,7 @@ class ReferralLifecycleTest extends TestCase
         $this->grantMedicalEventAbilities($this->user);
 
         // 5. Create Care Plan & Referral Care Plan Activities
-        $carePlan = \App\Models\CarePlan::create([
+        $carePlan = $this->createFhirCarePlan([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
             'author_id' => $this->employee->id,
@@ -191,7 +196,7 @@ class ReferralLifecycleTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->serviceActivity = CarePlanActivity::create([
+        $this->serviceActivity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,
@@ -202,7 +207,7 @@ class ReferralLifecycleTest extends TestCase
             'program' => (string) Str::uuid(),
         ]);
 
-        $this->deviceActivity = CarePlanActivity::create([
+        $this->deviceActivity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,
@@ -655,7 +660,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_livewire_skips_prequalify_when_activity_has_no_program(): void
     {
-        $this->serviceActivity->update(['program' => null]);
+        app(\App\Repositories\CarePlanActivityRepository::class)->update($this->serviceActivity, ['program' => null]);
         $carePlan = $this->serviceActivity->carePlan;
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
@@ -686,7 +691,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_create_care_plan_device_draft_skips_prequalify_without_program(): void
     {
-        $this->deviceActivity->update([
+        app(\App\Repositories\CarePlanActivityRepository::class)->update($this->deviceActivity, [
             'program' => null,
             'quantity_system' => 'device_unit',
             'quantity_code' => 'piece',
@@ -731,7 +736,7 @@ class ReferralLifecycleTest extends TestCase
     public function test_create_care_plan_device_draft_still_prequalifies_with_program(): void
     {
         $programId = (string) Str::uuid();
-        $this->deviceActivity->update([
+        app(\App\Repositories\CarePlanActivityRepository::class)->update($this->deviceActivity, [
             'program' => $programId,
             'quantity_system' => 'device_unit',
             'quantity_code' => 'piece',
@@ -1174,7 +1179,7 @@ class ReferralLifecycleTest extends TestCase
     public function test_init_referral_form_blocks_medication_activity(): void
     {
         $carePlan = $this->serviceActivity->carePlan;
-        $medicationActivity = CarePlanActivity::create([
+        $medicationActivity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,
@@ -1201,7 +1206,7 @@ class ReferralLifecycleTest extends TestCase
         $deviceUuid = (string) Str::uuid();
         $activityUuid = (string) Str::uuid();
 
-        $draftDeviceActivity = CarePlanActivity::create([
+        $draftDeviceActivity = $this->createFhirCarePlanActivity([
             'uuid' => $activityUuid,
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,

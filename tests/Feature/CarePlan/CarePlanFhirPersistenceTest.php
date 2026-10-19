@@ -16,13 +16,28 @@ use InvalidArgumentException;
 
 class CarePlanFhirPersistenceTest extends TestCase
 {
-    use DatabaseTransactions;
+    use DatabaseTransactions {
+        beginDatabaseTransaction as beginIsolatedDatabaseTransaction;
+    }
+
+    public function beginDatabaseTransaction(): void
+    {
+        $this->assertSame('pgsql', config('database.default'));
+        $this->assertSame('testing', DB::connection()->getDatabaseName());
+        // A private transactional schema keeps the install/update contract independent
+        // of the ordinary CI schema, without dropping or modifying existing tables.
+        $schemaName = 'care_plan_contract_'.bin2hex(random_bytes(8));
+        config(['database.connections.pgsql.search_path' => $schemaName]);
+        DB::purge('pgsql');
+        $this->beginIsolatedDatabaseTransaction();
+        DB::statement('CREATE SCHEMA "'.$schemaName.'"');
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->assertSame('testing', DB::connection()->getDatabaseName());
-        $this->assertFalse(Schema::hasTable('care_plans'), 'Run this contract test in an empty disposable database. Existing tables are never dropped.');
+        $this->assertFalse(Schema::hasTable('care_plans'), 'The private contract schema must be empty. Existing tables are never dropped.');
         Http::preventStrayRequests();
         foreach (['persons', 'legal_entities', 'employees', 'encounters'] as $name) {
             Schema::create($name, static function (Blueprint $table) use ($name): void {

@@ -62,3 +62,10 @@ Clinical `status` is stored separately from execution/program progress. Legacy l
 - Existing forms do not yet expose all canonical fields. Missing cancellation explanation/recall reason controls, executor-result selection and the other mandatory UI changes are a release gate, not implemented frontend work.
 - Standalone DeviceRequest from Encounter belongs to another PR/chat. Medication Requests and Medical Conclusions remain subsequent modules.
 - Compatibility with Care Plan #998 includes identical primitive helpers and guarded Coding migration additions. Publish each module independently; test their integration without copying #998 into this main-based umbrella.
+
+## Verification record
+
+- Sail referral regression: 107 tests, 553 assertions, zero failures (existing PHP 8.5 PDO deprecations are reported separately).
+- Final schema: fresh `install --no-interaction` and `update --no-interaction` succeeded in an additional disposable database. Transactional rehearsals verified both Care Plan → Service Request and Service Request → Care Plan migration orders, including shared Coding fields and clinical status.
+- Legacy drafts cannot enter the signing path until explicit canonical conversion/reconciliation. Pending/error mutation responses without job links cannot advance local status. Scientific notation below supported precision and decimals not representable by the JSON numeric contract are rejected instead of rounded.
+- The wider owned-domain suite and final focused contracts are recorded in the umbrella PR after completion. Real KEP and ESOZ UAT remain manual gates.

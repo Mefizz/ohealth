@@ -180,6 +180,14 @@ class ReferralSignPayloadTest extends TestCase
         $this->assertSame($activity->uuid, $payload['based_on_uuid']);
     }
 
+    public function test_legacy_draft_cannot_be_signed_using_invented_units_or_author(): void
+    {
+        $record = $this->createDraft();
+        $record->forceFill(['fhirVersion' => null])->save();
+        $this->expectException(\InvalidArgumentException::class);
+        app(ReferralRequestLifecycleService::class)->buildSignDbData($record, null, $this->encounter, ['employee_id' => $this->employee->id]);
+    }
+
     public function test_recoverable_draft_conversion_is_explicit_and_repeatable(): void
     {
         $record = $this->createDraft();

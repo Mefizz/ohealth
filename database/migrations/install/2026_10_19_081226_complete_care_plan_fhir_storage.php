@@ -10,11 +10,13 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('codings', static function (Blueprint $table): void {
-            $table->string('display')->nullable();
-            $table->string('version')->nullable();
-            $table->boolean('user_selected')->nullable();
-        });
+        foreach (['display', 'version', 'user_selected'] as $column) {
+            if (!Schema::hasColumn('codings', $column)) {
+                Schema::table('codings', static function (Blueprint $table) use ($column): void {
+                    $column === 'user_selected' ? $table->boolean($column)->nullable() : $table->string($column)->nullable();
+                });
+            }
+        }
         Schema::table('quantities', static function (Blueprint $table): void {
             $table->decimal('value', 24, 10)->change();
         });

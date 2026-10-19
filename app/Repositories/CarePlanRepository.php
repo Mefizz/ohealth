@@ -10,9 +10,181 @@ use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Repositories\MedicalEvents\Concerns\PersistsCarePlanFhir;
+use App\Models\Employee\Employee;
+use App\Models\MedicalEvents\Sql\Encounter;
+use InvalidArgumentException;
+use Illuminate\Support\Str;
+use App\Services\MedicalEvents\Fhir;
+use App\Core\Arr;
+use Throwable;
 
 class CarePlanRepository
 {
+    use PersistsCarePlanFhir;
+
+    /** Registered legacy resources require a full remote sync, not a guess from lossy columns. */
+    public function backfillResources(int $legalEntityId, bool $write = false): array
+    {
+        $report = ['plans' => 0, 'activities' => 0, 'converted' => 0, 'needsRemoteSync' => [], 'errors' => []];
+        CarePlan::whereLegalEntityId($legalEntityId)->with('activities')->chunkById(100, function ($plans) use (&$report): void {
+            foreach ($plans as $plan) {
+                $report['plans']++;
+                $report['activities'] += $plan->activities->count();
+                if (\App\Models\CarePlanActivity::whereCarePlanId($plan->id)->whereNotNull('uuid')->select('uuid')->groupBy('uuid')->havingRaw('COUNT(*) > 1')->exists()) {
+                    $report['errors'][] = ['type' => 'duplicateActivity', 'localId' => $plan->id, 'reason' => 'Duplicate activity UUIDs must be reconciled before schema migration.'];
+                }
+                if ((int) ($plan->getAttributes()['fhir_version'] ?? 0) !== 1 && $plan->uuid !== null && $plan->status !== CarePlanStatus::DRAFT->value) {
+                    $report['needsRemoteSync'][] = ['type' => 'carePlan', 'localId' => $plan->id];
+                    continue;
+                }
+                try {
+                    if ((int) ($plan->getAttributes()['fhir_version'] ?? 0) !== 1) {
+                        $this->legacyDraftResource($plan);
+                    }
+                    foreach ($plan->activities as $activity) {
+                        if ((int) ($activity->getAttributes()['fhir_version'] ?? 0) === 1) {
+                            continue;
+                        }
+                        if ($activity->uuid !== null && $activity->status !== 'draft') {
+                            $report['needsRemoteSync'][] = ['type' => 'activity', 'localId' => $activity->id];
+                        } else {
+                            app(CarePlanActivityRepository::class)->legacyDraftResource($activity, $plan);
+                        }
+                    }
+                } catch (Throwable $exception) {
+                    $report['errors'][] = ['type' => 'carePlan', 'localId' => $plan->id, 'reason' => $exception->getMessage()];
+                }
+            }
+        });
+        if (CarePlan::whereLegalEntityId($legalEntityId)->whereNotNull('uuid')->select('person_id', 'uuid')->groupBy('person_id', 'uuid')->havingRaw('COUNT(*) > 1')->exists()) {
+            $report['errors'][] = ['type' => 'duplicateCarePlan', 'reason' => 'Duplicate resource UUIDs must be reconciled before schema migration.'];
+        }
+        if (!$write || $report['errors'] !== [] || $report['needsRemoteSync'] !== []) {
+            return $report;
+        }
+        CarePlan::whereLegalEntityId($legalEntityId)->chunkById(100, function ($plans) use (&$report, $legalEntityId): void {
+            foreach ($plans as $plan) {
+                DB::transaction(function () use ($plan, $legalEntityId, &$report): void {
+                    $plan = CarePlan::whereKey($plan->id)->lockForUpdate()->firstOrFail();
+                    if ($plan->fhirVersion !== 1) {
+                        $plan = $this->storeResource($this->legacyDraftResource($plan), $plan->personId, $legalEntityId, $plan->id);
+                        $report['converted']++;
+                    }
+                    $repository = app(CarePlanActivityRepository::class);
+                    foreach ($plan->activities()->get() as $activity) {
+                        if ($activity->fhirVersion !== 1) {
+                            $repository->storeResource($repository->legacyDraftResource($activity, $plan), $plan, $activity->id);
+                            $report['converted']++;
+                        }
+                    }
+                });
+            }
+        });
+
+        return $report;
+    }
+
+    private function legacyDraftResource(CarePlan $plan): array
+    {
+        $plan->loadMissing(['author', 'effectivePeriod', 'categoryConcept.coding', 'encounterIdentifier.type.coding', 'supportingInfoReferences.type.coding']);
+        $data = Arr::toCamelCase($plan->getAttributes());
+        $data['uuid'] = $plan->uuid ?? Str::uuid()->toString();
+        $data['category'] = $plan->categoryConcept ? $this->fhirConcept($plan->categoryConcept) : $plan->category;
+        $data['author'] = $plan->author?->uuid;
+        if (!$data['author']) {
+            throw new InvalidArgumentException('Draft author cannot be resolved.');
+        }
+        $data['addresses'] = $plan->addresses ?? [];
+        $data['supportingInfo'] = $plan->supportingInfoReferences->map(fn ($reference): array => $this->fhirReference($reference))->all();
+        if ($data['supportingInfo'] === [] && !empty($plan->supportingInfo)) {
+            throw new InvalidArgumentException('Legacy supporting info requires explicit reconciliation.');
+        }
+        if ($plan->encounterIdentifier) {
+            $data['encounter'] = $this->fhirReference($plan->encounterIdentifier);
+        }
+        if ($plan->effectivePeriod) {
+            $data['period'] = MedicalEventsRepository::period()->toResource($plan->effectivePeriod);
+        }
+
+        return Fhir::carePlan()->toFhir($data, ['timezone' => config('app.timezone')]);
+    }
+
+    /** Store a complete, normalized resource. This method performs no remote requests. */
+    public function storeResource(array $resource, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
+    {
+        if (!isset($resource['id'], $resource['title'], $resource['status'], $resource['period']['start'])) {
+            throw new InvalidArgumentException('A complete Care Plan requires id, title, status and period.start.');
+        }
+
+        return DB::transaction(function () use ($resource, $personId, $legalEntityId, $localId): CarePlan {
+            $query = CarePlan::wherePersonId($personId)->whereLegalEntityId($legalEntityId)->lockForUpdate();
+            $plan = $localId === null ? $query->whereUuid($resource['id'])->first() : $query->findOrFail($localId);
+            if ($plan?->uuid !== null && $plan->uuid !== $resource['id']) {
+                throw new InvalidArgumentException('Cannot replace an existing Care Plan identity.');
+            }
+            $plan ??= new CarePlan(['personId' => $personId, 'legalEntityId' => $legalEntityId]);
+            $authorUuid = data_get($resource, 'author.identifier.value');
+            $encounterUuid = data_get($resource, 'encounter.identifier.value');
+            $attributes = [
+                'uuid' => $resource['id'],
+                'status' => $resource['status'],
+                'title' => $resource['title'],
+                'intent' => $resource['intent'] ?? null,
+                'description' => $resource['description'] ?? null,
+                'note' => $resource['note'] ?? null,
+                'addresses' => $resource['addresses'] ?? [],
+                'requisition' => $resource['requisition'] ?? null,
+                'authorId' => $authorUuid ? Employee::whereUuid($authorUuid)->whereLegalEntityId($legalEntityId)->value('id') : null,
+                'encounterId' => $encounterUuid ? Encounter::whereUuid($encounterUuid)->value('id') : null,
+                'fhirVersion' => 1,
+            ];
+            foreach (['category' => ['categoryConcept', 'categoryId'], 'termsOfService' => ['termsOfServiceConcept', 'termsOfServiceConceptId']] as $field => [$relation, $attribute]) {
+                $attributes[$attribute] = $this->replaceFhirConcept($plan->exists ? $plan->{$relation} : null, $resource[$field] ?? null);
+            }
+            foreach (['author' => ['authorReference', 'authorReferenceId'], 'encounter' => ['encounterIdentifier', 'encounterIdentifierId'], 'careManager' => ['careManager', 'careManagerId'], 'managingOrganization' => ['managingOrganization', 'managingOrganizationId']] as $field => [$relation, $attribute]) {
+                $attributes[$attribute] = $this->replaceFhirReference($plan->exists ? $plan->{$relation} : null, $resource[$field] ?? null);
+            }
+            $known = ['id', 'status', 'title', 'intent', 'description', 'note', 'addresses', 'requisition', 'category', 'termsOfService', 'author', 'encounter', 'careManager', 'managingOrganization', 'period', 'supportingInfo', 'contributor'];
+            $attributes['fhirMetadata'] = array_diff_key($resource, array_flip($known));
+            $plan->fill($attributes)->save();
+            MedicalEventsRepository::period()->syncExact($plan, $resource['period']);
+            $this->syncFhirCollection($plan, 'supportingInfoReferences', $resource['supportingInfo'] ?? []);
+            $this->syncFhirCollection($plan, 'contributors', $resource['contributor'] ?? [], positioned: true);
+
+            return $plan;
+        });
+    }
+
+    public function getResource(int $id): array
+    {
+        $plan = CarePlan::with(['categoryConcept.coding', 'termsOfServiceConcept.coding', 'authorReference.type.coding', 'encounterIdentifier.type.coding', 'careManager.type.coding', 'managingOrganization.type.coding', 'effectivePeriod', 'supportingInfoReferences.type.coding', 'contributors.type.coding'])->findOrFail($id);
+        if ($plan->fhirVersion !== 1) {
+            throw new InvalidArgumentException('Care Plan must pass the FHIR backfill before use.');
+        }
+        $resource = array_replace($plan->fhirMetadata ?? [], [
+            'id' => $plan->uuid,
+            'status' => $plan->status,
+            'title' => $plan->title,
+            'intent' => $plan->intent,
+            'description' => $plan->description,
+            'note' => $plan->note,
+            'addresses' => $plan->addresses ?? [],
+            'requisition' => $plan->requisition,
+            'period' => $plan->effectivePeriod ? MedicalEventsRepository::period()->toResource($plan->effectivePeriod) : null,
+            'supportingInfo' => $plan->supportingInfoReferences->map(fn ($reference): array => $this->fhirReference($reference))->all(),
+            'contributor' => $plan->contributors->map(fn ($reference): array => $this->fhirReference($reference))->all(),
+        ]);
+        foreach (['category' => 'categoryConcept', 'termsOfService' => 'termsOfServiceConcept'] as $field => $relation) {
+            $resource[$field] = $this->fhirConcept($plan->{$relation});
+        }
+        foreach (['author' => 'authorReference', 'encounter' => 'encounterIdentifier', 'careManager' => 'careManager', 'managingOrganization' => 'managingOrganization'] as $field => $relation) {
+            $resource[$field] = $this->fhirReference($plan->{$relation});
+        }
+
+        return array_filter($resource, static fn (mixed $value): bool => $value !== null);
+    }
+
     public function getByLegalEntity(int $legalEntityId): Collection
     {
         return CarePlan::where('legal_entity_id', $legalEntityId)

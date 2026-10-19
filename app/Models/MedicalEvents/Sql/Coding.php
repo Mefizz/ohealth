@@ -11,8 +11,13 @@ class Coding extends Model
 {
     protected $fillable = [
         'system',
-        'code'
+        'code',
+        'display',
+        'version',
+        'user_selected',
     ];
+
+    protected $casts = ['user_selected' => 'boolean'];
 
     protected $hidden = [
         'id',

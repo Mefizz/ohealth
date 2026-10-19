@@ -13,9 +13,152 @@ use App\Services\MedicalEvents\Fhir;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use App\Repositories\MedicalEvents\Concerns\PersistsCarePlanFhir;
+use App\Models\Employee\Employee;
+use App\Enums\CarePlanActivityKind;
+use InvalidArgumentException;
+use Illuminate\Support\Str;
 
 class CarePlanActivityRepository
 {
+    use PersistsCarePlanFhir;
+
+    /** Only drafts can be reconstructed locally; registered activities require a full remote import. */
+    public function legacyDraftResource(CarePlanActivity $activity, CarePlan $plan): array
+    {
+        $activity->loadMissing(['author', 'quantityQuantity', 'dailyAmountQuantity', 'scheduledPeriod', 'productReferenceIdentifier.type.coding', 'productConcept.coding']);
+        $data = Arr::toCamelCase($activity->getAttributes());
+        $data['uuid'] = $activity->uuid ?? Str::uuid()->toString();
+        $data['author'] = $activity->author?->uuid;
+        $data['kind'] = $activity->resolvedKind();
+        if (!$data['author']) {
+            throw new InvalidArgumentException('Draft activity author cannot be resolved.');
+        }
+        $data['reasonReference'] = $activity->reasonReference ?? [];
+        $data['goal'] = $activity->goal ?? [];
+        if ($activity->productReferenceIdentifier && $activity->productReferenceIdentifier->type->isNotEmpty()) {
+            $data['productReference'] = $this->fhirReference($activity->productReferenceIdentifier);
+        } elseif ($activity->productReference && $data['kind'] === CarePlanActivityKind::SERVICE_REQUEST->value) {
+            throw new InvalidArgumentException('Untyped service product cannot distinguish a service from a service group.');
+        }
+        if ($activity->productConcept) {
+            $data['productCodeableConcept'] = $this->fhirConcept($activity->productConcept);
+        }
+        foreach (['quantity' => 'quantityQuantity', 'dailyAmount' => 'dailyAmountQuantity'] as $field => $relation) {
+            if ($activity->{$relation}) {
+                $data[$field] = $this->fhirQuantity($activity->{$relation});
+            }
+        }
+        if ($activity->scheduledPeriod) {
+            $data['scheduledPeriod'] = MedicalEventsRepository::period()->toResource($activity->scheduledPeriod);
+        } elseif ($activity->scheduledPeriodStart !== null) {
+            $data['scheduledPeriod'] = ['start' => \Carbon\CarbonImmutable::parse($activity->getRawOriginal('scheduled_period_start'), config('app.timezone'))->startOfDay()->utc()->toIso8601ZuluString()];
+            if ($activity->scheduledPeriodEnd !== null) {
+                $data['scheduledPeriod']['end'] = \Carbon\CarbonImmutable::parse($activity->getRawOriginal('scheduled_period_end'), config('app.timezone'))->setTime(23, 59, 59)->utc()->toIso8601ZuluString();
+            }
+        }
+        if ($activity->outcomeReference || $activity->outcomeCodeableConcept || $activity->statusReason) {
+            throw new InvalidArgumentException('Legacy outcome or status reason requires explicit reconciliation.');
+        }
+        unset($data['outcomeReference'], $data['outcomeCodeableConcept'], $data['statusReason']);
+
+        return Fhir::carePlanActivity()->toFhir($data, ['carePlanUuid' => $plan->uuid ?? 'preflight-plan']);
+    }
+
+    /** Store a complete activity; remainingQuantity is supplied by the source, never recalculated. */
+    public function storeResource(array $resource, CarePlan $plan, ?int $localId = null): CarePlanActivity
+    {
+        $detail = $resource['detail'] ?? [];
+        if (!isset($resource['id'], $detail['status']) || CarePlanActivityKind::tryFrom($detail['kind'] ?? '') === null || data_get($resource, 'carePlan.identifier.value') !== $plan->uuid) {
+            throw new InvalidArgumentException('A complete activity requires identity, kind, status and its owning Care Plan reference.');
+        }
+
+        return DB::transaction(function () use ($resource, $detail, $plan, $localId): CarePlanActivity {
+            $query = CarePlanActivity::whereCarePlanId($plan->id)->lockForUpdate();
+            $activity = $localId === null ? $query->whereUuid($resource['id'])->first() : $query->findOrFail($localId);
+            if ($activity?->uuid !== null && $activity->uuid !== $resource['id']) {
+                throw new InvalidArgumentException('Cannot replace an existing activity identity.');
+            }
+            $activity ??= new CarePlanActivity(['carePlanId' => $plan->id]);
+            $authors = $resource['author'] ?? [];
+            $authorUuid = data_get($authors, '0.identifier.value');
+            $attributes = [
+                'uuid' => $resource['id'],
+                'kind' => $detail['kind'],
+                'status' => $detail['status'],
+                'description' => $detail['description'] ?? null,
+                'doNotPerform' => $detail['doNotPerform'] ?? false,
+                'authorId' => $authorUuid ? Employee::whereUuid($authorUuid)->whereLegalEntityId($plan->legalEntityId)->value('id') : null,
+                'remainingQuantityType' => $detail['remainingQuantityType'] ?? null,
+                'scheduledTiming' => $detail['scheduledTiming'] ?? null,
+                'scheduledString' => $detail['scheduledString'] ?? null,
+                'fhirVersion' => 1,
+            ];
+            foreach (['productCodeableConcept' => ['productConcept', 'productCodeableConceptId'], 'statusReason' => ['statusReasonConcept', 'statusReasonConceptId']] as $field => [$relation, $attribute]) {
+                $attributes[$attribute] = $this->replaceFhirConcept($activity->exists ? $activity->{$relation} : null, $detail[$field] ?? null);
+            }
+            foreach (['productReference' => ['productReferenceIdentifier', 'productReferenceId'], 'location' => ['locationIdentifier', 'locationIdentifierId'], 'performer' => ['performerIdentifier', 'performerIdentifierId'], 'program' => ['programIdentifier', 'programIdentifierId']] as $field => [$relation, $attribute]) {
+                $attributes[$attribute] = $this->replaceFhirReference($activity->exists ? $activity->{$relation} : null, $detail[$field] ?? null);
+            }
+            foreach (['quantity' => ['quantityQuantity', 'quantityId'], 'dailyAmount' => ['dailyAmountQuantity', 'dailyAmountId'], 'remainingQuantity' => ['remainingQuantityQuantity', 'remainingQuantityId']] as $field => [$relation, $attribute]) {
+                $attributes[$attribute] = $this->replaceFhirQuantity($activity->exists ? $activity->{$relation} : null, $detail[$field] ?? null);
+            }
+            $knownDetail = ['kind', 'status', 'description', 'doNotPerform', 'remainingQuantityType', 'scheduledTiming', 'scheduledString', 'productCodeableConcept', 'statusReason', 'productReference', 'location', 'performer', 'program', 'quantity', 'dailyAmount', 'remainingQuantity', 'scheduledPeriod', 'reasonCode', 'reasonReference', 'goal'];
+            $attributes['fhirMetadata'] = array_diff_key($resource, array_flip(['id', 'carePlan', 'author', 'detail', 'outcomeReference', 'outcomeCodeableConcept']));
+            $attributes['fhirMetadata']['detail'] = array_diff_key($detail, array_flip($knownDetail));
+            $activity->fill($attributes)->save();
+            MedicalEventsRepository::period()->syncExact($activity, $detail['scheduledPeriod'] ?? null);
+            $this->syncFhirCollection($activity, 'authorReferences', $authors, positioned: true);
+            $this->syncFhirCollection($activity, 'reasonReferences', $detail['reasonReference'] ?? []);
+            $this->syncFhirCollection($activity, 'reasonConcepts', $detail['reasonCode'] ?? [], concepts: true, positioned: true);
+            $this->syncFhirCollection($activity, 'goalConcepts', $detail['goal'] ?? [], concepts: true, positioned: true);
+            $this->syncFhirCollection($activity, 'outcomeReferences', $resource['outcomeReference'] ?? []);
+            $this->syncFhirCollection($activity, 'outcomeConcepts', $resource['outcomeCodeableConcept'] ?? [], concepts: true, positioned: true);
+
+            return $activity;
+        });
+    }
+
+    public function getResource(int $id): array
+    {
+        $activity = CarePlanActivity::with(['carePlan', 'authorReferences.type.coding', 'productConcept.coding', 'statusReasonConcept.coding', 'productReferenceIdentifier.type.coding', 'locationIdentifier.type.coding', 'performerIdentifier.type.coding', 'programIdentifier.type.coding', 'quantityQuantity', 'dailyAmountQuantity', 'remainingQuantityQuantity', 'scheduledPeriod', 'reasonConcepts.coding', 'goalConcepts.coding', 'outcomeConcepts.coding', 'reasonReferences.type.coding', 'outcomeReferences.type.coding'])->findOrFail($id);
+        if ($activity->fhirVersion !== 1) {
+            throw new InvalidArgumentException('Activity must pass the FHIR backfill before use.');
+        }
+        $resource = $activity->fhirMetadata ?? [];
+        $resource['id'] = $activity->uuid;
+        $resource['carePlan'] = \App\Services\MedicalEvents\FhirResource::make()->coding('eHealth/resources', 'care_plan')->toIdentifier($activity->carePlan->uuid);
+        $resource['author'] = $activity->authorReferences->map(fn ($reference): array => $this->fhirReference($reference))->all();
+        $detail = array_replace($resource['detail'] ?? [], [
+            'kind' => $activity->kind,
+            'status' => $activity->status,
+            'description' => $activity->description,
+            'doNotPerform' => $activity->doNotPerform,
+            'remainingQuantityType' => $activity->remainingQuantityType,
+            'scheduledPeriod' => $activity->scheduledPeriod ? MedicalEventsRepository::period()->toResource($activity->scheduledPeriod) : null,
+            'scheduledTiming' => $activity->scheduledTiming,
+            'scheduledString' => $activity->scheduledString,
+        ]);
+        foreach (['productCodeableConcept' => 'productConcept', 'statusReason' => 'statusReasonConcept'] as $field => $relation) {
+            $detail[$field] = $this->fhirConcept($activity->{$relation});
+        }
+        foreach (['productReference' => 'productReferenceIdentifier', 'location' => 'locationIdentifier', 'performer' => 'performerIdentifier', 'program' => 'programIdentifier'] as $field => $relation) {
+            $detail[$field] = $this->fhirReference($activity->{$relation});
+        }
+        foreach (['quantity' => 'quantityQuantity', 'dailyAmount' => 'dailyAmountQuantity', 'remainingQuantity' => 'remainingQuantityQuantity'] as $field => $relation) {
+            $detail[$field] = $this->fhirQuantity($activity->{$relation});
+        }
+        foreach (['reasonCode' => 'reasonConcepts', 'goal' => 'goalConcepts'] as $field => $relation) {
+            $detail[$field] = $activity->{$relation}->map(fn ($concept): array => $this->fhirConcept($concept))->all();
+        }
+        $detail['reasonReference'] = $activity->reasonReferences->map(fn ($reference): array => $this->fhirReference($reference))->all();
+        $resource['detail'] = array_filter($detail, static fn (mixed $value): bool => $value !== null);
+        $resource['outcomeReference'] = $activity->outcomeReferences->map(fn ($reference): array => $this->fhirReference($reference))->all();
+        $resource['outcomeCodeableConcept'] = $activity->outcomeConcepts->map(fn ($concept): array => $this->fhirConcept($concept))->all();
+
+        return $resource;
+    }
+
     public function findById(int $id): ?CarePlanActivity
     {
         return CarePlanActivity::find($id);

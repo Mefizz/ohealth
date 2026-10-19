@@ -125,7 +125,7 @@ class ReferralExecutorPhase4Test extends TestCase
     public function test_care_plan_scope_uses_the_typed_collection_and_keeps_legacy_access(): void
     {
         $organization = Identifier::create(['value' => $this->legalEntity->uuid]);
-        $plan = \App\Models\CarePlan::create(['uuid' => (string) Str::uuid(), 'person_id' => $this->person->id, 'author_id' => $this->employee->id, 'legal_entity_id' => $this->legalEntity->id, 'period_start' => '2026-10-01', 'status' => 'active', 'managing_organization_id' => $organization->id]);
+        $plan = \App\Models\CarePlan::create(['uuid' => (string) Str::uuid(), 'person_id' => $this->person->id, 'author_id' => $this->employee->id, 'legal_entity_id' => $this->legalEntity->id, 'period_start' => '2026-10-01', 'title' => 'Synthetic scope plan', 'status' => 'active', 'managing_organization_id' => $organization->id]);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource['basedOn'][0]['identifier']['value'] = $plan->uuid;
         $repo = app(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class);

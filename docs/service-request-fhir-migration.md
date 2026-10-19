@@ -65,7 +65,15 @@ Clinical `status` is stored separately from execution/program progress. Legacy l
 
 ## Verification record
 
-- Sail referral regression: 107 tests, 553 assertions, zero failures (existing PHP 8.5 PDO deprecations are reported separately).
+- Initial Sail referral regression before compatibility hardening: 107 tests, 553 assertions, zero failures (existing PHP 8.5 PDO deprecations are reported separately).
 - Final schema: fresh `install --no-interaction` and `update --no-interaction` succeeded in an additional disposable database. Transactional rehearsals verified both Care Plan → Service Request and Service Request → Care Plan migration orders, including shared Coding fields and clinical status.
 - Legacy drafts cannot enter the signing path until explicit canonical conversion/reconciliation. Pending/error mutation responses without job links cannot advance local status. Scientific notation below supported precision and decimals not representable by the JSON numeric contract are rejected instead of rounded.
 - The wider owned-domain suite and final focused contracts are recorded in the umbrella PR after completion. Real KEP and ESOZ UAT remain manual gates.
+
+## Care Plan #998 integration evidence
+
+A private local integration branch combined the current Care Plan and Service Request umbrellas. Its 49 contract tests passed (206 assertions), followed by the normalized plan/activity → referral → PreQualify → signed-create-content scenario (11 assertions). No real signature or clinical API write was performed. Both migration installation orders also passed in the disposable rehearsal database.
+
+That scenario exposed and fixed reads from obsolete activity scalars: Service Request now reads the actual service/service_group identifier, program and Quantity units from the normalized Activity resource. Both Care Plan and Encounter creation retain explicit dateTime values before persistence rather than reducing them to a calendar date. The regression lives in `ReferralSignPayloadTest`; it is explicitly skipped when the complete #998 module is absent, and executes when both modules are present.
+
+The private merge is retained locally as `i1005_referral_care_plan_compatibility`; it is not a remote branch or part of this umbrella. When integrating both modules, resolve their overlapping referral files deliberately: keep Service Request `updateClinicalStatus` (a generic status write would leave canonical status stale), retain patient-scoped activity lookup, keep the repository-only Activity updates from #998, and retain one signature-service test mock. These are integration resolutions, not authorization to merge either company PR.

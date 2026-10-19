@@ -23,6 +23,27 @@ class CarePlanRepository
 {
     use PersistsCarePlanFhir;
 
+    public function resolvePatientContext(?int $personId, ?string $patientUuid): array
+    {
+        $query = \App\Models\Person\Person::query();
+        $person = $personId === null ? $query->whereUuid($patientUuid)->firstOrFail() : $query->findOrFail($personId);
+        if ($patientUuid !== null && $person->uuid !== $patientUuid) {
+            throw new InvalidArgumentException('Patient identity does not match the synchronization context.');
+        }
+
+        return ['id' => $person->id, 'uuid' => $person->uuid];
+    }
+
+    public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
+    {
+        return DB::transaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
+            $plan = $this->storeResource($resource, $personId, $legalEntityId);
+            app(CarePlanActivityRepository::class)->storeResources($activities, $plan);
+
+            return $plan;
+        });
+    }
+
     /** Registered legacy resources require a full remote sync, not a guess from lossy columns. */
     public function backfillResources(int $legalEntityId, bool $write = false): array
     {

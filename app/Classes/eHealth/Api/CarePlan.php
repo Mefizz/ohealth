@@ -14,10 +14,111 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use App\Core\Arr;
 use Illuminate\Validation\ValidationException;
+use App\Classes\eHealth\MapsCarePlanResources;
+use App\Classes\eHealth\EHealth;
+use App\Repositories\CarePlanRepository;
 
 class CarePlan extends Request
 {
+    use MapsCarePlanResources;
+
     protected const string URL = '/api/care_plans';
+
+    public function buildCreateContent(array $resource): array
+    {
+        Validator::make($resource, [
+            'id' => ['required', 'uuid'], 'title' => ['required', 'string'],
+            'category.coding' => ['required', 'array', 'min:1'],
+            'period.start' => ['required', 'date'],
+            'encounter.identifier.value' => ['required', 'uuid'],
+            'author.identifier.value' => ['required', 'uuid'],
+            'addresses' => ['required', 'array', 'min:1'],
+            'termsOfService.coding' => ['required', 'array', 'min:1'],
+        ])->validate();
+        $content = array_intersect_key($resource, array_flip(['id', 'category', 'title', 'description', 'period', 'supportingInfo', 'note', 'encounter', 'addresses', 'author', 'contributor', 'termsOfService', 'informWith']));
+        $content['intent'] = 'order';
+        $content['status'] = 'new';
+
+        return $this->resourcePayload($content);
+    }
+
+    public function buildCancelContent(array $snapshot, array $statusReason): array
+    {
+        Validator::make($snapshot, ['id' => ['required', 'uuid']])->validate();
+        unset($snapshot['activities']);
+        $snapshot['status_reason'] = $statusReason;
+
+        return $snapshot;
+    }
+
+    public function fetchCancelSnapshot(string $patientUuid, string $planUuid): array
+    {
+        $snapshot = $this->getDetails($patientUuid, $planUuid)->getData();
+        Validator::make($snapshot, ['id' => ['required', 'in:'.$planUuid]])->validate();
+
+        return $snapshot;
+    }
+
+    public function submitSignedCreate(string $patientUuid, string $signedContent): array
+    {
+        return $this->resolveWriteResponse($this->create($patientUuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+    }
+
+    public function cancelAndResolve(string $patientUuid, string $planUuid, array $payload): array
+    {
+        return $this->resolveWriteResponse($this->cancel($patientUuid, $planUuid, $payload));
+    }
+
+    public function completeAndResolve(string $patientUuid, string $planUuid, array $payload): array
+    {
+        return $this->resolveWriteResponse($this->complete($patientUuid, $planUuid, $payload));
+    }
+
+    /** Fetch full details and the entire activity collection before opening a SQL transaction. */
+    public function synchronizeResources(array $summaries, ?int $personId, int $legalEntityId, ?string $patientUuid = null, ?string $token = null): void
+    {
+        $repository = app(CarePlanRepository::class);
+        foreach ($summaries as $summary) {
+            $summary = $this->resourceFromResponse($summary);
+            $patient = $repository->resolvePatientContext($personId, $patientUuid ?? data_get($summary, 'subject.identifier.value'));
+            if ($token !== null) {
+                $this->withToken($token);
+            }
+            $resource = $this->getDetails($patient['uuid'], $summary['id'])->validate();
+            if ($resource['id'] !== $summary['id']) {
+                throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
+            }
+            $activityApi = EHealth::carePlanActivity();
+            if ($token !== null) {
+                $activityApi->withToken($token);
+            }
+            $activities = $activityApi->fetchAllResources($patient['uuid'], $resource['id']);
+            $repository->storeAggregate($resource, $activities, $patient['id'], $legalEntityId);
+        }
+    }
+
+    public function synchronizePatient(string $patientUuid, int $personId, int $legalEntityId, array $query = []): void
+    {
+        $summaries = [];
+        $seen = [];
+        for ($page = 1; ; $page++) {
+            $response = $this->getBySearchParams($patientUuid, array_replace($query, ['page' => $page]));
+            $items = $response->getData();
+            foreach ($items as $item) {
+                $item = $this->resourceFromResponse($item);
+                if (isset($seen[$item['id']])) {
+                    throw ValidationException::withMessages(['paging' => 'Care Plan pagination repeated a resource.']);
+                }
+                $seen[$item['id']] = true;
+                $summaries[] = $item;
+            }
+            $lastPage = $response->getPaging()['total_pages'] ?? null;
+            if ($items === [] || ($lastPage !== null && $page >= (int) $lastPage)) {
+                break;
+            }
+        }
+        $this->synchronizeResources($summaries, $personId, $legalEntityId, $patientUuid);
+    }
 
     /**
      * Create a new Care Plan in eHealth.
@@ -130,10 +231,10 @@ class CarePlan extends Request
 
     protected function validateDetails(EHealthResponse $response): array
     {
-        $data = $this->replaceEHealthPropNames($response->getData());
+        $data = $this->resourceFromResponse($response->getData());
 
         $validator = Validator::make($data, [
-            'uuid' => 'required|uuid',
+            'id' => 'required|uuid',
             'status' => 'required|string',
             'title' => 'required|string',
         ]);
@@ -152,12 +253,12 @@ class CarePlan extends Request
     {
         $transformedData = [];
         foreach ($response->getData() as $item) {
-            $transformedData[] = $this->replaceEHealthPropNames($item);
+            $transformedData[] = $this->resourceFromResponse($item);
         }
 
         $validator = Validator::make($transformedData, [
             '*' => 'array',
-            '*.uuid' => 'required|uuid',
+            '*.id' => 'required|uuid',
             '*.status' => 'required|string',
             '*.title' => 'nullable|string',
             '*.managing_organization' => ['required', 'array'],

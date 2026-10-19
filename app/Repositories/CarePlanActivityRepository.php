@@ -23,6 +23,15 @@ class CarePlanActivityRepository
 {
     use PersistsCarePlanFhir;
 
+    public function storeResources(array $resources, CarePlan $plan): void
+    {
+        DB::transaction(function () use ($resources, $plan): void {
+            foreach ($resources as $resource) {
+                $this->storeResource($resource, $plan);
+            }
+        });
+    }
+
     /** Only drafts can be reconstructed locally; registered activities require a full remote import. */
     public function legacyDraftResource(CarePlanActivity $activity, CarePlan $plan): array
     {

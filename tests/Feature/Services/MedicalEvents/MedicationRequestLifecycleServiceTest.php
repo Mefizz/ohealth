@@ -240,6 +240,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_reject_active_stops_when_ehealth_denies_access(): void
     {
+        \Illuminate\Support\Facades\Log::spy();
         $requestRecord = MedicationRequestRequest::create([
             'uuid' => (string) Str::uuid(),
             'employee_id' => $this->employee->id,

@@ -96,6 +96,9 @@ class ServiceRequestMapper implements FhirMapperContract
                 if (!is_numeric($input['quantity']) || !is_finite((float) $input['quantity'])) {
                     throw new InvalidArgumentException('Quantity must be a finite number.');
                 }
+                if (!\Brick\Math\BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
+                    throw new InvalidArgumentException('Quantity cannot be represented without loss in the JSON numeric contract.');
+                }
                 $resource['quantity'] = array_replace($resource['quantity'] ?? [], ['value' => (float) $input['quantity']]);
                 $resource['quantity']['system'] ??= 'SERVICE_UNIT';
                 $resource['quantity']['code'] ??= 'PIECE';

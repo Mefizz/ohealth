@@ -98,6 +98,25 @@ class ServiceRequestFhirPersistenceTest extends TestCase
             $this->assertDatabaseMissing('service_request_requests', ['uuid' => $resource['id']]);
         }
     }
+    public function test_exponent_and_large_decimal_precision_are_never_silently_lost(): void
+    {
+        $repo = app(ServiceRequestRequestRepository::class);
+        $person = $this->person();
+        foreach (['1e-20', '13123456789012.1234567890'] as $value) {
+            $resource = $this->resource();
+            $resource['quantity']['value'] = $value;
+            try {
+                $repo->storeResource($resource, $person->id);
+                $this->fail('Unsupported numeric precision must be rejected.');
+            } catch (InvalidArgumentException) {
+                $this->assertDatabaseMissing('service_request_requests', ['uuid' => $resource['id']]);
+            }
+        }
+        $resource['quantity']['value'] = 1e-10;
+        $record = $repo->storeResource($resource, $person->id);
+        $this->assertSame(1e-10, $repo->getResource($record)['quantity']['value']);
+    }
+
     public function test_occurrence_datetime_retains_the_original_timezone_and_precision(): void
     {
         $resource = $this->resource();

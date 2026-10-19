@@ -99,7 +99,7 @@ trait ManagesCarePlanReferrals
         if ($existingDraft) {
             if (app(ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
                 if ($activity->status === 'scheduled') {
-                    $activity->update(['status' => 'in-progress']);
+                    app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
                 }
                 $this->refreshCarePlan();
                 $documentLabel = $resolvedKind === 'device_request'
@@ -784,7 +784,7 @@ trait ManagesCarePlanReferrals
             ]);
 
             if ($activity->status === 'scheduled') {
-                $activity->update(['status' => 'in-progress']);
+                app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
             }
 
             $this->refreshCarePlan();
@@ -1078,7 +1078,7 @@ trait ManagesCarePlanReferrals
         }
 
         if ($activity->status === 'scheduled') {
-            $activity->update(['status' => 'in-progress']);
+            app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
         }
 
         $this->showSignatureModal = false;

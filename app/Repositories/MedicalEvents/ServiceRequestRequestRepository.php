@@ -426,9 +426,13 @@ class ServiceRequestRequestRepository extends BaseRepository
         if (!is_numeric($value) || !is_finite((float) $value) || abs((float) $value) >= 1e14) {
             throw new \InvalidArgumentException('Quantity is outside the supported range.');
         }
-        $decimal = str_contains(strtolower((string) $value), 'e') ? sprintf('%.14F', (float) $value) : (string) $value;
-        if (str_contains($decimal, '.') && strlen(rtrim(explode('.', $decimal, 2)[1], '0')) > 10) {
-            throw new \InvalidArgumentException('Quantity precision must not be silently rounded.');
+        try {
+            $decimal = \Brick\Math\BigDecimal::of((string) $value)->toScale(10);
+        } catch (\Brick\Math\Exception\MathException $exception) {
+            throw new \InvalidArgumentException('Quantity precision must not be silently rounded.', previous: $exception);
+        }
+        if (!$decimal->isEqualTo((string) (float) $value)) {
+            throw new \InvalidArgumentException('Quantity cannot be represented without loss in the JSON numeric contract.');
         }
         $quantity ??= new \App\Models\MedicalEvents\Sql\Quantity();
         $quantity->fill(['value' => $value, 'system' => $data['system'] ?? null, 'code' => $data['code'] ?? null, 'unit' => $data['unit'] ?? null, 'comparator' => $data['comparator'] ?? null])->save();

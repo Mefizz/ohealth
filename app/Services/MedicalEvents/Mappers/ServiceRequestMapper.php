@@ -73,16 +73,18 @@ class ServiceRequestMapper implements FhirMapperContract
         }
         if (array_key_exists('basedOnUuid', $input)) {
             $items = $resource['basedOn'] ?? [];
+            $previousActivity = collect($items)->first(fn (array $ref): bool => in_array(data_get($ref, 'identifier.type.coding.0.code'), ['activity', 'care_plan_activity'], true));
             $items = array_values(array_filter($items, static fn (array $ref): bool => !in_array(data_get($ref, 'identifier.type.coding.0.code'), ['activity', 'care_plan_activity'], true)));
             if (!empty($input['basedOnUuid'])) {
                 $old = collect($resource['basedOn'] ?? [])->first(fn (array $ref): bool => data_get($ref, 'identifier.value') === $input['basedOnUuid']);
                 $items[] = $this->reference($input['basedOnUuid'], 'activity', $old);
             }
-            if (data_get($old ?? null, 'identifier.value') !== ($input['basedOnUuid'] ?? null)) {
+            if (data_get($previousActivity, 'identifier.value') !== ($input['basedOnUuid'] ?: null)) {
                 $resource['basedOn'] = $items;
             }
         }
-        if (!empty($options['carePlanUuid'])) {
+        $previousCarePlan = collect($resource['basedOn'] ?? [])->first(fn (array $ref): bool => data_get($ref, 'identifier.type.coding.0.code') === 'care_plan');
+        if (!empty($options['carePlanUuid']) && data_get($previousCarePlan, 'identifier.value') !== $options['carePlanUuid']) {
             $items = array_values(array_filter($resource['basedOn'] ?? [], static fn (array $ref): bool => data_get($ref, 'identifier.type.coding.0.code') !== 'care_plan'));
             array_unshift($items, $this->reference($options['carePlanUuid'], 'care_plan', collect($resource['basedOn'] ?? [])->first(fn (array $ref): bool => data_get($ref, 'identifier.type.coding.0.code') === 'care_plan')));
             $resource['basedOn'] = $items;

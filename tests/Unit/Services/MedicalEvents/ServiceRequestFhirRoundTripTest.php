@@ -27,6 +27,24 @@ class ServiceRequestFhirRoundTripTest extends TestCase
         $this->assertSame($resource['code'], $actual['code']);
     }
 
+    public function test_clearing_an_activity_keeps_the_care_plan_basis(): void
+    {
+        $mapper = new ServiceRequestMapper();
+        $form = $mapper->fromFhir($this->resource());
+        $form['based_on_uuid'] = null;
+        $actual = $mapper->toFhir($form);
+        $this->assertSame([$this->resource()['basedOn'][0]], $actual['basedOn']);
+    }
+
+    public function test_unchanged_care_plan_context_preserves_reference_order(): void
+    {
+        $resource = $this->resource();
+        $resource['basedOn'] = array_reverse($resource['basedOn']);
+        $mapper = new ServiceRequestMapper();
+        $actual = $mapper->toFhir($mapper->fromFhir($resource), ['carePlanUuid' => $resource['basedOn'][1]['identifier']['value']]);
+        $this->assertSame($resource['basedOn'], $actual['basedOn']);
+    }
+
     public function test_create_and_prequalify_use_one_resource_with_distinct_envelopes(): void
     {
         $mapper = new ServiceRequestMapper();

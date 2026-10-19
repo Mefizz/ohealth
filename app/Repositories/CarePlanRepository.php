@@ -123,7 +123,9 @@ class CarePlanRepository
             if ($plan?->uuid !== null && $plan->uuid !== $resource['id']) {
                 throw new InvalidArgumentException('Cannot replace an existing Care Plan identity.');
             }
-            $plan ??= new CarePlan(['personId' => $personId, 'legalEntityId' => $legalEntityId]);
+            $plan ??= new CarePlan();
+            $plan->personId = $personId;
+            $plan->legalEntityId = $legalEntityId;
             $authorUuid = data_get($resource, 'author.identifier.value');
             $encounterUuid = data_get($resource, 'encounter.identifier.value');
             $attributes = [
@@ -147,7 +149,7 @@ class CarePlanRepository
             }
             $known = ['id', 'status', 'title', 'intent', 'description', 'note', 'addresses', 'requisition', 'category', 'termsOfService', 'author', 'encounter', 'careManager', 'managingOrganization', 'period', 'supportingInfo', 'contributor'];
             $attributes['fhirMetadata'] = array_diff_key($resource, array_flip($known));
-            $plan->fill($attributes)->save();
+            $plan->forceFill($attributes)->save();
             MedicalEventsRepository::period()->syncExact($plan, $resource['period']);
             $this->syncFhirCollection($plan, 'supportingInfoReferences', $resource['supportingInfo'] ?? []);
             $this->syncFhirCollection($plan, 'contributors', $resource['contributor'] ?? [], positioned: true);

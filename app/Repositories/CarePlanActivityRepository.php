@@ -79,7 +79,8 @@ class CarePlanActivityRepository
             if ($activity?->uuid !== null && $activity->uuid !== $resource['id']) {
                 throw new InvalidArgumentException('Cannot replace an existing activity identity.');
             }
-            $activity ??= new CarePlanActivity(['carePlanId' => $plan->id]);
+            $activity ??= new CarePlanActivity();
+            $activity->carePlanId = $plan->id;
             $authors = $resource['author'] ?? [];
             $authorUuid = data_get($authors, '0.identifier.value');
             $attributes = [
@@ -106,7 +107,7 @@ class CarePlanActivityRepository
             $knownDetail = ['kind', 'status', 'description', 'doNotPerform', 'remainingQuantityType', 'scheduledTiming', 'scheduledString', 'productCodeableConcept', 'statusReason', 'productReference', 'location', 'performer', 'program', 'quantity', 'dailyAmount', 'remainingQuantity', 'scheduledPeriod', 'reasonCode', 'reasonReference', 'goal'];
             $attributes['fhirMetadata'] = array_diff_key($resource, array_flip(['id', 'carePlan', 'author', 'detail', 'outcomeReference', 'outcomeCodeableConcept']));
             $attributes['fhirMetadata']['detail'] = array_diff_key($detail, array_flip($knownDetail));
-            $activity->fill($attributes)->save();
+            $activity->forceFill($attributes)->save();
             MedicalEventsRepository::period()->syncExact($activity, $detail['scheduledPeriod'] ?? null);
             $this->syncFhirCollection($activity, 'authorReferences', $authors, positioned: true);
             $this->syncFhirCollection($activity, 'reasonReferences', $detail['reasonReference'] ?? []);

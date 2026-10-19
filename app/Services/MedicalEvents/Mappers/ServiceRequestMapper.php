@@ -160,6 +160,11 @@ class ServiceRequestMapper implements FhirMapperContract
             unset($resource['uuid']);
         }
 
+        if (isset($resource['requestNumber']) && !isset($resource['requisition'])) {
+            $resource['requisition'] = $resource['requestNumber'];
+            unset($resource['requestNumber']);
+        }
+
         return $resource;
     }
 

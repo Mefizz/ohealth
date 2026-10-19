@@ -98,4 +98,47 @@ class ServiceRequestFhirPersistenceTest extends TestCase
             $this->assertDatabaseMissing('service_request_requests', ['uuid' => $resource['id']]);
         }
     }
+    public function test_occurrence_datetime_retains_the_original_timezone_and_precision(): void
+    {
+        $resource = $this->resource();
+        unset($resource['occurrencePeriod']);
+        $resource['occurrenceDateTime'] = '2026-11-01T12:20:30.000+02:00';
+        $repo = app(ServiceRequestRequestRepository::class);
+        $record = $repo->storeResource($resource, $this->person()->id);
+        $this->assertSame($resource['occurrenceDateTime'], $repo->getResource($record)['occurrenceDateTime']);
+    }
+
+    public function test_preflight_blocks_registered_legacy_rows_without_writing(): void
+    {
+        $person = $this->person();
+        $record = ServiceRequestRequest::create(['uuid' => (string) Str::uuid(), 'person_id' => $person->id, 'status' => 'active', 'service_id' => 'synthetic-service', 'quantity' => 1]);
+        $repo = app(ServiceRequestRequestRepository::class);
+        $report = $repo->backfillResources($person->id);
+        $this->assertSame([$record->id], $report['needsRemoteSync']);
+        $this->assertSame(0, $report['converted']);
+        $this->assertNull($record->fresh()->fhirVersion);
+        $this->assertSame($report, $repo->backfillResources($person->id, true));
+    }
+
+    public function test_preflight_reports_ambiguous_drafts_instead_of_inventing_author_and_units(): void
+    {
+        $person = $this->person();
+        $record = ServiceRequestRequest::create(['uuid' => (string) Str::uuid(), 'person_id' => $person->id, 'status' => 'draft', 'service_id' => 'synthetic-service', 'quantity' => 1]);
+        $report = app(ServiceRequestRequestRepository::class)->backfillResources($person->id, true);
+        $this->assertCount(1, $report['errors']);
+        $this->assertSame(0, $report['converted']);
+        $this->assertNull($record->fresh()->fhirVersion);
+    }
+    public function test_execution_progress_never_becomes_the_canonical_clinical_status(): void
+    {
+        $repo = app(ServiceRequestRequestRepository::class);
+        $record = $repo->storeResource($this->resource(), $this->person()->id);
+        $repo->applyExecutionResult($record, ['status' => 'processed'], null);
+        $actual = $repo->getResource($record);
+        $this->assertSame('active', $actual['status']);
+        $this->assertSame('in_progress', $actual['programProcessingStatus']);
+        $repo->updateClinicalStatus($record, 'recalled');
+        $this->assertSame('recalled', $repo->getResource($record)['status']);
+    }
+
 }

@@ -27,7 +27,7 @@ class ServiceRequest extends PatientApiBase
     public function fetchSignedSnapshot(string $patientUuid, string $requestUuid): array
     {
         $resource = $this->getById($patientUuid, $requestUuid)->getData();
-        Validator::make($resource, ['id' => ['required', 'in:'.$requestUuid], 'status' => ['required', 'in:active']])->validate();
+        Validator::make($resource, ['id' => ['required', 'in:'.$requestUuid], 'status' => ['required', 'in:active'], 'subject.identifier.value' => ['sometimes', 'required', 'in:'.$patientUuid]])->validate();
 
         return $resource;
     }
@@ -39,6 +39,40 @@ class ServiceRequest extends PatientApiBase
         $snapshot['explanatory_letter'] = $explanatoryLetter;
 
         return $snapshot;
+    }
+
+    public function submitSignedCreate(string $patientUuid, string $signedContent): array
+    {
+        return app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($this->createSigned($patientUuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64'])->getData());
+    }
+
+    public function cancelAndResolve(string $patientUuid, string $requestUuid, array $payload): array
+    {
+        return app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($this->cancel($patientUuid, $requestUuid, $this->signedEnvelope($payload))->getData());
+    }
+
+    public function recallAndResolve(string $patientUuid, string $requestUuid, array $payload): array
+    {
+        return app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($this->recall($patientUuid, $requestUuid, $this->signedEnvelope($payload))->getData());
+    }
+
+    public function buildUseContent(array $context, mixed $programId): array
+    {
+        return $this->executorApi()->buildUseContent($context, $programId);
+    }
+
+    public function buildCompleteContent(string $resourceUuid, string $resourceType, array $optional = []): array
+    {
+        Validator::make(['uuid' => $resourceUuid, 'type' => $resourceType], ['uuid' => ['required', 'uuid'], 'type' => ['required', 'in:encounter,procedure,diagnostic_report']])->validate();
+
+        return array_intersect_key($optional, array_flip(['program_service', 'status_reason'])) + ['completed_with' => ['identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => $resourceType]]], 'value' => $resourceUuid]]];
+    }
+
+    private function signedEnvelope(array $payload): array
+    {
+        Validator::make($payload, ['signed_data' => ['required', 'string']])->validate();
+
+        return ['signed_data' => $payload['signed_data'], 'signed_data_encoding' => 'base64'];
     }
 
     /**

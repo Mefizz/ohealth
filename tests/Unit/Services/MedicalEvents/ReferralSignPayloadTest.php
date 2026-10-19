@@ -180,6 +180,23 @@ class ReferralSignPayloadTest extends TestCase
         $this->assertSame($activity->uuid, $payload['based_on_uuid']);
     }
 
+    public function test_recoverable_draft_conversion_is_explicit_and_repeatable(): void
+    {
+        $record = $this->createDraft();
+        $record->forceFill(['fhirVersion' => null, 'quantity' => null])->save();
+        $repo = Repository::serviceRequest();
+        $preflight = $repo->backfillResources($this->person->id);
+        $this->assertSame([], $preflight['errors']);
+        $this->assertSame(0, $preflight['converted']);
+        $this->assertNull($record->fresh()->fhirVersion);
+        $this->assertSame(1, $repo->backfillResources($this->person->id, true)['converted']);
+        $resource = $repo->getResource($record->id);
+        $this->assertSame($record->uuid, $resource['id']);
+        $this->assertSame($this->employee->uuid, data_get($resource, 'requesterEmployee.identifier.value'));
+        $this->assertSame(0, $repo->backfillResources($this->person->id, true)['converted']);
+        $this->assertSame($resource, $repo->getResource($record->id));
+    }
+
     /**
      * @param  array<string, mixed>  $overrides
      */

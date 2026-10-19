@@ -34,6 +34,7 @@ return new class extends Migration
                 $table->foreignId($column)->nullable()->constrained('quantities');
             }
             $table->timestamp('occurrence_date_time', 6)->nullable();
+            $table->string('clinical_status')->nullable();
             $table->json('fhir_metadata')->nullable();
             $table->unsignedSmallInteger('fhir_version')->nullable();
         });

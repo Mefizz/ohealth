@@ -1,6 +1,6 @@
 # Module 3.17 — Service Request FHIR migration
 
-Issue: #1005. Initial baseline: company main 041a3346. Care Plan #998 remains a separate draft; this block must not merge or publish its branch to the company repository.
+Issue: #1005. Initial baseline: company main 041a3346; implementation reconciled with main 39d4a6b7. Care Plan #998 remains a separate draft; this block must not merge or publish its branch to the company repository.
 
 ## Design before implementation
 
@@ -38,3 +38,27 @@ Current Cancel/Recall link to docs.ehealth.gov.ua; anonymous retrieval returned 
 Run synthetic mapper round-trip and API body/HTTP failure contracts, precision and idempotent persistence, cross-patient identity, old draft conversion, existing Encounter/Care Plan lifecycle regressions and integration with #998. Use Sail and DatabaseTransactions, fake HTTP, disposable testing database only. No production/development migration or real KEP during implementation.
 
 Before release: backup and restore rehearsal; read-only preflight and complete reimport of registered historical records; explicit write conversion of recoverable drafts; repeat-run/reconciliation; manual KEP and ESOZ UAT; required UI specification items. Historical precision/unknown reference types cannot be guessed. Backend conversion is not 100% module certification.
+
+## Operator runbook
+
+This is an additive schema rollout followed by explicit data reconciliation. Do not run the conversion against a working database during review.
+
+1. Before deployment, make and restore-test a backup including primitives and Service Request tables. Deploy the three review blocks together. Apply the project `update` path; fresh installations use `install`. Both migration entry points share the same implementation. Rollback means a reviewed forward fix or restoration of the matching backup, because narrowing decimal/timestamp columns would lose data.
+2. Run `php artisan service-requests:backfill-fhir --person=<localPersonId>` without `--write`. The command reports record counts, local IDs needing remote sync, and conversion errors. It never prints clinical resource contents. Record the output as reconciliation evidence.
+3. For `needsRemoteSync`, import complete authorized ESOZ detail responses through the repository with the correct patient context, then rerun preflight. A search summary cannot establish the complete clinical resource or its author. Repeated imports reuse owned primitives. A UUID owned by another patient aborts import.
+4. Resolve every ambiguous draft from evidence: actual author/legal entity, typed service or service group, activity and care plan, quantity units, and encounter or episode. Do not infer historical fields from the currently logged-in employee. The write pass converts nothing when any row in that patient's preflight is blocked.
+5. Run `php artisan service-requests:backfill-fhir --person=<localPersonId> --write` only for a reconciled patient. The transaction locks and checks each draft again. Rerun it: the second conversion count must be zero, with stable IDs, quantities, references and occurrence values.
+6. Compare sample resources before and after persistence, plus form edit and signed create. Explicitly cover service groups, multiple reasons/supporting references, activity plus care plan, external authors, empty collections, decimal quantities, and timezone/fractional timestamps. Registered resources use remote reimport; the command does not silently rewrite their clinical history.
+7. Run manual ESOZ/KEP UAT and implement the mandatory items in `service-request-fhir-ui-spec.md` before release. Keep the complete umbrella draft until these gates are satisfied.
+
+Clinical `status` is stored separately from execution/program progress. Legacy lists still project `in_progress`; canonical serialization retains the actual clinical `active`. Complete writes clinical `completed` only after successful remote resolution. Pending/error jobs cannot advance local clinical state.
+
+## Explicit remaining boundaries
+
+- This implements the ESOZ profile, whose wire keys differ from generic HL7 R4 JSON. It does not claim generic HL7 server interoperability or 100% module certification.
+- Complete serializes `completed_with` correctly and preserves existing patient ownership checks. Clinical EMZ success, actual referral linkage, service-group membership and current dictionary validation remain separate business/UAT work.
+- Cancel/Recall use the fresh full raw resource. Their current external specification links returned 403 anonymously; confirm the contract in the target ESOZ environment before enabling release.
+- Cancel usage is blocked before HTTP because the available Release documentation is draft/deprecated. It must never fall back to unsigned clinical Cancel. The UI specification requires an unavailable-action explanation until a verified PROD contract exists.
+- Existing forms do not yet expose all canonical fields. Missing cancellation explanation/recall reason controls, executor-result selection and the other mandatory UI changes are a release gate, not implemented frontend work.
+- Standalone DeviceRequest from Encounter belongs to another PR/chat. Medication Requests and Medical Conclusions remain subsequent modules.
+- Compatibility with Care Plan #998 includes identical primitive helpers and guarded Coding migration additions. Publish each module independently; test their integration without copying #998 into this main-based umbrella.

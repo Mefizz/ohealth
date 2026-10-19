@@ -42,6 +42,22 @@ class ServiceRequestFhirApiTest extends TestCase
         $this->api()->fetchSignedSnapshot('patient-test', '10050000-0000-4000-8000-000000000999');
     }
 
+    public function test_remote_failure_blocks_snapshot_signing(): void
+    {
+        Http::fake(['*' => Http::response(['error' => ['message' => 'Synthetic remote failure']], 503)]);
+        $this->expectException(\App\Exceptions\EHealth\EHealthResponseException::class);
+        $this->api()->fetchSignedSnapshot('patient-test', $this->resource()['id']);
+    }
+
+    public function test_snapshot_of_another_patient_is_rejected(): void
+    {
+        $resource = Arr::toSnakeCase($this->resource());
+        $resource['subject'] = ['identifier' => ['value' => 'other-patient']];
+        Http::fake(['*' => Http::response(['data' => $resource])]);
+        $this->expectException(ValidationException::class);
+        $this->api()->fetchSignedSnapshot('patient-test', $resource['id']);
+    }
+
     public function test_empty_explanation_is_rejected_before_signing(): void
     {
         $this->expectException(ValidationException::class);
@@ -56,6 +72,36 @@ class ServiceRequestFhirApiTest extends TestCase
         $this->assertArrayNotHasKey('remote_extension', $content);
         $this->assertArrayNotHasKey('service_request', $content);
         $this->assertCount(2, $content['based_on']);
+    }
+
+    public function test_complete_uses_a_single_result_reference_and_keeps_only_allowed_options(): void
+    {
+        $uuid = '10050000-0000-4000-8000-000000000002';
+        foreach (['encounter', 'procedure', 'diagnostic_report'] as $type) {
+            $actual = $this->api()->buildCompleteContent($uuid, $type, ['status_reason' => ['coding' => [['system' => 'synthetic/reason', 'code' => 'TEST']]], 'injected' => 'discard']);
+            $this->assertSame($type, data_get($actual, 'completed_with.identifier.type.coding.0.code'));
+            $this->assertSame($uuid, data_get($actual, 'completed_with.identifier.value'));
+            $this->assertArrayNotHasKey('based_on', $actual);
+            $this->assertArrayNotHasKey('injected', $actual);
+            $this->assertArrayHasKey('status_reason', $actual);
+        }
+    }
+
+    public function test_signed_status_envelope_does_not_duplicate_fields_outside_the_signature(): void
+    {
+        Http::fake(['*' => Http::response(['data' => ['status' => 'recalled']])]);
+        $this->api()->recallAndResolve('patient-test', $this->resource()['id'], ['signed_data' => 'immutable-signed-content', 'status_reason' => 'outside', 'explanatory_letter' => 'outside']);
+        Http::assertSent(fn ($request): bool => $request->data() === ['signed_data' => 'immutable-signed-content', 'signed_data_encoding' => 'base64']);
+    }
+
+    public function test_cancel_usage_cannot_invoke_clinical_cancel(): void
+    {
+        try {
+            app(\App\Classes\eHealth\Api\ServiceRequest::class)->cancelUsage('request-test', 'patient-test', []);
+            $this->fail('An unverified Release must not become clinical Cancel.');
+        } catch (\LogicException) {
+            Http::assertNothingSent();
+        }
     }
 
     private function resource(): array

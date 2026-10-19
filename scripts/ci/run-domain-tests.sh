@@ -35,6 +35,7 @@ DOMAIN_PATHS=(
   tests/Unit/Services/MedicalEvents/Mappers/CarePlanActivityMapperTest.php
   tests/Unit/Services/MedicalEvents/Mappers/MedicationRequestMapperTest.php
   tests/Unit/Services/MedicalEvents/ServiceRequestMapperTest.php
+  tests/Unit/Services/MedicalEvents/ServiceRequestFhirRoundTripTest.php
   tests/Unit/Services/MedicalEvents/ResolvesEmployeeContextTest.php
   tests/Unit/Services/MedicalEvents/ReferralSignPayloadTest.php
   tests/Unit/Services/MedicalEvents/ReferralRequestLifecycleWriteTest.php

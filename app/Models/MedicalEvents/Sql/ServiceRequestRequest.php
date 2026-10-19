@@ -49,6 +49,7 @@ class ServiceRequestRequest extends Model
         'performer_type_id',
         'fhir_metadata',
         'fhir_version',
+        'clinical_status',
         'code_identifier_id',
         'program_identifier_id',
         'requester_employee_id',
@@ -208,10 +209,10 @@ class ServiceRequestRequest extends Model
             ->whereKey(Approval::carePlanAccessGrantedTo($user, $legalEntity)->pluck('approvable_id'))
             ->pluck('uuid');
 
-        return $query->whereHas(
-            'basedOn',
-            static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)
-        );
+        return $query->where(static function (Builder $scope) use ($carePlanIds): void {
+            $scope->whereHas('basedOnReferences', static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)->whereHas('type.coding', static fn (Builder $coding): Builder => $coding->whereCode('care_plan')))
+                ->orWhere(static fn (Builder $legacy): Builder => $legacy->whereNull('fhir_version')->whereHas('basedOn', static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)));
+        });
     }
 
     /**
@@ -237,9 +238,9 @@ class ServiceRequestRequest extends Model
             )
             ->pluck('uuid');
 
-        return $query->whereHas(
-            'basedOn',
-            static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)
-        );
+        return $query->where(static function (Builder $scope) use ($carePlanIds): void {
+            $scope->whereHas('basedOnReferences', static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)->whereHas('type.coding', static fn (Builder $coding): Builder => $coding->whereCode('care_plan')))
+                ->orWhere(static fn (Builder $legacy): Builder => $legacy->whereNull('fhir_version')->whereHas('basedOn', static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)));
+        });
     }
 }

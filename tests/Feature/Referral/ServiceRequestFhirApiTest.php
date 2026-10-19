@@ -94,6 +94,19 @@ class ServiceRequestFhirApiTest extends TestCase
         Http::assertSent(fn ($request): bool => $request->data() === ['signed_data' => 'immutable-signed-content', 'signed_data_encoding' => 'base64']);
     }
 
+    public function test_pending_or_failed_response_without_a_job_link_cannot_be_success(): void
+    {
+        foreach (['pending', 'processing', 'failed'] as $status) {
+            Http::fake(['*' => Http::response(['data' => ['status' => $status]])]);
+            try {
+                $this->api()->recallAndResolve('patient-test', $this->resource()['id'], ['signed_data' => 'synthetic-signed-content']);
+                $this->fail('Unresolved mutation must not advance local status.');
+            } catch (\App\Exceptions\EHealth\EHealthValidationException $exception) {
+                $this->assertSame(__('errors.ehealth.messages.request_error'), $exception->getDetails()['error']['message']);
+            }
+        }
+    }
+
     public function test_cancel_usage_cannot_invoke_clinical_cancel(): void
     {
         try {

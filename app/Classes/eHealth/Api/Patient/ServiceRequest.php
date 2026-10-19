@@ -43,17 +43,28 @@ class ServiceRequest extends PatientApiBase
 
     public function submitSignedCreate(string $patientUuid, string $signedContent): array
     {
-        return app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($this->createSigned($patientUuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64'])->getData());
+        return $this->resolveMutation($this->createSigned($patientUuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64'])->getData());
     }
 
     public function cancelAndResolve(string $patientUuid, string $requestUuid, array $payload): array
     {
-        return app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($this->cancel($patientUuid, $requestUuid, $this->signedEnvelope($payload))->getData());
+        return $this->resolveMutation($this->cancel($patientUuid, $requestUuid, $this->signedEnvelope($payload))->getData());
     }
 
     public function recallAndResolve(string $patientUuid, string $requestUuid, array $payload): array
     {
-        return app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($this->recall($patientUuid, $requestUuid, $this->signedEnvelope($payload))->getData());
+        return $this->resolveMutation($this->recall($patientUuid, $requestUuid, $this->signedEnvelope($payload))->getData());
+    }
+
+    /** A pending/error response without a job link must not become local success. */
+    public function resolveMutation(array $response): array
+    {
+        $resolved = app(\App\Services\MedicalEvents\EHealthJobResolver::class)->resolve($response);
+        if (in_array(strtolower((string) ($resolved['status'] ?? '')), ['pending', 'processing', 'accepted', 'queued', 'failed', 'rejected', 'error'], true) || !empty($resolved['error'])) {
+            throw new EHealthValidationException(['error' => ['message' => __('errors.ehealth.messages.request_error')]]);
+        }
+
+        return $resolved;
     }
 
     public function buildUseContent(array $context, mixed $programId): array

@@ -312,7 +312,44 @@ class PartyVerificationResumeTest extends TestCase
         $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->partyVerificationSyncStatus);
         $this->assertSame(JobStatus::COMPLETED->value, $this->legalEntity->fresh()->syncStatus);
         Notification::assertSentTo($this->user, SyncNotification::class, fn ($notification) => $notification->toArray($this->user)['action'] === 'paused'
-            && $notification->toArray($this->user)['type'] === 'party_verification');
+            && $notification->toArray($this->user)['type'] === 'legal_entity');
+    }
+
+    public function testMissingAllowancesCanResumeOnSuitableLoginAndCompleteWithoutZombieFailedJobs(): void
+    {
+        $this->mockPartyError(403, 'Missing allowances: party_verification:read');
+        $this->queuePartyJob();
+        $oldBatchId = $this->queuedJob()->batchId;
+
+        $this->runNextJob();
+
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $this->assertDatabaseHas('job_batches', ['id' => $oldBatchId, 'failed_jobs' => 1]);
+        $response = new EHealthResponse(
+            new GuzzleResponse(200, [], json_encode(['data' => []])),
+            static fn () => [],
+            static fn () => []
+        );
+        $api = Mockery::mock(PartyApi::class);
+        $api->shouldReceive('withToken')->once()->with('fresh-token')->andReturnSelf();
+        $api->shouldReceive('getMany')->once()->with([], 1)->andReturn($response);
+        $this->instance(PartyApi::class, $api);
+        $this->withSession([config('ehealth.api.oauth.bearer_token') => 'fresh-token']);
+
+        $this->login([PartyVerificationSync::SCOPE_REQUIRED]);
+
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertDatabaseMissing('job_batches', ['id' => $oldBatchId]);
+        $this->assertSyncJobsCount(1);
+
+        $this->runNextJob();
+
+        $this->assertInstanceOf(CompleteSync::class, $this->queuedJob());
+        $this->runNextJob();
+
+        $this->assertSyncJobsCount(0);
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertSame(JobStatus::COMPLETED->value, $this->legalEntity->fresh()->partyVerificationSyncStatus);
     }
 
     #[DataProvider('otherErrors')]

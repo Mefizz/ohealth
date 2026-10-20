@@ -15,14 +15,23 @@ class UserRepository
     /** @return Collection<int, User> */
     public function getSyncRetryCandidates(User $excludedUser, int $legalEntityId): Collection
     {
+        // Caller sets Spatie's current team to this legal entity before this eager load.
+        // Only direct permissions are loaded; OAuth scopes/token are checked separately by EHealthJob.
         return User::with('permissions')
+            // Exclude the failed user and other accounts of the same party to avoid retrying as
+            // the same person. A missing party ID must not exclude all candidates with NULL party_id.
             ->whereKeyNot($excludedUser->id)
             ->when($excludedUser->partyId !== null, fn (Builder $query) => $query->whereNot('party_id', $excludedUser->partyId))
+            // Employee membership, not the current HTTP session, ties candidates to the job's LE.
             ->whereHas('employees', fn (Builder $query) => $query->whereLegalEntityId($legalEntityId))
+            // Both correlations are necessary: user_id alone can match an obsolete session left
+            // after re-login. Only the session currently bound by users.session_id can supply a token.
+            // Laravel may not have pruned expired database sessions yet, so also check last_activity.
             ->whereExists(fn ($query) => $query->selectRaw('1')->from('sessions')
                 ->whereColumn('sessions.user_id', 'users.id')
                 ->whereColumn('sessions.id', 'users.session_id')
                 ->where('last_activity', '>=', now()->subMinutes((int) config('session.lifetime'))->timestamp))
+            // Stable selection makes fallback deterministic when multiple employees are eligible.
             ->orderBy('users.id')
             ->get();
     }

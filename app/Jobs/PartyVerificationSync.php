@@ -7,17 +7,14 @@ namespace App\Jobs;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Core\EHealthJob;
-use App\Enums\JobStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Models\LegalEntity;
-use App\Notifications\SyncNotification;
 use App\Services\Party\PartyVerificationBulkAccess;
 use App\Services\Party\PartyVerificationCache;
 use App\Traits\BatchLegalEntityQueries;
 use App\Traits\ProcessesPartyVerificationResponses;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Queue\Middleware\RateLimited;
-use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class PartyVerificationSync extends EHealthJob
@@ -75,26 +72,11 @@ class PartyVerificationSync extends EHealthJob
         return [new RateLimited('ehealth-party-verification-get')];
     }
 
-    /**
-     * Handle a job failure.
-     */
-    public function failed(Throwable|null $exception): void
+    protected function shouldRetryWithAnotherUser(?Throwable $exception): bool
     {
-        Log::error('Job [PartyVerificationSync] failed.', [
-            'legalEntityId' => $this->legalEntity->id ?? 'unknown',
-            'error' => $exception?->getMessage(),
-            'trace' => $exception?->getTraceAsString(),
-        ]);
-
-        if ($this->isMissingScope($exception)) {
-            $this->setEntityStatus(JobStatus::PAUSED);
-            $user = $this->batch()?->options['user'] ?? $this->user;
-            $user?->notify(new SyncNotification('party_verification', 'paused'));
-
-            return;
-        }
-
-        parent::failed($exception);
+        // A definitive scope denial must pause, even if another employee appears eligible locally.
+        // Keep status changes and notification delivery in EHealthJob::failed().
+        return !$this->isMissingScope($exception);
     }
 
     private function isMissingScope(?Throwable $exception): bool

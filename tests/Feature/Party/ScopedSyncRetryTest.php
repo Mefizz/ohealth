@@ -6,7 +6,11 @@ namespace Tests\Feature\Party;
 
 use App\Enums\JobStatus;
 use App\Classes\eHealth\Api\Employee as EmployeeApi;
+use App\Classes\eHealth\Api\Party as PartyApi;
+use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthResponseException;
+use App\Events\EHealthUserLogin;
+use App\Listeners\OnRegularLoginSyncronization;
 use App\Jobs\EmployeeSync;
 use App\Jobs\PartyVerificationSync;
 use App\Models\Employee\Employee;
@@ -14,6 +18,7 @@ use App\Models\LegalEntity;
 use App\Models\User;
 use App\Notifications\SyncNotification;
 use App\Repositories\Repository;
+use App\Repositories\UserRepository;
 use Illuminate\Bus\BatchRepository;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
@@ -50,6 +55,9 @@ class ScopedSyncRetryTest extends TestCase
         parent::setUp();
         config(['queue.default' => 'database']);
         Notification::fake();
+        Event::listen(JobFailed::class, static function (JobFailed $event): void {
+            app('queue.failer')->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
+        });
         $typeId = DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id');
         $this->legalEntity = LegalEntity::create([
             'uuid' => (string) Str::uuid(), 'legal_entity_type_id' => $typeId, 'status' => 'ACTIVE',
@@ -85,6 +93,23 @@ class ScopedSyncRetryTest extends TestCase
 
         $this->assertSame($this->candidate->id, $selected?->id);
         $this->assertSame('current-token', $this->job->tokenFor($selected));
+        $this->assertSame(999999, getPermissionsTeamId());
+    }
+
+    public function testPermissionTeamIsRestoredWhenTheCandidateQueryThrows(): void
+    {
+        setPermissionsTeamId(999999);
+        $repository = Mockery::mock(UserRepository::class);
+        $repository->shouldReceive('getSyncRetryCandidates')->once()->andThrow(new RuntimeException('Query failed'));
+        $this->instance(UserRepository::class, $repository);
+
+        try {
+            $this->job->selectUser($this->oldUser);
+            $this->fail('Expected candidate query failure.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Query failed', $exception->getMessage());
+        }
+
         $this->assertSame(999999, getPermissionsTeamId());
     }
 
@@ -229,9 +254,6 @@ class ScopedSyncRetryTest extends TestCase
     public function testWorkerPreservesFailedJobWhenNoSessionHasTheRequiredScope(): void
     {
         $this->bindSession(scopes: []);
-        Event::listen(JobFailed::class, static function (JobFailed $event): void {
-            app('queue.failer')->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
-        });
         $api = Mockery::mock(EmployeeApi::class);
         $api->shouldReceive('withToken')->once()->with('old-token')->andReturnSelf();
         $api->shouldReceive('getMany')->once()->andThrow(new EHealthResponseException(
@@ -251,6 +273,120 @@ class ScopedSyncRetryTest extends TestCase
         $this->assertDatabaseCount('failed_jobs', 1);
         $this->assertSame(0, DB::table('jobs')->where('queue', 'sync')->count());
         $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->employeeSyncStatus);
+    }
+
+    public function testPartyScopeDenialUsesParentPauseEvenWhenAnotherEmployeeHasTheScope(): void
+    {
+        $this->grant(PartyVerificationSync::SCOPE_REQUIRED);
+        $this->bindSession(scopes: [PartyVerificationSync::SCOPE_REQUIRED]);
+        $api = Mockery::mock(PartyApi::class);
+        $api->shouldReceive('withToken')->once()->with('old-token')->andReturnSelf();
+        $api->shouldReceive('getMany')->once()->andThrow(new EHealthResponseException(
+            new Response(new GuzzleResponse(403, [], json_encode([
+                'error' => ['message' => 'Missing allowances: party_verification:read'],
+            ])))
+        ));
+        $this->instance(PartyApi::class, $api);
+        $batch = Bus::batch([new PartyVerificationSync($this->legalEntity, standalone: true)])
+            ->name(PartyVerificationSync::BATCH_NAME)
+            ->withOption('legal_entity_id', $this->legalEntity->id)
+            ->withOption('user', $this->oldUser)->withOption('token', Crypt::encryptString('old-token'))
+            ->onQueue('sync')->dispatch();
+
+        $this->runNextSyncJob();
+
+        $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $this->assertSame(0, DB::table('jobs')->where('queue', 'sync')->count());
+        $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->partyVerificationSyncStatus);
+        Notification::assertSentTo(
+            $this->oldUser,
+            SyncNotification::class,
+            fn ($notification) => $notification->toArray($this->oldUser)['action'] === 'paused'
+                && $notification->toArray($this->oldUser)['type'] === 'legal_entity'
+        );
+    }
+
+    #[DataProvider('retryLifecycles')]
+    public function testWorkerRetryAndResumeLeaveNoZombieFailedJobs(bool $pauseRetry): void
+    {
+        $api = Mockery::mock(EmployeeApi::class);
+        $api->shouldReceive('withToken')->once()->with('old-token')->andReturnSelf();
+        $api->shouldReceive('withToken')->once()->with('current-token')->andReturnSelf();
+        if ($pauseRetry) {
+            $api->shouldReceive('withToken')->once()->with('fresh-token')->andReturnSelf();
+        }
+        $calls = 0;
+        $api->shouldReceive('getMany')->times($pauseRetry ? 3 : 2)
+            ->andReturnUsing(function () use (&$calls, $pauseRetry): EHealthResponse {
+                if (++$calls <= ($pauseRetry ? 2 : 1)) {
+                    throw new EHealthResponseException(new Response(new GuzzleResponse(401, [], json_encode([
+                        'error' => ['message' => 'Token expired'],
+                    ]))));
+                }
+
+                return new EHealthResponse(
+                    new GuzzleResponse(200, [], json_encode(['data' => []])),
+                    static fn () => [],
+                    static fn () => []
+                );
+            });
+        $this->instance(EmployeeApi::class, $api);
+        $batch = Bus::batch([new SyncRetryProbe($this->legalEntity, standalone: true)])
+            ->name(EmployeeSync::BATCH_NAME)
+            ->withOption('legal_entity_id', $this->legalEntity->id)
+            ->withOption('sync_entity', LegalEntity::ENTITY_EMPLOYEE)
+            ->withOption('user', $this->oldUser)->withOption('token', Crypt::encryptString('old-token'))
+            ->onQueue('sync')->dispatch();
+
+        $this->runNextSyncJob();
+
+        $this->assertDatabaseMissing('job_batches', ['id' => $batch->id]);
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $originalFailedUuid = DB::table('failed_jobs')->value('uuid');
+        $payload = json_decode(DB::table('jobs')->where('queue', 'sync')->value('payload'), true);
+        $retry = unserialize($payload['data']['command']);
+        $this->assertSame($this->candidate->id, $retry->user->id);
+
+        $this->runNextSyncJob();
+
+        $this->assertDatabaseMissing('failed_jobs', ['uuid' => $originalFailedUuid]);
+        if ($pauseRetry) {
+            // Laravel logs the new failure after failed() returns. Only that failure must remain,
+            // attached to the paused replacement batch, until the next suitable login resumes it.
+            $this->assertDatabaseCount('failed_jobs', 1);
+            $this->assertDatabaseHas('job_batches', ['id' => $retry->batchId, 'failed_jobs' => 1]);
+            $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->employeeSyncStatus);
+            $this->withSession([config('ehealth.api.oauth.bearer_token') => 'fresh-token']);
+            (new OnRegularLoginSyncronization())->handle(new EHealthUserLogin(
+                $this->candidate,
+                $this->legalEntity,
+                $this->candidate->uuid,
+                ['employee:read']
+            ));
+            $this->assertDatabaseMissing('job_batches', ['id' => $retry->batchId]);
+            $this->assertDatabaseCount('failed_jobs', 0);
+
+            $this->runNextSyncJob();
+        }
+
+        // Execute CompleteSync as well: this checks the entire worker lifecycle rather than
+        // directly invoking failed(), which would miss the late JobFailed persistence event.
+        $this->runNextSyncJob();
+
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertSame(0, DB::table('jobs')->where('queue', 'sync')->count());
+        $this->assertSame(JobStatus::COMPLETED->value, $this->legalEntity->fresh()->employeeSyncStatus);
+    }
+
+    public static function retryLifecycles(): array
+    {
+        return ['retry succeeds' => [false], 'retry pauses then resumes on login' => [true]];
+    }
+
+    private function runNextSyncJob(): void
+    {
+        app('queue.worker')->runNextJob('database', 'sync', new WorkerOptions(sleep: 0, maxTries: 1));
     }
 
     private function batch(): \Illuminate\Bus\Batch
@@ -301,6 +437,8 @@ class ScopedSyncRetryTest extends TestCase
 
 class SyncRetryProbe extends EmployeeSync
 {
+    public int $tries = 1;
+
     public function selectUser(User $user): ?User
     {
         return $this->getUserWithActiveSession($user);

@@ -196,7 +196,9 @@ abstract class EHealthJob implements ShouldQueue
             return;
         }
 
-        $this->user = $oldUser === null ? null : $this->getUserWithActiveSession($oldUser);
+        $this->user = $oldUser === null || !$this->shouldRetryWithAnotherUser($exception)
+            ? null
+            : $this->getUserWithActiveSession($oldUser);
         echo "Retrying with new user: " . ($this->user ? $this->user->id : 'No user found') . PHP_EOL;
 
         $this->token = $this->getToken();
@@ -257,6 +259,12 @@ abstract class EHealthJob implements ShouldQueue
             // TODO: find out why notification stopped job's working
             $oldUser?->notify(new SyncNotification('legal_entity', 'paused'));
         }
+    }
+
+    /** Allow jobs to pause on a definitive denial while reusing the common failed() lifecycle. */
+    protected function shouldRetryWithAnotherUser(?Throwable $exception): bool
+    {
+        return true;
     }
 
     /**
@@ -334,17 +342,28 @@ abstract class EHealthJob implements ShouldQueue
     /** Find a different employee whose bound session can execute the saved chain. */
     protected function getUserWithActiveSession(User $user): ?User
     {
+        // The serialized job retains its legal entity, but Spatie reads its team from a separate,
+        // process-wide resolver. A long-running worker may still hold the preceding job's team
+        // (or no team). Set it before eager-loading permissions so their pivot is scoped to this LE.
         $previousTeamId = getPermissionsTeamId();
         setPermissionsTeamId($this->legalEntity->id);
 
         try {
+            // The repository narrows the search to other employees with a current bound session.
+            // Direct eHealth permissions are required for every saved step; role permissions alone
+            // do not prove that OAuth granted these scopes to the candidate's actual access token.
             return Repository::user()->getSyncRetryCandidates($user, $this->legalEntity->id)
                 ->first(function (User $candidate): bool {
                     $permissions = $candidate->permissions->where('guard_name', 'ehealth')->pluck('name')->all();
 
+                    // Read the token and its scopes together from the current database binding.
+                    // Reject missing/expired sessions, a token for another LE, or insufficient scopes.
+                    // first() returns null when none qualify, without treating search(false) as key 0.
                     return $this->hasRequiredScopes($permissions) && $this->syncSessionToken($candidate) !== '';
                 });
         } finally {
+            // Do not leak this job's permission context into the caller or the worker's next job,
+            // including when the query or session decoding fails with an exception.
             setPermissionsTeamId($previousTeamId);
         }
     }

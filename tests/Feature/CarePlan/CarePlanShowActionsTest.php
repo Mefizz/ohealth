@@ -139,7 +139,7 @@ class CarePlanShowActionsTest extends TestCase
         $this->assertFalse(session()->has('success'));
     }
 
-    public function test_prescription_sync_consumes_full_lists_and_does_not_downgrade_active_requests(): void
+    public function test_prescription_sync_keeps_signed_requests_and_prescription_states_separate(): void
     {
         $this->actingAs($this->user);
         $plan = $this->makeSignedNewPlan();
@@ -153,6 +153,8 @@ class CarePlanShowActionsTest extends TestCase
             'employee_id' => $this->employee->id, 'based_on_id' => $basedOn->id,
             'status' => 'new', 'request_number' => 'SYNC-'.$i,
         ]));
+        $records[1]->fill(['resource_type' => MedicationRequestRequest::TYPE_PRESCRIPTION,
+            'source' => MedicationRequestRequest::SOURCE_EHEALTH, 'status' => 'active'])->save();
         $activeId = (string) Str::uuid();
         $api = Mockery::mock(MedicationRequestApi::class);
         $response = static fn (array $data) => new EHealthResponse(new Response(200, [], json_encode(['data' => $data])));
@@ -168,7 +170,8 @@ class CarePlanShowActionsTest extends TestCase
 
         Livewire::test(CarePlanShow::class, ['carePlan' => $plan])->call('syncEPrescriptions');
 
-        $this->assertSame('active', $records[0]->fresh()->status);
+        $this->assertSame('signed', $records[0]->fresh()->status);
+        $this->assertSame(MedicationRequestRequest::TYPE_PRESCRIPTION, MedicationRequestRequest::whereUuid($activeId)->firstOrFail()->resourceType);
         $this->assertSame($activeId, $records[0]->fresh()->ehealthPayload['active_id']);
         $this->assertSame('completed', $records[1]->fresh()->status);
         $this->assertSame('rejected', $records[2]->fresh()->status);

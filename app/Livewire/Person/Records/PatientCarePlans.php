@@ -7,12 +7,8 @@ namespace App\Livewire\Person\Records;
 use App\Classes\eHealth\EHealth;
 
 use App\Repositories\CarePlanRepository;
-use App\Repositories\Repository;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use App\Exceptions\EHealth\EHealthConnectionException;
-use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use Throwable;
 
@@ -59,7 +55,7 @@ class PatientCarePlans extends BasePatientComponent
             'end_date' => $this->filterEndDateRange,
             'is_part_of' => $this->filterIsPartOf,
             'includes' => $this->filterIncludes,
-        ]);
+        ], (int) legalEntity()->id);
     }
 
     public function sync(): void
@@ -80,28 +76,7 @@ class PatientCarePlans extends BasePatientComponent
         }
 
         try {
-            $response = EHealth::carePlan()->getBySearchParams(
-                $this->uuid,
-                [] // Removed managing_organization_id to see all plans
-            );
-
-            \Illuminate\Support\Facades\Log::info('PersonCarePlans: sync response', [
-                'count' => count($response->getData()),
-                'patient_uuid' => $this->uuid
-            ]);
-        } catch (EHealthException|EHealthConnectionException $exception) {
-            $exception->handle('Error while synchronizing care plans');
-
-            return;
-        }
-
-        try {
-            $validatedData = $response->validate();
-            Repository::carePlan()->syncCarePlans(
-                $validatedData,
-                $this->personId,
-                Auth::user()?->getCarePlanWriterEmployee()?->id
-            );
+            EHealth::carePlan()->synchronizePatient($this->uuid, $this->personId, (int) legalEntity()->id);
         } catch (EHealthResponseException $exception) {
             if ($exception->getCode() === 403) {
                 Session::flash('error', 'Доступ до планів лікування в ЕСОЗ обмежено. Будь ласка, отримайте дозвіл (Consent) для перегляду.');

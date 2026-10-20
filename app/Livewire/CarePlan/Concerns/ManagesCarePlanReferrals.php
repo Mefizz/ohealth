@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
+use App\Services\MedicalEvents\Fhir;
+
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\CarePlanStatus;
@@ -17,7 +19,6 @@ use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
 use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
@@ -96,7 +97,7 @@ trait ManagesCarePlanReferrals
         if ($existingDraft) {
             if (app(ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
                 if ($activity->status === 'scheduled') {
-                    $activity->update(['status' => 'in-progress']);
+                    app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
                 }
                 $this->refreshCarePlan();
                 $documentLabel = $resolvedKind === 'device_request'
@@ -305,7 +306,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $this->carePlan->loadMissing(['encounter', 'person']);
+            $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
 
             $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
                 $this->carePlan,
@@ -397,7 +398,7 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $this->carePlan->loadMissing(['encounter', 'person']);
+        $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
 
         try {
             $requestRecord = app(MedicalRequestOwnership::class)
@@ -435,16 +436,12 @@ trait ManagesCarePlanReferrals
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
 
-            $mapper = $kind === 'service_request'
-                ? new ServiceRequestMapper()
-                : new DeviceRequestMapper();
-
-            $signPayload = $mapper->toCreateSignedContent(
-                $dbData,
-                $uuids,
-                (string) $this->carePlan->uuid,
-                (string) $activity->uuid
-            );
+            if ($kind === 'service_request') {
+                $resource = Fhir::serviceRequest()->toFhir($dbData, $uuids + ['carePlanUuid' => $this->carePlan->uuid]);
+                $signPayload = EHealth::serviceRequest()->buildCreateContent($resource);
+            } else {
+                $signPayload = (new DeviceRequestMapper())->toCreateSignedContent($dbData, $uuids, (string) $this->carePlan->uuid, (string) $activity->uuid);
+            }
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -559,13 +556,13 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        $this->validate(['statusReason' => ['required', 'string']]);
         try {
-            $payload = [
-                'explanatory_letter' => $letter,
-            ];
+            $api = EHealth::serviceRequest();
+            $payload = $api->buildStatusContent($api->fetchSignedSnapshot($this->carePlan->person->uuid, $record->uuid), $this->statusReason, $letter);
 
             $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($payload),
+                $payload,
                 $this->form['password'],
                 $this->form['knedp'],
                 $this->form['keyContainerUpload'],
@@ -625,6 +622,9 @@ trait ManagesCarePlanReferrals
         $record = $service ?: $device;
 
         $kind = $service ? 'service_request' : 'device_request';
+        if ($service) {
+            $this->validate(['statusReason' => ['required', 'string'], 'referralExplanatoryLetter' => ['required', 'string']]);
+        }
 
         if ($kind === 'device_request') {
             $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
@@ -637,8 +637,13 @@ trait ManagesCarePlanReferrals
                 'status_reason' => $this->statusReason ?: 'entered-in-error'
             ];
 
+            if ($kind === 'service_request') {
+                $api = EHealth::serviceRequest();
+                $payload = $api->buildStatusContent($api->fetchSignedSnapshot($this->carePlan->person->uuid, $record->uuid), $this->statusReason, trim($this->referralExplanatoryLetter));
+            }
+
             $signedContent = signatureService()->signData(
-                Arr::toSnakeCase($payload),
+                $kind === 'service_request' ? $payload : Arr::toSnakeCase($payload),
                 $this->form['password'],
                 $this->form['knedp'],
                 $this->form['keyContainerUpload'],
@@ -730,7 +735,7 @@ trait ManagesCarePlanReferrals
                 $dbData
             );
 
-            $requestRecord->refresh();
+            ($requestRecord instanceof ServiceRequestRequest ? Repository::serviceRequest() : Repository::deviceRequest())->refreshRecord($requestRecord);
 
             $after = [
                 'status' => (string) $requestRecord->status,
@@ -749,7 +754,7 @@ trait ManagesCarePlanReferrals
             ]);
 
             if ($activity->status === 'scheduled') {
-                $activity->update(['status' => 'in-progress']);
+                app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
             }
 
             $this->refreshCarePlan();
@@ -946,9 +951,11 @@ trait ManagesCarePlanReferrals
         $raw = is_array($entity) ? ($entity['status'] ?? null) : null;
         $resolved = is_string($raw) ? ServiceRequestStatus::resolve($raw) : null;
 
-        $record->update([
-            'status' => ($resolved ?? $fallback)->value,
-        ]);
+        if ($record instanceof ServiceRequestRequest) {
+            Repository::serviceRequest()->updateClinicalStatus($record, ($resolved ?? $fallback)->value);
+        } else {
+            Repository::deviceRequest()->saveStatus($record, ($resolved ?? $fallback)->value);
+        }
     }
 
     /**
@@ -1008,7 +1015,7 @@ trait ManagesCarePlanReferrals
         }
 
         if ($activity->status === 'scheduled') {
-            $activity->update(['status' => 'in-progress']);
+            app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
         }
 
         $this->showSignatureModal = false;

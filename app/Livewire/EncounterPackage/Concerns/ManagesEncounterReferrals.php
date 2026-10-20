@@ -10,7 +10,6 @@ use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Encounter;
-use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Services\Dictionary\ServiceSearch;
 use App\Services\MedicalEvents\InformWith;
@@ -332,7 +331,8 @@ trait ManagesEncounterReferrals
                 'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
             ];
 
-            $signPayload = (new ServiceRequestMapper())->toCreateSignedContent($dbData, $uuids, null, null);
+            $resource = (new ServiceRequestMapper())->toFhir($dbData, $uuids);
+            $signPayload = EHealth::serviceRequest()->buildCreateContent($resource);
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -356,8 +356,7 @@ trait ManagesEncounterReferrals
                     $remote = $lifecycle->fetchRemoteReferral($person->uuid, $dbData['uuid'], 'service_request');
                     $dbData['request_number'] = $remote['requisition'] ?? $remote['request_number'] ?? $dbData['request_number'];
                     if (!empty($dbData['request_number'])) {
-                        ServiceRequestRequest::where('uuid', $dbData['uuid'])
-                            ->update(['request_number' => $dbData['request_number']]);
+                        \App\Repositories\MedicalEvents\Repository::serviceRequest()->updateRequestNumber($dbData['uuid'], $dbData['request_number']);
                     }
                 } catch (Throwable $e) {
                     Log::warning('EncounterEdit: failed to fetch remote referral for number: '.$e->getMessage());

@@ -31,8 +31,11 @@ DOMAIN_PATHS=(
   tests/Unit/Services/MedicalEvents/CarePlanActivityLifecycleServiceTest.php
   tests/Unit/Services/MedicalEvents/CarePlanLifecycleServiceTest.php
   tests/Unit/Services/MedicalEvents/MedicationRequestSignPayloadTest.php
+  tests/Unit/Services/MedicalEvents/Mappers/CarePlanMapperTest.php
+  tests/Unit/Services/MedicalEvents/Mappers/CarePlanActivityMapperTest.php
   tests/Unit/Services/MedicalEvents/Mappers/MedicationRequestMapperTest.php
   tests/Unit/Services/MedicalEvents/ServiceRequestMapperTest.php
+  tests/Unit/Services/MedicalEvents/ServiceRequestFhirRoundTripTest.php
   tests/Unit/Services/MedicalEvents/ResolvesEmployeeContextTest.php
   tests/Unit/Services/MedicalEvents/ReferralSignPayloadTest.php
   tests/Unit/Services/MedicalEvents/ReferralRequestLifecycleWriteTest.php
@@ -59,6 +62,7 @@ DOMAIN_PATHS=(
   tests/Feature/Person/PatientMedicationRequestsPhase6Test.php
   tests/Feature/Person/PatientReferralsPhase6Test.php
   tests/Feature/Services/MedicalEvents/MedicationRequestLifecycleServiceTest.php
+  tests/Feature/Services/MedicalEvents/MedicationRequestFhirStorageTest.php
 )
 
 echo "==> Running domain PHPUnit paths (${#DOMAIN_PATHS[@]} entries)"

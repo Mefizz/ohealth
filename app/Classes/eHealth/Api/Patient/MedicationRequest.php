@@ -14,6 +14,41 @@ use Illuminate\Support\Facades\Validator;
 
 class MedicationRequest extends PatientApiBase
 {
+    /** Details are mandatory before signing; list results do not carry the signing snapshot. */
+    public function getRequestById(string $patientId, string $id): PromiseInterface|EHealthResponse
+    {
+        $this->setValidator($this->validateDetails(...));
+
+        return $this->get("/api/persons/{$patientId}/medication_request_requests/{$id}", []);
+    }
+
+    /** Validate without transforming, adding fields, or dropping the server's seed. */
+    public static function signableDetail(array $detail, string $personUuid, string $requestUuid): array
+    {
+        if (($detail['id'] ?? null) !== $requestUuid
+            || ($detail['person_id'] ?? data_get($detail, 'person.id')) !== $personUuid
+            || strtoupper((string) ($detail['status'] ?? '')) !== 'NEW'
+            || !is_string($detail['seed'] ?? null) || trim($detail['seed']) === '') {
+            throw new \RuntimeException('Fresh ESOZ request details with matching patient, id, NEW status and seed are required for signing.');
+        }
+
+        return $detail;
+    }
+
+    public static function mutationResult(array $response, array $statuses, ?string $expectedId = null): array
+    {
+        $result = $response['data'] ?? $response;
+        if (!is_array($result) || !\Illuminate\Support\Str::isUuid($result['id'] ?? '')
+            || !in_array(strtoupper((string) ($result['status'] ?? '')), $statuses, true)
+            || isset($response['error']) || isset($result['error'])
+            || in_array(strtolower((string) ($response['status'] ?? '')), ['pending', 'processing', 'accepted', 'queued', 'failed', 'error'], true)
+            || ($expectedId !== null && $result['id'] !== $expectedId)) {
+            throw new \RuntimeException('ESOZ did not confirm the medication transition; local state was not advanced.');
+        }
+
+        return $result;
+    }
+
     /**
      * Create a Medication Request Request (Заявка на виписування рецепту).
      *

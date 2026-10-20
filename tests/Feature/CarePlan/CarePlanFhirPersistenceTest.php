@@ -71,6 +71,8 @@ class CarePlanFhirPersistenceTest extends TestCase
     {
         $planResource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
         $activityResource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true, flags: JSON_THROW_ON_ERROR);
+        $activityResource['carePlan']['displayValue'] = 'Synthetic parent';
+        $activityResource['carePlan']['identifier']['type']['coding'][] = ['system' => 'synthetic/parent', 'code' => 'SECOND'];
         $activityResource['detail']['reasonCode'][0]['coding'][] = ['system' => 'synthetic/second', 'code' => 'SECOND', 'display' => 'Second coding', 'userSelected' => false];
         $plans = app(CarePlanRepository::class);
         $activities = app(CarePlanActivityRepository::class);
@@ -88,6 +90,7 @@ class CarePlanFhirPersistenceTest extends TestCase
         $this->assertSame($planResource['category'], $actualPlan['category']);
         $this->assertEquals($planResource['supportingInfo'], $actualPlan['supportingInfo']);
         $this->assertEquals($activityResource['author'], $actualActivity['author']);
+        $this->assertSame($activityResource['carePlan'], $actualActivity['carePlan']);
         $this->assertSame($activityResource['detail']['reasonCode'], $actualActivity['detail']['reasonCode']);
         $this->assertSame($activityResource['detail']['goal'], $actualActivity['detail']['goal']);
         $this->assertSame(1.2345, $actualActivity['detail']['quantity']['value']);

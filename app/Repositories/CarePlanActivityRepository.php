@@ -114,7 +114,7 @@ class CarePlanActivityRepository
                 $attributes[$attribute] = $this->replaceFhirQuantity($activity->exists ? $activity->{$relation} : null, $detail[$field] ?? null);
             }
             $knownDetail = ['kind', 'status', 'description', 'doNotPerform', 'remainingQuantityType', 'scheduledTiming', 'scheduledString', 'productCodeableConcept', 'statusReason', 'productReference', 'location', 'performer', 'program', 'quantity', 'dailyAmount', 'remainingQuantity', 'scheduledPeriod', 'reasonCode', 'reasonReference', 'goal'];
-            $attributes['fhirMetadata'] = array_diff_key($resource, array_flip(['id', 'carePlan', 'author', 'detail', 'outcomeReference', 'outcomeCodeableConcept']));
+            $attributes['fhirMetadata'] = array_diff_key($resource, array_flip(['id', 'author', 'detail', 'outcomeReference', 'outcomeCodeableConcept']));
             $attributes['fhirMetadata']['detail'] = array_diff_key($detail, array_flip($knownDetail));
             $activity->forceFill($attributes)->save();
             MedicalEventsRepository::period()->syncExact($activity, $detail['scheduledPeriod'] ?? null);
@@ -137,7 +137,8 @@ class CarePlanActivityRepository
         }
         $resource = $activity->fhirMetadata ?? [];
         $resource['id'] = $activity->uuid;
-        $resource['carePlan'] = \App\Services\MedicalEvents\FhirResource::make()->coding('eHealth/resources', 'care_plan')->toIdentifier($activity->carePlan->uuid);
+        $resource['carePlan'] ??= ['identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'care_plan']]]]];
+        $resource['carePlan']['identifier']['value'] = $activity->carePlan->uuid;
         $resource['author'] = $activity->authorReferences->map(fn ($reference): array => $this->fhirReference($reference))->all();
         $detail = array_replace($resource['detail'] ?? [], [
             'kind' => $activity->kind,

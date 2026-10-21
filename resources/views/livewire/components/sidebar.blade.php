@@ -436,6 +436,16 @@
                     </li>
                 @endif
 
+                @can('viewAny', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()])
+                    <li>
+                        <a href="{{ route('device-requests.index', [legalEntity()]) }}"
+                           class="menu-item-simple {{ request()->routeIs('device-requests.index') ? 'menu-item-active' : '' }}">
+                            @icon('device-requests')
+                            <span>{{ __('device-requests.labels.registry') }}</span>
+                        </a>
+                    </li>
+                @endcan
+
                 <li>
                     <a
                         href="{{ route('specimens.index', [legalEntity()]) }}"

@@ -29,6 +29,15 @@ class DeviceRequestRequestRepository extends BaseRepository
         parent::__construct($model);
     }
 
+    public function draftsForPatientEmployee(int $personId, int $employeeId): array
+    {
+        return $this->model->newQuery()->wherePersonId($personId)->whereEmployeeId($employeeId)
+            ->whereStatus('draft')->whereNotNull('request_payload')->latest()->get()
+            ->map(fn (DeviceRequestRequest $draft): array => [
+                'uuid' => $draft->uuid, 'device' => $draft->deviceId, 'updatedAt' => $draft->updatedAt->format('d.m.Y H:i'),
+            ])->all();
+    }
+
     /** Submitted patient records that may be referenced as a prescribing reason. */
     public function reasonOptions(Person $person): array
     {

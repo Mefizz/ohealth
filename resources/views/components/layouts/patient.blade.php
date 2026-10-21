@@ -250,8 +250,8 @@
                             @if ($personId)
                                 @can('viewAny', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()])
                                     <a
-                                        href="{{ route('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $personId]) }}"
-                                        class="summary-tab {{ ($activeTab === 'device-requests' || $isCurrentRoute('device-requests.*')) ? 'summary-tab-active' : 'summary-tab-inactive' }}"
+                                        href="{{ route('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $personId]) }}"
+                                        class="summary-tab {{ ($activeTab === 'device-requests' || $isCurrentRoute('persons.device-requests*')) ? 'summary-tab-active' : 'summary-tab-inactive' }}"
                                     >
                                         {{ __('device-requests.labels.patient_tab') }}
                                     </a>

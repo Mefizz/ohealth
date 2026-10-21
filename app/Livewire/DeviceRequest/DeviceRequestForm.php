@@ -296,7 +296,7 @@ class DeviceRequestForm extends Component
             $this->options = $service->prescribingOptions($this->request);
             $this->quantityOptions = [];
             $period = $service->occurrenceDates($this->request);
-            $days = $period['start']->diffInDays($period['end']);
+            $days = $service->treatmentDays($period['start'], $period['end']);
             $daily = data_get($this->options, 'program.medical_program_settings.max_daily_count', data_get($this->options, 'program.settings.max_daily_count'));
             $cap = $daily ? (float) $daily * $days : null;
 
@@ -460,7 +460,7 @@ class DeviceRequestForm extends Component
 
             $service->sync($this->person, $remote);
             Session::flash('success', $service->createdMessage($remote['requisition'], !empty($saved['data']['program_id']), $prepared['authType']));
-            $this->redirectRoute('device-requests.index', ['legalEntity' => $this->legalEntity, 'person' => $this->person]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $this->person]);
         } catch (Throwable $exception) {
             $this->refreshOptions();
             $this->reportError($exception);

@@ -34,7 +34,7 @@ trait ManagesCarePlanReferrals
 {
     public function initReferralForm(int $activityId, CarePlanActivityRepository $activityRepository): void
     {
-        $this->authorizeCarePlanWrite();
+        $this->authorize('view', $this->carePlan);
 
         try {
             $activity = $this->ownedActivity($activityId);
@@ -44,6 +44,13 @@ trait ManagesCarePlanReferrals
             $this->actionType = '';
 
             return;
+        }
+
+        $resolvedKind = $activity->resolvedKind();
+        if ($resolvedKind === 'device_request') {
+            $this->authorize('create', [DeviceRequestRequest::class, legalEntity()]);
+        } else {
+            $this->authorizeCarePlanWrite();
         }
 
         $activityStatus = strtolower(is_array($activity->status)
@@ -66,7 +73,6 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $resolvedKind = $activity->resolvedKind();
         if (!in_array($resolvedKind, ['service_request', 'device_request'], true)) {
             Session::flash('error', __('care-plan.referral_wrong_activity_kind'));
 
@@ -82,7 +88,7 @@ trait ManagesCarePlanReferrals
         }
 
         if ($resolvedKind === 'device_request') {
-            $this->redirectRoute('device-requests.create', [
+            $this->redirectRoute('persons.device-requests.create', [
                 'legalEntity' => legalEntity(),
                 'person' => $this->carePlan->person,
                 'carePlan' => $this->carePlan->uuid,
@@ -341,7 +347,7 @@ trait ManagesCarePlanReferrals
     {
         $this->authorizeCarePlanWrite();
         if ($kind === 'device_request') {
-            $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
 
             return;
         }
@@ -415,7 +421,7 @@ trait ManagesCarePlanReferrals
             : 'device_request';
 
         if ($kind === 'device_request') {
-            $this->redirectRoute('device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person, 'draft' => $requestRecord->uuid]);
+            $this->redirectRoute('persons.device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person, 'draft' => $requestRecord->uuid]);
 
             return;
         }
@@ -508,7 +514,7 @@ trait ManagesCarePlanReferrals
     public function cancelReferral(string $requestId, string $kind): void
     {
         if ($kind === 'device_request') {
-            $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
 
             return;
         }
@@ -627,7 +633,7 @@ trait ManagesCarePlanReferrals
         $kind = $service ? 'service_request' : 'device_request';
 
         if ($kind === 'device_request') {
-            $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
 
             return;
         }

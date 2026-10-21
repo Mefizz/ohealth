@@ -159,6 +159,8 @@ class CarePlanSyncTest extends TestCase
         $mockActivityResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
         $mockActivityResponse->shouldReceive('getData')->andReturn($activityData);
         $mockActivityResponse->shouldReceive('getStatusCode')->andReturn(200);
+        $mockActivityResponse->shouldReceive('getPaging')->andReturn([]);
+        $mockActivityResponse->shouldReceive('isNotLast')->andReturn(false);
 
         $mockCarePlanApi = $this->mock(\App\Classes\eHealth\Api\CarePlan::class);
         $mockCarePlanApi->shouldReceive('getSummary')->andReturn($mockCarePlanResponse);
@@ -285,11 +287,36 @@ class CarePlanSyncTest extends TestCase
         return [$person, $employee];
     }
 
+    public function testDeviceActivitiesFromEveryPageAreAvailableForSelection(): void
+    {
+        [$person, $employee] = $this->makeSyncContext();
+        $plan = CarePlan::create([
+            'uuid' => (string) Str::uuid(), 'person_id' => $person->id, 'author_id' => $employee->id,
+            'legal_entity_id' => $employee->legalEntityId, 'status' => 'active', 'period_start' => today(), 'title' => 'План',
+        ]);
+        $uuids = [(string) Str::uuid(), (string) Str::uuid()];
+        $api = $this->mock(\App\Classes\eHealth\Api\CarePlanActivity::class);
+        foreach ($uuids as $index => $uuid) {
+            $page = $index + 1;
+            $api->shouldReceive('getSummary')->once()->with($person->uuid, $plan->uuid, ['page' => $page])
+                ->andReturn(new \App\Classes\eHealth\EHealthResponse(new \GuzzleHttp\Psr7\Response(200, [], json_encode([
+                    'data' => [['id' => $uuid, 'detail' => ['status' => 'scheduled', 'kind' => 'device_request']]],
+                    'paging' => ['page_number' => $page, 'total_pages' => 2],
+                ], JSON_THROW_ON_ERROR))));
+        }
+
+        app(\App\Repositories\CarePlanActivityRepository::class)->syncActivities($person, $plan);
+        $this->assertEqualsCanonicalizing($uuids, $plan->activities()->pluck('uuid')->all());
+        $this->assertSame(2, $plan->activities()->whereKind('device_request')->count());
+    }
+
     private function mockEmptyActivitySummary(): void
     {
         $response = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn(['data' => []]);
         $response->shouldReceive('getStatusCode')->andReturn(200);
+        $response->shouldReceive('getPaging')->andReturn([]);
+        $response->shouldReceive('isNotLast')->andReturn(false);
 
         $this->mock(\App\Classes\eHealth\Api\CarePlanActivity::class)
             ->shouldReceive('getSummary')

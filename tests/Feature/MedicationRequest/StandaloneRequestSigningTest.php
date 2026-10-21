@@ -368,7 +368,7 @@ class StandaloneRequestSigningTest extends TestCase
         $component->encounterId = $encounter->id;
         $component->encounterUuid = $encounter->uuid;
         $component->openDeviceRequest();
-        $this->assertSame(route('device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
+        $this->assertSame(route('persons.device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
     }
 
     public function test_assistant_with_write_scope_cannot_prescribe_devices(): void
@@ -401,7 +401,7 @@ class StandaloneRequestSigningTest extends TestCase
 
         Livewire::test(DeviceEncounterActionsHarness::class, ['personId' => $person->id, 'compositionUrl' => null])
             ->assertDontSeeHtml('wire:click="openDeviceRequest"')
-            ->assertSeeHtml('href="'.route('device-requests.index', ['legalEntity' => $this->legalEntity, 'person' => $person->id]).'"')
+            ->assertSeeHtml('href="'.route('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $person->id]).'"')
             ->assertSeeHtml('disabled')
             ->assertSee(__('encounters.medical_report_creation_unavailable'));
     }
@@ -431,7 +431,7 @@ class StandaloneRequestSigningTest extends TestCase
         $response->shouldReceive('getData')->andReturn([]);
         $response->shouldReceive('getPaging')->andReturn(['total_pages' => 1]);
         $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\DeviceRequest::class);
-        $api->shouldReceive('getBySearchParams')->twice()->with($person->uuid, ['requester_legal_entity' => $this->legalEntity->uuid, 'page' => 1])->andReturn($response);
+        $api->shouldReceive('getBySearchParams')->twice()->with($person->uuid, ['page' => 1])->andReturn($response);
         $this->instance(\App\Classes\eHealth\Api\Patient\DeviceRequest::class, $api);
         Livewire::test(\App\Livewire\DeviceRequest\DeviceRequestIndex::class, ['legalEntity' => $this->legalEntity, 'person' => $person])
             ->assertSet('legalEntityId', $this->legalEntity->id)

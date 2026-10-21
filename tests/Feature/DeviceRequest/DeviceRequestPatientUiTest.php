@@ -13,6 +13,7 @@ use App\Models\LegalEntity;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Services\SignatureService;
+use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Gate;
@@ -41,6 +42,9 @@ class DeviceRequestPatientUiTest extends TestCase
         $this->person->names()->create(['first_name' => 'Тест', 'last_name' => 'Пацієнт', 'language' => 'uk']);
         $this->actingAs(User::create(['email' => Str::random(12).'@example.com', 'password' => 'unused']));
         Gate::before(function (User $user, string $ability, array $arguments): ?bool {
+            if ($ability === 'limitedAction') {
+                return false;
+            }
             if ($ability === 'create') {
                 return false;
             }
@@ -56,8 +60,11 @@ class DeviceRequestPatientUiTest extends TestCase
         $signer = Mockery::mock(SignatureService::class);
         $signer->shouldReceive('getCertificateAuthorities')->andReturn([]);
         $this->instance(SignatureService::class, $signer);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class)->makePartial();
+        $service->shouldReceive('authMethods')->andReturn([])->byDefault();
+        $this->instance(DeviceRequestLifecycleService::class, $service);
         $this->api = Mockery::mock(DeviceRequestApi::class);
-        $this->api->shouldReceive('getBySearchParams')->andReturn($this->response([]));
+        $this->api->shouldReceive('getBySearchParams')->andReturn($this->response([]))->byDefault();
         $this->instance(DeviceRequestApi::class, $this->api);
         $this->requestUuid = (string) Str::uuid();
         $this->api->shouldReceive('getById')->with($this->person->uuid, $this->requestUuid)
@@ -141,23 +148,116 @@ class DeviceRequestPatientUiTest extends TestCase
     public function testPatientNavigationContainsAuthorizedRequestTabAndNotTheStub(): void
     {
         $this->patientComponent()->assertSee(__('device-requests.labels.patient_tab'))
-            ->assertSee(route('device-requests.index', [$this->legalEntity, 'person' => $this->person->id]), false)
+            ->assertSee(route('persons.device-requests', [$this->legalEntity, 'person' => $this->person->id]), false)
             ->assertDontSee(__('patients.prescription_requests'));
 
         $this->canReadRequests = false;
-        $this->patientComponent()->assertDontSeeHtml('href="'.route('device-requests.index', [$this->legalEntity, 'person' => $this->person->id]).'"');
+        $this->patientComponent()->assertDontSeeHtml('href="'.route('persons.device-requests', [$this->legalEntity, 'person' => $this->person->id]).'"');
     }
 
     public function testLegacyPrescriptionPageOffersAnAuthorizedPatientRequestButton(): void
     {
         $parameters = ['legalEntity' => $this->legalEntity, 'personId' => $this->person->id];
         Livewire::test(PatientPrescriptionRequests::class, $parameters)
-            ->assertSee(route('device-requests.index', [$this->legalEntity, 'person' => $this->person->id]), false)
+            ->assertSee(route('persons.device-requests', [$this->legalEntity, 'person' => $this->person->id]), false)
             ->assertSeeHtml('class="button-primary px-5 py-2 text-sm whitespace-nowrap"');
 
         $this->canReadRequests = false;
         Livewire::test(PatientPrescriptionRequests::class, $parameters)
             ->assertDontSee(__('device-requests.labels.patient_tab'));
+    }
+
+    public function testPatientSearchDoesNotDefaultToCurrentDoctorOrClinic(): void
+    {
+        $remote = ['id' => (string) Str::uuid(), 'status' => 'active', 'requisition' => 'OTHER-CLINIC',
+            'requester' => ['display_value' => 'Інший лікар'], 'requester_legal_entity' => ['display_value' => 'Інший заклад']];
+        $this->api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['page' => 1])
+            ->andReturn($this->response([$remote]));
+
+        $this->patientComponent()->assertSet('patientContext', true)
+            ->assertSet('filters.requester_legal_entity', '')->assertSet('filters.requester', '')
+            ->assertSee('OTHER-CLINIC')->assertSee('Інший лікар')->assertSee('Інший заклад');
+    }
+
+    public function testSidebarOffersGeneralSearchOnlyWithDeviceRequestReadPermission(): void
+    {
+        $this->legalEntity->setRelation('type', new \App\Models\LegalEntityType(['name' => 'PRIMARY_CARE']));
+        $url = route('device-requests.index', [$this->legalEntity]);
+        Livewire::test(\App\Livewire\Components\Sidebar::class)->assertSeeHtml('href="'.$url.'"');
+        $this->canReadRequests = false;
+        Livewire::test(\App\Livewire\Components\Sidebar::class)->assertDontSeeHtml('href="'.$url.'"');
+    }
+
+    public function testEveryDocumentedSearchFilterIsForwardedOnlyForTheLockedPatient(): void
+    {
+        $component = $this->patientComponent();
+        $filters = [
+            'requester_legal_entity' => (string) Str::uuid(), 'requester' => (string) Str::uuid(),
+            'status' => 'completed', 'code' => '0', 'code_reference' => (string) Str::uuid(),
+            'context_episode_id' => (string) Str::uuid(), 'encounter' => (string) Str::uuid(),
+            'program' => (string) Str::uuid(), 'based_on' => (string) Str::uuid(),
+            'priority' => 'routine', 'performer' => (string) Str::uuid(),
+        ];
+        foreach (['authored_on', 'occurrence_period_start', 'occurrence_period_end'] as $date) {
+            $filters[$date.'_from'] = '2026-10-01T09:00:00+00:00';
+            $filters[$date.'_to'] = '2026-10-21T09:00:00+00:00';
+        }
+        $this->api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, $filters + ['page' => 1])
+            ->andReturn($this->response([]));
+        $component->set('filters', $filters + ['person_id' => (string) Str::uuid(), 'unknown' => 'ignored'])
+            ->call('search')->assertHasNoErrors();
+    }
+
+    public function testInvalidFilterAndReversedDateRangeDoNotCallTheApi(): void
+    {
+        $component = $this->patientComponent();
+        $this->api->shouldNotReceive('getBySearchParams');
+        $component->set('filters.requester', 'invalid')->call('search')->assertHasErrors(['filters.requester']);
+        $component->set('filters.requester', '')
+            ->set('filters.authored_on_from', '2026-10-21')->set('filters.authored_on_to', '2026-10-01')
+            ->call('search')->assertHasErrors(['filters.authored_on_to']);
+    }
+
+    public function testPatientCardCannotSwitchItsLockedPatient(): void
+    {
+        $component = $this->patientComponent();
+        $component->call('openPatient', $this->person->id)->assertNotFound();
+    }
+
+    public function testGeneralRegistryRequiresPatientAndClearsPreviousPatientData(): void
+    {
+        $this->api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['page' => 1])
+            ->andReturn($this->response([['id' => $this->requestUuid, 'status' => 'active', 'requisition' => 'PATIENT-ONLY']]));
+        $component = Livewire::test(DeviceRequestIndex::class, ['legalEntity' => $this->legalEntity])
+            ->assertSet('personId', null)->assertSet('patientContext', false)
+            ->assertSee(__('device-requests.labels.patient_required_hint'));
+        $component->set('patientSearch', 'Пацієнт')->call('searchPatients')->assertCount('patients', 1)
+            ->call('openPatient', $this->person->id)->assertSet('personId', $this->person->id)
+            ->assertSee('PATIENT-ONLY')->assertDontSeeHtml('summary-tab-active')
+            ->call('showDetails', $this->requestUuid)->assertSet('selectedId', $this->requestUuid)
+            ->call('clearPatient')->assertSet('personId', null)->assertSet('requests', [])
+            ->assertSet('selected', [])->assertSet('selectedId', null)->assertSet('phone', '')
+            ->assertDontSee('PATIENT-ONLY');
+    }
+
+    public function testDetailsFindTheSmsPhoneWhenUrgentMetadataIsAbsent(): void
+    {
+        app(DeviceRequestLifecycleService::class)->shouldReceive('authMethods')->once()->withArgs(fn (Person $person): bool => $person->id === $this->person->id)
+            ->andReturn([['id' => (string) Str::uuid(), 'type' => 'OTP', 'phone_number' => '+380***1234']]);
+        $this->patientComponent()->call('showDetails', $this->requestUuid)
+            ->assertSet('phone', '+380***1234')->assertSee(__('device-requests.labels.resend'));
+    }
+
+    public function testLegacyUrlsRedirectToCanonicalPatientRoutesAndPreserveContext(): void
+    {
+        $this->assertStringEndsWith('/persons/'.$this->person->id.'/device-requests', route('persons.device-requests', [$this->legalEntity, $this->person]));
+        $this->assertStringEndsWith('/device-requests', route('device-requests.index', [$this->legalEntity]));
+        request()->query->replace(['carePlan' => 'plan', 'activity' => 'activity', 'encounter' => '5', 'draft' => 'draft']);
+        foreach (['device-requests.legacy' => 'persons.device-requests', 'device-requests.create' => 'persons.device-requests.create'] as $legacy => $canonical) {
+            $redirect = app('router')->getRoutes()->getByName($legacy)->getAction('uses');
+            $response = $redirect($this->legalEntity, $this->person);
+            $this->assertSame(route($canonical, ['legalEntity' => $this->legalEntity, 'person' => $this->person] + request()->query()), $response->getTargetUrl());
+        }
     }
 
     private function patientComponent(): \Livewire\Features\SupportTesting\Testable

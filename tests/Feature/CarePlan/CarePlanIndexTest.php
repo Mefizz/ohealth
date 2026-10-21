@@ -198,6 +198,8 @@ class CarePlanIndexTest extends TestCase
         $activitySummaryResponse = Mockery::mock(EHealthResponse::class);
         $activitySummaryResponse->shouldReceive('getData')->andReturn(['data' => []]);
         $activitySummaryResponse->shouldReceive('getStatusCode')->andReturn(200);
+        $activitySummaryResponse->shouldReceive('getPaging')->andReturn([]);
+        $activitySummaryResponse->shouldReceive('isNotLast')->andReturn(false);
         $mockActivityApi->shouldReceive('getSummary')->andReturn($activitySummaryResponse);
 
         // 3. Test CarePlanIndex Livewire component

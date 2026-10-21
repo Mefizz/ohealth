@@ -25,7 +25,6 @@ use App\Livewire\ContractRequest\ContractRequestIndex;
 use App\Livewire\ContractRequest\ContractRequestShow;
 use App\Models\Contracts\ContractRequest;
 use App\Livewire\Dashboard;
-use App\Livewire\DeviceRequest\DeviceRequestForm;
 use App\Livewire\DeviceRequest\DeviceRequestIndex;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Livewire\Declaration\DeclarationIndex;
@@ -276,9 +275,15 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
 
             // --- Device Requests (Медичні Вироби) ---
             Route::prefix('device-requests')->name('device-requests.')->group(function () {
-                Route::get('/{person}/create', DeviceRequestForm::class)
+                Route::get('/{person}/create', static fn (LegalEntity $legalEntity, \App\Models\Person\Person $person) =>
+                    redirect()->route('persons.device-requests.create', ['legalEntity' => $legalEntity, 'person' => $person] + request()->query()))
+                    ->whereNumber('person')
                     ->middleware('can:create,'.DeviceRequestRequest::class.',legalEntity')->name('create');
-                Route::get('/{person?}', DeviceRequestIndex::class)
+                Route::get('/{person}', static fn (LegalEntity $legalEntity, \App\Models\Person\Person $person) =>
+                    redirect()->route('persons.device-requests', ['legalEntity' => $legalEntity, 'person' => $person] + request()->query()))
+                    ->whereNumber('person')
+                    ->middleware('can:viewAny,'.DeviceRequestRequest::class.',legalEntity')->name('legacy');
+                Route::get('/', DeviceRequestIndex::class)
                     ->middleware('can:viewAny,'.DeviceRequestRequest::class.',legalEntity')->name('index');
             });
 

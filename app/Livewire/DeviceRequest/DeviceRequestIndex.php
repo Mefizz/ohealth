@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\DeviceRequest;
 
 use App\Classes\eHealth\EHealth;
+use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthException;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\Person\Person;
@@ -53,6 +55,9 @@ class DeviceRequestIndex extends Component
 
     #[Locked]
     public array $dispenseDetails = [];
+
+    #[Locked]
+    public bool $dispensesLoaded = false;
 
     #[Locked]
     public array $reasons = [];
@@ -163,12 +168,15 @@ class DeviceRequestIndex extends Component
         $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:read']);
         abort_unless($this->person?->exists, 404);
 
+        $this->dispenses = $this->dispenseDetails = [];
+        $this->dispensesLoaded = false;
+        $this->resetValidation();
+
         try {
             abort_unless(\Illuminate\Support\Str::isUuid($id), 404);
             $response = EHealth::deviceRequest()->getById($this->person->uuid, $id);
             $this->selected = $response->getData();
             $this->selectedId = $id;
-            $this->dispenses = $this->dispenseDetails = [];
             $this->catalog = [];
             $this->phoneConfirmed = false;
             $this->phone = data_get($response->getUrgent(), 'authentication_method_current.phone_number', '');
@@ -276,10 +284,15 @@ class DeviceRequestIndex extends Component
     {
         $service = app(DeviceRequestLifecycleService::class);
         $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_dispense:read']);
-        abort_unless($this->selectedId !== null, 404);
+        abort_unless($this->person?->exists, 404);
+        $this->validate(['selectedId' => 'required|uuid']);
+        $this->resetValidation();
+        $this->dispenses = $this->dispenseDetails = [];
+        $this->dispensesLoaded = false;
 
         try {
             $this->dispenses = $service->collectPages(fn (int $page) => EHealth::deviceRequest()->getDispenses($this->person->uuid, ['based_on' => $this->selectedId, 'page' => $page]));
+            $this->dispensesLoaded = true;
         } catch (Throwable $exception) {
             $this->error($exception);
         }
@@ -290,6 +303,9 @@ class DeviceRequestIndex extends Component
         abort_unless(\Illuminate\Support\Str::isUuid($id), 404);
         $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_dispense:read']);
         $this->validate(['selectedId' => 'required|uuid']);
+        abort_unless($this->person?->exists, 404);
+        $this->dispenseDetails = [];
+        $this->resetValidation();
 
         try {
             $record = EHealth::deviceRequest()->getDispense($this->person->uuid, $id)->getData();
@@ -303,6 +319,9 @@ class DeviceRequestIndex extends Component
     public function printout(): void
     {
         $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:read']);
+        abort_unless($this->person?->exists, 404);
+        $this->validate(['selectedId' => 'required|uuid']);
+        $this->resetValidation();
 
         try {
             $html = app(DeviceRequestLifecycleService::class)->printoutHtml($this->person, $this->selectedId);
@@ -314,6 +333,12 @@ class DeviceRequestIndex extends Component
 
     private function error(Throwable $exception): void
     {
+        if ($exception instanceof EHealthException || $exception instanceof EHealthConnectionException) {
+            $exception->handle('Error while processing a device request action');
+
+            return;
+        }
+
         if ($exception instanceof \Illuminate\Validation\ValidationException) {
             $this->setErrorBag($exception->validator->errors());
         } else {

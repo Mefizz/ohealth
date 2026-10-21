@@ -1,5 +1,23 @@
+<x-layouts.patient
+    :personId="$person?->id"
+    :patientFullName="$person?->fullName ?? __('device-requests.labels.registry')"
+    :title="__('device-requests.labels.registry') . ($person ? ' — ' . $person->fullName : '')"
+    :hideNavigation="$person === null"
+    :showLegacyMessages="false"
+    activeTab="device-requests"
+>
+    <x-slot name="headerActions">
+        @if ($person)
+            @can('create', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, $legalEntity])
+                <a
+                    class="button-primary"
+                    href="{{ route('device-requests.create', ['legalEntity' => $legalEntity, 'person' => $person]) }}"
+                >{{ __('device-requests.labels.create') }}</a>
+            @endcan
+        @endif
+    </x-slot>
 <div
-    class="shift-content space-y-5 p-6"
+    class="breadcrumb-form shift-content space-y-5 p-6"
     x-data
     @print-device-request.window="window.printSandboxedHtml($event.detail.html)"
 >
@@ -8,12 +26,6 @@
     @endassets
     <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
     <x-forms.loading />
-    <x-header-navigation class="items-start">
-        <x-slot name="title">
-            {{ __('device-requests.labels.registry') }}
-            @if ($person) —{{ $person->fullName }} @endif
-        </x-slot>
-    </x-header-navigation>
     @if ($errors->any())
         <div role="alert" class="rounded bg-red-50 p-4 text-red-800">
             @foreach ($errors->all() as $error)
@@ -33,12 +45,6 @@
             <button wire:click="openPatient({{ $patient['id'] }})" class="button-minor">{{ $patient['name'] }}</button>
         @endforeach
     @else
-        @can('create', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, $legalEntity])
-            <a
-                class="button-primary inline-block"
-                href="{{ route('device-requests.create', ['legalEntity' => $legalEntity, 'person' => $person]) }}"
-            >{{ __('device-requests.labels.create') }}</a>
-        @endcan
         @if ($drafts)
             <section>
                 <h2 class="font-semibold">{{ __('device-requests.labels.drafts') }}</h2>
@@ -126,7 +132,7 @@
                     </details>
                 @endforeach
                 <div class="flex flex-wrap gap-3">
-                    <button wire:click="printout" class="button-minor">{{ __('device-requests.labels.print') }}</button>
+                    <button wire:click="printout" wire:loading.attr="disabled" wire:target="printout" class="button-minor">{{ __('device-requests.labels.print') }}</button>
                     @if ($selected['status'] === 'active')
                         @can('device_request:revoke')
                             <button wire:click="startAction('revoke')" class="button-minor">
@@ -153,7 +159,7 @@
                         @endcan
                     @endif
                     @can('device_dispense:read')
-                        <button wire:click="loadDispenses" class="button-minor">
+                        <button wire:click="loadDispenses" wire:loading.attr="disabled" wire:target="loadDispenses,showDetails" class="button-minor">
                             {{ __('device-requests.labels.dispenses') }}
                         </button>
                     @endcan
@@ -196,17 +202,29 @@
                         </button>
                     </div>
                 @endif
-                @foreach ($dispenses as $dispense)
-                    <button wire:click="showDispense('{{ $dispense['id'] }}')" class="button-minor">
-                        {{ __('device-requests.labels.dispense') }} {{ $dispense['id'] }} · {{ $dispense['status'] ?? '' }}
-                    </button>
-                @endforeach
-                @if ($dispenseDetails)
-                    <h3 class="font-semibold">{{ __('device-requests.labels.dispense_details') }}</h3>
-                    @include('livewire.device-request.record-details', ['record' => $dispenseDetails])
-                @endif
+                <p wire:loading wire:target="loadDispenses" role="status">{{ __('device-requests.labels.dispenses_loading') }}</p>
+                <div wire:loading.remove wire:target="loadDispenses,showDetails">
+                    @if ($dispensesLoaded)
+                        <section class="space-y-3" aria-label="{{ __('device-requests.labels.dispenses') }}">
+                            <h3 class="font-semibold">{{ __('device-requests.labels.dispenses') }}</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">{{ __('device-requests.labels.dispenses_hint') }}</p>
+                            @forelse ($dispenses as $dispense)
+                                <button wire:key="dispense-{{ $dispense['id'] }}" wire:click="showDispense('{{ $dispense['id'] }}')" wire:loading.attr="disabled" wire:target="showDispense" class="button-minor">
+                                    {{ __('device-requests.labels.dispense') }} {{ $dispense['id'] }} · {{ $dispense['status'] ?? '' }}
+                                </button>
+                            @empty
+                                <p role="status">{{ __('device-requests.labels.dispenses_empty') }}</p>
+                            @endforelse
+                            @if ($dispenseDetails)
+                                <h3 class="font-semibold">{{ __('device-requests.labels.dispense_details') }}</h3>
+                                @include('livewire.device-request.record-details', ['record' => $dispenseDetails])
+                            @endif
+                        </section>
+                    @endif
+                </div>
             </section>
         @endif
     @endif
     <x-signature-modal method="sign" />
 </div>
+</x-layouts.patient>

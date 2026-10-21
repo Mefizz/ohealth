@@ -38,6 +38,7 @@ class DeviceDispensePatientViewTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config(['pagination.per_page' => 10]);
         $this->legalEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'status' => 'ACTIVE']);
         $this->instance('legalEntity', $this->legalEntity);
         $this->person = Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);

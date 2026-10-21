@@ -8,6 +8,7 @@ use App\Classes\eHealth\Api\Patient\DeviceRequest as DeviceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Livewire\DeviceRequest\DeviceRequestIndex;
+use App\Livewire\Person\Records\PatientPrescriptionRequests;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
 use App\Models\User;
@@ -144,7 +145,19 @@ class DeviceRequestPatientUiTest extends TestCase
             ->assertDontSee(__('patients.prescription_requests'));
 
         $this->canReadRequests = false;
-        $this->patientComponent()->assertDontSee(__('device-requests.labels.patient_tab'));
+        $this->patientComponent()->assertDontSeeHtml('href="'.route('device-requests.index', [$this->legalEntity, 'person' => $this->person->id]).'"');
+    }
+
+    public function testLegacyPrescriptionPageOffersAnAuthorizedPatientRequestButton(): void
+    {
+        $parameters = ['legalEntity' => $this->legalEntity, 'personId' => $this->person->id];
+        Livewire::test(PatientPrescriptionRequests::class, $parameters)
+            ->assertSee(route('device-requests.index', [$this->legalEntity, 'person' => $this->person->id]), false)
+            ->assertSeeHtml('class="button-primary px-5 py-2 text-sm whitespace-nowrap"');
+
+        $this->canReadRequests = false;
+        Livewire::test(PatientPrescriptionRequests::class, $parameters)
+            ->assertDontSee(__('device-requests.labels.patient_tab'));
     }
 
     private function patientComponent(): \Livewire\Features\SupportTesting\Testable

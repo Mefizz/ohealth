@@ -647,41 +647,13 @@ class PatientCompositions extends BasePatientComponent
      */
     private function paginateLocalCompositions(): LengthAwarePaginator
     {
-        $query = Composition::forPatient($this->patient())
-            ->with([
-                'typeConcept.coding',
-                'categoryConcept.coding',
-                'encounter',
-                'episodeOfCare',
-                'eventPeriod',
-                'integrations',
-            ])
-            ->recentlyUpdatedFirst();
-
-        if ($this->filterType) {
-            $query->whereRelation('typeConcept.coding', 'code', $this->filterType);
-        }
-
-        if ($this->filterStatus) {
-            $query->where('status', $this->filterStatus);
-        }
-
-        if ($this->filterEncounterId) {
-            $query->forEncounter($this->filterEncounterId);
-        }
-
-        if ($this->filterEpisodeOfCareId) {
-            $query->whereHas(
-                'episodeOfCare',
-                fn ($episode) => $episode->where('value', $this->filterEpisodeOfCareId)
-            );
-        }
-
-        if ($this->filterSectionFocusUuid) {
-            $query->forFocus($this->filterSectionFocusUuid);
-        }
-
-        return $query->paginate(config('ehealth.api.page_size', 15));
+        return Repository::composition()->paginateForPatient($this->patient(), [
+            'type' => $this->filterType,
+            'status' => $this->filterStatus,
+            'encounterUuid' => $this->filterEncounterId,
+            'episodeUuid' => $this->filterEpisodeOfCareId,
+            'focusUuid' => $this->filterSectionFocusUuid,
+        ], (int) config('ehealth.api.page_size', 15));
     }
 
     /**
@@ -826,7 +798,7 @@ class PatientCompositions extends BasePatientComponent
      */
     private function findLocalComposition(string $uuid): ?Composition
     {
-        return Composition::forPatient($this->patient())->whereUuid($uuid)->first();
+        return Repository::composition()->findForPatient($this->patient(), $uuid);
     }
 
     // Render

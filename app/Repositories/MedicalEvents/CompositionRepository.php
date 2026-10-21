@@ -11,12 +11,52 @@ use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class CompositionRepository extends BaseRepository
 {
+    private const array READ_RELATIONS = [
+        'typeConcept.coding', 'categoryConcept.coding',
+        'encounter.type.coding', 'episodeOfCare.type.coding',
+        'author.type.coding', 'custodian.type.coding', 'subject.type.coding',
+        'sectionFocus.type.coding', 'relatesToTarget.type.coding',
+        'eventPeriod', 'integrations',
+    ];
+
     public function __construct(Composition $model)
     {
         parent::__construct($model);
+    }
+
+    public function findForPatient(Person|Preperson $patient, string $uuid): ?Composition
+    {
+        return $this->model->newQuery()->forPatient($patient)
+            ->with(self::READ_RELATIONS)->whereUuid($uuid)->first();
+    }
+
+    public function paginateForPatient(Person|Preperson $patient, array $filters, int $perPage): LengthAwarePaginator
+    {
+        $query = $this->model->newQuery()->forPatient($patient)
+            ->with(self::READ_RELATIONS)->recentlyUpdatedFirst();
+
+        if (!empty($filters['type'])) {
+            $query->whereRelation('typeConcept.coding', 'code', $filters['type']);
+        }
+        if (!empty($filters['status'])) {
+            $query->whereStatus($filters['status']);
+        }
+        if (!empty($filters['encounterUuid'])) {
+            $query->forEncounter($filters['encounterUuid']);
+        }
+        if (!empty($filters['episodeUuid'])) {
+            $query->whereHas('episodeOfCare', fn (Builder $episode) => $episode->whereValue($filters['episodeUuid']));
+        }
+        if (!empty($filters['focusUuid'])) {
+            $query->forFocus($filters['focusUuid']);
+        }
+
+        return $query->paginate($perPage);
     }
 
     public function store(array $details, Person|Preperson $patient, ?string $episodeUuid = null): ?Composition

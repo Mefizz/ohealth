@@ -19,6 +19,24 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 
 readonly class EmployeeRepository
 {
+    /** @return list<array<string, mixed>> */
+    public function originalSpecialities(Employee|EmployeeRequest|null $source, ?int $legalEntityId, string $employeeType): array
+    {
+        $employee = $source instanceof EmployeeRequest ? $source->employee : $source;
+
+        if (!$employee
+            || !$employee->exists
+            || (int) $employee->legalEntityId !== $legalEntityId
+            || $employee->employeeType !== $employeeType
+            || $employee->status !== \App\Enums\Status::APPROVED) {
+            return [];
+        }
+
+        $employee->loadMissing('specialities');
+
+        return Arr::toCamelCase($employee->specialities->toArray());
+    }
+
     public function activeForLegalEntity(User $user, LegalEntity $legalEntity, array $employeeTypes): ?Employee
     {
         return $user->employees()->whereLegalEntityId($legalEntity->id)->active()->whereIn('employee_type', $employeeTypes)->first();

@@ -34,7 +34,7 @@ trait ManagesCarePlanReferrals
 {
     public function initReferralForm(int $activityId, CarePlanActivityRepository $activityRepository): void
     {
-        $this->authorizeCarePlanWrite();
+        $this->authorize('view', $this->carePlan);
 
         try {
             $activity = $this->ownedActivity($activityId);
@@ -44,6 +44,13 @@ trait ManagesCarePlanReferrals
             $this->actionType = '';
 
             return;
+        }
+
+        $resolvedKind = $activity->resolvedKind();
+        if ($resolvedKind === 'device_request') {
+            $this->authorize('create', [DeviceRequestRequest::class, legalEntity()]);
+        } else {
+            $this->authorizeCarePlanWrite();
         }
 
         $activityStatus = strtolower(is_array($activity->status)
@@ -66,7 +73,6 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $resolvedKind = $activity->resolvedKind();
         if (!in_array($resolvedKind, ['service_request', 'device_request'], true)) {
             Session::flash('error', __('care-plan.referral_wrong_activity_kind'));
 

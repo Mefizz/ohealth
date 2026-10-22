@@ -258,7 +258,11 @@ class DeviceRequestIndex extends Component
             $this->selectedId = $id;
             $this->catalog = [];
             $this->phoneConfirmed = false;
-            $this->phone = data_get($response->getUrgent(), 'authentication_method_current.phone_number', '');
+            if ($selectedAuthMethod = $response->getUrgent()['authentication_method_current'] ?? []) {
+                $this->phone = $selectedAuthMethod['phone_number'] ?? $selectedAuthMethod['number'] ?? '';
+            } elseif (Auth::user()->can('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:resend'])) {
+                $this->phone = $service->requestAuthenticationMethod($this->person, $this->selected, [])['phone_number'] ?? '';
+            }
             $modelId = data_get($this->selected, 'code_reference.identifier.value');
 
             if ($modelId) {

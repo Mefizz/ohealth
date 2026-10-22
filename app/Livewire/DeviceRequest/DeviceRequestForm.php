@@ -296,7 +296,7 @@ class DeviceRequestForm extends Component
             $this->options = $service->prescribingOptions($this->request);
             $this->quantityOptions = [];
             $period = $service->occurrenceDates($this->request);
-            $days = $period['start']->diffInDays($period['end']);
+            $days = $service->treatmentDays($period['start'], $period['end']);
             $daily = data_get($this->options, 'program.medical_program_settings.max_daily_count', data_get($this->options, 'program.settings.max_daily_count'));
             $cap = $daily ? (float) $daily * $days : null;
 

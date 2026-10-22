@@ -13,6 +13,7 @@ use App\Models\LegalEntity;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Services\SignatureService;
+use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Gate;
@@ -60,6 +61,9 @@ class DeviceRequestPatientUiTest extends TestCase
         $signer = Mockery::mock(SignatureService::class);
         $signer->shouldReceive('getCertificateAuthorities')->andReturn([]);
         $this->instance(SignatureService::class, $signer);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class)->makePartial();
+        $service->shouldReceive('authMethods')->andReturn([])->byDefault();
+        $this->instance(DeviceRequestLifecycleService::class, $service);
         $this->api = Mockery::mock(DeviceRequestApi::class);
         $this->api->shouldReceive('getBySearchParams')->andReturn($this->response([]))->byDefault();
         $this->instance(DeviceRequestApi::class, $this->api);
@@ -235,6 +239,14 @@ class DeviceRequestPatientUiTest extends TestCase
             ->call('clearPatient')->assertSet('personId', null)->assertSet('requests', [])
             ->assertSet('selected', [])->assertSet('selectedId', null)->assertSet('phone', '')
             ->assertDontSee('PATIENT-ONLY');
+    }
+
+    public function testDetailsFindTheSmsPhoneWhenUrgentMetadataIsAbsent(): void
+    {
+        app(DeviceRequestLifecycleService::class)->shouldReceive('authMethods')->once()->withArgs(fn (Person $person): bool => $person->id === $this->person->id)
+            ->andReturn([['id' => (string) Str::uuid(), 'type' => 'OTP', 'phone_number' => '+380***1234']]);
+        $this->patientComponent()->call('showDetails', $this->requestUuid)
+            ->assertSet('phone', '+380***1234')->assertSee(__('device-requests.labels.resend'));
     }
 
     public function testLegacyUrlsRedirectToCanonicalPatientRoutesAndPreserveContext(): void

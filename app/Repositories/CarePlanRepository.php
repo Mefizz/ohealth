@@ -491,12 +491,11 @@ class CarePlanRepository
     {
         $encounter = $this->findEncounter($uuid, $personId);
         $data = ['id' => $encounter?->id, 'addresses' => [], 'period_start' => $encounter?->period?->getRawOriginal('start')];
-        foreach ($encounter?->diagnoses ?? [] as $diagnosis) {
-            $uuid = $diagnosis->condition?->value;
-            if (!$uuid || ($conditionUuid && $conditionUuid !== $uuid)) {
+        $conditions = $encounter ? MedicalEventsRepository::encounter()->primaryDiagnosisConditions($encounter) : collect();
+        foreach ($conditions as $condition) {
+            if ($conditionUuid && $conditionUuid !== $condition->uuid) {
                 continue;
             }
-            $condition = $this->findCondition($uuid, $personId);
             $concept = $condition?->code ? MedicalEventsRepository::codeableConcept()->toResource($condition->code) : null;
             if ($concept && !in_array($concept, $data['addresses'], true)) {
                 $data['addresses'][] = $concept;

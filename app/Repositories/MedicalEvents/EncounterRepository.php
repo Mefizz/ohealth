@@ -38,6 +38,23 @@ use Throwable;
  */
 class EncounterRepository extends BaseRepository
 {
+    /** @return \Illuminate\Support\Collection<int, Condition> */
+    public function primaryDiagnosisConditions(Encounter $encounter): \Illuminate\Support\Collection
+    {
+        $encounter->loadMissing(['diagnoses.role.coding', 'diagnoses.conditionModel.code.coding']);
+        $primaryDiagnoses = $encounter->diagnoses->filter(
+            static fn (EncounterDiagnose $diagnosis): bool => $diagnosis->role?->coding->contains('code', 'primary') === true
+        );
+        if ($primaryDiagnoses->count() !== 1) {
+            return collect();
+        }
+
+        return $primaryDiagnoses->map->conditionModel
+            ->filter(static fn (?Condition $condition): bool => $condition !== null
+                && (int) $condition->personId === (int) $encounter->person_id)
+            ->values();
+    }
+
     /**
      * Create encounter in DB for the patient (person or preperson) with related data.
      *

@@ -85,7 +85,10 @@ class CarePlanConfiguredPeriodTest extends TestCase
         $conditionIdentifier = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) Str::uuid()]);
         $code = \App\Repositories\MedicalEvents\Repository::codeableConcept()->replaceComplete(null, ['coding' => [['system' => 'eHealth/ICD10_AM/condition_codes', 'code' => 'TEST']]]);
         \App\Models\MedicalEvents\Sql\Condition::create(['uuid' => $conditionIdentifier->value, 'person_id' => $person->id, 'primary_source' => true, 'clinical_status' => 'active', 'verification_status' => 'confirmed', 'code_id' => $code->id, 'context_id' => $episodeIdentifier->id, 'onset_date' => now()]);
-        \App\Models\MedicalEvents\Sql\EncounterDiagnose::create(['encounter_id' => $encounter->id, 'condition_id' => $conditionIdentifier->id, 'role_id' => $type->id, 'rank' => 1]);
+        $diagnosisRole = \App\Repositories\MedicalEvents\Repository::codeableConcept()->replaceComplete(null, [
+            'coding' => [['system' => 'eHealth/diagnosis_roles', 'code' => 'primary']],
+        ]);
+        \App\Models\MedicalEvents\Sql\EncounterDiagnose::create(['encounter_id' => $encounter->id, 'condition_id' => $conditionIdentifier->id, 'role_id' => $diagnosisRole->id, 'rank' => 1]);
         $draft = $this->createFhirCarePlan([
             'person_id' => $person->id, 'author_id' => $employee->id, 'legal_entity_id' => $legalEntity->id,
             'encounter_id' => $encounter->id, 'status' => 'draft', 'category' => '736382003', 'title' => 'План лікування',

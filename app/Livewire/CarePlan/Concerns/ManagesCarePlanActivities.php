@@ -16,7 +16,6 @@ use App\Services\MedicalEvents\CarePlanActivityValidationService;
 use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
 use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
 use Exception;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
@@ -414,39 +413,15 @@ trait ManagesCarePlanActivities
                 return;
             }
 
-            $program = $programPayload;
-            $allowedIcd10 = Arr::get($program, 'medical_program_settings.conditions_icd10_am_allowed', []);
-            $allowedIcpc2 = Arr::get($program, 'medical_program_settings.conditions_icpc2_allowed', []);
+            $codings = collect($this->carePlan->addresses ?? [])->flatMap(
+                static fn (array $address): array => $address['coding'] ?? []
+            )->all();
+            if (!MedicationProgramPicker::matchesDiagnosis($programPayload, $codings)) {
+                $message = __('care-plan.medical_program_diagnosis_mismatch');
+                Session::flash('error', $message);
+                $this->addError('activityForm.program', $message);
 
-            if (!empty($allowedIcd10) || !empty($allowedIcpc2)) {
-                $addresses = $this->carePlan->addresses ?? [];
-                $hasValidDiagnosis = false;
-
-                foreach ($addresses as $address) {
-                    $codings = $address['coding'] ?? [];
-                    foreach ($codings as $coding) {
-                        $system = $coding['system'] ?? '';
-                        $code = $coding['code'] ?? '';
-
-                        if (str_contains($system, 'ICD10_AM') && in_array($code, $allowedIcd10, true)) {
-                            $hasValidDiagnosis = true;
-                            break 2;
-                        }
-
-                        if (str_contains($system, 'ICPC2') && in_array($code, $allowedIcpc2, true)) {
-                            $hasValidDiagnosis = true;
-                            break 2;
-                        }
-                    }
-                }
-
-                if (!$hasValidDiagnosis) {
-                    $message = __('care-plan.medical_program_diagnosis_mismatch');
-                    Session::flash('error', $message);
-                    $this->addError('activityForm.program', $message);
-
-                    return;
-                }
+                return;
             }
         }
 

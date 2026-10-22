@@ -20,7 +20,7 @@ class CodeableConceptRepository extends BaseRepository
         $keptIds = [];
         foreach (array_values($data['coding'] ?? []) as $index => $coding) {
             $row = $existing->get($index) ?? $concept->coding()->make();
-            $row->fill([
+            $row->forceFill([
                 'system' => $coding['system'],
                 'code' => $coding['code'],
                 'display' => $coding['display'] ?? null,
@@ -50,7 +50,7 @@ class CodeableConceptRepository extends BaseRepository
                 }
                 $value = $coding->getAttribute($attribute);
                 if ($value !== null) {
-                    $item[$field] = $value;
+                    $item[$field] = $field === 'userSelected' ? (bool) $value : $value;
                 }
             }
             $data['coding'][] = $item;

@@ -33,7 +33,7 @@ class EmployeeRetainedSpecialityTest extends TestCase
     {
         parent::setUp();
         $this->fakeEmployeeDictionaries();
-        $type = LegalEntityType::create(['name' => 'OUTPATIENT']);
+        $type = LegalEntityType::firstOrCreate(['name' => 'OUTPATIENT']);
         $this->legalEntity = LegalEntity::create([
             'uuid' => (string) Str::uuid(), 'is_active' => true, 'legal_entity_type_id' => $type->id,
         ]);

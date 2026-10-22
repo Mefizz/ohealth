@@ -37,7 +37,7 @@ trait CarePlanManager
         }
 
         try {
-            $this->remotePlanDetails = app(CarePlanLifecycleService::class)->getDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
+            $this->remotePlanDetails = app(CarePlanApi::class)->getRawDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
             foreach ($this->remotePlanDetails['category']['coding'] ?? [] as $index => $coding) {
                 if (isset($this->dictionaries['care_plan_categories'][$coding['code']])) {
                     $this->remotePlanDetails['category']['coding'][$index]['display'] = $this->dictionaries['care_plan_categories'][$coding['code']];

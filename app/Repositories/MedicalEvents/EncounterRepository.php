@@ -31,6 +31,7 @@ use App\Models\MedicalEvents\Sql\Specimen;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -41,7 +42,7 @@ class EncounterRepository extends BaseRepository
     /** @return \Illuminate\Support\Collection<int, Condition> */
     public function primaryDiagnosisConditions(Encounter $encounter): \Illuminate\Support\Collection
     {
-        $encounter->loadMissing(['diagnoses.role.coding', 'diagnoses.conditionModel.code.coding']);
+        $encounter->loadMissing(['diagnoses.role.coding']);
         $primaryDiagnoses = $encounter->diagnoses->filter(
             static fn (EncounterDiagnose $diagnosis): bool => $diagnosis->role?->coding->contains('code', 'primary') === true
         );
@@ -49,10 +50,28 @@ class EncounterRepository extends BaseRepository
             return collect();
         }
 
-        return $primaryDiagnoses->map->conditionModel
-            ->filter(static fn (?Condition $condition): bool => $condition !== null
-                && (int) $condition->personId === (int) $encounter->person_id)
-            ->values();
+        $diagnosis = $primaryDiagnoses->first();
+        if ($diagnosis->relationLoaded('conditionModel')) {
+            $condition = $diagnosis->getRelation('conditionModel');
+        } else {
+            $diagnosis->loadMissing('condition');
+            $conditionUuid = $diagnosis->getRelation('condition')?->value;
+            if (!is_string($conditionUuid) || !Str::isUuid($conditionUuid)) {
+                return collect();
+            }
+
+            // Identifier values are varchar; resolve the UUID without a mixed-type join.
+            $condition = Condition::with('code.coding')
+                ->whereUuid($conditionUuid)
+                ->wherePersonId($encounter->person_id)
+                ->first();
+        }
+        if (!$condition instanceof Condition || (int) $condition->personId !== (int) $encounter->person_id) {
+            return collect();
+        }
+        $condition->loadMissing('code.coding');
+
+        return collect([$condition]);
     }
 
     /**

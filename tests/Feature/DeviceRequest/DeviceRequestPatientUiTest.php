@@ -36,6 +36,7 @@ class DeviceRequestPatientUiTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutVite();
         $this->legalEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'status' => 'ACTIVE']);
         $this->instance('legalEntity', $this->legalEntity);
         $this->person = Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);

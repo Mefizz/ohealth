@@ -34,16 +34,24 @@ class DeviceDispensePatientViewTest extends TestCase
     private Person $person;
     private DeviceDispenseApi $api;
     private bool $canRead = true;
+    private bool $denyRecordView = false;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutVite();
         config(['pagination.per_page' => 10]);
         $this->legalEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'status' => 'ACTIVE']);
         $this->instance('legalEntity', $this->legalEntity);
         $this->person = Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
-        $this->actingAs(User::create(['email' => Str::random(12).'@example.com', 'password' => 'unused']));
-        Gate::before(fn (User $user, string $ability): bool => $ability === 'create' ? false : $this->canRead);
+        $party = \App\Models\Relations\Party::create([
+            'uuid' => (string) Str::uuid(), 'first_name' => 'Test', 'last_name' => 'Doctor',
+            'birth_date' => '1980-01-01', 'gender' => 'MALE', 'tax_id' => '1234567890',
+        ]);
+        $this->actingAs(User::create(['email' => Str::random(12).'@example.com', 'password' => 'unused', 'party_id' => $party->id]));
+        Gate::before(fn (User $user, string $ability, array $arguments): bool => $ability === 'create'
+            || ($ability === 'view' && $this->denyRecordView && ($arguments[0] ?? null) instanceof DeviceDispense)
+            ? false : $this->canRead);
         $this->api = Mockery::mock(DeviceDispenseApi::class);
         $this->instance(DeviceDispenseApi::class, $this->api);
     }
@@ -95,6 +103,18 @@ class DeviceDispensePatientViewTest extends TestCase
         $this->canRead = false;
         $this->api->shouldNotReceive('getById');
         $component->call('openDeviceDispenseView', (string) Str::uuid())->assertForbidden();
+    }
+
+    public function testRecordPolicyCanDenyOpeningAfterRegistryPermissionWasGranted(): void
+    {
+        $dispense = DeviceDispense::create(['uuid' => (string) Str::uuid(), 'person_id' => $this->person->id, 'status' => 'completed']);
+        $component = $this->patientComponent();
+        $this->denyRecordView = true;
+        $this->api->shouldNotReceive('getById');
+
+        $component->call('openDeviceDispenseView', $dispense->uuid)
+            ->assertNoRedirect()
+            ->assertSee(__('device-dispenses.policy.view'));
     }
 
     public function testInvalidRemoteRecordIsNotPersistedOrOpened(): void

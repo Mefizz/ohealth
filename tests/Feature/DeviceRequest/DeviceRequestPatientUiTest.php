@@ -13,7 +13,6 @@ use App\Models\LegalEntity;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Services\SignatureService;
-use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Gate;
@@ -61,9 +60,6 @@ class DeviceRequestPatientUiTest extends TestCase
         $signer = Mockery::mock(SignatureService::class);
         $signer->shouldReceive('getCertificateAuthorities')->andReturn([]);
         $this->instance(SignatureService::class, $signer);
-        $service = Mockery::mock(DeviceRequestLifecycleService::class)->makePartial();
-        $service->shouldReceive('authMethods')->andReturn([])->byDefault();
-        $this->instance(DeviceRequestLifecycleService::class, $service);
         $this->api = Mockery::mock(DeviceRequestApi::class);
         $this->api->shouldReceive('getBySearchParams')->andReturn($this->response([]))->byDefault();
         $this->instance(DeviceRequestApi::class, $this->api);
@@ -183,7 +179,7 @@ class DeviceRequestPatientUiTest extends TestCase
     public function testSidebarOffersGeneralSearchOnlyWithDeviceRequestReadPermission(): void
     {
         $this->legalEntity->setRelation('type', new \App\Models\LegalEntityType(['name' => 'PRIMARY_CARE']));
-        $url = route('device-requests.index', [$this->legalEntity]);
+        $url = route('device-requests.registry', [$this->legalEntity]);
         Livewire::test(\App\Livewire\Components\Sidebar::class)->assertSeeHtml('href="'.$url.'"');
         $this->canReadRequests = false;
         Livewire::test(\App\Livewire\Components\Sidebar::class)->assertDontSeeHtml('href="'.$url.'"');
@@ -241,20 +237,12 @@ class DeviceRequestPatientUiTest extends TestCase
             ->assertDontSee('PATIENT-ONLY');
     }
 
-    public function testDetailsFindTheSmsPhoneWhenUrgentMetadataIsAbsent(): void
-    {
-        app(DeviceRequestLifecycleService::class)->shouldReceive('authMethods')->once()->withArgs(fn (Person $person): bool => $person->id === $this->person->id)
-            ->andReturn([['id' => (string) Str::uuid(), 'type' => 'OTP', 'phone_number' => '+380***1234']]);
-        $this->patientComponent()->call('showDetails', $this->requestUuid)
-            ->assertSet('phone', '+380***1234')->assertSee(__('device-requests.labels.resend'));
-    }
-
     public function testLegacyUrlsRedirectToCanonicalPatientRoutesAndPreserveContext(): void
     {
         $this->assertStringEndsWith('/persons/'.$this->person->id.'/device-requests', route('persons.device-requests', [$this->legalEntity, $this->person]));
-        $this->assertStringEndsWith('/device-requests', route('device-requests.index', [$this->legalEntity]));
+        $this->assertStringEndsWith('/device-requests', route('device-requests.registry', [$this->legalEntity]));
         request()->query->replace(['carePlan' => 'plan', 'activity' => 'activity', 'encounter' => '5', 'draft' => 'draft']);
-        foreach (['device-requests.legacy' => 'persons.device-requests', 'device-requests.create' => 'persons.device-requests.create'] as $legacy => $canonical) {
+        foreach (['device-requests.index' => 'persons.device-requests', 'device-requests.create' => 'persons.device-requests.create'] as $legacy => $canonical) {
             $redirect = app('router')->getRoutes()->getByName($legacy)->getAction('uses');
             $response = $redirect($this->legalEntity, $this->person);
             $this->assertSame(route($canonical, ['legalEntity' => $this->legalEntity, 'person' => $this->person] + request()->query()), $response->getTargetUrl());

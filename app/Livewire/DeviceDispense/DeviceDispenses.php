@@ -162,31 +162,20 @@ class DeviceDispenses extends BasePatientComponent
 
     public function openDeviceDispenseView(string $deviceDispenseUuid): void
     {
-        $this->authorize('viewAny', DeviceDispense::class);
-        validator(['uuid' => $deviceDispenseUuid], ['uuid' => ['required', 'uuid']])->validate();
-        $repository = Repository::deviceDispense();
-        $deviceDispense = $repository->findForPatientByUuid($this->patient(), $deviceDispenseUuid);
+        // The records of the persons merged into the patient count too
+        $deviceDispense = DeviceDispense::readableFor($this->patient(), true)
+            ->whereUuid($deviceDispenseUuid)
+            ->first();
 
         if ($deviceDispense === null) {
-            try {
-                $response = EHealth::deviceDispense()->getById($this->uuid, $deviceDispenseUuid);
-                $validatedData = $response->validate();
-                abort_unless($validatedData['uuid'] === $deviceDispenseUuid, 404);
-                $repository->sync($this->patient(), [$validatedData]);
-            } catch (EHealthException|EHealthConnectionException $exception) {
-                $exception->handle('Error while loading the device dispense');
+            Session::flash(
+                'error',
+                __('device-dispenses.messages.not_found_in_db')
+            );
 
-                return;
-            } catch (Throwable $exception) {
-                $this->handleDatabaseErrors($exception, 'Error while storing the device dispense');
-
-                return;
-            }
-
-            $deviceDispense = $repository->findForPatientByUuid($this->patient(), $deviceDispenseUuid);
+            return;
         }
 
-        abort_if($deviceDispense === null, 404);
         if (Auth::user()->cannot('view', [$deviceDispense, $this->patient()])) {
             Session::flash('error', __('device-dispenses.policy.view'));
 
@@ -254,7 +243,7 @@ class DeviceDispenses extends BasePatientComponent
             $this->dispatchRemainingPages('device_dispense');
         } else {
             legalEntity()->setEntityStatus(JobStatus::COMPLETED, LegalEntity::ENTITY_DEVICE_DISPENSE);
-            Session::flash('success', __('device-dispenses.messages.sync_result', ['count' => count($validatedData)]));
+            Session::flash('success', __('device-dispenses.messages.synced_successfully'));
         }
 
         $this->loadFilterOptions();

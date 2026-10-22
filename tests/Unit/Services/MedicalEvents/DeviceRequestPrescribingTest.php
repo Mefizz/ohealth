@@ -110,27 +110,6 @@ class DeviceRequestPrescribingTest extends TestCase
         app(DeviceRequestLifecycleService::class)->validateQuantity(100, 'pcs', true, [['count' => 50, 'unit' => 'pcs']], 50, null, CarbonImmutable::parse('2026-10-09'), CarbonImmutable::parse('2026-10-19'));
     }
 
-    public function testTodaysCourseUsesCalendarDaysForProgramAndPackageDailyLimits(): void
-    {
-        $this->travelTo(CarbonImmutable::parse('2026-10-21 12:00:00'));
-        $service = app(DeviceRequestLifecycleService::class);
-        $period = $service->occurrenceDates(['started_at' => '21.10.2026', 'ended_at' => '31.10.2026']);
-        $this->assertSame(10, $service->treatmentDays($period['start'], $period['end']));
-        $service->validateQuantity(50, 'pcs', true, [['count' => 50, 'unit' => 'pcs', 'maxDailyCount' => 5]], null, 5, $period['start'], $period['end']);
-        $this->expectException(ValidationException::class);
-        $service->validateQuantity(100, 'pcs', true, [['count' => 50, 'unit' => 'pcs', 'maxDailyCount' => 5]], null, 5, $period['start'], $period['end']);
-    }
-
-    public function testSavedDraftOffsetsAcrossDaylightSavingPreserveCalendarTreatmentDays(): void
-    {
-        config(['app.timezone' => 'Europe/Kyiv']);
-        $service = app(DeviceRequestLifecycleService::class);
-        $start = CarbonImmutable::parse('2027-03-21T12:00:00+02:00');
-        $end = CarbonImmutable::parse('2027-03-31T00:00:00+03:00');
-        $this->assertSame(10, $service->treatmentDays($start, $end));
-        $service->validateQuantity(50, 'pcs', true, [['count' => 50, 'unit' => 'pcs', 'maxDailyCount' => 5]], null, 5, $start, $end);
-    }
-
     public function test_program_device_daily_limit_is_enforced_for_the_selected_package(): void
     {
         $this->expectException(ValidationException::class);

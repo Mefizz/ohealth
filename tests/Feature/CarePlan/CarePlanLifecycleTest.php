@@ -288,8 +288,6 @@ class CarePlanLifecycleTest extends TestCase
         $activitySummaryResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
         $activitySummaryResponse->shouldReceive('getData')->andReturn(['data' => []]);
         $activitySummaryResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $activitySummaryResponse->shouldReceive('getPaging')->andReturn([]);
-        $activitySummaryResponse->shouldReceive('isNotLast')->andReturn(false);
         $mockActivityApi->shouldReceive('getSummary')->andReturn($activitySummaryResponse);
 
         // Mock sync response showing plan is now ACTIVE
@@ -1245,8 +1243,6 @@ class CarePlanLifecycleTest extends TestCase
     public function test_device_activity_opens_request_form_with_patient_plan_and_activity_context(): void
     {
         $this->actingAs($this->user);
-        \Illuminate\Support\Facades\Gate::before(static fn ($user, string $ability): ?bool => $ability === 'manage' ? false : null);
-        $this->assertTrue($this->user->can('create', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()]));
 
         $deviceUuid = '0fa1e6cd-7066-4881-92a5-6d747a1128f7';
         $programId = '85953838-1834-4ed6-8bf4-3f83057380ec';
@@ -1281,7 +1277,7 @@ class CarePlanLifecycleTest extends TestCase
 
         Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan->fresh()])
             ->call('initReferralForm', $activity->id)
-            ->assertRedirect(route('persons.device-requests.create', [
+            ->assertRedirect(route('device-requests.create', [
                 'legalEntity' => legalEntity(), 'person' => $this->person,
                 'carePlan' => $carePlan->uuid, 'activity' => $activity->uuid,
             ]));

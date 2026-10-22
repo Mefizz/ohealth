@@ -42,15 +42,14 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         do {
             $response = $fetch($page++);
             $paging = $response->getPaging();
-            $currentPage = $paging['page_number'] ?? $paging['page'] ?? null;
-            if ($currentPage === null || !isset($paging['total_pages'])
-                || (int) $currentPage !== $page - 1 || (int) $paging['total_pages'] < (int) $currentPage) {
+            if (!isset($paging['page_number'], $paging['total_pages'])
+                || (int) $paging['page_number'] !== $page - 1) {
                 $this->invalid('configuration', __('device-requests.validation.configuration_incomplete'));
             }
             foreach ($response->getData() as $item) {
                 $items[] = $item;
             }
-        } while ($page <= (int) $paging['total_pages']);
+        } while ($response->isNotLast());
 
         return $items;
     }
@@ -273,21 +272,14 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             return;
         }
         if ($quantity < 1 || ($remaining !== null && $quantity > $remaining)
-            || ($daily !== null && $quantity > $daily * $this->treatmentDays($start, $end))) {
+            || ($daily !== null && $quantity > $daily * $start->diffInDays($end))) {
             $this->invalid('quantity', __('device-requests.validation.quantity_limit'));
         }
         if ($withProgram && !collect($packages)->contains(fn (array $package): bool => $unit === $package['unit']
             && $quantity % $package['count'] === 0
-            && (!isset($package['maxDailyCount']) || $quantity <= $package['maxDailyCount'] * $this->treatmentDays($start, $end)))) {
+            && (!isset($package['maxDailyCount']) || $quantity <= $package['maxDailyCount'] * $start->diffInDays($end)))) {
             $this->invalid('quantity', __('device-requests.validation.quantity_packaging'));
         }
-    }
-
-    public function treatmentDays(CarbonImmutable $start, CarbonImmutable $end): int
-    {
-        $timezone = config('app.timezone');
-
-        return (int) $start->setTimezone($timezone)->startOfDay()->diffInDays($end->setTimezone($timezone)->startOfDay());
     }
 
     public function occurrenceDates(array $data): array
@@ -369,7 +361,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         if (($settings['care_plan_required'] ?? false) && ($carePlanUuid === null || $activityUuid === null)) {
             $this->invalid('activity', __('device-requests.validation.care_plan_required'));
         }
-        if (isset($settings['request_max_period_day']) && $this->treatmentDays($start, $end) > (int) $settings['request_max_period_day']) {
+        if (isset($settings['request_max_period_day']) && $start->diffInDays($end) > (int) $settings['request_max_period_day']) {
             $this->invalid('ended_at', __('device-requests.validation.program_period_limit'));
         }
         $remaining = null;
@@ -592,7 +584,12 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         $response = EHealth::deviceRequest()->getById($person->uuid, $id);
         $remote = $response->getData();
         $this->assertTransition($remote, 'resend');
-        $method = $this->requestAuthenticationMethod($person, $remote, $response->getUrgent());
+        $method = $response->getUrgent()['authentication_method_current'] ?? [];
+        if ($method === []) {
+            $methods = $this->authMethods($person);
+            $method = collect($methods)->firstWhere('id', $remote['inform_with'] ?? null)
+                ?? collect($methods)->firstWhere('type', 'OTP') ?? [];
+        }
         if (!$phoneConfirmed || empty($method['phone_number']) || $confirmedPhone !== $method['phone_number']) {
             $this->invalid('phoneConfirmed', __('device-requests.validation.sms_phone_required'));
         }
@@ -617,20 +614,6 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             }
             throw $exception;
         }
-    }
-
-    public function requestAuthenticationMethod(Person $person, array $remote, array $urgent): array
-    {
-        $method = $urgent['authentication_method_current'] ?? [];
-        if ($method === []) {
-            $methods = $this->authMethods($person);
-            $method = !empty($remote['inform_with'])
-                ? (collect($methods)->firstWhere('id', $remote['inform_with']) ?? [])
-                : (collect($methods)->firstWhere('type', 'OTP') ?? []);
-        }
-        $method['phone_number'] ??= $method['number'] ?? '';
-
-        return $method;
     }
 
     public function sync(Person $person, array $remote): DeviceRequestRequest

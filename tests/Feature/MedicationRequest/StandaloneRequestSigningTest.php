@@ -368,7 +368,7 @@ class StandaloneRequestSigningTest extends TestCase
         $component->encounterId = $encounter->id;
         $component->encounterUuid = $encounter->uuid;
         $component->openDeviceRequest();
-        $this->assertSame(route('persons.device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
+        $this->assertSame(route('device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
     }
 
     public function test_assistant_with_write_scope_cannot_prescribe_devices(): void
@@ -401,7 +401,7 @@ class StandaloneRequestSigningTest extends TestCase
 
         Livewire::test(DeviceEncounterActionsHarness::class, ['personId' => $person->id, 'compositionUrl' => null])
             ->assertDontSeeHtml('wire:click="openDeviceRequest"')
-            ->assertSeeHtml('href="'.route('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $person->id]).'"')
+            ->assertSeeHtml('href="'.route('device-requests.index', ['legalEntity' => $this->legalEntity, 'person' => $person->id]).'"')
             ->assertSeeHtml('disabled')
             ->assertSee(__('encounters.medical_report_creation_unavailable'));
     }

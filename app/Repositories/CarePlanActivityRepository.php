@@ -535,23 +535,22 @@ class CarePlanActivityRepository
             return;
         }
 
-        $activities = [];
-        $page = 1;
-        do {
-            $response = EHealth::carePlanActivity()->getSummary($person->uuid, $carePlan->uuid, array_replace($query, ['page' => $page]));
-            $data = $response->getData();
-            $items = $data['data'] ?? $data;
-            $paging = $response->getPaging();
-            $currentPage = (int) ($paging['page_number'] ?? $paging['page'] ?? $page);
-            $totalPages = (int) ($paging['total_pages'] ?? $page);
-            if (!is_array($items) || $currentPage !== $page || $totalPages < $page) {
-                throw ValidationException::withMessages(['activities' => __('device-requests.validation.configuration_incomplete')]);
-            }
-            foreach ($items as $item) {
-                $activities[] = $item;
-            }
-            $page++;
-        } while ($page <= $totalPages);
+        $response = EHealth::carePlanActivity()->getSummary($person->uuid, $carePlan->uuid, $query);
+        $data = $response->getData();
+
+        \Illuminate\Support\Facades\Log::info('CarePlanActivityRepository: syncActivities raw response data', [
+            'person_uuid' => $person->uuid,
+            'care_plan_uuid' => $carePlan->uuid,
+            'response' => $data
+        ]);
+
+        $activities = isset($data['data']) ? $data['data'] : $data;
+
+        if (!is_array($activities)) {
+            \Illuminate\Support\Facades\Log::warning('CarePlanActivityRepository: sync skipped because data is not an array', ['data' => $data]);
+
+            return;
+        }
 
         foreach ($activities as $index => $rawFhir) {
             if (is_array($rawFhir) && !isset($rawFhir['status']) && isset($rawFhir['detail']['status'])) {

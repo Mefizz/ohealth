@@ -10,7 +10,6 @@ use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Services\MedicalEvents\FhirResource;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Throwable;
 
 /**
@@ -18,16 +17,6 @@ use Throwable;
  */
 class DeviceDispenseRepository extends BaseRepository
 {
-    public function findForPatientByUuid(Person|Preperson $patient, string $uuid): ?DeviceDispense
-    {
-        $deviceDispense = $this->model->readableFor($patient, true)->whereUuid($uuid)->first();
-        if ($deviceDispense === null && $this->model->whereUuid($uuid)->exists()) {
-            throw (new ModelNotFoundException())->setModel(DeviceDispense::class, [$uuid]);
-        }
-
-        return $deviceDispense;
-    }
-
     /**
      * Store device dispenses in DB.
      *

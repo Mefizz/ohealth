@@ -20,10 +20,8 @@ class DeviceDispenseRepository extends BaseRepository
 {
     public function findForPatientByUuid(Person|Preperson $patient, string $uuid): ?DeviceDispense
     {
-        $deviceDispense = $this->model->whereUuid($uuid)->first();
-        [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
-
-        if ($deviceDispense !== null && (int) $deviceDispense->getRawOriginal($ownerColumn) !== $ownerId) {
+        $deviceDispense = $this->model->readableFor($patient, true)->whereUuid($uuid)->first();
+        if ($deviceDispense === null && $this->model->whereUuid($uuid)->exists()) {
             throw (new ModelNotFoundException())->setModel(DeviceDispense::class, [$uuid]);
         }
 

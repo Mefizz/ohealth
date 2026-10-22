@@ -91,10 +91,13 @@ class CarePlanLifecycleTest extends TestCase
             'onset_date' => now(),
         ]);
 
+        $diagnosisRole = \App\Repositories\MedicalEvents\Repository::codeableConcept()->replaceComplete(null, [
+            'coding' => [['system' => 'eHealth/diagnosis_roles', 'code' => 'primary']],
+        ]);
         \App\Models\MedicalEvents\Sql\EncounterDiagnose::create([
             'encounter_id' => $this->encounter->id,
             'condition_id' => $conditionIdentifier->id,
-            'role_id' => $ccId,
+            'role_id' => $diagnosisRole->id,
             'rank' => 1
         ]);
 

@@ -10,6 +10,7 @@ use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Services\Dictionary\MedicationProgramPicker;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
@@ -200,9 +201,15 @@ trait ManagesEncounterEPrescription
 
     public function updatedEncounterEPrescriptionFormProgramId(): void
     {
+        $this->resetValidation('encounterEPrescriptionForm.program_id');
+        $this->encounterEPrescriptionWarningMessage = '';
         $this->encounterEPrescriptionForm['medication_id'] = '';
         $this->encounterEPrescriptionSelectedMedication = null;
         $this->encounterEPrescriptionSearchResults = [];
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter !== null) {
+            $this->validateEncounterEPrescriptionProgram($encounter);
+        }
     }
 
     public function validateEncounterEPrescription(): void
@@ -244,6 +251,10 @@ trait ManagesEncounterEPrescription
         }
 
         try {
+            if (!$this->validateEncounterEPrescriptionProgram($encounter)) {
+                return;
+            }
+
             $employeeContext = app(MedicationRequestLifecycleService::class)->resolveEncounterEmployeeContext(
                 $encounter,
                 Auth::user()?->activeDoctorEmployee()?->id
@@ -389,6 +400,44 @@ trait ManagesEncounterEPrescription
         } catch (Throwable $exception) {
             Log::warning('EncounterEdit: failed to load auth methods for eRx: '.$exception->getMessage());
         }
+    }
+
+    protected function validateEncounterEPrescriptionProgram(Encounter $encounter): bool
+    {
+        $programId = $this->encounterEPrescriptionForm['program_id'] ?? '';
+        if (!filled($programId)) {
+            return true;
+        }
+
+        try {
+            $program = dictionary()->medicalPrograms()->firstWhere('id', $programId);
+            $available = $program !== null && MedicationProgramPicker::forCurrentUser(collect([$program]))->isNotEmpty();
+        } catch (Throwable $exception) {
+            $available = false;
+        }
+
+        $message = null;
+        if (!$available) {
+            $message = __('medication-programs.unavailable');
+        } elseif (!MedicationProgramPicker::matchesDiagnosis($program, [])) {
+            $codings = MedicalEventsRepository::encounter()->primaryDiagnosisConditions($encounter)
+                ->flatMap(static fn ($condition) => $condition->code?->coding ?? collect())
+                ->map(static fn ($coding): array => ['system' => $coding->system, 'code' => $coding->code])
+                ->all();
+            if (!MedicationProgramPicker::matchesDiagnosis($program, $codings)) {
+                $message = __('medication-programs.diagnosis_mismatch');
+            }
+        }
+
+        if ($message !== null) {
+            $this->encounterEPrescriptionWarningMessage = $message;
+            $this->addError('encounterEPrescriptionForm.program_id', $message);
+            Session::flash('error', $message);
+
+            return false;
+        }
+
+        return true;
     }
 
     protected function loadEncounterEPrescriptionPrograms(): void

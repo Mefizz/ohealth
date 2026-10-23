@@ -9,6 +9,43 @@ use Tests\TestCase;
 
 class EHealthValidationExceptionCarePlanMessageTest extends TestCase
 {
+    public function test_referral_start_in_past_is_translated_with_a_field_label(): void
+    {
+        app()->setLocale('uk');
+        $exception = new EHealthValidationException(['error' => [
+            'type' => 'validation_failed',
+            'invalid' => [[
+                'entry' => '$.occurrence.occurrence_period.start',
+                'rules' => [['rule' => 'invalid', 'description' => 'Occurrence period start date must be greater or equal to current time']],
+            ]],
+        ]]);
+
+        foreach ([$exception->getFormattedMessage(), $exception->getTranslatedMessage()] as $message) {
+            $this->assertStringContainsString(__('errors.ehealth.messages.occurrence_start_in_past'), $message);
+            $this->assertStringContainsString(__('forms.start_date'), $message);
+            $this->assertStringNotContainsString('Occurrence period', $message);
+            $this->assertStringNotContainsString('$.occurrence', $message);
+        }
+    }
+
+    public function test_device_activity_integer_type_mismatch_is_translated_in_both_formats(): void
+    {
+        app()->setLocale('uk');
+        $exception = new EHealthValidationException(['error' => [
+            'type' => 'validation_failed',
+            'invalid' => [[
+                'entry' => '$.detail.quantity.value',
+                'rules' => [['description' => 'type mismatch. Expected integer but got number']],
+            ]],
+        ]]);
+        foreach ([$exception->getFormattedMessage(), $exception->getTranslatedMessage()] as $message) {
+            $this->assertStringContainsString('Кількість', $message);
+            $this->assertStringContainsString('Введіть ціле число без дробової частини.', $message);
+            $this->assertStringNotContainsString('$.detail', $message);
+            $this->assertStringNotContainsString('Expected integer', $message);
+        }
+    }
+
     public function test_unknown_error_type_keeps_the_existing_message_fallback(): void
     {
         $exception = new EHealthValidationException(['error' => ['type' => 'future_type', 'message' => 'Future API message']]);

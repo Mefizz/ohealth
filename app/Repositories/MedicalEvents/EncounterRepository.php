@@ -39,6 +39,13 @@ use Throwable;
  */
 class EncounterRepository extends BaseRepository
 {
+    public function findForStandaloneDocument(int $id, Person|Preperson $patient): Encounter
+    {
+        return Encounter::forPatient($patient)
+            ->with(['episode', 'class', 'performer', 'hospitalization.dischargeDisposition', 'hospitalization.destination'])
+            ->findOrFail($id);
+    }
+
     /** @return \Illuminate\Support\Collection<int, Condition> */
     public function primaryDiagnosisConditions(Encounter $encounter): \Illuminate\Support\Collection
     {

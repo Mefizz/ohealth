@@ -1,15 +1,5 @@
-@if ($showEncounterReferralDrawer)
-    <div x-data="{ open: $wire.entangle('showEncounterReferralDrawer').live, openServiceCatalog: false }" @encounter-referral-service-catalog-close.window="openServiceCatalog = false">
-        <x-dialog-drawer
-            x-model="open"
-            maxWidth="4/5"
-            overlayWidth="100%"
-            :stopClickPropagation="true"
-            zIndex="46"
-            onCloseClick="$wire.closeEncounterReferralDrawer()"
-        >
-            <x-slot name="title">{{ __('encounters.referral_drawer.title') }}</x-slot>
-        <form wire:submit.prevent="validateEncounterReferral" class="space-y-6">
+<div x-data="{ openServiceCatalog: false }" @encounter-referral-service-catalog-close.window="openServiceCatalog = false">
+<form wire:submit.prevent="validateEncounterReferral" class="space-y-6">
             <fieldset class="fieldset-card p-6 sm:p-8">
                 <legend class="legend">{{ __('encounters.service') }}</legend>
                 <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -286,12 +276,11 @@
             @endif
 
             <div class="flex justify-start gap-3">
-                <button type="button" class="button-minor" wire:click="closeEncounterReferralDrawer">{{ __('forms.cancel') }}</button>
+                <a href="{{ $encounterReturnUrl }}" class="button-minor">{{ __('forms.cancel') }}</a>
                 <button type="submit" class="button-primary">{{ __('forms.create_and_sign') }}</button>
             </div>
         </form>
-        </x-dialog-drawer>
-        <x-dialog-drawer
+<x-dialog-drawer
             x-model="openServiceCatalog"
             x-bind:aria-hidden="!openServiceCatalog"
             onCloseClick="openServiceCatalog = false"
@@ -318,5 +307,4 @@
                 </button>
             </div>
         </x-dialog-drawer>
-    </div>
-@endif
+</div>

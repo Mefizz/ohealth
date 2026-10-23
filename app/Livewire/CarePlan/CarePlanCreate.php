@@ -78,9 +78,10 @@ class CarePlanCreate extends BasePatientComponent
     public array $availableEncounters = [];
     public array $availableEpisodes = [];
 
-    public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null): void
+    public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null, ?Person $person = null): void
     {
-        $routePersonId = request()->route('personId');
+        $routePersonId = $person?->id ?? request()->route('personId');
+        $personId ??= $routePersonId;
         $encounterRouteParam = request()->route('encounter') ?? request()->query('encounter') ?? request()->query('encounterId');
         $this->allowsPatientChange = empty($routePersonId) && empty($encounterRouteParam);
 
@@ -98,6 +99,11 @@ class CarePlanCreate extends BasePatientComponent
             if ($resolvedEncounter) {
                 $resolvedPersonId = $resolvedEncounter->person_id;
             }
+        }
+
+        if ($person !== null && $encounterRouteParam) {
+            abort_unless($resolvedEncounter !== null && (int) $resolvedEncounter->person_id === $person->id, 404);
+            $this->authorize('view', [$resolvedEncounter, $person]);
         }
 
         // If personId was passed, use it, unless it was sequential mapping of encounter

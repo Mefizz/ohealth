@@ -1,25 +1,4 @@
-@if ($showEncounterEPrescriptionDrawer)
-    <div
-        x-data="{
-            open: $wire.entangle('showEncounterEPrescriptionDrawer').live,
-        }"
-    >
-        <x-dialog-drawer
-            x-model="open"
-            maxWidth="4/5"
-            overlayWidth="100%"
-            :stopClickPropagation="true"
-            zIndex="46"
-            onCloseClick="$wire.closeEncounterEPrescriptionDrawer()"
-        >
-            <x-slot name="title">
-                {{ __('encounters.eprescription.title') }}
-            </x-slot>
-            <p class="mb-6 text-sm text-gray-600 dark:text-gray-300">
-                {{ __('encounters.eprescription.encounter_number', ['number' => $encounterUuid ?? $encounterId]) }}
-            </p>
-
-            <form
+<form
                 wire:submit.prevent="validateEncounterEPrescription"
                 class="space-y-6"
             >
@@ -306,18 +285,9 @@
                 @endif
 
                 <div class="mt-8 flex w-full justify-start gap-4">
-                    <button
-                        type="button"
-                        class="button-minor"
-                        wire:click="closeEncounterEPrescriptionDrawer"
-                    >
-                        {{ __('forms.cancel') }}
-                    </button>
+                    <a href="{{ $encounterReturnUrl }}" class="button-minor">{{ __('forms.cancel') }}</a>
                     <button type="submit" class="button-primary">
                         {{ __('forms.create_and_sign') }}
                     </button>
                 </div>
             </form>
-        </x-dialog-drawer>
-    </div>
-@endif

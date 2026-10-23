@@ -414,6 +414,7 @@ trait ManagesEncounterReferrals
 
             $referralIdentifier = $dbData['request_number'] ?? $dbData['uuid'];
             Session::flash('success', __('Електронне направлення успішно створено без плану лікування. Номер направлення: :number', ['number' => $referralIdentifier]));
+            $this->afterEncounterReferralSigned();
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -699,6 +700,10 @@ trait ManagesEncounterReferrals
                 $this->resetValidation($key);
             }
         }
+    }
+
+    protected function afterEncounterReferralSigned(): void
+    {
     }
 
 }

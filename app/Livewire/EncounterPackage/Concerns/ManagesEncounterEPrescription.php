@@ -343,6 +343,7 @@ trait ManagesEncounterEPrescription
             $this->encounterEPrescriptionForm = [];
             $this->encounterEPrescriptionSearchResults = [];
             $this->encounterEPrescriptionSelectedMedication = null;
+            $this->afterEncounterEPrescriptionSigned();
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -496,4 +497,8 @@ trait ManagesEncounterEPrescription
 
         return abs($quotient - round($quotient)) < 1e-6;
     }
+    protected function afterEncounterEPrescriptionSigned(): void
+    {
+    }
+
 }

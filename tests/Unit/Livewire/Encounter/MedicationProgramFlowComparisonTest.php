@@ -228,6 +228,9 @@ class MedicationProgramFlowComparisonTest extends TestCase
 
         $this->assertNotNull($search);
         $this->assertFalse($search->hasAttribute('disabled'));
+        $searchButtons = (new \DOMXPath($document))->query("//button[@*[name()='wire:click' and .='searchEncounterEPrescriptionMedications']]");
+        $this->assertCount(1, $searchButtons);
+        $this->assertFalse($searchButtons->item(0)->hasAttribute('disabled'));
         $this->assertNotNull($program);
         $this->assertSame('', $program->getElementsByTagName('option')->item(0)->getAttribute('value'));
         $this->assertSame(__('care-plan.prescription_medication'), $program->getElementsByTagName('option')->item(0)->textContent);

@@ -10,20 +10,23 @@
                                 for="encounterEPrescriptionProgram"
                                 class="label"
                             >
-                                {{ __('device-requests.medical_program') }} *
+                                {{ __('device-requests.medical_program') }}
                             </label>
                             <select
                                 id="encounterEPrescriptionProgram"
                                 class="input-select peer w-full"
                                 wire:model.live="encounterEPrescriptionForm.program_id"
                             >
-                                <option value="">{{ __('encounters.eprescription.select_program') }}</option>
+                                <option value="">{{ __('care-plan.prescription_medication') }}</option>
                                 @foreach ($encounterEPrescriptionPrograms as $program)
                                     <option value="{{ $program['id'] }}">
                                         {{ $program['name'] }}
                                     </option>
                                 @endforeach
                             </select>
+                            @if ($encounterEPrescriptionPrograms === [])
+                                <p class="mt-1 text-xs text-gray-500">{{ __('encounters.messages.medication_programs_unavailable') }}</p>
+                            @endif
                             @error ('encounterEPrescriptionForm.program_id')
                                 <p class="text-error">{{ $message }}</p>
                             @enderror
@@ -48,14 +51,12 @@
                                     type="button"
                                     class="button-primary shrink-0"
                                     wire:click="searchEncounterEPrescriptionMedications"
-                                    @disabled (($encounterEPrescriptionForm['program_id'] ?? '') === '')
+                                    wire:loading.attr="disabled"
+                                    wire:target="searchEncounterEPrescriptionMedications"
                                 >
                                     {{ __('forms.search') }}
                                 </button>
                             </div>
-                            @if (($encounterEPrescriptionForm['program_id'] ?? '') === '')
-                                <p class="mt-1 text-xs text-gray-500">{{ __('encounters.eprescription.program_required') }}</p>
-                            @endif
                         </div>
                         @if ($encounterEPrescriptionSearchResults !== [])
                             <div

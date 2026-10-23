@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Employee\Forms;
 
 use App\Core\Arr;
+use App\Repositories\Repository;
 use App\Enums\Status;
 use App\Livewire\Employee\EmployeeCreate;
 use App\Livewire\Employee\AbstractEmployeeFormManager;
@@ -606,8 +607,8 @@ class EmployeeForm extends Form
         $revisionData = $request->revision->data ?? [];
 
         // 1. BASE: Hydrate from original Employee if exists
-        if ($request->employee) {
-            $this->hydrateFromEmployee($request->employee);
+        if ($employee = Repository::employee()->employeeForRequest($request)) {
+            $this->hydrateFromEmployee($employee);
         } elseif ($request->party) {
             $this->populatePartyData($request->party);
         }
@@ -694,8 +695,8 @@ class EmployeeForm extends Form
                 }
             }
 
-            // Merge recursive to override specific fields
-            $this->doctor = array_replace_recursive($this->doctor, $doctorDataFromRevision);
+            // Professional lists are complete document snapshots, not index-based patches.
+            $this->doctor = array_replace($this->doctor, $doctorDataFromRevision);
         }
 
         // --- Personal data (Party) ---

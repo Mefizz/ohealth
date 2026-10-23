@@ -82,9 +82,13 @@ class CarePlanRepository
     }
 
     /** Compatibility projection for the existing UI; the historical columns are not written. */
-    private function present(CarePlan $plan): CarePlan
+    private function present(CarePlan $plan, bool $forListing = false): CarePlan
     {
         if ($plan->fhirVersion !== 1) {
+            if ($forListing) {
+                return $plan;
+            }
+
             throw new InvalidArgumentException('Care Plan requires a full import or draft backfill before use.');
         }
         $resource = $this->getResource($plan);
@@ -97,7 +101,7 @@ class CarePlanRepository
             'supportingInfo' => ['episodes' => array_map(static fn (array $episode): array => $episode + ['name' => $episode['uuid']], $form['episodes']), 'medical_records' => $form['medicalRecords']],
         ]);
         $plan->syncOriginal();
-        if ($plan->relationLoaded('activities')) {
+        if (!$forListing && $plan->relationLoaded('activities')) {
             $repository = app(CarePlanActivityRepository::class);
             $plan->setRelation('activities', $plan->activities->map(fn ($activity) => $repository->presentForUi($activity)));
         }
@@ -299,7 +303,7 @@ class CarePlanRepository
         return CarePlan::whereLegalEntityId($legalEntityId)
             ->with($this->uiRelations())
             ->latest()
-            ->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan));
+            ->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan, forListing: true));
     }
 
     public function getByPersonId(int $personId, array $filters = [], ?int $legalEntityId = null): Collection
@@ -330,7 +334,7 @@ class CarePlanRepository
             $query->whereRaw('CAST(encounter_id AS TEXT) LIKE ?', ['%'.$filters['encounter_id'].'%']);
         }
 
-        return $query->latest()->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan));
+        return $query->latest()->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan, forListing: true));
     }
 
     public function findById(int $id): ?CarePlan
@@ -397,7 +401,7 @@ class CarePlanRepository
 
         // Fetch patient diagnostic reports for justifications (grounds)
         $reports = \App\Models\MedicalEvents\Sql\DiagnosticReport::wherePersonId($personId)
-            ->with('code.coding')
+            ->with('code')
             ->get()->map(fn ($dr) => [
                 'uuid' => $dr->uuid,
                 'name' => $dr->code?->displayValue ?: $dr->code?->value ?: 'Diagnostic Report',
@@ -477,8 +481,30 @@ class CarePlanRepository
 
     public function encounterChoices(int $personId): array
     {
-        return Encounter::wherePersonId($personId)->whereStatus('finished')->orderByDesc('ehealth_inserted_at')->get(['id', 'uuid', 'ehealth_inserted_at'])
-            ->map(fn ($encounter): array => ['uuid' => $encounter->uuid, 'label' => __('Взаємодія #').$encounter->id.' ('.($encounter->ehealthInsertedAt ? \Carbon\Carbon::parse($encounter->ehealthInsertedAt)->format('d.m.Y') : '-').')'])->all();
+        $encounters = Encounter::wherePersonId($personId)->whereStatus('finished')
+            ->with(['period', 'episode'])->orderByDesc('ehealth_inserted_at')
+            ->get(['id', 'uuid', 'episode_id', 'ehealth_inserted_at']);
+        $episodeUuids = $encounters->pluck('episode.value')
+            ->filter(static fn ($uuid): bool => is_string($uuid) && Str::isUuid($uuid))
+            ->unique()->values()->all();
+        $episodeNames = $episodeUuids === [] ? collect() : \App\Models\MedicalEvents\Sql\Episode::wherePersonId($personId)
+            ->whereIn('uuid', $episodeUuids)->pluck('name', 'uuid');
+
+        return $encounters->map(function (Encounter $encounter) use ($episodeNames): array {
+            $occurredAt = $encounter->period === null
+                ? $encounter->getRawOriginal('ehealth_inserted_at')
+                : $encounter->period->getRawOriginal('start');
+            $date = $occurredAt
+                ? \Carbon\Carbon::parse($occurredAt, 'UTC')->setTimezone(config('app.timezone'))->format('d.m.Y')
+                : '-';
+            $episodeName = $episodeNames->get($encounter->episode?->value);
+            $label = __('Взаємодія #').$encounter->id.' ('.$date.')';
+            if (filled($episodeName)) {
+                $label .= ' — '.$episodeName;
+            }
+
+            return ['uuid' => $encounter->uuid, 'label' => $label];
+        })->all();
     }
 
     public function doctors(int $legalEntityId): array
@@ -592,7 +618,7 @@ class CarePlanRepository
             }
         }
 
-        return $query->latest()->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan));
+        return $query->latest()->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan, forListing: true));
     }
 
     public function episodeUuid(CarePlan $plan): ?string

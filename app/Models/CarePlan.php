@@ -64,6 +64,14 @@ class CarePlan extends Model
         'fhir_version' => 'integer',
     ];
 
+    public function requiresFhirImport(): bool
+    {
+        return $this->fhirVersion !== 1
+            || ($this->relationLoaded('activities') && $this->activities->contains(
+                static fn (CarePlanActivity $activity): bool => $activity->fhirVersion !== 1
+            ));
+    }
+
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);

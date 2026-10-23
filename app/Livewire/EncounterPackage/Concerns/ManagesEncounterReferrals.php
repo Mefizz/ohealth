@@ -16,11 +16,13 @@ use App\Services\MedicalEvents\InformWith;
 use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use RuntimeException;
@@ -107,13 +109,15 @@ trait ManagesEncounterReferrals
         $this->encounterReferralSpecialities = [];
         $this->encounterReferralWarningMessage = '';
 
-        $start = now();
+        $start = now()->addMinutes(30)->startOfMinute();
         $this->encounterReferralForm = [
             'category' => $transfer !== null ? 'transfer_of_care' : 'diagnostic_procedure',
             'service_id' => '',
             'priority' => 'routine',
             'quantity' => 1,
             'started_at' => $start->format('d.m.Y'),
+            'start_time' => $start->format('H:i'),
+            'end_time' => $start->format('H:i'),
             'ended_at' => $start->copy()->addMonths(3)->format('d.m.Y'),
             'program_id' => $this->resolveDefaultEncounterReferralProgramId(),
             'note' => '',
@@ -241,8 +245,6 @@ trait ManagesEncounterReferrals
             'encounterReferralForm.category' => 'required|string',
             'encounterReferralForm.quantity' => 'required|numeric|min:0.01',
             'encounterReferralForm.priority' => 'required|in:routine,urgent,asap,stat',
-            'encounterReferralForm.started_at' => 'required|date_format:d.m.Y',
-            'encounterReferralForm.ended_at' => 'required|date_format:d.m.Y|after_or_equal:encounterReferralForm.started_at',
         ], [], [
             'encounterReferralForm.service_id' => __('код послуги'),
             'encounterReferralForm.category' => __('категорія'),
@@ -252,13 +254,15 @@ trait ManagesEncounterReferrals
             'encounterReferralForm.ended_at' => __('дата закінчення'),
         ]);
 
+        $period = $this->encounterReferralPeriod();
+
         try {
             $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEncounterEmployeeContext(
                 $encounter,
                 Auth::user()?->activeDoctorEmployee()?->id
             );
 
-            $formData = $this->encounterReferralForm;
+            $formData = array_replace($this->encounterReferralForm, $period);
             $formData['program_id'] = $formData['program_id'] !== '' ? $formData['program_id'] : null;
             $formData['kind'] = 'service_request';
 
@@ -282,6 +286,46 @@ trait ManagesEncounterReferrals
             $this->encounterReferralWarningMessage = __('Не вдалося створити направлення: ').$exception->getMessage();
             Session::flash('error', $this->encounterReferralWarningMessage);
         }
+    }
+
+    /** @return array{started_at: string, ended_at: string} */
+    protected function encounterReferralPeriod(): array
+    {
+        $this->validate([
+            'encounterReferralForm.started_at' => ['required', 'date_format:d.m.Y'],
+            'encounterReferralForm.ended_at' => ['required', 'date_format:d.m.Y'],
+            'encounterReferralForm.start_time' => ['required', 'date_format:H:i'],
+            'encounterReferralForm.end_time' => ['required', 'date_format:H:i'],
+        ], [], [
+            'encounterReferralForm.started_at' => __('forms.start_date'),
+            'encounterReferralForm.ended_at' => __('forms.end_date'),
+            'encounterReferralForm.start_time' => __('referrals.period_fields.start_time'),
+            'encounterReferralForm.end_time' => __('referrals.period_fields.end_time'),
+        ]);
+
+        $start = CarbonImmutable::createFromFormat(
+            '!d.m.Y H:i',
+            $this->encounterReferralForm['started_at'].' '.$this->encounterReferralForm['start_time'],
+            config('app.timezone')
+        );
+        $end = CarbonImmutable::createFromFormat(
+            '!d.m.Y H:i',
+            $this->encounterReferralForm['ended_at'].' '.$this->encounterReferralForm['end_time'],
+            config('app.timezone')
+        );
+
+        if ($start->isPast()) {
+            throw ValidationException::withMessages([
+                'encounterReferralForm.start_time' => __('errors.ehealth.messages.occurrence_start_in_past'),
+            ]);
+        }
+        if ($end->lessThan($start)) {
+            throw ValidationException::withMessages([
+                'encounterReferralForm.ended_at' => __('errors.ehealth.messages.period_end_before_start'),
+            ]);
+        }
+
+        return ['started_at' => $start->toIso8601String(), 'ended_at' => $end->toIso8601String()];
     }
 
     public function signEncounterReferral(): void

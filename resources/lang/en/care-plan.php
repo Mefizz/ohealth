@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 return [
+    'device_name_unavailable' => 'Medical device name unavailable',
+    'full_sync_required' => 'Full synchronization with eHealth is required before details and clinical actions are available.',
+    'draft_backfill_required' => 'This legacy draft requires review and conversion before details and editing are available.',
     'activity_updated' => 'Care plan activity draft updated successfully.',
     'activity_completed' => 'Care plan activity completed successfully.',
     'activity_cancelled' => 'Care plan activity cancelled successfully.',

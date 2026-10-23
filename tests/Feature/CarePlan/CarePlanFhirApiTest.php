@@ -56,6 +56,33 @@ class CarePlanFhirApiTest extends TestCase
         $this->assertSame('scheduled', $actual['detail']['status']);
     }
 
+    public function test_device_activity_sign_content_uses_a_json_integer_without_changing_other_quantities(): void
+    {
+        $activity = $this->fixture('activity');
+        $activity['detail']['kind'] = 'device_request';
+        $activity['detail']['quantity'] = ['value' => 1.0, 'system' => 'device_unit', 'code' => 'piece'];
+        $activity['detail']['dailyAmount']['value'] = 0.5;
+        $actual = app(ActivityApi::class)->buildCreateContent($activity);
+        $decoded = json_decode(json_encode($actual, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame(1, $decoded['detail']['quantity']['value']);
+        $this->assertSame(0.5, $decoded['detail']['daily_amount']['value']);
+        $this->assertSame(1.0, $activity['detail']['quantity']['value']);
+    }
+
+    public function test_device_activity_fractional_quantity_is_rejected_before_signing_instead_of_rounded(): void
+    {
+        $activity = $this->fixture('activity');
+        $activity['detail']['kind'] = 'device_request';
+        $activity['detail']['quantity']['value'] = 1.5;
+        try {
+            app(ActivityApi::class)->buildCreateContent($activity);
+            $this->fail('Fractional device quantities must not be truncated.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('quantity.value', $exception->errors());
+        }
+    }
+
     public function test_cancel_preserves_the_raw_snapshot_except_the_documented_changes(): void
     {
         $snapshot = Arr::toSnakeCase($this->fixture('activity'));

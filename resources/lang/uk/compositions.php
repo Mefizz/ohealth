@@ -5,6 +5,13 @@ declare(strict_types=1);
 return [
     'search_title' => 'Пошук медичних висновків',
 
+    'wizard' => [
+        'selected' => 'Обрано',
+        'change_encounter' => 'Змінити взаємодію',
+        'keep_encounter' => 'Залишити обрану взаємодію',
+        'encounter_selected_hint' => 'Взаємодію обрано. Наступний крок — оберіть метод автентифікації нижче або продовжте без нього.',
+    ],
+
     'filter' => [
         'type' => 'Тип висновку',
         'status' => 'Статус',

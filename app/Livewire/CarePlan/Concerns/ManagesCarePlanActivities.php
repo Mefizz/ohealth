@@ -153,21 +153,15 @@ trait ManagesCarePlanActivities
                     }
                 } elseif (str_contains($kindLower, 'device')) {
                     $programId = $this->activityForm['program'] ?? $activity->program;
-                    $filters = ['page_size' => 50];
-                    if (!empty($programId)) {
-                        $filters['medical_program_id'] = $programId;
-                    }
-                    $response = EHealth::deviceDefinition()->getMany($filters);
-                    $data = $response->getData();
+                    $filters = !empty($programId) ? ['medical_program_id' => $programId] : [];
                     $reference = (string) $activity->productReference;
-                    $this->selectedProduct = collect($data)->first(
-                        fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
-                    );
+                    $devices = $this->resolveDevicesByExactUuid($reference, $filters);
+                    $this->selectedProduct = isset($devices[0]) ? $this->compactDeviceForState($devices[0]) : null;
                     if ($this->selectedProduct === null && $reference !== '') {
                         $this->selectedProduct = [
                             'id' => $reference,
                             'uuid' => $reference,
-                            'name' => $reference,
+                            'name' => __('care-plan.device_name_unavailable'),
                         ];
                     }
                 }

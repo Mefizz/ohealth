@@ -229,6 +229,7 @@ return [
     'without_medical_program' => 'Без медичної програми',
     'packaging' => 'Пакування',
     'uuid' => 'UUID',
+    'device_name_unavailable' => 'Назва медичного виробу недоступна',
     'box_50_pieces' => 'Коробка 50 штук',
     'program_participants' => 'Учасники програми',
 

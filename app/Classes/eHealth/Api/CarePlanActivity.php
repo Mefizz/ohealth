@@ -33,6 +33,14 @@ class CarePlanActivity extends Request
             'detail.kind' => ['required', 'in:'.implode(',', array_column(CarePlanActivityKind::cases(), 'value'))],
         ])->validate();
         $detail = $resource['detail'];
+        if ($detail['kind'] === CarePlanActivityKind::DEVICE_REQUEST->value) {
+            Validator::make($detail, [
+                'quantity.value' => ['sometimes', 'integer', 'min:1'],
+            ], [], ['quantity.value' => __('care-plan.ehealth_fields.quantity_value')])->validate();
+            if (isset($detail['quantity']['value'])) {
+                $detail['quantity']['value'] = (int) $detail['quantity']['value'];
+            }
+        }
         if (isset($detail['productReference']) === isset($detail['productCodeableConcept'])) {
             throw ValidationException::withMessages(['product' => 'Exactly one product variant is required.']);
         }

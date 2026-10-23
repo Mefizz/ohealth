@@ -340,6 +340,40 @@ class CarePlanActivityValidationsTest extends TestCase
             ->assertSee('TV detail coverage');
     }
 
+    public function test_edit_device_activity_loads_its_name_by_uuid_and_signs_integer_after_database_roundtrip(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->createFhirCarePlan([
+            'person_id' => $this->person->id, 'author_id' => $this->employee->id,
+            'legal_entity_id' => $this->legalEntity->id, 'status' => 'active',
+        ]);
+        $deviceUuid = (string) Str::uuid();
+        $activity = $this->createFhirCarePlanActivity([
+            'care_plan_id' => $plan->id, 'author_id' => $this->employee->id,
+            'kind' => 'device_request', 'status' => 'draft', 'product_reference' => $deviceUuid,
+            'quantity' => 1, 'quantity_system' => 'device_unit', 'quantity_code' => 'piece',
+        ]);
+        $api = \Mockery::mock(\App\Classes\eHealth\Api\DeviceDefinition::class);
+        $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $response->shouldReceive('getData')->andReturn([
+            'id' => $deviceUuid, 'device_names' => [['name' => 'Тестова система контролю глюкози']],
+        ]);
+        $api->shouldReceive('getById')->once()->with($deviceUuid)->andReturn($response);
+        $api->shouldNotReceive('getMany');
+        $this->instance(\App\Classes\eHealth\Api\DeviceDefinition::class, $api);
+        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $plan])
+            ->call('editActivity', $activity->id)
+            ->assertSet('selectedProduct.name', 'Тестова система контролю глюкози')
+            ->assertSee('Тестова система контролю глюкози')
+            ->assertSee('UUID: '.$deviceUuid);
+
+        $resource = app(\App\Repositories\CarePlanActivityRepository::class)->getResource($activity->id);
+        $payload = app(\App\Classes\eHealth\Api\CarePlanActivity::class)->buildCreateContent($resource);
+        $decoded = json_decode(json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $decoded['detail']['quantity']['value']);
+        $this->assertSame($deviceUuid, $decoded['detail']['product_reference']['identifier']['value']);
+    }
+
     public function test_blocks_device_activity_when_providing_conditions_mismatch(): void
     {
         $this->actingAs($this->user);

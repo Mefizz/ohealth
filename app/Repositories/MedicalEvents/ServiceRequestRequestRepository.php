@@ -709,11 +709,12 @@ class ServiceRequestRequestRepository extends BaseRepository
         }
     }
 
-    public function sumIssuedQuantityByActivity(string $activityUuid, array $excludedStatuses = MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM): float
+    public function sumIssuedQuantityByActivity(string $activityUuid, array $excludedStatuses = MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM, ?string $excludedUuid = null): float
     {
         return (float) $this->model->newQuery()
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->whereNotIn('status', $excludedStatuses)
+            ->when($excludedUuid, fn ($query) => $query->where('uuid', '!=', $excludedUuid))
             ->sum('quantity');
     }
 

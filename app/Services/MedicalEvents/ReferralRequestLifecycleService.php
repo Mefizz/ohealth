@@ -65,18 +65,27 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         $formData['kind'] = $resolvedKind;
 
+        $existingDraft = $resolvedKind === 'service_request'
+            ? Repository::serviceRequest()->findDraftByActivity((string) $activity->uuid)
+            : null;
+        if ($existingDraft && (int) $existingDraft->personId !== (int) $carePlan->personId) {
+            throw new \InvalidArgumentException(__('care-plan.document_context_unavailable'));
+        }
+
         app(ActivityRemainingQuantityGuard::class)->assertCanIssue(
             (int) $activity->id,
             $qty,
-            function (int $activityId) use ($resolvedKind, $activity): float {
+            function (int $activityId) use ($resolvedKind, $activity, $existingDraft): float {
                 $repository = $resolvedKind === 'service_request' ? Repository::serviceRequest() : Repository::deviceRequest();
 
-                return $repository->sumIssuedQuantityByActivity((string) $activity->uuid, ActivityRemainingQuantityGuard::occupyingStatusesExcluded());
+                return $resolvedKind === 'service_request'
+                    ? $repository->sumIssuedQuantityByActivity((string) $activity->uuid, ActivityRemainingQuantityGuard::occupyingStatusesExcluded(), $existingDraft?->uuid)
+                    : $repository->sumIssuedQuantityByActivity((string) $activity->uuid, ActivityRemainingQuantityGuard::occupyingStatusesExcluded());
             }
         );
 
         $dbData = [
-            'uuid' => (string) Str::uuid(),
+            'uuid' => $existingDraft?->uuid ?? (string) Str::uuid(),
             'employee_id' => $employeeContext['employee_id'] ?? null,
             'person_id' => $carePlan->personId,
             'division_id' => $employeeContext['division_id'] ?? null,

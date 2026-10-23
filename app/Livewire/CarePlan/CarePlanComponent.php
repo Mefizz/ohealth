@@ -701,8 +701,8 @@ abstract class CarePlanComponent extends Component
             'status_label' => $this->resolveReferralStatusLabel((string) $record->getAttribute('status')),
             'request_number' => $record->getAttribute('request_number'),
             'quantity' => $record->getAttribute('quantity'),
-            'started_at' => $record->getAttribute('started_at'),
-            'ended_at' => $record->getAttribute('ended_at'),
+            'started_at' => $kind === 'service_request' ? $record->getRawOriginal('started_at') : $record->getAttribute('started_at'),
+            'ended_at' => $kind === 'service_request' ? $record->getRawOriginal('ended_at') : $record->getAttribute('ended_at'),
             'service_id' => $kind === 'service_request' ? $record->getAttribute('service_id') : null,
             'device_id' => $kind === 'device_request' ? $record->getAttribute('device_id') : null,
             'product_code' => $kind === 'service_request'

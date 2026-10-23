@@ -106,6 +106,27 @@ class MedicationProgramFlowComparisonTest extends TestCase
         $this->assertCount(1, $component->encounterEPrescriptionSearchResults);
         Http::assertNothingSent();
     }
+    public function test_encounter_search_keeps_v3_ingredient_matches_and_uses_the_catalog_dosage_unit(): void
+    {
+        $this->drugApi->shouldReceive('getMany')->once()
+            ->andReturn(new EHealthResponse(new Response(200, [], json_encode(['data' => [[
+                'id' => 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+                'name' => 'Synthetic brand',
+                'form' => 'SOLUTION',
+                'ingredients' => [['name' => 'Metformin', 'dosage' => ['denumerator_unit' => 'ML']]],
+            ]]], JSON_THROW_ON_ERROR))));
+        $component = new EncounterMedicationProgramHarness();
+        $component->encounterEPrescriptionSearchQuery = 'Metformin';
+
+        $component->searchEncounterEPrescriptionMedications();
+        $component->selectEncounterEPrescriptionMedication('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+
+        $this->assertSame('Synthetic brand', $component->encounterEPrescriptionSelectedMedication['name']);
+        $this->assertSame('Metformin', $component->encounterEPrescriptionSelectedMedication['innm_name']);
+        $this->assertSame('ML', $component->encounterEPrescriptionForm['medication_unit']);
+        Http::assertNothingSent();
+    }
+
     public function test_encounter_programs_exclude_inactive_disallowed_and_care_plan_only_programs(): void
     {
         $programs = collect([
@@ -226,6 +247,12 @@ class MedicationProgramFlowComparisonTest extends TestCase
         $search = $document->getElementById('encounterEPrescriptionSearch');
         $program = $document->getElementById('encounterEPrescriptionProgram');
 
+        foreach (['StartedAt', 'EndedAt'] as $dateField) {
+            $dateInput = $document->getElementById('encounterEPrescription'.$dateField);
+            $this->assertSame('text', $dateInput->getAttribute('type'));
+            $this->assertStringContainsString('datepicker-input', $dateInput->getAttribute('class'));
+            $this->assertSame(frontendDateFormat(), $dateInput->getAttribute('datepicker-format'));
+        }
         $this->assertNotNull($search);
         $this->assertFalse($search->hasAttribute('disabled'));
         $searchButtons = (new \DOMXPath($document))->query("//button[@*[name()='wire:click' and .='searchEncounterEPrescriptionMedications']]");

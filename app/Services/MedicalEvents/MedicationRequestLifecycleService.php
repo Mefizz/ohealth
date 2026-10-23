@@ -158,8 +158,8 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             'division_id' => $employeeContext['division_id'] ?? null,
             'status' => MedicationRequestStatus::DRAFT->value,
             'created_at' => now()->toDateString(),
-            'started_at' => $formData['started_at'] ?? now()->toDateString(),
-            'ended_at' => $formData['ended_at'] ?? now()->addDays(30)->toDateString(),
+            'started_at' => convertToYmd($formData['started_at'] ?? now()->toDateString()),
+            'ended_at' => convertToYmd($formData['ended_at'] ?? now()->addDays(30)->toDateString()),
             'medication_id' => $formData['medication_id'] ?? null,
             'medication_qty' => (float) ($formData['medication_qty'] ?? 1),
             'medication_program_id' => $formData['program_id'] ?? null,
@@ -233,17 +233,12 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
             return $formData['dosage_instructions'];
         }
 
-        return [array_filter([
-            'sequence' => 1,
-            'text' => $formData['signature_text'] ?? null,
-            'patient_instruction' => $formData['patient_instruction'] ?? null,
-            'route' => $formData['route'] ?? null,
-            'as_needed_boolean' => $formData['as_needed_boolean'] ?? null,
-            'as_needed_codeable_concept' => $formData['as_needed_codeable_concept'] ?? null,
-            'dose_and_rate' => $formData['dose_and_rate'] ?? null,
-            'max_dose_per_administration' => $formData['max_dose_per_administration'] ?? null,
-            'max_dose_per_period' => $formData['max_dose_per_period'] ?? null,
-        ], static fn ($value) => $value !== null)];
+        $medication = EHealth::drug()->getPrescriptionMedication(
+            (string) ($formData['medication_id'] ?? ''),
+            \App\Services\Dictionary\MedicationProgramPicker::resolve($formData['program_id'] ?? null)
+        );
+
+        return (new MedicationRequestMapper())->dosageInstructionsFromForm($formData, $medication);
     }
 
     /**
@@ -270,8 +265,10 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         $activityUuid = $requestRecord->basedOn?->value;
         if ($activityUuid) {
             $activityForQty = app(MedicationRequestRepository::class)->findActivity(
-                $activityUuid, (int) $requestRecord->personId,
-                $contextModel instanceof CarePlan ? (int) $contextModel->id : null, legalEntity()?->id
+                $activityUuid,
+                (int) $requestRecord->personId,
+                $contextModel instanceof CarePlan ? (int) $contextModel->id : null,
+                legalEntity()?->id
             );
             if ($activityForQty === null) {
                 throw new InvalidArgumentException('The medication activity is outside the signing context.');

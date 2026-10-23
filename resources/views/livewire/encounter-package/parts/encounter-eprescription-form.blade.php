@@ -148,6 +148,7 @@
                                 id="encounterEPrescriptionUnit"
                                 class="input peer w-full"
                                 wire:model="encounterEPrescriptionForm.medication_unit"
+                                readonly
                             />
                         </div>
                     </div>
@@ -178,6 +179,9 @@
                                 class="label"
                             >
                                 {{ __('encounters.eprescription.max_dose_per_administration') }} *
+                                @if (($encounterEPrescriptionForm['medication_unit'] ?? '') !== '')
+                                    ({{ $encounterEPrescriptionForm['medication_unit'] }})
+                                @endif
                             </label>
                             <input
                                 type="number"
@@ -194,6 +198,9 @@
                                 class="label"
                             >
                                 {{ __('encounters.eprescription.max_dose_per_period') }} *
+                                @if (($encounterEPrescriptionForm['medication_unit'] ?? '') !== '')
+                                    ({{ $encounterEPrescriptionForm['medication_unit'] }})
+                                @endif
                             </label>
                             <input
                                 type="number"
@@ -204,42 +211,40 @@
                                 wire:model="encounterEPrescriptionForm.max_dose_per_period"
                             />
                         </div>
-                        <div class="form-group group">
-                            <div class="datepicker-wrapper">
-                                <input
-                                    type="date"
-                                    id="encounterEPrescriptionStartedAt"
-                                    class="input peer w-full"
-                                    placeholder=" "
-                                    autocomplete="off"
-                                    wire:model="encounterEPrescriptionForm.started_at"
-                                />
-                                <label
-                                    for="encounterEPrescriptionStartedAt"
-                                    class="wrapped-label"
-                                    >{{ __('encounters.eprescription.course_start') }}</label
-                                >
-                            </div>
+                        <div class="form-group datepicker-wrapper relative w-full">
+                            <input
+                                wire:model="encounterEPrescriptionForm.started_at"
+                                datepicker-format="{{ frontendDateFormat() }}"
+                                type="text"
+                                name="encounterEPrescriptionStartedAt"
+                                id="encounterEPrescriptionStartedAt"
+                                class="peer input datepicker-input appearance-none pl-10 text-gray-500 dark:text-gray-400"
+                                placeholder=" "
+                                autocomplete="off"
+                                required
+                                datepicker-autohide
+                                datepicker-button="false"
+                            />
+                            <label for="encounterEPrescriptionStartedAt" class="wrapped-label">{{ __('encounters.eprescription.course_start') }}</label>
                             @error ('encounterEPrescriptionForm.started_at')
                                 <p class="text-error">{{ $message }}</p>
                             @enderror
                         </div>
-                        <div class="form-group group">
-                            <div class="datepicker-wrapper">
-                                <input
-                                    type="date"
-                                    id="encounterEPrescriptionEndedAt"
-                                    class="input peer w-full"
-                                    placeholder=" "
-                                    autocomplete="off"
-                                    wire:model="encounterEPrescriptionForm.ended_at"
-                                />
-                                <label
-                                    for="encounterEPrescriptionEndedAt"
-                                    class="wrapped-label"
-                                    >{{ __('encounters.eprescription.course_end') }}</label
-                                >
-                            </div>
+                        <div class="form-group datepicker-wrapper relative w-full">
+                            <input
+                                wire:model="encounterEPrescriptionForm.ended_at"
+                                datepicker-format="{{ frontendDateFormat() }}"
+                                type="text"
+                                name="encounterEPrescriptionEndedAt"
+                                id="encounterEPrescriptionEndedAt"
+                                class="peer input datepicker-input appearance-none pl-10 text-gray-500 dark:text-gray-400"
+                                placeholder=" "
+                                autocomplete="off"
+                                required
+                                datepicker-autohide
+                                datepicker-button="false"
+                            />
+                            <label for="encounterEPrescriptionEndedAt" class="wrapped-label">{{ __('encounters.eprescription.course_end') }}</label>
                             @error ('encounterEPrescriptionForm.ended_at')
                                 <p class="text-error">{{ $message }}</p>
                             @enderror

@@ -250,6 +250,58 @@ class MedicationRequestMapper implements FhirMapperContract
         return $dosage;
     }
 
+    public function medicationUnit(array $medication): string
+    {
+        foreach ($medication['ingredients'] ?? [] as $ingredient) {
+            $unit = data_get($ingredient, 'dosage.denumerator_unit');
+            if (is_string($unit) && trim($unit) !== '') {
+                return $unit;
+            }
+        }
+
+        foreach ($medication['packages'] ?? [] as $package) {
+            $unit = data_get($package, 'container_dosage.numerator_unit');
+            if (is_string($unit) && trim($unit) !== '') {
+                return $unit;
+            }
+        }
+
+        throw new InvalidArgumentException(__('care-plan.medication_dosage_unit_unavailable'));
+    }
+
+    public function dosageInstructionsFromForm(array $formData, array $medication): array
+    {
+        $unit = $this->medicationUnit($medication);
+        $administration = $this->number($formData['max_dose_per_administration'] ?? null);
+        $daily = $this->number($formData['max_dose_per_period'] ?? null);
+        if ($administration <= 0 || $daily <= 0) {
+            throw new InvalidArgumentException(__('care-plan.eprescription_dose_required'));
+        }
+
+        $quantity = static fn (float $value): array => [
+            'value' => $value, 'unit' => $unit, 'system' => 'MEDICATION_UNIT', 'code' => $unit,
+        ];
+        $instruction = array_filter([
+            'sequence' => 1,
+            'text' => $formData['signature_text'] ?? null,
+            'patient_instruction' => $formData['patient_instruction'] ?? null,
+            'route' => $formData['route'] ?? null,
+            'as_needed_boolean' => $formData['as_needed_boolean'] ?? null,
+            'as_needed_codeable_concept' => $formData['as_needed_codeable_concept'] ?? null,
+            'dose_and_rate' => $formData['dose_and_rate'] ?? null,
+            'max_dose_per_administration' => $quantity($administration),
+            'max_dose_per_period' => [
+                'numerator' => $quantity($daily),
+                'denominator' => ['value' => 1, 'unit' => 'd', 'system' => 'eHealth/ucum/units', 'code' => 'd'],
+            ],
+        ], static fn ($value) => $value !== null && $value !== '');
+        if (!array_key_exists('as_needed_boolean', $instruction) && !array_key_exists('as_needed_codeable_concept', $instruction)) {
+            $instruction['as_needed_boolean'] = false;
+        }
+
+        return [$instruction];
+    }
+
     private function assertDosage(array $dosage): void
     {
         foreach (['sequence', 'text', 'maxDosePerPeriod', 'maxDosePerAdministration'] as $field) {
@@ -259,7 +311,9 @@ class MedicationRequestMapper implements FhirMapperContract
         }
         foreach (['maxDosePerPeriod', 'maxDosePerAdministration', 'maxDosePerLifetime'] as $field) {
             if (array_key_exists($field, $dosage) && !is_array($dosage[$field])) {
-                throw new InvalidArgumentException($field.' requires its complete Quantity or Ratio, including explicit units.');
+                throw new InvalidArgumentException(__('care-plan.medication_dosage_structure_required', [
+                    'field' => __('care-plan.medication_dosage_fields.'.$field),
+                ]));
             }
         }
         if (!is_int($dosage['sequence']) || $dosage['sequence'] < 0 || !is_string($dosage['text']) || trim($dosage['text']) === '') {

@@ -187,6 +187,8 @@ class EHealthValidationException extends EHealthException
             'detail.quantity.value' => __('care-plan.ehealth_fields.quantity_value'),
             '$.quantity.value' => __('care-plan.ehealth_fields.quantity_value'),
             'requester.identifier.value' => __('care-plan.ehealth_fields.requester'),
+            'context' => __('care-plan.encounter'),
+            'data.context' => __('care-plan.encounter'),
             'authored_on' => __('care-plan.ehealth_fields.authored_on'),
             '$.authored_on' => __('care-plan.ehealth_fields.authored_on'),
             'occurrence.occurrence_period.start' => __('forms.start_date'),
@@ -386,6 +388,10 @@ class EHealthValidationException extends EHealthException
     {
         if ($message === 'type mismatch. Expected integer but got number') {
             return __('errors.ehealth.messages.integer_required');
+        }
+
+        if (str_contains($message, 'Created_at must be within the encounter period')) {
+            return __('errors.ehealth.messages.prescription_created_outside_encounter');
         }
 
         if (str_contains($message, 'Occurrence period start date must be greater or equal to current time')) {

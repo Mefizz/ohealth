@@ -85,6 +85,69 @@ class MedicationRequestMapperTest extends TestCase
         $this->assertSame(0.0, $wire['medication_request_request']['medication_qty']);
     }
 
+    public function test_scalar_daily_dose_reports_a_ukrainian_message_with_the_field_name(): void
+    {
+        $this->app->setLocale('uk');
+        $mapper = new MedicationRequestMapper();
+        $resource = $mapper->fromEHealth($this->detail());
+        $resource['dosageInstruction'][0]['maxDosePerPeriod'] = 1;
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(__('care-plan.medication_dosage_structure_required', [
+            'field' => 'Максимальна добова доза',
+        ]));
+
+        $mapper->toCreateRequestPayload($mapper->fromFhir($resource), ['resource' => $resource]);
+    }
+
+    public function test_scalar_form_doses_use_catalog_quantity_units_and_a_one_day_ratio(): void
+    {
+        $mapper = new MedicationRequestMapper();
+        $form = [
+            'signature_text' => 'Synthetic instruction',
+            'patient_instruction' => '',
+            'max_dose_per_administration' => '0.5',
+            'max_dose_per_period' => '1.5',
+            'medication_unit' => 'untrusted display unit',
+            'route' => 'oral',
+        ];
+        $medication = [
+            'form' => 'SOLUTION',
+            'ingredients' => [['name' => 'Synthetic ingredient', 'dosage' => ['denumerator_unit' => 'ML']]],
+        ];
+        $form['dosage_instructions'] = $mapper->dosageInstructionsFromForm($form, $medication);
+        $wire = $mapper->toCreateRequestPayload($form, [])['medication_request_request']['dosage_instruction'][0];
+
+        $this->assertSame(0.5, $wire['max_dose_per_administration']['value']);
+        $this->assertSame('ML', $wire['max_dose_per_administration']['unit']);
+        $this->assertSame(1.5, $wire['max_dose_per_period']['numerator']['value']);
+        $this->assertSame('ML', $wire['max_dose_per_period']['numerator']['unit']);
+        $this->assertSame(['value' => 1, 'unit' => 'd', 'system' => 'eHealth/ucum/units', 'code' => 'd'], $wire['max_dose_per_period']['denominator']);
+        $this->assertFalse($wire['as_needed_boolean']);
+        $this->assertArrayNotHasKey('patient_instruction', $wire);
+        $this->assertSame('Synthetic instruction', $wire['text']);
+    }
+
+    public function test_medication_unit_can_use_the_catalog_package_numerator_unit(): void
+    {
+        $this->assertSame('ML', (new MedicationRequestMapper())->medicationUnit([
+            'form' => 'SOLUTION',
+            'packages' => [['container_dosage' => ['numerator_unit' => 'ML']]],
+        ]));
+    }
+
+    public function test_dosage_without_catalog_units_is_rejected_instead_of_using_the_form_name(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(__('care-plan.medication_dosage_unit_unavailable'));
+        (new MedicationRequestMapper())->dosageInstructionsFromForm([
+            'signature_text' => 'Synthetic instruction',
+            'medication_unit' => 'SOLUTION',
+            'max_dose_per_administration' => '1',
+            'max_dose_per_period' => '1',
+        ], ['form' => 'SOLUTION']);
+    }
+
     public static function unsafeDosages(): array
     {
         return [

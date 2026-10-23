@@ -36,6 +36,7 @@ return [
             'schema does not allow additional properties' => 'містить недійсні дані',
             'type mismatch' => 'невідповідність типу даних.',
             'integer_required' => 'Введіть ціле число без дробової частини.',
+            'prescription_created_outside_encounter' => 'Дата створення рецепта має входити до періоду взаємодії. Для виписування рецепта оберіть завершену взаємодію, створену сьогодні поточним лікарем.',
             'does not match pattern' => 'не відповідає очікуваному формату.',
             'is not allowed for doctor' => 'даний тип кваліфікації не дозволено для лікаря.',
             'type mismatch. Expected integer but got string' => 'Невірний тип даних (очікувалося число)',

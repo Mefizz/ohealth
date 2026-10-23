@@ -81,8 +81,8 @@ trait ManagesEncounterEPrescription
             'route' => 'oral',
             'max_dose_per_administration' => '1',
             'max_dose_per_period' => '1',
-            'started_at' => now()->toDateString(),
-            'ended_at' => now()->addDays(30)->toDateString(),
+            'started_at' => now()->format((string) config('app.date_format')),
+            'ended_at' => now()->addDays(30)->format((string) config('app.date_format')),
             'note' => '',
             'inform_with' => $this->encounterEPrescriptionAuthMethods[0]['value'] ?? '',
         ];
@@ -142,19 +142,13 @@ trait ManagesEncounterEPrescription
         try {
             $response = EHealth::drug()->getMany($filters)->getData();
             $this->encounterEPrescriptionSearchResults = collect(is_array($response) ? $response : [])
-                ->filter(function (array $drug) use ($query): bool {
-                    $name = mb_strtolower((string) ($drug['name'] ?? ''));
-                    $innmName = mb_strtolower((string) ($drug['innm_name'] ?? ''));
-                    $needle = mb_strtolower($query);
-
-                    return str_contains($name, $needle) || str_contains($innmName, $needle);
-                })
                 ->map(static function (array $drug): array {
                     return [
                         'id' => (string) ($drug['id'] ?? ''),
                         'name' => (string) ($drug['name'] ?? ''),
-                        'innm_name' => (string) ($drug['innm_name'] ?? ''),
-                        'innm_dosage_form' => (string) ($drug['innm_dosage_form'] ?? ''),
+                        'innm_name' => collect($drug['ingredients'] ?? [])->pluck('name')->filter()->implode(', ') ?: (string) ($drug['innm_name'] ?? ''),
+                        'innm_dosage_form' => (string) ($drug['form'] ?? $drug['innm_dosage_form'] ?? ''),
+                        'ingredients' => is_array($drug['ingredients'] ?? null) ? $drug['ingredients'] : [],
                         'packages' => is_array($drug['packages'] ?? null) ? $drug['packages'] : [],
                     ];
                 })
@@ -183,8 +177,13 @@ trait ManagesEncounterEPrescription
         $this->encounterEPrescriptionForm['medication_id'] = $medicationId;
         $this->resetValidation('encounterEPrescriptionForm.medication_id');
         $this->encounterEPrescriptionSelectedMedication = $selectedMedication;
-        if (($selectedMedication['innm_dosage_form'] ?? '') !== '') {
-            $this->encounterEPrescriptionForm['medication_unit'] = (string) $selectedMedication['innm_dosage_form'];
+        try {
+            $this->encounterEPrescriptionForm['medication_unit'] = (new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper())->medicationUnit($selectedMedication);
+        } catch (\InvalidArgumentException $exception) {
+            $this->encounterEPrescriptionForm['medication_unit'] = '';
+            $this->encounterEPrescriptionWarningMessage = $exception->getMessage();
+
+            return;
         }
 
         $packageStep = $this->resolveEncounterMedicationPackageStep($selectedMedication);

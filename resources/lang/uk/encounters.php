@@ -134,7 +134,7 @@ return [
         'unit' => 'Одиниця',
         'dosage' => 'Дозування',
         'max_dose_per_administration' => 'Макс. доза за прийом',
-        'max_dose_per_period' => 'Макс. доза за період',
+        'max_dose_per_period' => 'Макс. добова доза',
         'course_start' => 'Початок курсу',
         'course_end' => 'Кінець курсу',
         'patient_authentication' => 'Метод автентифікації пацієнта',

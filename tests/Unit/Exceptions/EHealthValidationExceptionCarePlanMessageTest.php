@@ -46,6 +46,23 @@ class EHealthValidationExceptionCarePlanMessageTest extends TestCase
         }
     }
 
+    public function test_prescription_creation_outside_encounter_period_is_translated(): void
+    {
+        app()->setLocale('uk');
+        $exception = new EHealthValidationException(['error' => [
+            'type' => 'validation_failed',
+            'invalid' => [[
+                'entry' => 'data.context',
+                'rules' => [['description' => 'Created_at must be within the encounter period']],
+            ]],
+        ]]);
+
+        foreach ([$exception->getFormattedMessage(), $exception->getTranslatedMessage()] as $message) {
+            $this->assertStringContainsString('Дата створення рецепта має входити до періоду взаємодії.', $message);
+            $this->assertStringNotContainsString('Created_at must', $message);
+        }
+    }
+
     public function test_unknown_error_type_keeps_the_existing_message_fallback(): void
     {
         $exception = new EHealthValidationException(['error' => ['type' => 'future_type', 'message' => 'Future API message']]);

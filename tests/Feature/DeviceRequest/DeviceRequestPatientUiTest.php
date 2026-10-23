@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Mockery;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class DeviceRequestPatientUiTest extends TestCase
@@ -31,6 +32,7 @@ class DeviceRequestPatientUiTest extends TestCase
     private string $requestUuid;
     private bool $canReadDispenses = true;
     private bool $canReadRequests = true;
+    private bool $canPerformRequestRead = true;
 
     protected function setUp(): void
     {
@@ -47,6 +49,9 @@ class DeviceRequestPatientUiTest extends TestCase
             }
             if ($ability === 'create') {
                 return false;
+            }
+            if ($ability === 'perform' && end($arguments) === 'device_request:read') {
+                return $this->canPerformRequestRead;
             }
             if ($ability === 'device_dispense:read' || ($ability === 'perform' && end($arguments) === 'device_dispense:read')) {
                 return $this->canReadDispenses;
@@ -139,7 +144,7 @@ class DeviceRequestPatientUiTest extends TestCase
         $this->api->shouldNotReceive('getDispenses');
         $this->patientComponent()->call('loadDispenses')->assertHasErrors(['selectedId']);
         $this->canReadDispenses = false;
-        $this->patientComponent()->call('showDetails', $this->requestUuid)->call('loadDispenses')->assertForbidden();
+        $this->patientComponent()->call('showDetails', $this->requestUuid)->call('loadDispenses')->assertNotFound();
     }
 
     public function testPatientNavigationContainsAuthorizedRequestTabAndNotTheStub(): void
@@ -172,14 +177,14 @@ class DeviceRequestPatientUiTest extends TestCase
             ->andReturn($this->response([$remote]));
 
         $this->patientComponent()->assertSet('patientContext', true)
-            ->assertSet('filters.requester_legal_entity', '')->assertSet('filters.requester', '')
+            ->assertSet('filters.parameters.requester_legal_entity', '')->assertSet('filters.parameters.requester', '')
             ->assertSee('OTHER-CLINIC')->assertSee('Інший лікар')->assertSee('Інший заклад');
     }
 
     public function testSidebarOffersGeneralSearchOnlyWithDeviceRequestReadPermission(): void
     {
         $this->legalEntity->setRelation('type', new \App\Models\LegalEntityType(['name' => 'PRIMARY_CARE']));
-        $url = route('device-requests.registry', [$this->legalEntity]);
+        $url = route('device-requests.index', [$this->legalEntity]);
         Livewire::test(\App\Livewire\Components\Sidebar::class)->assertSeeHtml('href="'.$url.'"');
         $this->canReadRequests = false;
         Livewire::test(\App\Livewire\Components\Sidebar::class)->assertDontSeeHtml('href="'.$url.'"');
@@ -201,7 +206,7 @@ class DeviceRequestPatientUiTest extends TestCase
         }
         $this->api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, $filters + ['page' => 1])
             ->andReturn($this->response([]));
-        $component->set('filters', $filters + ['person_id' => (string) Str::uuid(), 'unknown' => 'ignored'])
+        $component->set('filters.parameters', $filters + ['person_id' => (string) Str::uuid(), 'unknown' => 'ignored'])
             ->call('search')->assertHasNoErrors();
     }
 
@@ -209,10 +214,10 @@ class DeviceRequestPatientUiTest extends TestCase
     {
         $component = $this->patientComponent();
         $this->api->shouldNotReceive('getBySearchParams');
-        $component->set('filters.requester', 'invalid')->call('search')->assertHasErrors(['filters.requester']);
-        $component->set('filters.requester', '')
-            ->set('filters.authored_on_from', '2026-10-21')->set('filters.authored_on_to', '2026-10-01')
-            ->call('search')->assertHasErrors(['filters.authored_on_to']);
+        $component->set('filters.parameters.requester', 'invalid')->call('search')->assertHasErrors(['filters.parameters.requester']);
+        $component->set('filters.parameters.requester', '')
+            ->set('filters.parameters.authored_on_from', '2026-10-21')->set('filters.parameters.authored_on_to', '2026-10-01')
+            ->call('search')->assertHasErrors(['filters.parameters.authored_on_to']);
     }
 
     public function testPatientCardCannotSwitchItsLockedPatient(): void
@@ -237,16 +242,57 @@ class DeviceRequestPatientUiTest extends TestCase
             ->assertDontSee('PATIENT-ONLY');
     }
 
-    public function testLegacyUrlsRedirectToCanonicalPatientRoutesAndPreserveContext(): void
+    public function testPatientRoutesAreCanonicalAndTheRegistryHasItsOwnRoute(): void
     {
         $this->assertStringEndsWith('/persons/'.$this->person->id.'/device-requests', route('persons.device-requests', [$this->legalEntity, $this->person]));
-        $this->assertStringEndsWith('/device-requests', route('device-requests.registry', [$this->legalEntity]));
-        request()->query->replace(['carePlan' => 'plan', 'activity' => 'activity', 'encounter' => '5', 'draft' => 'draft']);
-        foreach (['device-requests.index' => 'persons.device-requests', 'device-requests.create' => 'persons.device-requests.create'] as $legacy => $canonical) {
-            $redirect = app('router')->getRoutes()->getByName($legacy)->getAction('uses');
-            $response = $redirect($this->legalEntity, $this->person);
-            $this->assertSame(route($canonical, ['legalEntity' => $this->legalEntity, 'person' => $this->person] + request()->query()), $response->getTargetUrl());
-        }
+        $this->assertStringEndsWith('/persons/'.$this->person->id.'/device-requests/create', route('persons.device-requests.create', [$this->legalEntity, $this->person]));
+        $this->assertStringEndsWith('/device-requests', route('device-requests.index', [$this->legalEntity]));
+        $this->assertNull(app('router')->getRoutes()->getByName('device-requests.create'));
+        $middleware = app('router')->getRoutes()->getByName('persons.device-requests')->gatherMiddleware();
+        $this->assertContains('can:viewAny,'.\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, $middleware);
+    }
+
+    public function testPatientSurnameSearchIsCaseInsensitive(): void
+    {
+        Livewire::test(DeviceRequestIndex::class, ['legalEntity' => $this->legalEntity])
+            ->set('patientSearch', 'пацієнт')->call('searchPatients')
+            ->assertCount('patients', 1);
+    }
+
+    public function testFilterResetClearsFormValuesAndKeepsThePatient(): void
+    {
+        $component = $this->patientComponent();
+        $this->api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['page' => 1])
+            ->andReturn($this->response([]));
+        $component->set('filters.parameters.requester', (string) Str::uuid())
+            ->set('filters.parameters.authored_on_from', '2026-10-20')
+            ->call('resetFilters')->assertSet('filters.parameters.requester', '')
+            ->assertSet('filters.parameters.authored_on_from', '')
+            ->assertSet('personId', $this->person->id)->assertHasNoErrors();
+    }
+
+    public function testDraftStatusCannotBeSentAsARemoteSearchFilter(): void
+    {
+        $component = $this->patientComponent();
+        $this->api->shouldNotReceive('getBySearchParams');
+        $component->set('filters.parameters.status', 'draft')->call('search')
+            ->assertHasErrors(['filters.parameters.status']);
+    }
+
+    public static function requestReadActions(): array
+    {
+        return [['search'], ['showDetails'], ['printout']];
+    }
+
+    #[DataProvider('requestReadActions')]
+    public function testReadActionsRecheckPermissionAfterMount(string $action): void
+    {
+        $component = $this->patientComponent();
+        $this->canPerformRequestRead = false;
+        $this->api->shouldNotReceive('getBySearchParams');
+        $this->api->shouldNotReceive('getById');
+        $arguments = $action === 'showDetails' ? [$this->requestUuid] : [];
+        $component->call($action, ...$arguments)->assertNotFound();
     }
 
     private function patientComponent(): \Livewire\Features\SupportTesting\Testable

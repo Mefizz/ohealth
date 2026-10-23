@@ -1,6 +1,8 @@
+@use(App\Models\MedicalEvents\Sql\DeviceRequestRequest)
+
 <x-layouts.patient :personId="$personId" :patientFullName="$patientFullName" activeTab="prescription-requests">
     <x-slot name="headerActions">
-        @can('viewAny', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()])
+        @can('viewAny', DeviceRequestRequest::class)
             <a
                 href="{{ route('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $personId]) }}"
                 class="button-primary px-5 py-2 text-sm whitespace-nowrap"

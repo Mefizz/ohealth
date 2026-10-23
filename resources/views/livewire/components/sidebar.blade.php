@@ -3,6 +3,7 @@
     use App\Models\Employee\{Employee,EmployeeRequest};
     use App\Models\Person\{Person,PersonRequest};
     use App\Models\Connection;
+    use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
     use App\Models\Preperson;
     use App\Models\Relations\PersonVerificationDetail;
     use App\Enums\Status;
@@ -438,10 +439,10 @@
                     </li>
                 @endif
 
-                @can('viewAny', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()])
+                @can('viewAny', DeviceRequestRequest::class)
                     <li>
-                        <a href="{{ route('device-requests.registry', [legalEntity()]) }}"
-                           class="menu-item-simple {{ request()->routeIs('device-requests.registry') ? 'menu-item-active' : '' }}">
+                        <a href="{{ route('device-requests.index', [legalEntity()]) }}"
+                           class="menu-item-simple {{ request()->routeIs('device-requests.index') ? 'menu-item-active' : '' }}">
                             @icon('device-requests')
                             <span>{{ __('device-requests.labels.registry') }}</span>
                         </a>

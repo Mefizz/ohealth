@@ -13,6 +13,7 @@
     use App\Models\DeclarationRequest;
     use App\Models\MedicalEvents\Sql\DetectedIssue;
     use App\Models\MedicalEvents\Sql\DeviceAssociation;
+    use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
     use App\Models\MedicalEvents\Sql\Encounter;
     use App\Models\Person\Person;
     use App\Models\Relations\PersonVerificationDetail;
@@ -248,7 +249,7 @@
                             @endcan
 
                             @if ($personId)
-                                @can('viewAny', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()])
+                                @can('viewAny', DeviceRequestRequest::class)
                                     <a
                                         href="{{ route('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $personId]) }}"
                                         class="summary-tab {{ ($activeTab === 'device-requests' || $isCurrentRoute('persons.device-requests*')) ? 'summary-tab-active' : 'summary-tab-inactive' }}"

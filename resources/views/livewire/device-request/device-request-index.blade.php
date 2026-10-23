@@ -1,3 +1,6 @@
+@use(App\Models\MedicalEvents\Sql\DeviceRequestRequest)
+@use(App\Enums\Person\DeviceRequestStatus)
+
 <x-layouts.patient
     :personId="$patientContext ? $person?->id : null"
     :patientFullName="$person?->fullName ?? __('device-requests.labels.registry')"
@@ -8,7 +11,7 @@
 >
     <x-slot name="headerActions">
         @if ($person)
-            @can('create', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, $legalEntity])
+            @can('create', DeviceRequestRequest::class)
                 <a
                     class="button-primary"
                     href="{{ route('persons.device-requests.create', ['legalEntity' => $legalEntity, 'person' => $person]) }}"
@@ -70,11 +73,11 @@
         <form wire:submit="search" class="space-y-4">
             <div class="grid gap-4 md:grid-cols-3">
             @foreach (['requester_legal_entity' => __('device-requests.labels.requester_entity'), 'requester' => __('device-requests.labels.doctor'), 'code' => __('device-requests.labels.device_code')] as $key => $label)
-                <label>{{ $label }}<input class="input w-full" wire:model="filters.{{ $key }}" /></label>
+                <label>{{ $label }}<input class="input w-full" wire:model="filters.parameters.{{ $key }}" /></label>
             @endforeach
             <label
                 >{{ __('device-requests.labels.status') }}<select
-                    wire:model="filters.status"
+                    wire:model="filters.parameters.status"
                     class="input-select w-full"
                 >
                     <option value="">{{ __('device-requests.labels.all') }}</option>
@@ -86,11 +89,11 @@
                 <summary class="cursor-pointer">{{ __('device-requests.labels.additional_filters') }}</summary>
                 <div class="mt-4 grid gap-4 md:grid-cols-3">
                     @foreach (['code_reference' => 'device_model', 'context_episode_id' => 'episode', 'encounter' => 'encounter', 'program' => 'program', 'based_on' => 'based_on', 'priority' => 'priority', 'performer' => 'performer'] as $key => $label)
-                        <label>{{ __('device-requests.labels.'.$label) }}<input class="input w-full" wire:model="filters.{{ $key }}" /></label>
+                        <label>{{ __('device-requests.labels.'.$label) }}<input class="input w-full" wire:model="filters.parameters.{{ $key }}" /></label>
                     @endforeach
                     @foreach (['authored_on' => 'created_at', 'occurrence_period_start' => 'period_start', 'occurrence_period_end' => 'period_end'] as $key => $label)
-                        <label>{{ __('device-requests.labels.'.$label) }} — {{ __('device-requests.labels.from') }}<input type="datetime-local" class="input w-full" wire:model="filters.{{ $key }}_from" /></label>
-                        <label>{{ __('device-requests.labels.'.$label) }} — {{ __('device-requests.labels.to') }}<input type="datetime-local" class="input w-full" wire:model="filters.{{ $key }}_to" /></label>
+                        <label>{{ __('device-requests.labels.'.$label) }} — {{ __('device-requests.labels.from') }}<input type="datetime-local" class="input w-full" wire:model="filters.parameters.{{ $key }}_from" /></label>
+                        <label>{{ __('device-requests.labels.'.$label) }} — {{ __('device-requests.labels.to') }}<input type="datetime-local" class="input w-full" wire:model="filters.parameters.{{ $key }}_to" /></label>
                     @endforeach
                 </div>
             </details>
@@ -120,7 +123,7 @@
                             <td>
                                 {{ data_get($record, 'code_reference.display_value', data_get($record, 'code.coding.0.display', data_get($record, 'code.coding.0.code', '—'))) }}
                             </td>
-                            <td>{{ \App\Enums\Person\DeviceRequestStatus::labelFor($record['status']) }}</td>
+                            <td>{{ DeviceRequestStatus::labelFor($record['status']) }}</td>
                             <td>
                                 {{ data_get($record, 'quantity.value', '—') }} {{ data_get($record, 'quantity.unit', data_get($record, 'quantity.code')) }}
                             </td>

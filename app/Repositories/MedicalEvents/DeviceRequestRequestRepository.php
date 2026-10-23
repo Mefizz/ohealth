@@ -6,6 +6,7 @@ namespace App\Repositories\MedicalEvents;
 
 use App\Enums\Person\ServiceRequestStatus;
 use App\Models\CarePlanActivity;
+use App\Enums\Person\DeviceRequestStatus;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Condition;
@@ -32,7 +33,7 @@ class DeviceRequestRequestRepository extends BaseRepository
     public function draftsForPatientEmployee(int $personId, int $employeeId): array
     {
         return $this->model->newQuery()->wherePersonId($personId)->whereEmployeeId($employeeId)
-            ->whereStatus('draft')->whereNotNull('request_payload')->latest()->get()
+            ->whereStatus(DeviceRequestStatus::DRAFT->value)->whereNotNull('request_payload')->latest()->get()
             ->map(fn (DeviceRequestRequest $draft): array => [
                 'uuid' => $draft->uuid, 'device' => $draft->deviceId, 'updatedAt' => $draft->updatedAt->format('d.m.Y H:i'),
             ])->all();

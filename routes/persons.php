@@ -158,9 +158,9 @@ Route::prefix('persons')->whereNumber('person')
                     ->name('prescription-requests.view');
                 Route::get('/referrals', PatientReferrals::class)->name('referrals');
                 Route::get('/device-requests', DeviceRequestIndex::class)
-                    ->middleware('can:viewAny,'.DeviceRequestRequest::class.',legalEntity')->name('device-requests');
+                    ->can('viewAny', DeviceRequestRequest::class)->name('device-requests');
                 Route::get('/device-requests/create', DeviceRequestForm::class)
-                    ->middleware('can:create,'.DeviceRequestRequest::class.',legalEntity')->name('device-requests.create');
+                    ->can('create', DeviceRequestRequest::class)->name('device-requests.create');
                 Route::get('/observations', ObservationIndex::class)
                     ->can('viewAny', Observation::class)
                     ->name('observations');

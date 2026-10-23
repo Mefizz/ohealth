@@ -274,18 +274,8 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
             });
 
             // --- Device Requests (Медичні Вироби) ---
-            Route::prefix('device-requests')->name('device-requests.')->group(function () {
-                Route::get('/{person}/create', static fn (LegalEntity $legalEntity, \App\Models\Person\Person $person) =>
-                    redirect()->route('persons.device-requests.create', ['legalEntity' => $legalEntity, 'person' => $person] + request()->query()))
-                    ->whereNumber('person')
-                    ->middleware('can:create,'.DeviceRequestRequest::class.',legalEntity')->name('create');
-                Route::get('/{person}', static fn (LegalEntity $legalEntity, \App\Models\Person\Person $person) =>
-                    redirect()->route('persons.device-requests', ['legalEntity' => $legalEntity, 'person' => $person] + request()->query()))
-                    ->whereNumber('person')
-                    ->middleware('can:viewAny,'.DeviceRequestRequest::class.',legalEntity')->name('index');
-                Route::get('/', DeviceRequestIndex::class)
-                    ->middleware('can:viewAny,'.DeviceRequestRequest::class.',legalEntity')->name('registry');
-            });
+            Route::get('/device-requests', DeviceRequestIndex::class)
+                ->can('viewAny', DeviceRequestRequest::class)->name('device-requests.index');
 
             // --- Group of Contracts (Already signed/active) ---
             Route::prefix('contract')->name('contract.')->group(function () {

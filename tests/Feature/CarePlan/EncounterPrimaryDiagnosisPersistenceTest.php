@@ -9,8 +9,10 @@ use App\Enums\Person\ConditionVerificationStatus;
 use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\EncounterDiagnose;
+use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Person\Person;
+use App\Repositories\CarePlanRepository;
 use App\Repositories\MedicalEvents\EncounterRepository;
 use App\Repositories\MedicalEvents\Repository;
 use Illuminate\Database\Eloquent\Model;
@@ -57,6 +59,81 @@ class EncounterPrimaryDiagnosisPersistenceTest extends TestCase
         ]);
 
         return $condition;
+    }
+
+    public function test_encounter_choices_read_selected_timestamp_under_strict_attributes(): void
+    {
+        config(['app.timezone' => 'Europe/Kyiv']);
+        $encounter = $this->encounter();
+        $encounter->update(['ehealth_inserted_at' => '2026-10-22 22:30:00']);
+        $undated = $this->encounter();
+        $undated->update(['person_id' => $encounter->person_id, 'ehealth_inserted_at' => null]);
+        $unfinished = $this->encounter();
+        $unfinished->update(['person_id' => $encounter->person_id, 'status' => 'draft']);
+        $otherPatient = $this->encounter();
+        $wasPreventing = Model::preventsAccessingMissingAttributes();
+        Model::preventAccessingMissingAttributes();
+
+        try {
+            $choices = app(CarePlanRepository::class)->encounterChoices((int) $encounter->person_id);
+            $labels = array_column($choices, 'label', 'uuid');
+
+            $this->assertCount(2, $choices);
+            $this->assertSame(__('Взаємодія #').$encounter->id.' (23.10.2026)', $labels[$encounter->uuid]);
+            $this->assertSame(__('Взаємодія #').$undated->id.' (-)', $labels[$undated->uuid]);
+            $this->assertArrayNotHasKey($unfinished->uuid, $labels);
+            $this->assertArrayNotHasKey($otherPatient->uuid, $labels);
+        } finally {
+            Model::preventAccessingMissingAttributes($wasPreventing);
+        }
+    }
+
+    public function test_encounter_choices_show_clinical_date_and_patient_episode_without_lazy_loading(): void
+    {
+        config(['app.timezone' => 'Europe/Kyiv']);
+        $encounter = $this->encounter();
+        $encounter->update(['ehealth_inserted_at' => null]);
+        $encounter->period()->create(['start' => '2026-10-22 22:30:00']);
+        Episode::create([
+            'uuid' => $encounter->episode->value, 'person_id' => $encounter->person_id,
+            'status' => 'active', 'name' => 'Контроль лікування',
+        ]);
+
+        $otherPatient = $this->encounter();
+        $otherEpisode = $this->encounter();
+        $otherEpisode->update(['person_id' => $encounter->person_id, 'ehealth_inserted_at' => '2026-10-25 12:00:00']);
+        $otherEpisode->period()->create(['start' => '2026-10-21 12:00:00']);
+        Episode::create([
+            'uuid' => $otherEpisode->episode->value, 'person_id' => $otherPatient->person_id,
+            'status' => 'active', 'name' => 'Епізод іншого пацієнта',
+        ]);
+
+        $invalidEpisode = $this->encounter();
+        $invalidEpisode->update(['person_id' => $encounter->person_id, 'ehealth_inserted_at' => null]);
+        $invalidEpisode->episode()->update(['value' => 'not-an-episode-uuid']);
+        $wasPreventingMissingAttributes = Model::preventsAccessingMissingAttributes();
+        $wasPreventingLazyLoading = Model::preventsLazyLoading();
+        Model::preventAccessingMissingAttributes();
+        Model::preventLazyLoading();
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        try {
+            $choices = app(CarePlanRepository::class)->encounterChoices((int) $encounter->person_id);
+            $queryCount = count(DB::getQueryLog());
+            $labels = array_column($choices, 'label', 'uuid');
+
+            $this->assertCount(3, $choices);
+            $this->assertSame(__('Взаємодія #').$encounter->id.' (23.10.2026) — Контроль лікування', $labels[$encounter->uuid]);
+            $this->assertSame(__('Взаємодія #').$otherEpisode->id.' (21.10.2026)', $labels[$otherEpisode->uuid]);
+            $this->assertSame(__('Взаємодія #').$invalidEpisode->id.' (-)', $labels[$invalidEpisode->uuid]);
+            $this->assertArrayNotHasKey($otherPatient->uuid, $labels);
+            $this->assertLessThanOrEqual(4, $queryCount);
+        } finally {
+            DB::disableQueryLog();
+            Model::preventAccessingMissingAttributes($wasPreventingMissingAttributes);
+            Model::preventLazyLoading($wasPreventingLazyLoading);
+        }
     }
 
     public function test_varchar_identifier_resolves_primary_uuid_with_codings_under_strict_loading(): void

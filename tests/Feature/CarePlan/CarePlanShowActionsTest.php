@@ -108,6 +108,49 @@ class CarePlanShowActionsTest extends TestCase
         $this->grantMedicalEventAbilities($this->user);
     }
 
+    public function test_approved_plan_loads_report_identifier_codes_and_preserves_patient_isolation(): void
+    {
+        $this->actingAs($this->user);
+        $carePlan = $this->makeSignedNewPlan();
+        $this->grantApproval($carePlan, $this->employee, ApprovalStatus::ACTIVE->value);
+        $author = Identifier::create(['value' => $this->employee->uuid]);
+        $displayCode = Identifier::create(['value' => 'TEST-DISPLAY', 'display_value' => 'Тестовий діагностичний звіт']);
+        $fallbackCode = Identifier::create(['value' => 'TEST-FALLBACK']);
+        $otherPerson = Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'FEMALE']);
+        $reports = collect([
+            [$this->person->id, $displayCode->id],
+            [$this->person->id, $fallbackCode->id],
+            [$otherPerson->id, $displayCode->id],
+        ])->map(fn (array $fixture) => \App\Models\MedicalEvents\Sql\DiagnosticReport::create([
+            'uuid' => (string) Str::uuid(), 'person_id' => $fixture[0], 'code_id' => $fixture[1],
+            'status' => 'final', 'issued' => '2026-10-23 09:00:00',
+            'recorded_by_id' => $author->id, 'primary_source' => true,
+        ]));
+        $api = Mockery::mock(\App\Classes\eHealth\Api\CarePlan::class);
+        $api->shouldReceive('getRawDetails')->andReturn([]);
+        $this->app->instance(\App\Classes\eHealth\Api\CarePlan::class, $api);
+        $wasPreventingMissingAttributes = \Illuminate\Database\Eloquent\Model::preventsAccessingMissingAttributes();
+        $wasPreventingLazyLoading = \Illuminate\Database\Eloquent\Model::preventsLazyLoading();
+        \Illuminate\Database\Eloquent\Model::preventAccessingMissingAttributes();
+        \Illuminate\Database\Eloquent\Model::preventLazyLoading();
+
+        try {
+            $component = Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan->fresh()]);
+            $component->assertSuccessful();
+            $choices = array_column($component->get('availableReports'), null, 'uuid');
+
+            $this->assertCount(2, $choices);
+            $this->assertSame('Тестовий діагностичний звіт', $choices[$reports[0]->uuid]['name']);
+            $this->assertSame('TEST-FALLBACK', $choices[$reports[1]->uuid]['name']);
+            $this->assertSame('23.10.2026', $choices[$reports[0]->uuid]['date']);
+            $this->assertArrayNotHasKey($reports[2]->uuid, $choices);
+            $this->assertTrue($component->instance()->canChangePlanLifecycle);
+        } finally {
+            \Illuminate\Database\Eloquent\Model::preventAccessingMissingAttributes($wasPreventingMissingAttributes);
+            \Illuminate\Database\Eloquent\Model::preventLazyLoading($wasPreventingLazyLoading);
+        }
+    }
+
     public function test_new_plan_without_approval_shows_activate_and_hides_lifecycle_buttons(): void
     {
         $this->actingAs($this->user);

@@ -62,6 +62,11 @@ class PatientCarePlans extends BasePatientComponent
         ]);
     }
 
+    public function hydrate(): void
+    {
+        $this->loadCarePlans();
+    }
+
     public function sync(): void
     {
         // Sync patient's declarations first to support auto-activation logic
@@ -124,7 +129,7 @@ class PatientCarePlans extends BasePatientComponent
             return;
         }
 
-        Session::flash('success', __('patients.sync_success') ?? 'Синхронізація успішна');
+        Session::flash('success', __('care-plan.sync_success'));
         $this->loadCarePlans();
     }
 
@@ -144,6 +149,7 @@ class PatientCarePlans extends BasePatientComponent
             'filterIsPartOf',
             'filterIncludes',
         ]);
+        $this->loadCarePlans();
     }
 
     public function render(): View

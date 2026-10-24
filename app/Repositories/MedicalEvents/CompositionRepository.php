@@ -67,8 +67,11 @@ class CompositionRepository extends BaseRepository
         }
 
         return DB::transaction(function () use ($details, $patient, $episodeUuid, $uuid): Composition {
-            $composition = $this->model->newQuery()->firstOrNew(['uuid' => $uuid]);
+            $composition = $this->model->newQuery()->with(['typeConcept.coding', 'categoryConcept.coding'])->firstOrNew(['uuid' => $uuid]);
             [$ownerColumn, $ownerId] = $this->resolveOwner($patient);
+            if ($composition->exists && ((int) $composition->getAttribute($ownerColumn) !== (int) $ownerId)) {
+                throw new \InvalidArgumentException('A Composition cannot be reassigned to another patient.');
+            }
 
             $attributes = [
                 $ownerColumn => $ownerId,
@@ -96,11 +99,11 @@ class CompositionRepository extends BaseRepository
                 if (isset($details[$field])) {
                     $concept = $details[$field];
                     $concept['coding'][0]['system'] ??= $field === 'type' ? 'COMPOSITION_TYPES' : 'COMPOSITION_CATEGORIES';
-                    $attributes[$field . '_id'] = $this->syncCodeableConcept(
-                        $composition->exists ? $composition : null,
-                        $concept,
-                        $field . 'Concept'
-                    )?->id;
+                    $relation = $field . 'Concept';
+                    $attributes[$field . '_id'] = Repository::codeableConcept()->replaceComplete(
+                        $composition->exists ? $composition->{$relation} : null,
+                        $concept
+                    )->id;
                 }
             }
 
@@ -127,10 +130,36 @@ class CompositionRepository extends BaseRepository
                 $attributes['relates_to_target_id'] = $this->storeIdentifier(data_get($details, 'relatesTo.targetIdentifier'), $composition->relatesToTargetId);
             }
 
-            $composition->fill($attributes)->save();
-            $period = data_get($details, 'event.0.period');
-            if (is_array($period)) {
-                Repository::period()->sync($composition, $period, 'eventPeriod');
+            $metadata = $composition->fhirMetadata ?? [];
+            foreach (['extension', 'event'] as $field) {
+                if (array_key_exists($field, $details)) {
+                    $metadata[$field] = $details[$field] ?? [];
+                }
+            }
+            $events = $metadata['event'] ?? [];
+            foreach ($events as &$event) {
+                foreach (['start', 'end'] as $boundary) {
+                    if (isset($event['period'][$boundary])) {
+                        $event['period'][$boundary] = rtrim(rtrim(\Carbon\CarbonImmutable::parse($event['period'][$boundary], 'UTC')->utc()->format('Y-m-d\TH:i:s.u'), '0'), '.').'Z';
+                    }
+                }
+            }
+            unset($event);
+            if (array_key_exists('event', $metadata)) {
+                $metadata['event'] = $events;
+            }
+            $attributes['fhirMetadata'] = $metadata;
+            // The shared presentation cast truncates fractions; this owned write preserves UTC precision.
+            unset($attributes['date']);
+            $composition->fill($attributes);
+            if (array_key_exists('date', $details)) {
+                $raw = $composition->getAttributes();
+                $raw['date'] = isset($details['date']) ? \Carbon\CarbonImmutable::parse($details['date'], 'UTC')->utc()->format('Y-m-d H:i:s.u') : null;
+                $composition->setRawAttributes($raw);
+            }
+            $composition->save();
+            if (array_key_exists('event', $details)) {
+                Repository::period()->syncExact($composition, data_get($details, 'event.0.period'));
             }
 
             return $composition->refresh();
@@ -165,26 +194,8 @@ class CompositionRepository extends BaseRepository
             return null;
         }
 
-        if ($existingId !== null) {
-            $existing = Identifier::find($existingId);
-            if ($existing?->value === $value) {
-                if (is_array(data_get($reference, 'type'))) {
-                    Repository::codeableConcept()->attach($existing, ['identifier' => $reference]);
-                }
+        $existing = $existingId === null ? null : Identifier::find($existingId);
 
-                return $existingId;
-            }
-        }
-
-        $identifier = Repository::identifier()->store($value);
-        $type = data_get($reference, 'type');
-
-        if (is_array($type)) {
-            Repository::codeableConcept()->attach($identifier, [
-                'identifier' => ['type' => $type],
-            ]);
-        }
-
-        return $identifier->id;
+        return Repository::identifier()->replaceReference($existing, ['identifier' => $reference])->id;
     }
 }

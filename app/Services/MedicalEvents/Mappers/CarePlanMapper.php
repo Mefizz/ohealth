@@ -31,7 +31,7 @@ class CarePlanMapper implements FhirMapperContract
             throw new InvalidArgumentException('Care Plan mapping requires an allocated resource UUID.');
         }
 
-        foreach (['title', 'description', 'note', 'intent', 'status', 'requisition'] as $field) {
+        foreach (['title', 'description', 'note', 'intent', 'status', 'requisition', 'context', 'statusReason'] as $field) {
             if (array_key_exists($field, $data)) {
                 $resource[$field] = $data[$field];
             }
@@ -88,7 +88,7 @@ class CarePlanMapper implements FhirMapperContract
             foreach (['start', 'end'] as $boundary) {
                 $field = 'period'.ucfirst($boundary);
                 if (array_key_exists($field, $data)) {
-                    $resource['period'][$boundary] = $this->dateTime($data[$field], $data[$field.'Time'] ?? null, $options['timezone'] ?? 'UTC', $resource['period'][$boundary] ?? null, $boundary === 'end');
+                    $resource['period'][$boundary] = $this->dateTime($data[$field], $data[$field.'Time'] ?? null, $options['timezone'] ?? 'UTC', $resource['period'][$boundary] ?? null, $boundary === 'end', $options['dateFormat'] ?? 'Y-m-d');
                 }
             }
         }
@@ -106,7 +106,7 @@ class CarePlanMapper implements FhirMapperContract
     public function fromFhir(array $data, mixed ...$context): array
     {
         $options = $context[0] ?? [];
-        $form = array_intersect_key($data, array_flip(['title', 'description', 'note', 'intent', 'status', 'requisition', 'addresses', 'supportingInfo', 'basedOn', 'partOf']));
+        $form = array_intersect_key($data, array_flip(['title', 'description', 'note', 'intent', 'status', 'requisition', 'addresses', 'supportingInfo', 'basedOn', 'partOf', 'context']));
         $form['uuid'] = $data['id'];
         foreach (['category', 'termsOfService'] as $field) {
             $form[$field] = data_get($data, $field.'.coding.0.code', '');
@@ -170,12 +170,14 @@ class CarePlanMapper implements FhirMapperContract
         return $this->reference($value, $type);
     }
 
-    private function dateTime(?string $date, ?string $time, string $timezone, ?string $original, bool $end): ?string
+    private function dateTime(?string $date, ?string $time, string $timezone, ?string $original, bool $end, string $dateFormat): ?string
     {
         if ($date === null || $date === '') {
             return null;
         }
-        $parsed = CarbonImmutable::parse($date, $timezone);
+        $parsed = CarbonImmutable::hasFormat($date, $dateFormat)
+            ? CarbonImmutable::createFromFormat('!'.$dateFormat, $date, $timezone)
+            : CarbonImmutable::parse($date, $timezone);
         if ($original !== null) {
             $previous = CarbonImmutable::parse($original)->setTimezone($timezone);
             if ($previous->toDateString() === $parsed->toDateString() && ($time === null || $time === '' || $previous->format(strlen($time) === 5 ? 'H:i' : 'H:i:s') === $time)) {

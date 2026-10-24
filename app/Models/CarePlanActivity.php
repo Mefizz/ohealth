@@ -70,9 +70,9 @@ class CarePlanActivity extends Model
 
     protected $casts = [
         'do_not_perform' => 'boolean',
-        'quantity' => 'decimal:4',
-        'daily_amount' => 'decimal:4',
-        'remaining_quantity' => 'decimal:4',
+        'quantity' => 'float',
+        'daily_amount' => 'float',
+        'remaining_quantity' => 'float',
         'reason_reference' => 'array',
         'goal' => 'array',
         'scheduled_period_start' => 'date',
@@ -209,7 +209,7 @@ class CarePlanActivity extends Model
             };
         }
 
-        $conceptCode = strtolower(trim((string) ($this->kindConcept?->coding?->first()?->code ?? '')));
+        $conceptCode = $this->relationLoaded('kindConcept') ? strtolower(trim((string) ($this->kindConcept?->coding?->first()?->code ?? ''))) : '';
 
         return match ($conceptCode) {
             'servicerequest', 'service_request' => 'service_request',

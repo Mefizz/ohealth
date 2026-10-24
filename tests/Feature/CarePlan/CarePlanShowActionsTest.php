@@ -6,7 +6,6 @@ namespace Tests\Feature\CarePlan;
 
 use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
 use App\Classes\eHealth\EHealthResponse;
-use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use GuzzleHttp\Psr7\Response;
 use Mockery;
@@ -29,6 +28,8 @@ use Tests\Concerns\MocksBasicDictionaries;
 
 class CarePlanShowActionsTest extends TestCase
 {
+    use \Tests\Concerns\CreatesFhirCarePlans;
+
     use DatabaseTransactions;
     use MocksBasicDictionaries;
 
@@ -186,7 +187,7 @@ class CarePlanShowActionsTest extends TestCase
     {
         $this->actingAs($this->user);
         $plan = $this->makeSignedNewPlan();
-        $activity = CarePlanActivity::create([
+        $activity = $this->createFhirCarePlanActivity([
             'care_plan_id' => $plan->id, 'author_id' => $this->employee->id,
             'uuid' => (string) Str::uuid(), 'kind' => 'medication_request', 'status' => 'draft',
         ]);
@@ -341,7 +342,7 @@ class CarePlanShowActionsTest extends TestCase
         $this->actingAs($this->user);
 
         $carePlan = $this->makeSignedNewPlan();
-        $carePlan->update(['terms_of_service' => 'INPATIENT']);
+        app(\App\Repositories\CarePlanRepository::class)->update($carePlan, ['termsOfService' => 'INPATIENT']);
 
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getStatusCode')->andReturn(201);
@@ -372,7 +373,7 @@ class CarePlanShowActionsTest extends TestCase
         $this->actingAs($this->user);
 
         $carePlan = $this->makeSignedNewPlan();
-        $carePlan->update(['terms_of_service' => 'OUTPATIENT']);
+        app(\App\Repositories\CarePlanRepository::class)->update($carePlan, ['termsOfService' => 'OUTPATIENT']);
 
         $authResponse = Mockery::mock(EHealthResponse::class);
         $authResponse->shouldReceive('getData')->andReturn([
@@ -408,7 +409,7 @@ class CarePlanShowActionsTest extends TestCase
 
     private function makeSignedNewPlan(): CarePlan
     {
-        return CarePlan::create([
+        return $this->createFhirCarePlan([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
             'author_id' => $this->employee->id,

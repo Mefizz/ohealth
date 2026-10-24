@@ -12,7 +12,6 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use App\Core\Arr;
 use App\Classes\eHealth\MapsCarePlanResources;
 use App\Enums\CarePlanActivityKind;
 use App\Models\CarePlan;
@@ -70,6 +69,12 @@ class CarePlanActivity extends Request
 
     public function buildCompleteContent(array $reason, array $outcomes): array
     {
+        Validator::make(['reason' => $reason, 'outcomes' => $outcomes], [
+            'reason.coding' => ['required', 'array', 'min:1'],
+            'outcomes' => ['required', 'array', 'min:1'],
+            'outcomes.*.coding' => ['required', 'array', 'min:1'],
+        ])->validate();
+
         return ['detail' => ['status_reason' => $reason], 'outcome_codeable_concept' => $outcomes];
     }
 
@@ -118,6 +123,11 @@ class CarePlanActivity extends Request
     {
         $resources = $this->fetchAllResources($patientUuid, $plan->uuid, $query);
         app(CarePlanActivityRepository::class)->storeResources($resources, $plan);
+    }
+
+    public function getRawDetails(string $patientUuid, string $planUuid, string $activityUuid): array
+    {
+        return $this->getDetails($patientUuid, $planUuid, $activityUuid)->getData();
     }
 
     /**
@@ -201,6 +211,9 @@ class CarePlanActivity extends Request
     protected function validateDetails(EHealthResponse $response): array
     {
         $data = $this->resourceFromResponse($response->getData());
+        if (isset($data['author']['identifier'])) {
+            $data['author'] = [$data['author']];
+        }
         if (isset($data['status']) && !isset($data['detail']['status'])) {
             $data['detail']['status'] = $data['status'];
         }
@@ -253,30 +266,4 @@ class CarePlanActivity extends Request
         return $transformedData;
     }
 
-    protected function replaceEHealthPropNames(array $properties): array
-    {
-        if (!Arr::isAssoc($properties)) {
-            $result = [];
-            foreach ($properties as $item) {
-                $result[] = is_array($item) ? $this->replaceEHealthPropNames($item) : $item;
-            }
-
-            return $result;
-        }
-
-        $mapping = [
-            'id' => 'uuid',
-            'inserted_at' => 'ehealth_inserted_at',
-            'inserted_by' => 'ehealth_inserted_by',
-            'updated_at' => 'ehealth_updated_at'
-        ];
-
-        $replaced = [];
-        foreach ($properties as $name => $value) {
-            $newName = $mapping[$name] ?? $name;
-            $replaced[$newName] = is_array($value) ? $this->replaceEHealthPropNames($value) : $value;
-        }
-
-        return $replaced;
-    }
 }

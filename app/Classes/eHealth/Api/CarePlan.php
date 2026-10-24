@@ -12,7 +12,6 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
-use App\Core\Arr;
 use Illuminate\Validation\ValidationException;
 use App\Classes\eHealth\MapsCarePlanResources;
 use App\Classes\eHealth\EHealth;
@@ -77,6 +76,7 @@ class CarePlan extends Request
     /** Fetch full details and the entire activity collection before opening a SQL transaction. */
     public function synchronizeResources(array $summaries, ?int $personId, int $legalEntityId, ?string $patientUuid = null, ?string $token = null): void
     {
+        $summaries = $summaries['data'] ?? $summaries;
         $repository = app(CarePlanRepository::class);
         foreach ($summaries as $summary) {
             $summary = $this->resourceFromResponse($summary);
@@ -97,12 +97,29 @@ class CarePlan extends Request
         }
     }
 
+    public function getRawDetails(string $patientUuid, string $planUuid): array
+    {
+        return $this->getDetails($patientUuid, $planUuid)->getData();
+    }
+
     public function synchronizePatient(string $patientUuid, int $personId, int $legalEntityId, array $query = []): void
+    {
+        $summaries = $this->collectSummaries(fn (int $page) => $this->getBySearchParams($patientUuid, array_replace($query, ['page' => $page])));
+        $this->synchronizeResources($summaries, $personId, $legalEntityId, $patientUuid);
+    }
+
+    public function synchronizeSearch(array $query, int $legalEntityId): void
+    {
+        $summaries = $this->collectSummaries(fn (int $page) => $this->getMany(array_replace($query, ['page' => $page])));
+        $this->synchronizeResources($summaries, null, $legalEntityId);
+    }
+
+    private function collectSummaries(callable $fetch): array
     {
         $summaries = [];
         $seen = [];
         for ($page = 1; ; $page++) {
-            $response = $this->getBySearchParams($patientUuid, array_replace($query, ['page' => $page]));
+            $response = $fetch($page);
             $items = $response->getData();
             foreach ($items as $item) {
                 $item = $this->resourceFromResponse($item);
@@ -117,7 +134,8 @@ class CarePlan extends Request
                 break;
             }
         }
-        $this->synchronizeResources($summaries, $personId, $legalEntityId, $patientUuid);
+
+        return $summaries;
     }
 
     /**
@@ -261,9 +279,9 @@ class CarePlan extends Request
             '*.id' => 'required|uuid',
             '*.status' => 'required|string',
             '*.title' => 'nullable|string',
-            '*.managing_organization' => ['required', 'array'],
-            '*.managing_organization.identifier.value' => ['required', 'uuid'],
-            '*.managing_organization.display_value' => ['required', 'string']
+            '*.managingOrganization' => ['required', 'array'],
+            '*.managingOrganization.identifier.value' => ['required', 'uuid'],
+            '*.managingOrganization.displayValue' => ['required', 'string']
         ]);
 
         if ($validator->fails()) {
@@ -276,31 +294,4 @@ class CarePlan extends Request
         return $transformedData;
     }
 
-    protected function replaceEHealthPropNames(array $properties): array
-    {
-        // Only replace for associative arrays (objects)
-        if (!Arr::isAssoc($properties)) {
-            $result = [];
-            foreach ($properties as $item) {
-                $result[] = is_array($item) ? $this->replaceEHealthPropNames($item) : $item;
-            }
-
-            return $result;
-        }
-
-        $mapping = [
-            'id' => 'uuid',
-            'inserted_at' => 'ehealth_inserted_at',
-            'inserted_by' => 'ehealth_inserted_by',
-            'updated_at' => 'ehealth_updated_at'
-        ];
-
-        $replaced = [];
-        foreach ($properties as $name => $value) {
-            $newName = $mapping[$name] ?? $name;
-            $replaced[$newName] = is_array($value) ? $this->replaceEHealthPropNames($value) : $value;
-        }
-
-        return $replaced;
-    }
 }

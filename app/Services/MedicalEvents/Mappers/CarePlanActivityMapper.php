@@ -85,7 +85,8 @@ class CarePlanActivityMapper implements FhirMapperContract
             }
         }
         if (array_key_exists('reasonReference', $data)) {
-            $detail['reasonReference'] = array_map(fn (mixed $value): array => $this->reference($value), $data['reasonReference'] ?? []);
+            $existing = $detail['reasonReference'] ?? [];
+            $detail['reasonReference'] = array_map(fn (mixed $value): array => $this->reference($value, existing: $existing), $data['reasonReference'] ?? []);
         }
         if (array_key_exists('outcomeReference', $data)) {
             $resource['outcomeReference'] = array_map(fn (mixed $value): array => $this->reference($value), $data['outcomeReference'] ?? []);
@@ -152,7 +153,7 @@ class CarePlanActivityMapper implements FhirMapperContract
         return FhirResource::make()->coding($system, (string) $value)->toCodeableConcept();
     }
 
-    private function reference(mixed $value, ?string $type = null): array
+    private function reference(mixed $value, ?string $type = null, array $existing = []): array
     {
         if (is_array($value)) {
             return $value;
@@ -167,6 +168,11 @@ class CarePlanActivityMapper implements FhirMapperContract
         }
         if ($type === null || !is_string($value) || $value === '') {
             throw new InvalidArgumentException('An activity reference requires its resource type and UUID.');
+        }
+        foreach ($existing as $reference) {
+            if (data_get($reference, 'identifier.value') === $value && data_get($reference, 'identifier.type.coding.0.code') === $type) {
+                return $reference;
+            }
         }
 
         return FhirResource::make()->coding('eHealth/resources', $type)->toIdentifier($value);

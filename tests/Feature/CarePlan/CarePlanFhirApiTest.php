@@ -195,6 +195,21 @@ class CarePlanFhirApiTest extends TestCase
         $this->assertCount(2, $items[0]['author']);
     }
 
+    public function test_plan_list_validates_the_normalized_managing_organization(): void
+    {
+        $plan = $this->fixture('plan');
+        $plan['managingOrganization'] = [
+            'identifier' => ['value' => '346aad58-6164-4e32-98b5-d178cbf850db'],
+            'displayValue' => 'Synthetic clinic',
+        ];
+        Http::fake(['*' => Http::response(['data' => [Arr::toSnakeCase($plan)]])]);
+
+        $items = $this->fakeApi(CarePlanApi::class)->getSummary('patient-test')->validate();
+
+        $this->assertSame($plan['managingOrganization'], $items[0]['managingOrganization']);
+        $this->assertSame($plan['period'], $items[0]['period']);
+    }
+
     public function test_sync_job_passes_its_patient_and_token_to_the_integration(): void
     {
         $data = [['id' => $this->fixture('plan')['id']]];
@@ -230,6 +245,21 @@ class CarePlanFhirApiTest extends TestCase
         $api->stub($stubs)->preventStrayRequests();
 
         return $api;
+    }
+
+    public function test_requisition_search_collects_every_page_before_importing_resources(): void
+    {
+        $ids = [$this->fixture('plan')['id'], '7a78997f-3b7b-4b7b-b1b1-40dd57ad982a'];
+        $api = Mockery::mock(CarePlanApi::class)->makePartial();
+        foreach ($ids as $index => $id) {
+            $response = Mockery::mock(EHealthResponse::class);
+            $response->shouldReceive('getData')->once()->andReturn([['id' => $id]]);
+            $response->shouldReceive('getPaging')->once()->andReturn(['total_pages' => 2]);
+            $api->shouldReceive('getMany')->once()->with(['requisition' => 'TEST', 'page' => $index + 1])->andReturn($response);
+        }
+        $api->shouldReceive('synchronizeResources')->once()->with([['id' => $ids[0]], ['id' => $ids[1]]], null, 1);
+
+        $api->synchronizeSearch(['requisition' => 'TEST'], 1);
     }
 
 }

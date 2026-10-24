@@ -326,4 +326,15 @@ class DeviceRequestRequestRepository extends BaseRepository
             ->latest('id')
             ->first();
     }
+
+    public function saveStatus(DeviceRequestRequest $record, string $status): void
+    {
+        $record->status = $status;
+        $record->save();
+    }
+
+    public function refreshRecord(DeviceRequestRequest $record): void
+    {
+        $record->refresh();
+    }
 }

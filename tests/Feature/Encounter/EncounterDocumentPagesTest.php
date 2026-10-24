@@ -32,6 +32,12 @@ class EncounterDocumentPagesTest extends TestCase
     {
         parent::setUp();
         Http::preventStrayRequests();
+        $this->withoutVite();
+        // These tests exercise routing/patient scope, not token rotation or session binding.
+        $this->withoutMiddleware([
+            \App\Http\Middleware\EnsureSingleSession::class,
+            \App\Classes\eHealth\Middleware\CheckSessionToken::class,
+        ]);
         $this->fakeSignatureService();
         $this->mock(EncounterPolicy::class)->shouldReceive('view')->andReturn(Response::allow());
     }
@@ -101,7 +107,12 @@ class EncounterDocumentPagesTest extends TestCase
 
     private function fixture(): array
     {
-        return $this->compositionFixture(scopes: ['encounter:read', 'service_request:write', 'medication_request_request:write', 'care_plan:write']);
+        $fixture = $this->compositionFixture(scopes: ['encounter:read', 'service_request:write', 'medication_request_request:write', 'care_plan:write']);
+        $fixture['user']->forceFill(['email_verified_at' => now()])->save();
+        $this->actingAs($fixture['user'], 'ehealth');
+        $this->withSession(['ehealth_legal_entity_uuid' => $fixture['legalEntity']->uuid]);
+
+        return $fixture;
     }
 
     private function encounter(Person $person, EncounterStatus $status = EncounterStatus::FINISHED): Encounter

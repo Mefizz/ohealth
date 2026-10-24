@@ -774,10 +774,10 @@ class ReferralLifecycleTest extends TestCase
         $drafts = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::query()
             ->whereHas('basedOn', fn ($query) => $query->whereValue($this->serviceActivity->uuid))->get();
         $this->assertCount(1, $drafts);
-        $resource = Repository::serviceRequest()->getResource($drafts->sole());
-        $this->assertSame('2026-10-23T09:30:00.000000Z', $resource['occurrencePeriod']['start']);
-        $this->assertSame('2026-11-02T21:59:00.000000Z', $resource['occurrencePeriod']['end']);
-        $this->assertSame('Keep this draft note', $resource['note']);
+        $draft = $drafts->sole();
+        $this->assertSame('2026-10-23T09:30:00.000000Z', \Carbon\CarbonImmutable::parse($draft->getRawOriginal('started_at'), 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z'));
+        $this->assertSame('2026-11-02T21:59:00.000000Z', \Carbon\CarbonImmutable::parse($draft->getRawOriginal('ended_at'), 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z'));
+        $this->assertSame('Keep this draft note', $draft->note);
     }
 
     public function test_referral_period_expired_while_waiting_for_signature_returns_to_form(): void

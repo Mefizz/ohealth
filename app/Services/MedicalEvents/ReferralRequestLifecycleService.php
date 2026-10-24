@@ -577,8 +577,12 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         CarePlan|\App\Models\MedicalEvents\Sql\Encounter|null $context = null,
         ?array $employeeContext = null
     ): array {
-        $startedAt = $requestRecord->startedAt ?? $activity?->scheduledPeriodStart;
-        $endedAt = $requestRecord->endedAt ?? $activity?->scheduledPeriodEnd;
+        $startedAt = $requestRecord instanceof ServiceRequestRequest
+            ? ($requestRecord->getRawOriginal('started_at') ?? $activity?->scheduledPeriodStart)
+            : ($requestRecord->startedAt ?? $activity?->scheduledPeriodStart);
+        $endedAt = $requestRecord instanceof ServiceRequestRequest
+            ? ($requestRecord->getRawOriginal('ended_at') ?? $activity?->scheduledPeriodEnd)
+            : ($requestRecord->endedAt ?? $activity?->scheduledPeriodEnd);
 
         if ($employeeContext === null) {
             if ($context instanceof Encounter) {
@@ -618,12 +622,12 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                 ? ($requestRecord->informWith ?? null)
                 : null,
             'supporting_info' => $requestRecord->supportingInfo,
-            'started_at' => $startedAt instanceof \DateTimeInterface
-                ? $startedAt->format('Y-m-d')
-                : (string) $startedAt,
-            'ended_at' => $endedAt instanceof \DateTimeInterface
-                ? $endedAt->format('Y-m-d')
-                : (string) $endedAt,
+            'started_at' => $requestRecord instanceof ServiceRequestRequest && filled($startedAt)
+                ? \Carbon\CarbonImmutable::parse($startedAt, 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z')
+                : ($startedAt instanceof \DateTimeInterface ? $startedAt->format('Y-m-d') : (string) $startedAt),
+            'ended_at' => $requestRecord instanceof ServiceRequestRequest && filled($endedAt)
+                ? \Carbon\CarbonImmutable::parse($endedAt, 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z')
+                : ($endedAt instanceof \DateTimeInterface ? $endedAt->format('Y-m-d') : (string) $endedAt),
             'based_on_uuid' => $requestRecord->basedOn?->value ?? $activity?->uuid,
             'context_uuid' => $contextUuid,
         ];

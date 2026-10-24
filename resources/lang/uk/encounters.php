@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 return [
+    'referral_destination_from_discharge' => 'Заклад підставлено з даних госпіталізації у завершеній взаємодії.',
+    'referral_recipient_speciality_help' => 'Оберіть потрібну спеціальність лікаря, який має надати послугу за направленням.',
+    'referral_no_eligible_divisions' => 'У вибраному закладі немає активних підрозділів, придатних для направлення на переведення. Перевірте заклад, зазначений у виписці.',
+    'referral_divisions_invalid_response' => 'ЕСОЗ повернув неочікуваний формат списку підрозділів.',
     'referral_drawer_title' => 'Виписати електронне направлення (без плану лікування)',
     'referral_service_placeholder' => 'Код або назва послуги',
     'referral_search' => 'Пошук',

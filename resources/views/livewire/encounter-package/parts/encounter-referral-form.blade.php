@@ -115,6 +115,9 @@
                                 value="{{ $encounterReferralPerformerName }}"
                                 readonly
                             />
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {{ __('encounters.referral_destination_from_discharge') }}
+                            </p>
                         </div>
                         <div class="form-group group">
                             <label for="encounterReferralLocation" class="label required">{{ __('encounters.referral_performer_division') }}</label>
@@ -143,6 +146,9 @@
                                     </option>
                                 @endforeach
                             </select>
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {{ __('encounters.referral_recipient_speciality_help') }}
+                            </p>
                         </div>
                     @endif
                     <div class="form-group group">

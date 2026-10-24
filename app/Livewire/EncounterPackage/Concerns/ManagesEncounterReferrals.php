@@ -8,7 +8,7 @@ use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Models\LegalEntity;
+use App\Repositories\Repository;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Services\Dictionary\ServiceSearch;
@@ -490,11 +490,9 @@ trait ManagesEncounterReferrals
             return null;
         }
 
-        $legalEntity = LegalEntity::query()->where('uuid', $destination)->first();
-
         return [
             'uuid' => $destination,
-            'name' => (string) ($legalEntity?->name ?: $destination),
+            'name' => Repository::legalEntity()->displayNameByUuid($destination),
         ];
     }
 
@@ -559,6 +557,7 @@ trait ManagesEncounterReferrals
 
     protected function loadEncounterReferralDivisions(string $legalEntityUuid): bool
     {
+        $this->encounterReferralWarningMessage = '';
         $this->encounterReferralDivisions = [];
         $this->encounterReferralAllowedDivisionIds = [];
 
@@ -566,12 +565,19 @@ trait ManagesEncounterReferrals
             $rows = [];
             $page = 1;
             do {
-                $response = EHealth::division()->search($legalEntityUuid, $page++);
-                $rows = [...$rows, ...$response->getData()];
-            } while ($response->isNotLast());
+                $response = EHealth::division()->search($legalEntityUuid, $page);
+                $data = $response->getData();
+                $entries = $data['entries'] ?? $data;
+                if (!is_array($entries) || !array_is_list($entries)) {
+                    throw new RuntimeException(__('encounters.referral_divisions_invalid_response'));
+                }
+                $rows = [...$rows, ...$entries];
+                $totalPages = (int) ($data['total_pages'] ?? $response->getPaging()['total_pages'] ?? $page);
+                $page++;
+            } while ($page <= $totalPages);
         } catch (Throwable $exception) {
             Log::warning('EncounterEdit: failed to load destination divisions for transfer referral: '.$exception->getMessage());
-            $this->encounterReferralWarningMessage = __('Не вдалося завантажити підрозділи закладу, до якого переводять пацієнта.');
+            $this->failEncounterReferral(__('Не вдалося завантажити підрозділи закладу, до якого переводять пацієнта.'));
 
             return false;
         }
@@ -607,6 +613,15 @@ trait ManagesEncounterReferrals
 
         $this->encounterReferralDivisions = $divisions;
         $this->encounterReferralAllowedDivisionIds = array_column($divisions, 'id');
+        Log::debug('Transfer referral division lookup completed', [
+            'returnedCount' => count($rows),
+            'selectableCount' => count($divisions),
+            'returnedTypes' => array_values(array_unique(array_column($rows, 'type'))),
+        ]);
+        if ($divisions === []) {
+            $this->encounterReferralWarningMessage = __('encounters.referral_no_eligible_divisions');
+            Session::flash('warning', $this->encounterReferralWarningMessage);
+        }
 
         return true;
     }

@@ -37,3 +37,16 @@ Browser/KEP acceptance is distinct from automated tests. Finish PMD/SMD acceptan
 ClinicalImpression and unrelated standalone DeviceRequest work are excluded. The updated main frontend is retained; forms reuse project patterns. Canonical clinical writes use complete typed references, codings, periods and structured dosage, while native ESOZ signing payloads stay untouched. Short/list responses are not promoted to complete FHIR details.
 
 No blanket UTC migration is claimed: `APP_DISPLAY_TIMEZONE` controls the current local UI bridge and day boundaries; native canonical timestamp fields use UTC, and date-only fields remain dates.
+
+## CI corrections for the intermediate module heads
+
+The first publication exposed failures on #998/#1006 while #1022/#1011/#1042 passed. These were real slice integration defects, not disabled checks:
+
+- CarePlan prescription sync now calls the existing repository transaction that keeps SIGNED MRR and separate MR states; the old inline status overwrite was removed.
+- The early CarePlan referral layer previews persisted draft fields without calling the canonical `formData` method introduced only by the later referral layer. Complete canonical import/serialization remains enforced in that later layer.
+- CarePlan's early referral create/sign paths preserve full start/end instants instead of reducing them to `Y-m-d`; the medical-device date-only path is unchanged.
+- Missing draft fixture construction and signature-period fixtures were completed. The early slice asserts the same persisted UTC moments; the referral slice retains its stronger complete `getResource` assertions. No tests or CI checks were skipped or weakened.
+- Exact failing scenarios: 5 tests / 51 assertions passed. CarePlan scope: 40 / 255; referral scope: 40 / 256; related lifecycle/period units: 17 / 66. All exit 0 on isolated synthetic `testing`.
+- Corrections propagate through ordinary forward merges; no published history was rewritten during the CI repair. The combined application's app/resources/routes/config/database tree is unchanged from the already successful full-release baseline; one malformed test-method whitespace boundary was cleaned up.
+
+Fresh GitHub CI is the final gate for these corrected intermediate heads. See the live checks on #998/#1006 rather than treating the first failed runs as current results.

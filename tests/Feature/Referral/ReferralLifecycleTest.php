@@ -734,7 +734,7 @@ class ReferralLifecycleTest extends TestCase
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
         $draftUuid = (string) Str::uuid();
-        $this->createCanonicalReferral([
+        $this->createReferralDraft([
             'uuid' => $draftUuid, 'employee_id' => $this->employee->id,
             'person_id' => $this->person->id, 'status' => 'draft',
             'service_id' => '59300-00', 'quantity' => 1.0,
@@ -774,10 +774,10 @@ class ReferralLifecycleTest extends TestCase
         $drafts = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::query()
             ->whereHas('basedOn', fn ($query) => $query->whereValue($this->serviceActivity->uuid))->get();
         $this->assertCount(1, $drafts);
-        $resource = Repository::serviceRequest()->getResource($drafts->sole());
-        $this->assertSame('2026-10-23T09:30:00.000000Z', $resource['occurrencePeriod']['start']);
-        $this->assertSame('2026-11-02T21:59:00.000000Z', $resource['occurrencePeriod']['end']);
-        $this->assertSame('Keep this draft note', $resource['note']);
+        $draft = $drafts->sole();
+        $this->assertSame('2026-10-23T09:30:00.000000Z', \Carbon\CarbonImmutable::parse($draft->getRawOriginal('started_at'), 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z'));
+        $this->assertSame('2026-11-02T21:59:00.000000Z', \Carbon\CarbonImmutable::parse($draft->getRawOriginal('ended_at'), 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z'));
+        $this->assertSame('Keep this draft note', $draft->note);
     }
 
     public function test_referral_period_expired_while_waiting_for_signature_returns_to_form(): void
@@ -787,7 +787,7 @@ class ReferralLifecycleTest extends TestCase
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
         $draftUuid = (string) Str::uuid();
-        $this->createCanonicalReferral([
+        $this->createReferralDraft([
             'uuid' => $draftUuid, 'employee_id' => $this->employee->id,
             'person_id' => $this->person->id, 'status' => 'draft',
             'service_id' => '59300-00', 'quantity' => 1.0,
@@ -1057,7 +1057,7 @@ class ReferralLifecycleTest extends TestCase
         $draftUuid = (string) Str::uuid();
         $signedUuid = (string) Str::uuid();
         $fhirRefs = $this->fhirBasedOnContextIds((string) $this->serviceActivity->uuid, (string) $this->encounter->uuid);
-        \App\Models\MedicalEvents\Sql\ServiceRequestRequest::create([
+        $this->createReferralDraft([
             'uuid' => $draftUuid,
             'employee_id' => $this->employee->id,
             'person_id' => $this->person->id,
@@ -1071,7 +1071,7 @@ class ReferralLifecycleTest extends TestCase
             'ended_at' => now()->addWeek()->toIso8601String(),
         ]);
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $createResponse = Mockery::mock(EHealthResponse::class);
         $createResponse->shouldReceive('getData')->andReturn([
             'id' => $signedUuid,
@@ -1103,6 +1103,7 @@ class ReferralLifecycleTest extends TestCase
             ->assertHasNoErrors(['statusReason'])
             ->assertSet('showSignatureModal', false);
 
+        $this->assertNull(session('error'), (string) session('error'));
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $signedUuid,
             'employee_id' => $this->employee->id,
@@ -1125,7 +1126,7 @@ class ReferralLifecycleTest extends TestCase
         $this->mockActivityRegisteredInEHealth();
 
         $draftUuid = (string) Str::uuid();
-        \App\Models\MedicalEvents\Sql\ServiceRequestRequest::create([
+        $this->createReferralDraft([
             'uuid' => $draftUuid,
             'employee_id' => $this->employee->id,
             'person_id' => $this->person->id,
@@ -1139,7 +1140,7 @@ class ReferralLifecycleTest extends TestCase
             'ended_at' => now()->addWeek()->toIso8601String(),
         ]);
 
-        $mockServiceApi = Mockery::mock(ServiceRequestApi::class);
+        $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
         $missingResponse = Mockery::mock(EHealthResponse::class);
@@ -1194,6 +1195,7 @@ class ReferralLifecycleTest extends TestCase
             ->call('sign')
             ->assertSet('showSignatureModal', false);
 
+        $this->assertNull(session('error'), (string) session('error'));
         $this->assertDatabaseHas('service_request_requests', [
             'uuid' => $draftUuid,
             'status' => 'active',
@@ -1419,5 +1421,17 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $activityUuid,
             'status' => 'scheduled',
         ]);
+    }
+
+    private function createReferralDraft(array $data): \App\Models\MedicalEvents\Sql\ServiceRequestRequest
+    {
+        foreach (['based_on_id' => 'based_on_uuid', 'context_id' => 'context_uuid'] as $column => $field) {
+            if (isset($data[$column])) {
+                $data[$field] = Identifier::findOrFail($data[$column])->value;
+            }
+        }
+        $id = Repository::serviceRequest()->store($data, $data['person_id']);
+
+        return \App\Models\MedicalEvents\Sql\ServiceRequestRequest::findOrFail($id);
     }
 }

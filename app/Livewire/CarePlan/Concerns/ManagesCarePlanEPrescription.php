@@ -494,7 +494,7 @@ trait ManagesCarePlanEPrescription
             }
 
             $activityUuids = $this->carePlan->activities->pluck('uuid')->toArray();
-            $localRequests = MedicationRequestRequest::whereHas('basedOn', fn ($q) => $q->whereIn('value', $activityUuids))->get();
+            $localRequests = app(CarePlanActivityRepository::class)->linkedDocuments($activityUuids, 'medication_request');
 
             if ($localRequests->isEmpty()) {
                 Session::flash('info', __('Немає виписаних рецептів для синхронізації у цьому плані лікування'));
@@ -502,59 +502,9 @@ trait ManagesCarePlanEPrescription
                 return;
             }
 
-            $updatedCount = 0;
-
-            // Check active/completed medication requests in eHealth
             $activeItems = EHealth::medicationRequest()->getBySearchParams((string) $personUuid, [])->getData();
-
-            if (is_array($activeItems)) {
-                foreach ($activeItems as $item) {
-                    if (empty($item['id'])) {
-                        continue;
-                    }
-                    $match = $localRequests->firstWhere('uuid', $item['id'])
-                        ?? (!empty($item['request_number']) ? $localRequests->firstWhere('request_number', $item['request_number']) : null);
-
-                    if ($match) {
-                        $payload = is_array($match->ehealth_payload) ? $match->ehealth_payload : [];
-                        $needsUpdate = false;
-
-                        if (!empty($item['status']) && strtolower((string) $item['status']) !== $match->status) {
-                            $match->status = strtolower((string) $item['status']);
-                            $needsUpdate = true;
-                            $updatedCount++;
-                        }
-
-                        if ($item['id'] !== $match->uuid && ($payload['active_id'] ?? null) !== $item['id']) {
-                            $payload['active_id'] = $item['id'];
-                            $match->ehealth_payload = $payload;
-                            $needsUpdate = true;
-                        }
-
-                        if ($needsUpdate) {
-                            $match->save();
-                        }
-                    }
-                }
-            }
-
-            // Check draft/rejected requests in eHealth
             $draftItems = EHealth::medicationRequest()->getRequestsBySearchParams((string) $personUuid, [])->getData();
-
-            if (is_array($draftItems)) {
-                foreach ($draftItems as $item) {
-                    if (empty($item['id'])) {
-                        continue;
-                    }
-                    $match = $localRequests->firstWhere('uuid', $item['id'])
-                        ?? (!empty($item['request_number']) ? $localRequests->firstWhere('request_number', $item['request_number']) : null);
-
-                    if ($match && !in_array($match->status, ['active', 'completed', 'expired'], true) && !empty($item['status']) && strtolower((string) $item['status']) !== $match->status) {
-                        $match->update(['status' => strtolower((string) $item['status'])]);
-                        $updatedCount++;
-                    }
-                }
-            }
+            $updatedCount = \App\Repositories\MedicalEvents\Repository::medicationRequest()->synchronizeCarePlanDocuments($localRequests, $activeItems, $draftItems);
 
             $this->refreshCarePlan();
             Session::flash('success', __('Синхронізовано з ЕСОЗ. Оновлено статусів: :count', ['count' => $updatedCount]));

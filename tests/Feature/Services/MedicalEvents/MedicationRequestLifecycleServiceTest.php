@@ -212,7 +212,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
         $service = app(MedicationRequestLifecycleService::class);
         $result = $service->rejectPrescription(
-            $fromEncounter ? $this->encounter : $this->carePlan->fresh(['person']),
+            $this->carePlan->fresh(['person']),
             $requestRecord,
             [
                 'password' => '12345678',
@@ -706,7 +706,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
         $service = app(MedicationRequestLifecycleService::class);
         $result = $service->signPrescription(
-            $this->carePlan->fresh(['person']),
+            $fromEncounter ? $this->encounter : $this->carePlan->fresh(['person']),
             $requestRecord,
             [
                 'password' => '12345678',

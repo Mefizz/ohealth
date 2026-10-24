@@ -39,6 +39,12 @@ class EncounterDocumentPagesTest extends TestCase
             \App\Classes\eHealth\Middleware\CheckSessionToken::class,
         ]);
         $this->fakeSignatureService();
+        $key = \App\Services\Dictionary\Dictionaries\BasicDictionary::KEY;
+        $dictionaries = \Illuminate\Support\Facades\Cache::get($key, []);
+        $dictionaries[] = ['name' => 'SERVICE_CATEGORY', 'values' => [
+            ['code' => 'counselling', 'description' => 'Консультування', 'is_active' => true],
+        ]];
+        \Illuminate\Support\Facades\Cache::forever($key, $dictionaries);
         $this->mock(EncounterPolicy::class)->shouldReceive('view')->andReturn(Response::allow());
     }
 

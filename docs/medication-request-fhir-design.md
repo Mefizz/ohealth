@@ -2,7 +2,7 @@
 
 Issue: https://github.com/openhealths/nationHealth/issues/1008
 
-База: main `39d4a6b7ca06317b762b69f666fca3225fb9536b`. Дизайн зафіксовано до зміни реалізації.
+Початкова база дизайну: main `39d4a6b7ca06317b762b69f666fca3225fb9536b`. Release/review stack перебазовано на company main `b70debf1` 24.10.2026; початкові джерела нижче збережені як історія контракту.
 
 ## Контракти та джерела
 

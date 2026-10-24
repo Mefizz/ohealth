@@ -4,13 +4,13 @@ Integration branch: `i1008_clinical_fhir_uat`, issue #1008. Updated against comp
 
 ## Review and merge order
 
-1. #1022 — shared complete Identifier/CodeableConcept/Period helpers, legacy Coding compatibility, configurable clinical date conversion and shared encounter page routing. Review the explicit shared diff first.
+1. #1022 — shared complete Identifier/CodeableConcept/Period helpers, legacy Coding compatibility, configurable clinical date conversion. Review the explicit shared diff first.
 2. #998 — TV 3.10 CarePlan/Activity: mapping, persistence, integration/workflows; reuse fork review blocks #17–20.
 3. #1006 — TV 3.17 referrals: mapping, persistence, workflows; reuse fork review blocks #21–23.
 4. #1011 — TV 3.9 prescriptions: mapping, persistence, signing/workflows; reuse fork review blocks #24–26.
-5. TV 3.8 Medical Conclusions — registry/wizard fixes and complete local detail fidelity.
+5. TV 3.8 Medical Conclusions — registry/wizard fixes and complete local detail fidelity; delivered after the prescription umbrella so the shared CI runs the complete stack.
 
-Review blocks are stacked where a real dependency exists. Company umbrellas target main and may temporarily show prerequisite commits until earlier PRs merge. The release manifest records exact branch/commit dependencies. All published heads belong to Mefizz/ohealth.
+Review blocks are stacked where a real dependency exists. Company umbrellas target main and temporarily show prerequisite commits until earlier PRs merge. Merge order is mandatory; deploy the complete reviewed batch. Cross-module issuing flows are accepted on the combined branch, not on an incomplete middle slice. The release manifest records exact branch/commit dependencies. All published heads belong to Mefizz/ohealth.
 
 ## Included behavior
 

@@ -1430,7 +1430,9 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $activityUuid,
             'status' => 'scheduled',
         ]);
-    }    private function createCanonicalReferral(array $data): \App\Models\MedicalEvents\Sql\ServiceRequestRequest
+    }
+
+    private function createCanonicalReferral(array $data): \App\Models\MedicalEvents\Sql\ServiceRequestRequest
     {
         foreach (['based_on_id' => 'based_on_uuid', 'context_id' => 'context_uuid'] as $column => $field) {
             if (isset($data[$column])) {

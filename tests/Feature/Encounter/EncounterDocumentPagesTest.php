@@ -31,6 +31,7 @@ class EncounterDocumentPagesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config(['pagination.per_page' => 10]);
         Http::preventStrayRequests();
         $this->withoutVite();
         // These tests exercise routing/patient scope, not token rotation or session binding.

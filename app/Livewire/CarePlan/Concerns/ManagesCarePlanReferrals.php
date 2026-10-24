@@ -330,7 +330,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $this->carePlan->loadMissing(['encounter', 'person']);
+            $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
 
             $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
                 $this->carePlan,
@@ -422,7 +422,7 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $this->carePlan->loadMissing(['encounter', 'person']);
+        $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
 
         try {
             $requestRecord = app(MedicalRequestOwnership::class)
@@ -765,7 +765,7 @@ trait ManagesCarePlanReferrals
                 $dbData
             );
 
-            $requestRecord->refresh();
+            ($requestRecord instanceof ServiceRequestRequest ? Repository::serviceRequest() : Repository::deviceRequest())->refreshRecord($requestRecord);
 
             $after = [
                 'status' => (string) $requestRecord->status,
@@ -1017,7 +1017,7 @@ trait ManagesCarePlanReferrals
         if ($record instanceof ServiceRequestRequest) {
             Repository::serviceRequest()->updateClinicalStatus($record, ($resolved ?? $fallback)->value);
         } else {
-            $record->update(['status' => ($resolved ?? $fallback)->value]);
+            Repository::deviceRequest()->saveStatus($record, ($resolved ?? $fallback)->value);
         }
     }
 

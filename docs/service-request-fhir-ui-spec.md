@@ -47,3 +47,14 @@ The impersonal Specimen context response must not enrich or reveal patient ident
 ## Manual gates
 
 Backend tests use synthetic fixtures and HTTP stubs. Before release: user-assisted KEP, dictionaries and authentication branches, identified/unidentified patient flows, both issuer and executor roles, migrated historical drafts, ambiguous-data reconciliation, Care Plan #998 integration and the required controls above. This specification does not declare 100% certification of module 3.17.
+
+
+## Уточнення UAT 24.10.2026: направлення на переведення
+
+Заклад performer береться з hospitalization.destination завершеної взаємодії. У цьому UI він readonly для узгодженості з випискою; це рішення інтерфейсу, а не твердження, що native API забороняє будь-яке редагування performer. Відображати ту саму назву з українським типом, що у спільному списку закладів, коли назви збігаються. Пояснити джерело значення під полем.
+
+Спеціальність performer_type стосується майбутнього виконавця направлення, тому її не можна обмежувати спеціальностями автора. У формі використано SPECIALITY_TYPE й додано пояснення одержувача послуги.
+
+Пошук підрозділів виконується через public reports registry із legal_entity_id і пагінацією. Не додавати штучну географічну рамку до пошуку конкретного закладу: старі east=180/west=-180 викликали фактичний PREPROD422, а запит лише з legal_entity_id/page/page_size успішно повертає його підрозділи. Підтримані flat data+top-level paging і data.entries+data.total_pages. Невідому форму відповіді не трактувати як порожній успішний список.
+
+Відрізняти API failure від відсутності придатних активних підрозділів. Помилка API — error flash і пояснення у формі; успішний порожній відбір — warning flash і пояснення. Використовується Session::flash і наявний x-message. UUID закладу/підрозділу не визначати з назви та не вигадувати з opaque report ID. Після повернення API ще застосовуються перевірки власника, активності та дозволеного клінічного типу.

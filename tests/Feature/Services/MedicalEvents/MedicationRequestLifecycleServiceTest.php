@@ -212,7 +212,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
         $service = app(MedicationRequestLifecycleService::class);
         $result = $service->rejectPrescription(
-            $this->carePlan->fresh(['person']),
+            $fromEncounter ? $this->encounter : $this->carePlan->fresh(['person']),
             $requestRecord,
             [
                 'password' => '12345678',
@@ -649,7 +649,18 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->assertStringContainsString('лікаря-спеціаліста', $message);
     }
 
-    public function test_sign_sets_tv_success_and_remaining_warning(): void
+    public static function signedDetailCases(): array
+    {
+        return [
+            'care-plan full detail' => [true, false],
+            'care-plan GET failure' => [false, false],
+            'encounter full detail' => [true, true],
+            'encounter GET failure' => [false, true],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('signedDetailCases')]
+    public function test_sign_sets_tv_success_and_remaining_warning(bool $detailsAvailable, bool $fromEncounter): void
     {
         $requestRecord = MedicationRequestRequest::create([
             'uuid' => (string) Str::uuid(),
@@ -675,7 +686,12 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $detail['id'] = $activeUuid;
         $detail['status'] = 'ACTIVE';
         $detail['person']['id'] = $this->person->uuid;
-        $mockApi->shouldReceive('getById')->once()->with($this->person->uuid, $activeUuid)->andReturn($detail);
+        $detailCall = $mockApi->shouldReceive('getById')->once()->with($this->person->uuid, $activeUuid);
+        if ($detailsAvailable) {
+            $detailCall->andReturn($detail);
+        } else {
+            $detailCall->andThrow(new \RuntimeException('Synthetic detail GET failure'));
+        }
         $mockApi->shouldReceive('signMedicationRequest')
             ->once()
             ->andReturn([
@@ -711,7 +727,13 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'status' => 'signed',
         ]);
         $this->assertSame($activeUuid, $requestRecord->fresh()->ehealthPayload['active_id']);
-        $this->assertDatabaseHas('medication_request_requests', ['uuid' => $activeUuid, 'resource_type' => MedicationRequestRequest::TYPE_PRESCRIPTION]);
+        if ($detailsAvailable) {
+            $this->assertDatabaseHas('medication_request_requests', ['uuid' => $activeUuid, 'resource_type' => MedicationRequestRequest::TYPE_PRESCRIPTION, 'fhir_version' => 1]);
+        } else {
+            $this->assertDatabaseMissing('medication_request_requests', ['uuid' => $activeUuid]);
+            $this->assertTrue($requestRecord->fresh()->fhirMetadata['signedPrescriptionPending']);
+            $this->assertStringContainsString(__('medication-requests.signed_details_pending'), $result['warning_message']);
+        }
     }
 
     public function test_sign_refuses_a_detached_blob_without_local_kep(): void

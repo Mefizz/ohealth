@@ -157,10 +157,10 @@ trait ManagesCarePlanReferrals
 
         $schedule = $activityRepository->getResource($activity)['detail']['scheduledPeriod'] ?? [];
         // This layer only needs the persisted period preview. Full canonical formData arrives in the referral layer.
-        $draftData = $existingDraft ? [
+        $draftData = $existingDraft ? array_replace(Arr::toSnakeCase($existingDraft->toArray()), [
             'started_at' => $existingDraft->getRawOriginal('started_at'),
             'ended_at' => $existingDraft->getRawOriginal('ended_at'),
-        ] : [];
+        ]) : [];
         $occurrenceDates = $this->resolveReferralOccurrenceDates(
             isset($schedule['start']) ? Carbon::parse($schedule['start'], 'UTC')->setTimezone(config('app.timezone')) : null,
             isset($schedule['end']) ? Carbon::parse($schedule['end'], 'UTC')->setTimezone(config('app.timezone')) : null

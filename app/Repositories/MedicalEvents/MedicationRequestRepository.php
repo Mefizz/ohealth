@@ -566,7 +566,7 @@ class MedicationRequestRepository extends BaseRepository
             $payload['active_id'] = $prescription['id'];
             $metadata = $locked->fhirMetadata ?? [];
             $metadata['signedPrescriptionPending'] = true;
-            $locked->fill(['status' => MedicationRequestStatus::SIGNED->value, 'ehealthPayload' => $payload, 'fhirMetadata' => $metadata])->save();
+            $locked->forceFill(['status' => MedicationRequestStatus::SIGNED->value, 'ehealthPayload' => $payload, 'fhirMetadata' => $metadata])->save();
         });
         $request->refresh();
     }

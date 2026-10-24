@@ -148,7 +148,7 @@ class CompositionRepository extends BaseRepository
             if (array_key_exists('event', $metadata)) {
                 $metadata['event'] = $events;
             }
-            $attributes['fhirMetadata'] = $metadata;
+            $composition->fhirMetadata = $metadata;
             // The shared presentation cast truncates fractions; this owned write preserves UTC precision.
             unset($attributes['date']);
             $composition->fill($attributes);

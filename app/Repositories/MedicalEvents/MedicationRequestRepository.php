@@ -551,24 +551,60 @@ class MedicationRequestRepository extends BaseRepository
         $request->fill($attributes)->save();
     }
 
-    /** Preserve separate MRR/MR identities and commit the local transition atomically. */
+    /** Persist ESOZ acknowledgement independently of the subsequent detail import. */
     public function recordSigned(MedicationRequestRequest $request, array $prescription): void
     {
-        if (($prescription['id'] ?? null) === $request->uuid) {
+        if (!Str::isUuid($prescription['id'] ?? '') || $prescription['id'] === $request->uuid) {
             throw new InvalidArgumentException('A signed prescription must have its own MR identity.');
         }
         DB::transaction(function () use ($request, $prescription): void {
             $locked = $this->model->newQuery()->whereKey($request->id)->wherePersonId($request->personId)->lockForUpdate()->firstOrFail();
             $payload = $locked->ehealthPayload ?? [];
-            $payload['active_id'] = $prescription['id'];
-            $locked->fill(['status' => MedicationRequestStatus::SIGNED->value, 'ehealth_payload' => $payload])->save();
-            if (isset($prescription['person'], $prescription['medication_info'])) {
-                $this->importDetails($prescription, $locked->personId, MedicationRequestRequest::TYPE_PRESCRIPTION);
-            } else {
-                $this->upsertFromEHealth($prescription, $locked->personId, MedicationRequestRequest::TYPE_PRESCRIPTION);
+            if (isset($payload['active_id']) && $payload['active_id'] !== $prescription['id']) {
+                throw new InvalidArgumentException('The signed request is already linked to another prescription.');
             }
+            $payload['active_id'] = $prescription['id'];
+            $metadata = $locked->fhirMetadata ?? [];
+            $metadata['signedPrescriptionPending'] = true;
+            $locked->fill(['status' => MedicationRequestStatus::SIGNED->value, 'ehealthPayload' => $payload, 'fhirMetadata' => $metadata])->save();
         });
         $request->refresh();
+    }
+
+    /** A GET-only recovery path; importing details must never submit another signature. */
+    public function completeSignedPrescription(MedicationRequestRequest $request, array $detail): void
+    {
+        DB::transaction(function () use ($request, $detail): void {
+            $locked = $this->model->newQuery()->whereKey($request->id)->wherePersonId($request->personId)->lockForUpdate()->firstOrFail();
+            $activeId = data_get($locked->ehealthPayload, 'active_id');
+            $personUuid = $this->personUuid((int) $locked->personId);
+            if (!$activeId || ($detail['id'] ?? null) !== $activeId
+                || data_get($detail, 'person.id', $detail['person_id'] ?? null) !== $personUuid
+                || (isset($detail['person_id']) && $detail['person_id'] !== $personUuid)) {
+                throw new InvalidArgumentException('Prescription details do not match the confirmed prescription and patient.');
+            }
+            if (!in_array(strtolower((string) ($detail['status'] ?? '')), ['active', 'blocked', 'completed', 'rejected', 'expired', 'entered-in-error'], true)) {
+                throw new InvalidArgumentException('The detail endpoint did not return a prescription status.');
+            }
+            $existing = $this->model->newQuery()->whereUuid($activeId)->lockForUpdate()->first();
+            // A delayed hydration must not reactivate a prescription changed in the meantime.
+            if ($existing && in_array(strtolower((string) $existing->status), ['blocked', 'completed', 'rejected', 'expired', 'entered-in-error'], true)) {
+                $detail['status'] = $existing->status;
+            }
+            $this->importDetails($detail, (int) $locked->personId, MedicationRequestRequest::TYPE_PRESCRIPTION);
+            $metadata = $locked->fhirMetadata ?? [];
+            unset($metadata['signedPrescriptionPending']);
+            $locked->fhirMetadata = $metadata;
+            $locked->save();
+        });
+        $request->refresh();
+    }
+
+    public function pendingSignedPrescriptions(int $personId): \Illuminate\Support\Collection
+    {
+        return $this->model->newQuery()->wherePersonId($personId)
+            ->where('resource_type', MedicationRequestRequest::TYPE_REQUEST)
+            ->where('fhir_metadata->signedPrescriptionPending', true)->get();
     }
 
     public function occupiedQuantity(string $activityUuid, ?string $exceptUuid = null): float
@@ -585,10 +621,14 @@ class MedicationRequestRepository extends BaseRepository
             return collect();
         }
 
+        $localDay = \Carbon\CarbonImmutable::now((string) config('app.timezone'))->startOfDay();
+        $startUtc = $localDay->utc()->format('Y-m-d H:i:s');
+        $endUtc = $localDay->addDay()->utc()->format('Y-m-d H:i:s');
+
         return Encounter::query()->where('person_id', $personId)
             ->where('status', \App\Enums\Person\EncounterStatus::FINISHED)
             ->whereHas('performer', fn ($query) => $query->whereValue($employeeUuid))
-            ->whereHas('period', fn ($query) => $query->whereDate('end', today()))
+            ->whereHas('period', fn ($query) => $query->where('end', '>=', $startUtc)->where('end', '<', $endUtc))
             ->with(['period', 'performer'])->orderByDesc('id')->get();
     }
 
@@ -750,8 +790,11 @@ class MedicationRequestRepository extends BaseRepository
                 if ($existing !== null && $existing->resourceType !== MedicationRequestRequest::TYPE_PRESCRIPTION) {
                     throw new InvalidArgumentException('A prescription cannot overwrite a medication request.');
                 }
-                $prescription = $this->upsertFromEHealth(array_replace($item, ['status' => $status->value]),
-                    (int) $match->personId, MedicationRequestRequest::TYPE_PRESCRIPTION);
+                $prescription = $this->upsertFromEHealth(
+                    array_replace($item, ['status' => $status->value]),
+                    (int) $match->personId,
+                    MedicationRequestRequest::TYPE_PRESCRIPTION
+                );
                 if ($existing === null || $existing->status !== $prescription->status) {
                     $updatedCount++;
                 }

@@ -213,6 +213,12 @@ trait ManagesEncounterEPrescription
 
     public function validateEncounterEPrescription(): void
     {
+        if ($this->encounterEPrescriptionRequestIdToSign !== null) {
+            $this->prepareEncounterEPrescriptionSigning();
+
+            return;
+        }
+
         $this->encounterEPrescriptionWarningMessage = '';
 
         $this->validate([
@@ -267,8 +273,7 @@ trait ManagesEncounterEPrescription
 
             $this->actionType = 'sign_eprescription';
             $this->showSignatureModal = true;
-            $infoMessage = __('Заявку на е-рецепт створено. Підпишіть КЕП.');
-            Session::flash('success', $infoMessage);
+            Session::flash('success', __('Заявку на е-рецепт створено. Підпишіть КЕП.'));
         } catch (EHealthValidationException $exception) {
             $exception->report();
             $this->encounterEPrescriptionWarningMessage = $exception->getTranslatedMessage();
@@ -276,6 +281,36 @@ trait ManagesEncounterEPrescription
         } catch (Throwable $exception) {
             Log::error('EncounterEdit: failed to create encounter eRx: '.$exception->getMessage());
             $this->encounterEPrescriptionWarningMessage = __('Не вдалося створити заявку на рецепт: ').$exception->getMessage();
+            Session::flash('error', $this->encounterEPrescriptionWarningMessage);
+        }
+    }
+
+    public function prepareEncounterEPrescriptionSigning(): void
+    {
+        $this->encounterEPrescriptionWarningMessage = '';
+        $this->showSignatureModal = false;
+        $this->actionType = null;
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter === null || $this->encounterEPrescriptionRequestIdToSign === null) {
+            return;
+        }
+
+        try {
+            $requestRecord = app(MedicalRequestOwnership::class)->medicationForEncounter(
+                $this->encounterEPrescriptionRequestIdToSign,
+                $encounter
+            );
+            app(MedicationRequestLifecycleService::class)->buildSignPayload($encounter, $requestRecord, '');
+            $this->actionType = 'sign_eprescription';
+            $this->showSignatureModal = true;
+            Session::flash('success', __('Заявку на е-рецепт створено. Підпишіть КЕП.'));
+        } catch (Throwable $exception) {
+            Log::warning('Encounter eRx signing preflight failed', ['exceptionType' => $exception::class]);
+            $this->encounterEPrescriptionWarningMessage = $exception instanceof EHealthValidationException
+                ? $exception->getTranslatedMessage()
+                : ($exception instanceof ModelNotFoundException
+                    ? __('care-plan.document_context_unavailable')
+                    : $exception->getMessage());
             Session::flash('error', $this->encounterEPrescriptionWarningMessage);
         }
     }
@@ -338,6 +373,9 @@ trait ManagesEncounterEPrescription
             $message = $result['success_message']
                 ?? __('Електронний рецепт успішно створено без плану лікування.');
             Session::flash('success', $message);
+            if (!empty($result['warning_message'])) {
+                Session::flash('warning', $result['warning_message']);
+            }
             $this->showEncounterEPrescriptionDrawer = false;
             $this->encounterEPrescriptionForm = [];
             $this->encounterEPrescriptionSearchResults = [];

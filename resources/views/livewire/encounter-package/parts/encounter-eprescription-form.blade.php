@@ -2,7 +2,7 @@
                 wire:submit.prevent="validateEncounterEPrescription"
                 class="space-y-6"
             >
-                <fieldset class="fieldset-card p-6 sm:p-8">
+                <fieldset @disabled($encounterEPrescriptionRequestIdToSign !== null) class="fieldset-card p-6 sm:p-8">
                     <legend class="legend">{{ __('care-plan.medication') }}</legend>
                     <div class="form-row-2 mt-6">
                         <div class="form-group group md:col-span-2">
@@ -154,7 +154,7 @@
                     </div>
                 </fieldset>
 
-                <fieldset class="fieldset-card p-6 sm:p-8">
+                <fieldset @disabled($encounterEPrescriptionRequestIdToSign !== null) class="fieldset-card p-6 sm:p-8">
                     <legend class="legend">{{ __('encounters.eprescription.dosage') }}</legend>
                     <div class="form-row-2 mt-6">
                         <div class="form-group group md:col-span-2">
@@ -252,7 +252,7 @@
                     </div>
                 </fieldset>
 
-                <fieldset class="fieldset-card p-6 sm:p-8">
+                <fieldset @disabled($encounterEPrescriptionRequestIdToSign !== null) class="fieldset-card p-6 sm:p-8">
                     <legend class="legend">{{ __('forms.authentication') }}</legend>
                     <div class="form-group group">
                         <label
@@ -290,10 +290,16 @@
                     </div>
                 @endif
 
+                @if ($encounterEPrescriptionRequestIdToSign !== null)
+                    <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                        {{ __('medication-requests.pending_signing_note') }}
+                    </p>
+                @endif
+
                 <div class="mt-8 flex w-full justify-start gap-4">
                     <a href="{{ $encounterReturnUrl }}" class="button-minor">{{ __('forms.cancel') }}</a>
                     <button type="submit" class="button-primary">
-                        {{ __('forms.create_and_sign') }}
+                        {{ $encounterEPrescriptionRequestIdToSign !== null ? __('medication-requests.resume_signing') : __('forms.create_and_sign') }}
                     </button>
                 </div>
             </form>

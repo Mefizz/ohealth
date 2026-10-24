@@ -26,6 +26,61 @@ class MedicationRequestFhirStorageTest extends TestCase
         return [$person, $native, app(MedicationRequestRepository::class)];
     }
 
+    public function test_signed_acknowledgement_survives_an_invalid_detail_and_retry_is_idempotent(): void
+    {
+        [$person, $native, $repository] = $this->fixture();
+        $request = $repository->importDetails($native, $person->id, MedicationRequestRequest::TYPE_REQUEST);
+        $mrId = (string) Str::uuid();
+        $repository->recordSigned($request, ['id' => $mrId, 'status' => 'ACTIVE']);
+        $this->assertSame('signed', $request->status);
+        $this->assertTrue($request->fhirMetadata['signedPrescriptionPending']);
+        $this->assertSame($mrId, $request->ehealthPayload['active_id']);
+        $this->assertArrayNotHasKey('signedPrescriptionPending', $repository->getResource($request));
+        $wrong = array_replace($native, ['id' => (string) Str::uuid(), 'status' => 'ACTIVE']);
+        try {
+            $repository->completeSignedPrescription($request, $wrong);
+            $this->fail('A different MR must be rejected.');
+        } catch (InvalidArgumentException) {
+            $this->assertSame('signed', $request->fresh()->status);
+            $this->assertTrue($request->fresh()->fhirMetadata['signedPrescriptionPending']);
+        }
+        $detail = array_replace($native, ['id' => $mrId, 'status' => 'ACTIVE']);
+        $repository->completeSignedPrescription($request, $detail);
+        $repository->completeSignedPrescription($request, $detail);
+        $prescription = MedicationRequestRequest::whereUuid($mrId)->firstOrFail();
+        $this->assertSame(1, $prescription->fhirVersion);
+        $this->assertSame(MedicationRequestRequest::TYPE_PRESCRIPTION, $prescription->resourceType);
+        $this->assertArrayNotHasKey('signedPrescriptionPending', $request->fhirMetadata);
+        $this->assertSame(2, MedicationRequestRequest::wherePersonId($person->id)->count());
+        $repository->saveStatus($prescription, 'rejected');
+        $repository->completeSignedPrescription($request, $detail);
+        $this->assertSame('rejected', $prescription->fresh()->status);
+    }
+
+    public function test_signed_import_failure_keeps_the_acknowledgement_and_patient_guard(): void
+    {
+        [$person, $native, $repository] = $this->fixture();
+        $request = $repository->importDetails($native, $person->id, MedicationRequestRequest::TYPE_REQUEST);
+        $mrId = (string) Str::uuid();
+        $repository->recordSigned($request, ['id' => $mrId, 'status' => 'ACTIVE']);
+        foreach (['patient', 'dosage'] as $failure) {
+            $detail = array_replace($native, ['id' => $mrId, 'status' => 'ACTIVE']);
+            if ($failure === 'patient') {
+                $detail['person']['id'] = (string) Str::uuid();
+            } else {
+                unset($detail['dosage_instruction']);
+            }
+            try {
+                $repository->completeSignedPrescription($request, $detail);
+                $this->fail('Incomplete or foreign details must fail.');
+            } catch (InvalidArgumentException) {
+                $this->assertSame('signed', $request->fresh()->status);
+                $this->assertTrue($request->fresh()->fhirMetadata['signedPrescriptionPending']);
+                $this->assertDatabaseMissing('medication_request_requests', ['uuid' => $mrId]);
+            }
+        }
+    }
+
     public function test_complete_detail_survives_normalized_storage_and_keeps_dosage_ids(): void
     {
         [$person, $native, $repository] = $this->fixture();

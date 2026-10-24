@@ -23,7 +23,7 @@ class MedicationRequestSignPayloadTest extends TestCase
 
     private function detail(): array
     {
-        return json_decode(file_get_contents(base_path('tests/Fixtures/medication-request-detail.json')), true, flags: JSON_THROW_ON_ERROR);
+        return json_decode(file_get_contents(base_path('tests/Fixtures/medication-request-sign-detail.json')), true, flags: JSON_THROW_ON_ERROR);
     }
 
     private function prepare(array $response, int $httpStatus = 200): array
@@ -36,7 +36,9 @@ class MedicationRequestSignPayloadTest extends TestCase
         Http::fake(['*' => Http::response(['data' => $response], $httpStatus)]);
         $factory = Http::getFacadeRoot();
         $api = new MedicationRequestApi($factory);
-        $api->stub((function () { return $this->stubCallbacks; })->call($factory));
+        $api->stub((function () {
+            return $this->stubCallbacks;
+        })->call($factory));
         $this->instance(MedicationRequestApi::class, $api);
 
         return [$encounter, $record];
@@ -54,14 +56,39 @@ class MedicationRequestSignPayloadTest extends TestCase
             && str_ends_with($request->url(), '/api/persons/'.$native['person']['id'].'/medication_request_requests/'.$native['id']));
     }
 
+    public function test_a_seed_returned_by_the_server_is_preserved_unchanged(): void
+    {
+        $native = array_replace($this->detail(), ['seed' => 'fresh-server-seed']);
+        [$encounter, $record] = $this->prepare($native);
+        $payload = (new ReflectionMethod(MedicationRequestLifecycleService::class, 'buildSignPayload'))
+            ->invoke(app(MedicationRequestLifecycleService::class), $encounter, $record, '');
+
+        $this->assertSame($native, $payload);
+    }
+
+    public function test_a_short_summary_with_valid_identity_and_seed_cannot_be_signed(): void
+    {
+        $native = $this->detail();
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(__('medication-requests.signing_details_incomplete'));
+        MedicationRequestApi::signableDetail([
+            'id' => $native['id'],
+            'person' => $native['person'],
+            'status' => 'NEW',
+            'seed' => 'fresh-server-seed',
+        ], $native['person']['id'], $native['id']);
+    }
+
     public static function invalidDetails(): array
     {
         return [
             'wrong identity' => ['id', '00000000-0000-4000-8000-000000000000'],
             'wrong patient' => ['person', ['id' => '00000000-0000-4000-8000-000000000000']],
             'not NEW' => ['status', 'SIGNED'],
-            'missing seed' => ['seed', null],
+            'invalid null seed' => ['seed', null],
             'empty seed' => ['seed', ''],
+            'missing medication details' => ['medication_info', []],
+            'missing dosage' => ['dosage_instruction', []],
         ];
     }
 

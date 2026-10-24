@@ -298,6 +298,13 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         $finalResponse = $this->jobResolver->resolve($response);
         $result = MedicationRequestApi::mutationResult($finalResponse, ['ACTIVE']);
         app(MedicationRequestRepository::class)->recordSigned($requestRecord, $result);
+        try {
+            $this->synchronizeSignedPrescription($requestRecord);
+        } catch (Throwable $exception) {
+            // ESOZ already accepted the signature. Preserve it and expose a read-only retry.
+            Log::warning('Signed prescription detail import is pending', ['exceptionType' => $exception::class]);
+            $result['warning_message'] = __('medication-requests.signed_details_pending');
+        }
 
         $requestNumber = (string) (
             $result['request_number']
@@ -324,7 +331,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         $medicationQty = (float) ($requestRecord->medicationQty ?? 0);
         if ($this->shouldWarnRemainingQty($remainingQty, $medicationQty)) {
             $unit = (string) ($formData['medication_unit'] ?? 'од.');
-            $result['warning_message'] = $this->buildRemainingQtyWarningMessage($remainingQty, $unit);
+            $result['warning_message'] = trim(($result['warning_message'] ?? '').' '.$this->buildRemainingQtyWarningMessage($remainingQty, $unit));
             $result['show_remaining_qty_warning'] = true;
         }
 
@@ -423,6 +430,18 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
     /**
      * @return array<string, mixed>
      */
+    public function synchronizeSignedPrescription(MedicationRequestRequest $request): void
+    {
+        $repository = app(MedicationRequestRepository::class);
+        $personUuid = $repository->personUuid((int) $request->personId);
+        $activeId = data_get($request->ehealthPayload, 'active_id');
+        if ($request->status !== MedicationRequestStatus::SIGNED->value || !Str::isUuid($activeId ?? '')) {
+            throw new InvalidArgumentException('Only a confirmed signed request can be synchronized.');
+        }
+        $detail = $this->unwrapMedicationRequestData(MedicationRequest::getById($personUuid, $activeId));
+        $repository->completeSignedPrescription($request, $detail);
+    }
+
     protected function fetchActiveMedicationRequest(string $personUuid, string $activeId): array
     {
         try {
@@ -484,7 +503,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
      *
      * @return array<string, mixed>
      */
-    protected function buildSignPayload(CarePlan|Encounter $contextModel, MedicationRequestRequest $requestRecord, string $informWith): array
+    public function buildSignPayload(CarePlan|Encounter $contextModel, MedicationRequestRequest $requestRecord, string $informWith): array
     {
         $personId = $contextModel instanceof CarePlan ? (int) $contextModel->personId : (int) $contextModel->person_id;
         if ($personId !== (int) $requestRecord->personId || $requestRecord->resourceType !== MedicationRequestRequest::TYPE_REQUEST) {

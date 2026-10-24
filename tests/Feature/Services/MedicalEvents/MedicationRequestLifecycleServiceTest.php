@@ -407,6 +407,46 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         $this->assertSame($this->encounter->id, $eligible->first()->id);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('localCalendarDays')]
+    public function test_eligible_encounters_use_utc_bounds_of_the_configured_local_day(
+        string $timezone,
+        string $localNow,
+        string $startUtc,
+        string $lastUtc,
+        string $nextStartUtc
+    ): void {
+        config(['app.timezone' => $timezone]);
+        $this->travelTo(\Carbon\Carbon::parse($localNow, $timezone));
+        $performer = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $this->employee->uuid]);
+        $this->encounter->update(['performer_id' => $performer->id]);
+        $period = $this->encounter->period()->create(['start' => $startUtc, 'end' => $startUtc]);
+        $repository = app(\App\Repositories\MedicalEvents\MedicationRequestRepository::class);
+
+        $this->assertTrue($repository->eligibleEncounters($this->person->id, $this->employee->uuid)
+            ->contains('id', $this->encounter->id));
+        $period->update(['end' => $lastUtc]);
+        $this->assertTrue($repository->eligibleEncounters($this->person->id, $this->employee->uuid)
+            ->contains('id', $this->encounter->id));
+        $period->update(['end' => $nextStartUtc]);
+        $this->assertFalse($repository->eligibleEncounters($this->person->id, $this->employee->uuid)
+            ->contains('id', $this->encounter->id));
+        $period->update(['end' => \Carbon\CarbonImmutable::parse($startUtc, 'UTC')->subSecond()->format('Y-m-d H:i:s')]);
+        $this->assertFalse($repository->eligibleEncounters($this->person->id, $this->employee->uuid)
+            ->contains('id', $this->encounter->id));
+    }
+
+    public static function localCalendarDays(): array
+    {
+        return [
+            'Kyiv after midnight' => ['Europe/Kyiv', '2026-10-24 00:42:00', '2026-10-23 21:00:00', '2026-10-24 20:59:59', '2026-10-24 21:00:00'],
+            'Kyiv spring DST 23 hours' => ['Europe/Kyiv', '2026-03-29 12:00:00', '2026-03-28 22:00:00', '2026-03-29 20:59:59', '2026-03-29 21:00:00'],
+            'Kyiv autumn DST 25 hours' => ['Europe/Kyiv', '2026-10-25 12:00:00', '2026-10-24 21:00:00', '2026-10-25 21:59:59', '2026-10-25 22:00:00'],
+            'Berlin' => ['Europe/Berlin', '2026-10-24 00:42:00', '2026-10-23 22:00:00', '2026-10-24 21:59:59', '2026-10-24 22:00:00'],
+            'New York negative offset' => ['America/New_York', '2026-10-24 00:42:00', '2026-10-24 04:00:00', '2026-10-25 03:59:59', '2026-10-25 04:00:00'],
+            'UTC' => ['UTC', '2026-10-24 00:42:00', '2026-10-24 00:00:00', '2026-10-24 23:59:59', '2026-10-25 00:00:00'],
+        ];
+    }
+
     public function test_create_draft_requires_selected_eligible_encounter(): void
     {
         $performer = \App\Models\MedicalEvents\Sql\Identifier::create([
@@ -629,8 +669,13 @@ class MedicationRequestLifecycleServiceTest extends TestCase
         ]);
 
         $mockApi = Mockery::mock('alias:' . \App\Classes\eHealth\Api\MedicationRequest::class);
-        $mockApi->shouldReceive('getRequestById')->once()->with($this->person->uuid, $requestRecord->uuid)->andReturn(['id' => $requestRecord->uuid, 'person' => ['id' => $this->person->uuid], 'status' => 'NEW', 'seed' => 'fresh-server-seed']);
+        $mockApi->shouldReceive('getRequestById')->once()->with($this->person->uuid, $requestRecord->uuid)->andReturn(array_replace(json_decode(file_get_contents(base_path('tests/Fixtures/medication-request-sign-detail.json')), true), ['id' => $requestRecord->uuid, 'person' => ['id' => $this->person->uuid]]));
         $activeUuid = (string) Str::uuid();
+        $detail = json_decode(file_get_contents(base_path('tests/Fixtures/medication-request-detail.json')), true);
+        $detail['id'] = $activeUuid;
+        $detail['status'] = 'ACTIVE';
+        $detail['person']['id'] = $this->person->uuid;
+        $mockApi->shouldReceive('getById')->once()->with($this->person->uuid, $activeUuid)->andReturn($detail);
         $mockApi->shouldReceive('signMedicationRequest')
             ->once()
             ->andReturn([

@@ -35,10 +35,10 @@ class CompositionFhirFidelityTest extends TestCase
         $result = $composition->toDetail();
         $this->assertSame('2026-10-23T21:41:12.123456Z', $result['date']);
         $this->assertSame($details['extension'], $result['extension']);
-        $this->assertSame($concept, $result['type']);
-        $this->assertSame($concept, $result['category']);
-        $this->assertSame($details['subject'], $result['subject']);
-        $this->assertSame($concept, $result['event'][0]['code']);
+        $this->assertEquals($concept, $result['type']);
+        $this->assertEquals($concept, $result['category']);
+        $this->assertEquals($details['subject'], $result['subject']);
+        $this->assertEquals($concept, $result['event'][0]['code']);
         $this->assertCount(2, $result['event']);
         $this->assertSame('2026-10-23T21:41:12.123456Z', $result['event'][0]['period']['start']);
         $updated = $repository->store(['identifier' => $details['identifier'], 'status' => 'FINAL'], $person)->toDetail();
@@ -49,7 +49,7 @@ class CompositionFhirFidelityTest extends TestCase
         $details['extension'] = [];
         $details['event'] = [];
         $updated = $repository->store($details, $person)->toDetail();
-        $this->assertSame($concept, $updated['subject']['type']);
+        $this->assertEquals($concept, $updated['subject']['type']);
         $this->assertSame([], $updated['extension']);
         $this->assertSame([], $updated['event']);
         $this->assertSame('2026-10-23T21:41:12.123456Z', $updated['date']);

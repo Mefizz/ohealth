@@ -734,7 +734,7 @@ class ReferralLifecycleTest extends TestCase
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
         $draftUuid = (string) Str::uuid();
-        $this->createCanonicalReferral([
+        $this->createReferralDraft([
             'uuid' => $draftUuid, 'employee_id' => $this->employee->id,
             'person_id' => $this->person->id, 'status' => 'draft',
             'service_id' => '59300-00', 'quantity' => 1.0,
@@ -787,7 +787,7 @@ class ReferralLifecycleTest extends TestCase
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
         $draftUuid = (string) Str::uuid();
-        $this->createCanonicalReferral([
+        $this->createReferralDraft([
             'uuid' => $draftUuid, 'employee_id' => $this->employee->id,
             'person_id' => $this->person->id, 'status' => 'draft',
             'service_id' => '59300-00', 'quantity' => 1.0,
@@ -1419,5 +1419,17 @@ class ReferralLifecycleTest extends TestCase
             'uuid' => $activityUuid,
             'status' => 'scheduled',
         ]);
+    }
+
+    private function createReferralDraft(array $data): \App\Models\MedicalEvents\Sql\ServiceRequestRequest
+    {
+        foreach (['based_on_id' => 'based_on_uuid', 'context_id' => 'context_uuid'] as $column => $field) {
+            if (isset($data[$column])) {
+                $data[$field] = Identifier::findOrFail($data[$column])->value;
+            }
+        }
+        $id = Repository::serviceRequest()->store($data, $data['person_id']);
+
+        return \App\Models\MedicalEvents\Sql\ServiceRequestRequest::findOrFail($id);
     }
 }

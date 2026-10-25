@@ -5,14 +5,14 @@
 ## Бази та залежності
 
 - Поточна база реалізації: company main `b43c425ecc53738460e8e3c27fcef52952f6decf`.
-- Гілка інкрементів: `i841_symfony_mapper_refresh`.
+- Основна гілка рефактору: `i841_object_mapper_service_request`; основний draft — company [#898](https://github.com/openhealths/nationHealth/pull/898), head `Mefizz/ohealth`. Окремі Composition/PaperReferral та CarePlan інкременти зведено в цей PR.
 - Окремий перевірений snapshot очікуваного FHIR-стеку: `i1008_clinical_fhir_uat` на `979e534727111629ca5d952ab8aba86627b9a74d`.
 - Порядок основних delivery-залежностей із актуального аудиту: [#1022](https://github.com/openhealths/nationHealth/pull/1022) → [#998](https://github.com/openhealths/nationHealth/pull/998) → [#1006](https://github.com/openhealths/nationHealth/pull/1006) → [#1011](https://github.com/openhealths/nationHealth/pull/1011) → [#1042](https://github.com/openhealths/nationHealth/pull/1042).
 - Device PR [#1016](https://github.com/openhealths/nationHealth/pull/1016), [#1030](https://github.com/openhealths/nationHealth/pull/1030), [#1031](https://github.com/openhealths/nationHealth/pull/1031) — окремі залежності. Їх не вважаємо автоматично включеними до комбінованого snapshot.
 
 Опубліковані гілки аудиту — джерело цільових контрактів та регресій, але ще не доказ злиття чи остаточного схвалення. Перед кожним інкрементом повторно читаємо відповідний PR/аудит, фіксуємо SHA та перевіряємо його власний diff. Незакомічені UAT-правки не копіюємо як готову базу.
 
-Старий [draft #898](https://github.com/openhealths/nationHealth/pull/898) і результати на його старій базі зберігаються як історичні напрацювання. Його DTO, fallback signing і flat persistence не переносимо без звірки з новими канонічними ресурсами. Старий успішний прогін не є тестовим результатом цієї гілки.
+На прохання автора продовжуємо саме наявний draft #898. Повний попередній рефактор збережено, перебазовано на main, а перевірені Composition/PaperReferral і canonical CarePlan інкременти інтегровано до тієї самої head-гілки. Перед перебазуванням збережено окремі snapshots локального та опублікованого стану. Старі успішні прогони не є доказом сумісності консолідованої гілки. Зміни CarePlan поки включають незлиті передумови #1022/#998: після їхнього merge потрібна повторна актуалізація diff.
 
 ## Що змінюється в архітектурі
 
@@ -105,7 +105,7 @@ Approval queue/poll/OTP/read/inpatient flows і pharmacy qualify/process/signing
 
 Після завершення кожного вертикального сценарію видаляти лише його класи без callers, imports/bindings і динамічних викликів. Encounter package orchestration читається у компонентах/protected concerns; Fhir facade/helper/contract видаляються після останнього споживача.
 
-Кінцева ціль — відсутність прикладних `Services/MedicalEvents` і legacy-маперів. У поточній main-базі до інкрементів було 42 PHP-файли та 17 маперів; після PaperReferral — 41 і 16. Весь сервісний шар зараз не вважається видаленим. Signature/Dictionary infrastructure та інші немедичні модулі не включаємо механічно.
+Кінцева ціль — відсутність прикладних `Services/MedicalEvents` і legacy-маперів. Під час консолідації збережено поточні DeviceRequest prescribing service/mapper та CarePlan approval/gate/quantity helpers з main/аудиту: старий рефактор ще не покриває їхні нові контракти. Повернення старого DeviceRequest stub заради видалення сервісів неприпустиме. Signature/Dictionary infrastructure та інші немедичні модулі не включаємо механічно.
 
 ## Правило приймання та оновлення
 

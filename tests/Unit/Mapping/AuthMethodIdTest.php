@@ -46,7 +46,7 @@ class AuthMethodIdTest extends TestCase
     }
     private function formValue(array $method): string
     {
-        $component = new \App\Livewire\EncounterPackage\EncounterEdit();
+        $component = new \App\Livewire\EncounterPackage\EncounterPackageEdit();
 
         return (new \ReflectionMethod($component, 'authenticationMethodFormValue'))->invoke($component, $method);
     }

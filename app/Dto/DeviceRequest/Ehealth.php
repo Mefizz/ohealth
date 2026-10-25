@@ -91,8 +91,7 @@ class Ehealth
 
     public static function mapAuthoredOn(CarbonImmutable $now): string
     {
-        // Preserve the signing clock-skew allowance; the caller owns the clock.
-        return $now->utc()->subSeconds(30)->format('Y-m-d\TH:i:s.000\Z');
+        return $now->utc()->format('Y-m-d\TH:i:s.000\Z');
     }
 
     public static function hasActivity(?string $value, stdClass $source): bool

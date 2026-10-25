@@ -6,7 +6,7 @@ namespace Tests\Unit\Classes\EHealth\Api;
 
 use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
 use App\Classes\eHealth\EHealthResponse;
-use App\Classes\eHealth\Api\Job;
+use App\Services\MedicalEvents\EHealthJobResolver;
 use Mockery;
 use Tests\TestCase;
 
@@ -24,7 +24,7 @@ class CarePlanResolvedWritesTest extends TestCase
 
         $this->bindResolver(['job_id' => 'job-1'], ['id' => 'care-plan-uuid', 'status' => 'new']);
 
-        $result = app(CarePlanApi::class)->createSignedAndResolve('person-uuid', 'signed');
+        $result = app(CarePlanApi::class)->submitSignedCreate('person-uuid', 'signed');
 
         $this->assertSame('care-plan-uuid', $result['id']);
         $this->assertSame('new', $result['status']);
@@ -73,8 +73,8 @@ class CarePlanResolvedWritesTest extends TestCase
      */
     private function bindResolver(array $envelope, array $resolved): void
     {
-        $resolver = Mockery::mock(Job::class);
+        $resolver = Mockery::mock(EHealthJobResolver::class);
         $resolver->shouldReceive('resolve')->once()->with($envelope)->andReturn($resolved);
-        $this->app->instance(Job::class, $resolver);
+        $this->app->instance(EHealthJobResolver::class, $resolver);
     }
 }

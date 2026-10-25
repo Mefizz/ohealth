@@ -527,7 +527,8 @@
                         "system": "SERVICE_UNIT",
                         "code": "PIECE"
                     }
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",
@@ -718,7 +719,8 @@
                             "value": "10000000-0000-4000-8000-000000000005"
                         }
                     }
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",
@@ -886,7 +888,8 @@
                             "value": "10000000-0000-4000-8000-000000000003"
                         }
                     }
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",
@@ -1042,7 +1045,8 @@
                         }
                     },
                     "supporting_info": []
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",
@@ -1232,7 +1236,8 @@
                     "inform_with": {
                         "auth_method_id": "50000000-0000-4000-8000-000000000001"
                     }
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",
@@ -1436,7 +1441,8 @@
                         "start": "2026-10-01T09:30:00.000Z",
                         "end": "2027-01-01T20:59:59.000Z"
                     }
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",
@@ -1635,7 +1641,8 @@
                             "value": "10000000-0000-4000-8000-000000000004"
                         }
                     }
-                }
+                },
+                "programs": []
             },
             "signedCreate": {
                 "status": "active",

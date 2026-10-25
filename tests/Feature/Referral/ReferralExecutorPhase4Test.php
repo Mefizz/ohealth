@@ -139,7 +139,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $api->shouldReceive('process')->once()->ordered()->andReturn($this->remoteResponse(['status' => 'active']));
         $this->instance(ServiceRequestApi::class, $api);
 
-        app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
+        app(\Tests\Support\ReferralExecutionHarness::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
 
         $this->assertSame('in_progress', $record->fresh()->status);
     }
@@ -156,7 +156,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $api->shouldNotReceive('qualify', 'process');
         $this->instance(ServiceRequestApi::class, $api);
 
-        $result = app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
+        $result = app(\Tests\Support\ReferralExecutionHarness::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
 
         $this->assertSame($remote, $result);
         $this->assertSame('in_progress', $record->fresh()->status);
@@ -178,7 +178,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $this->instance(ServiceRequestApi::class, $api);
 
         $this->expectExceptionMessage('Reuse is temporarily blocked');
-        app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
+        app(\Tests\Support\ReferralExecutionHarness::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
     }
 
     public function test_terminal_remote_referral_is_rejected_before_any_mutation(): void
@@ -192,7 +192,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $this->instance(ServiceRequestApi::class, $api);
 
         $this->expectExceptionMessage('Направлення недоступне для взяття в роботу.');
-        app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
+        app(\Tests\Support\ReferralExecutionHarness::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
     }
 
     public function test_remote_patient_mismatch_is_rejected_before_any_mutation(): void
@@ -206,7 +206,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $this->instance(ServiceRequestApi::class, $api);
 
         $this->expectException(\InvalidArgumentException::class);
-        app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
+        app(\Tests\Support\ReferralExecutionHarness::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
     }
 
     public function test_local_patient_mismatch_does_not_even_fetch_remote_referral(): void
@@ -215,7 +215,7 @@ class ReferralExecutorPhase4Test extends TestCase
         app(PatientServiceRequestApi::class)->shouldNotReceive('getById');
 
         $this->expectException(\InvalidArgumentException::class);
-        app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, (string) Str::uuid());
+        app(\Tests\Support\ReferralExecutionHarness::class)->takeIntoWork($record->uuid, $this->employee, (string) Str::uuid());
     }
 
     private function createActiveReferral(): ServiceRequestRequest
@@ -252,11 +252,10 @@ class ReferralExecutorPhase4Test extends TestCase
                 'used_by_legal_entity' => ['identifier' => ['value' => $this->legalEntity->uuid]],
             ])),
         );
-        $lifecycle = app(ReferralRequestLifecycleService::class);
 
-        $component->selectElectronicReferral($record->uuid, $lifecycle);
+        $component->selectElectronicReferral($record->uuid);
         $this->assertSame($record->uuid, $component->confirmedElectronicReferralUuid);
-        $component->selectElectronicReferral($record->uuid, $lifecycle);
+        $component->selectElectronicReferral($record->uuid);
         $this->assertSame($record->uuid, $component->confirmedElectronicReferralUuid);
 
         $validated = ['encounter' => ['referralType' => 'electronic', 'referralNumber' => $record->uuid]];
@@ -272,12 +271,10 @@ class ReferralExecutorPhase4Test extends TestCase
         $record = $this->createActiveReferral();
         $component = $this->encounterCreateComponent($record);
         $component->confirmedElectronicReferralUuid = $record->uuid;
-        $lifecycle = Mockery::mock(ReferralRequestLifecycleService::class);
-        $lifecycle->shouldNotReceive('takeIntoWork');
         app(PatientServiceRequestApi::class)->shouldNotReceive('getById');
 
         try {
-            $component->selectElectronicReferral($record->uuid, $lifecycle);
+            $component->selectElectronicReferral($record->uuid);
             $this->fail('Referral selection must be denied by the policy before preparation.');
         } catch (AuthorizationException $exception) {
             $this->assertSame(404, $exception->status());
@@ -316,9 +313,8 @@ class ReferralExecutorPhase4Test extends TestCase
         app(PatientServiceRequestApi::class)->shouldReceive('getById')->once()
             ->with($this->person->uuid, $record->uuid)
             ->andReturn($this->remoteResponse($this->remoteReferral($record)));
-        $lifecycle = app(ReferralRequestLifecycleService::class);
 
-        $component->selectElectronicReferral($record->uuid, $lifecycle);
+        $component->selectElectronicReferral($record->uuid);
         $this->assertSame($record->uuid, $component->confirmedElectronicReferralUuid);
         $this->assertSame('in_progress', $record->fresh()->status);
 
@@ -349,7 +345,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $this->instance(ServiceRequestApi::class, $api);
         app(PatientServiceRequestApi::class)->shouldNotReceive('getById');
 
-        $component->redeemReferral(app(ReferralRequestLifecycleService::class));
+        $component->redeemReferral();
 
         $this->assertFalse($component->showReferralRedeemModal);
         $this->assertSame('active', $record->fresh()->status);
@@ -362,10 +358,10 @@ class ReferralExecutorPhase4Test extends TestCase
         $record = $this->createActiveReferral();
         $component = $this->encounterCreateComponent($record);
         $component->confirmedElectronicReferralUuid = (string) Str::uuid();
-        $lifecycle = Mockery::mock(ReferralRequestLifecycleService::class);
-        $lifecycle->shouldReceive('takeIntoWork')->once()->andThrow(new \RuntimeException('Not allowed'));
+        app(PatientServiceRequestApi::class)->shouldReceive('getById')->once()
+            ->andThrow(new \RuntimeException('Not allowed'));
 
-        $component->selectElectronicReferral($record->uuid, $lifecycle);
+        $component->selectElectronicReferral($record->uuid);
 
         $this->assertNull($component->confirmedElectronicReferralUuid);
         $this->assertNull($component->selectedReferralUuid);
@@ -558,6 +554,14 @@ class ReferralExecutorPhase4Test extends TestCase
     public function test_search_referral_import_preserves_zero_quantity_and_resolved_author(): void
     {
         $uuid = (string) Str::uuid();
+        $patientApi = Mockery::mock(PatientServiceRequestApi::class)->makePartial();
+        $patientApi->shouldReceive('getById')->once()->with($this->person->uuid, $uuid)
+            ->andReturn($this->remoteResponse([
+                'id' => $uuid, 'status' => 'active', 'program_processing_status' => 'new',
+                'subject' => ['identifier' => ['value' => $this->person->uuid]],
+            ]));
+        $this->instance(PatientServiceRequestApi::class, $patientApi);
+
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn(['data' => [
             'requisition' => 'SR-USE-1', 'code' => ['coding' => [['code' => '59300-00']]],

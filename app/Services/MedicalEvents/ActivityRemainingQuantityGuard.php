@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Models\CarePlanActivity;
-use App\Repositories\MedicalEvents\MedicalEventsRequestStatuses;
+use App\Enums\MedicalEvents\RequestQuantityStatus;
 
 /**
  * Serialises remaining-quantity checks so two Livewire tabs cannot both issue
@@ -25,9 +25,6 @@ final class ActivityRemainingQuantityGuard
      */
     public static function occupyingStatusesExcluded(): array
     {
-        return array_values(array_filter(
-            MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM,
-            static fn (string $status): bool => !in_array(strtolower($status), ['draft', 'new'], true)
-        ));
+        return RequestQuantityStatus::excluded(reserveDrafts: true);
     }
 }

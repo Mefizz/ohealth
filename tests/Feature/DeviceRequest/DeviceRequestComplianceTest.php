@@ -304,7 +304,8 @@ class DeviceRequestComplianceTest extends TestCase
     public function test_yesterdays_encounter_cannot_be_selected(): void
     {
         $employee = new Employee(['uuid' => (string) Str::uuid()]);
-        $encounter = $this->encounter($employee->uuid, now()->subDay()->toIso8601String());
+        // Keep the previous day away from UTC/local midnight and the DST boundary.
+        $encounter = $this->encounter($employee->uuid, now()->subDay()->setTime(12, 0)->toIso8601String());
         $this->expectException(ValidationException::class);
         app(DeviceRequestLifecycleService::class)->encounter($this->person, $employee, $encounter->uuid);
     }

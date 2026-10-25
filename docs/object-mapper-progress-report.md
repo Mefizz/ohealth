@@ -1,5 +1,8 @@
 # Symfony ObjectMapper: стан #841 на 25.10.2026
 
+> Актуалізація 25.10.2026: роботу зведено в наявний company draft [#898](https://github.com/openhealths/nationHealth/pull/898), гілка `Mefizz:i841_object_mapper_service_request`, база main `b43c425e`. Нижче наведені історичні результати окремих інкрементів; вони не є результатами поточної консолідації. Поточний стан і відкриті перевірки — у [pr898-consolidation.md](pr898-consolidation.md).
+
+
 Рефактор оновлено від main `b43c425ecc53738460e8e3c27fcef52952f6decf`. Поточний інкремент переносить Composition та PaperReferral у DTO за патерном Division/HealthcareService. Він не містить повторної копії FHIR-стеку з аудиту й не означає завершення міграції всіх медичних сервісів.
 
 ## Реалізовано

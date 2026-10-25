@@ -98,9 +98,17 @@ class ReferralControllerProcessCancelUsageTest extends TestCase
         $patientUuid = (string) Str::uuid();
 
         $repository = app(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class);
+        $remote = [
+            'id' => $referralUuid, 'status' => 'active',
+            'subject' => ['identifier' => ['value' => $patientUuid]],
+        ];
+        $repository->shouldReceive('executionContext')->once()->with($referralUuid, $patientUuid)
+            ->andReturn(['patientUuid' => $patientUuid, 'programId' => null]);
         $repository->shouldReceive('persistExecution')->once()
-            ->with($referralUuid, Mockery::on(fn (Employee $employee): bool => $employee->id === $this->employee->id), $patientUuid, null, ['status' => 'in_progress']);
+            ->with($referralUuid, Mockery::on(fn (Employee $employee): bool => $employee->id === $this->employee->id), $patientUuid, null, array_replace($remote, ['status' => 'in_progress']));
         $mock = Mockery::mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class);
+        $mock->shouldReceive('getById')->once()->with($patientUuid, $referralUuid)
+            ->andReturn(new \App\Classes\eHealth\EHealthResponse(new \GuzzleHttp\Psr7\Response(200, [], json_encode(['data' => $remote]))));
         $mock->shouldReceive('processAndResolve')
             ->once()
             ->withArgs(function (string $uuid, array $payload) use ($referralUuid): bool {

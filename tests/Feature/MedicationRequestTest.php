@@ -94,9 +94,9 @@ class MedicationRequestTest extends TestCase
         ]);
         $this->bindFakedMedicationRequestClient();
 
-        $result = app(MedicationRequestLifecycleService::class)->preQualify([
+        $result = app(MedicationRequestApi::class)->prequalify([
             'person_id' => 'patient-123',
-        ]);
+        ])->getData();
 
         $this->assertSame('valid', $result[0]['status']);
         Http::assertSent(static function (Request $request): bool {

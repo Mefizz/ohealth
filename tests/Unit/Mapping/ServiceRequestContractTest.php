@@ -69,7 +69,9 @@ class ServiceRequestContractTest extends TestCase
         $data['location_reference'] = $division;
         $data['performer_type'] = 'THERAPIST';
 
-        $payload = (new ServiceRequestMapper())->toCreateSignedContent($data, $this->uuids());
+        $payload = app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
+            $data, $this->uuids(), CarbonImmutable::now()
+        ), ServiceRequestCreateData::class)->toArray();
 
         $this->assertSame($performer, $payload['performer']['identifier']['value']);
         $this->assertSame('legal_entity', $payload['performer']['identifier']['type']['coding'][0]['code']);
@@ -83,7 +85,9 @@ class ServiceRequestContractTest extends TestCase
         $diagnostic['location_reference'] = $division;
         $diagnostic['performer_type'] = 'THERAPIST';
 
-        $plain = (new ServiceRequestMapper())->toCreateSignedContent($diagnostic, $this->uuids());
+        $plain = app(ObjectMapperInterface::class)->map(ServiceRequestInput::fromArray(
+            $diagnostic, $this->uuids(), CarbonImmutable::now()
+        ), ServiceRequestCreateData::class)->toArray();
 
         $this->assertArrayNotHasKey('performer', $plain);
         $this->assertArrayNotHasKey('location_reference', $plain);

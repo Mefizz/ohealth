@@ -1000,7 +1000,7 @@ class CarePlanLifecycleTest extends TestCase
 
         $devicesById = collect($devices)->keyBy('id');
 
-        $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($response, $devicesById): void {
+        $this->partialMock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($response, $devicesById): void {
             $mock->shouldReceive('getMany')->andReturn($response);
             $mock->shouldReceive('getById')->andReturnUsing(function (string $id) use ($devicesById) {
                 $device = $devicesById->get($id);
@@ -1106,7 +1106,7 @@ class CarePlanLifecycleTest extends TestCase
             ]))
         );
 
-        $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($catalogResponse, $byIdResponse, $targetId): void {
+        $this->partialMock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($catalogResponse, $byIdResponse, $targetId): void {
             $mock->shouldReceive('getMany')->andReturn($catalogResponse);
             $mock->shouldReceive('getById')->with($targetId)->andReturn($byIdResponse);
         });
@@ -1167,7 +1167,7 @@ class CarePlanLifecycleTest extends TestCase
             ]))
         );
 
-        $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($response): void {
+        $this->partialMock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($response): void {
             $mock->shouldReceive('getMany')->andReturn($response);
             $mock->shouldReceive('getById')->andReturn($response);
         });
@@ -1229,7 +1229,7 @@ class CarePlanLifecycleTest extends TestCase
             ]))
         );
 
-        $this->mock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($emptyCatalog, $byIdResponse, $targetId): void {
+        $this->partialMock(\App\Classes\eHealth\Api\DeviceDefinition::class, function ($mock) use ($emptyCatalog, $byIdResponse, $targetId): void {
             $mock->shouldReceive('getMany')->andReturn($emptyCatalog);
             $mock->shouldReceive('getById')->with($targetId)->andReturn($byIdResponse);
         });

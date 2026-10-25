@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Mapping;
 
+use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;

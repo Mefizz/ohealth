@@ -44,4 +44,40 @@ class ClinicalImpressionMappingTest extends TestCase
             yield $name => [$input, $expected[$name]];
         }
     }
+
+    public function test_date_time_excludes_period_and_hydrates_the_form_fields(): void
+    {
+        config(['app.timezone' => 'Europe/Kyiv', 'app.date_format' => 'd.m.Y']);
+        date_default_timezone_set('Europe/Kyiv');
+        $mapper = app(ObjectMapperInterface::class);
+        $payload = $mapper->map(new FormCollection([
+            'codeCode' => 'consultation', 'effectiveType' => 'date_time',
+            'effectiveDate' => '05.10.2026', 'effectiveTime' => '10:00',
+            'effectivePeriodStartDate' => '01.10.2026', 'effectivePeriodStartTime' => '09:00',
+        ]), new Ehealth('impression', 'encounter', 'employee'))->toArray();
+
+        $this->assertSame('2026-10-05T07:00:00Z', $payload['effective_date_time']);
+        $this->assertArrayNotHasKey('effective_period', $payload);
+        $form = $mapper->map(new Collection([
+            'effectiveDateTime' => '2026-10-05T07:00:00Z',
+            'effectiveDate' => '05.10.2026', 'effectiveTime' => '10:00',
+        ]), Form::class)->toArray();
+        $this->assertSame('date_time', $form['effectiveType']);
+        $this->assertSame('05.10.2026', $form['effectiveDate']);
+        $this->assertSame('10:00', $form['effectiveTime']);
+    }
+
+    public function test_open_period_omits_the_end_instead_of_synthesizing_a_timestamp(): void
+    {
+        config(['app.timezone' => 'Europe/Kyiv', 'app.date_format' => 'd.m.Y']);
+        date_default_timezone_set('Europe/Kyiv');
+        $payload = app(ObjectMapperInterface::class)->map(new FormCollection([
+            'codeCode' => 'consultation', 'effectiveType' => 'period',
+            'effectivePeriodStartDate' => '05.10.2026', 'effectivePeriodStartTime' => '10:00',
+            'effectivePeriodEndDate' => '', 'effectivePeriodEndTime' => '',
+        ]), new Ehealth('impression', 'encounter', 'employee'))->toArray();
+
+        $this->assertSame(['start' => '2026-10-05T07:00:00Z'], $payload['effective_period']);
+        $this->assertArrayNotHasKey('effective_date_time', $payload);
+    }
 }

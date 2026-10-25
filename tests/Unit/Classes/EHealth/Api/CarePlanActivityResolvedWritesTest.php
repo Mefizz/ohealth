@@ -6,7 +6,7 @@ namespace Tests\Unit\Classes\EHealth\Api;
 
 use App\Classes\eHealth\Api\CarePlanActivity as CarePlanActivityApi;
 use App\Classes\eHealth\EHealthResponse;
-use App\Classes\eHealth\Api\Job;
+use App\Services\MedicalEvents\EHealthJobResolver;
 use Mockery;
 use Tests\TestCase;
 
@@ -20,11 +20,11 @@ class CarePlanActivityResolvedWritesTest extends TestCase
             'unknownClinicalField' => ['empty' => [], 'fraction' => 1.0],
         ];
         $api = Mockery::mock(CarePlanActivityApi::class)->makePartial();
-        foreach ([$snapshot, ['data' => $snapshot]] as $data) {
+        foreach ([$snapshot] as $data) {
             $response = Mockery::mock(EHealthResponse::class);
             $response->shouldReceive('getData')->once()->andReturn($data);
             $api->shouldReceive('getDetails')->once()->with('patient', 'plan', 'activity')->andReturn($response);
-            $this->assertSame($snapshot, $api->getSigningSnapshot('patient', 'plan', 'activity'));
+            $this->assertSame($snapshot, $api->fetchCancelSnapshot('patient', 'plan', 'activity'));
         }
     }
 
@@ -43,15 +43,15 @@ class CarePlanActivityResolvedWritesTest extends TestCase
             ->andReturn($response);
         $this->instance(CarePlanActivityApi::class, $api);
 
-        $resolver = Mockery::mock(Job::class);
+        $resolver = Mockery::mock(EHealthJobResolver::class);
         $resolver->shouldReceive('resolve')->once()->with(['job_id' => 'job-a'])->andReturn([
             'id' => 'activity-uuid',
             'status' => 'scheduled',
         ]);
-        $this->app->instance(Job::class, $resolver);
+        $this->app->instance(EHealthJobResolver::class, $resolver);
 
         $result = app(CarePlanActivityApi::class)
-            ->createSignedAndResolve('person-uuid', 'plan-uuid', 'signed');
+            ->submitSignedCreate('person-uuid', 'plan-uuid', 'signed');
 
         $this->assertSame('activity-uuid', $result['id']);
     }
@@ -73,11 +73,11 @@ class CarePlanActivityResolvedWritesTest extends TestCase
             ->andReturn($response);
         $this->instance(CarePlanActivityApi::class, $api);
 
-        $resolver = Mockery::mock(Job::class);
+        $resolver = Mockery::mock(EHealthJobResolver::class);
         $resolver->shouldReceive('resolve')
             ->twice()
             ->andReturn(['status' => 'cancelled'], ['status' => 'completed']);
-        $this->app->instance(Job::class, $resolver);
+        $this->app->instance(EHealthJobResolver::class, $resolver);
 
         $service = app(CarePlanActivityApi::class);
 

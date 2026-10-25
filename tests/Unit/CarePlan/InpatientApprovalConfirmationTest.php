@@ -19,7 +19,7 @@ class InpatientApprovalConfirmationTest extends TestCase
     public function test_failed_confirmation_does_not_flash_success_or_refresh_as_granted(): void
     {
         $service = Mockery::mock(ApprovalApi::class);
-        $service->shouldReceive('confirmWithoutOtp')->once()->with('patient', 'approval')
+        $service->shouldReceive('verify')->once()->with('patient', 'approval', [])
             ->andThrow(new RuntimeException('API unavailable'));
         $this->instance(ApprovalApi::class, $service);
         $component = new InpatientApprovalHarness();
@@ -36,7 +36,7 @@ class InpatientApprovalConfirmationTest extends TestCase
     public function test_unsuccessful_response_does_not_flash_success(): void
     {
         $service = Mockery::mock(ApprovalApi::class);
-        $service->shouldReceive('confirmWithoutOtp')->once()
+        $service->shouldReceive('verify')->once()->with('patient', 'approval', [])
             ->andReturn(new EHealthResponse(new Response(403, [], '{"error":{"message":"Forbidden"}}')));
         $this->instance(ApprovalApi::class, $service);
         $component = new InpatientApprovalHarness();

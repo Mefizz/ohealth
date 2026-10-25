@@ -9,3 +9,13 @@ These expectations were captured before replacing each legacy implementation. Th
 The DTO tests exercise the actual form methods and both clinical parent mappers. Existing application helpers and API casing contracts are intentionally retained. The snapshots pin current behavior; they do not by themselves establish conformance to every ESOZ requirement or cover PostgreSQL persistence and real KEP.
 
 Additional literal Extension cases verify that explicit false, string zero and empty string survive when that typed value is present. This does not change which optional flags the create form sends.
+
+## PR #898 consolidation on main b43c425e
+
+The earlier clinical and referral fixtures remain captured legacy expectations. Two explicit main contract changes are applied independently of the DTO output:
+
+- ClinicalImpression hydration adds `effectiveType = period`, `effectiveDate = ''`, `effectiveTime = ''` for the existing period inputs, matching `ClinicalImpressionMapper::toForm` on main `b43c425ecc53738460e8e3c27fcef52952f6decf`. Its existing signed JSON is unchanged. Separate tests cover date-time selection and open-ended periods introduced on main.
+- ServiceRequest prequalify includes an explicit `programs: []` when no program is selected, as `ServiceRequestMapper::toPrequalifyPayload` does on main `b43c425e`. Only this envelope field is added to the earlier fixtures; flat signed-create JSON is unchanged.
+- DeviceRequest `authored_on` uses the supplied current UTC instant, matching `DeviceRequestMapper::resolveAuthoredOn` on the same main. For the pinned fixture clock `2026-10-05T12:15:30+00:00`, only the former `12:15:00.000Z` values become `12:15:30.000Z`; the old 30-second offset is removed. Other fixture fields and bytes are preserved.
+
+The earlier flat CarePlan/Activity DTO tests are superseded by the canonical #998 contracts documented in `care-plan-baselines.md`, the actual Form mapping tests and PostgreSQL FHIR persistence tests. The old source/fixtures are retained in the refactor's backup history; they are not a contract to restore deleted flat storage. The current-main DeviceRequest prescribing service and its mapper remain in use until their new standalone flow is migrated separately.

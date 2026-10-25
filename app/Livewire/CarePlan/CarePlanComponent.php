@@ -37,7 +37,6 @@ abstract class CarePlanComponent extends Component
 {
     use \App\Livewire\Concerns\MedicalEvents\Activity\ValidatesActivityRequirements;
     use \App\Livewire\Concerns\MedicalEvents\Activity\ChecksDeviceProgramParticipation;
-    use \App\Livewire\Concerns\MedicalEvents\Activity\MapsCarePlanActivityPayload;
     use WithFileUploads;
     use InteractsWithApprovals;
     use \App\Livewire\Concerns\MedicalEvents\Approval\SelectsCarePlanApprovalAccess;

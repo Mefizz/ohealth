@@ -23,10 +23,11 @@ class EncounterReferralAuthenticationViewTest extends TestCase
         };
         Livewire::component('dictionary.service-catalog', $catalog::class);
 
-        $html = view('livewire.encounter.parts.encounter-referral-drawer', [
+        $html = view('livewire.encounter-package.parts.encounter-referral-drawer', [
             'errors' => new ViewErrorBag(),
             'showEncounterReferralDrawer' => true,
             'encounterReferralHasSearched' => false,
+            'encounterReferralIsTransfer' => false,
             'encounterReferralPrograms' => [],
             'encounterReferralSelectedService' => null,
             'encounterReferralServiceResults' => [],

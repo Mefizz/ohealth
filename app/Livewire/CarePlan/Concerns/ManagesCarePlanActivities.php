@@ -12,9 +12,7 @@ use App\Repositories\CarePlanRepository;
 use App\Services\Dictionary\Collections\BasicDictionaryCollection;
 use App\Services\Dictionary\ServiceSearch;
 use App\Services\Dictionary\MedicationProgramPicker;
-use App\Services\MedicalEvents\CarePlanActivityValidationService;
 use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
-use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -395,11 +393,10 @@ trait ManagesCarePlanActivities
             $rules['activityForm.quantity_code'] = 'required|string';
         }
 
-        $activityValidation = app(CarePlanActivityValidationService::class);
         $programPayload = $this->resolveMedicalProgramPayload(is_string($programId) ? $programId : null);
 
         if ($programPayload !== null) {
-            $providingBlock = $activityValidation->providingConditionsBlockReason($this->carePlan, $programPayload);
+            $providingBlock = $this->providingConditionsBlockReason($this->carePlan, $programPayload);
             if ($providingBlock !== null) {
                 Session::flash('error', $providingBlock);
                 $this->addError('activityForm.program', $providingBlock);
@@ -419,7 +416,7 @@ trait ManagesCarePlanActivities
             }
         }
 
-        $rehabBlock = $activityValidation->rehabReasonReferenceBlockReason($this->carePlan, $this->linkedGrounds);
+        $rehabBlock = $this->rehabReasonReferenceBlockReason($this->carePlan, $this->linkedGrounds);
         if ($rehabBlock !== null) {
             Session::flash('error', $rehabBlock);
             $this->addError('linkedGrounds', $rehabBlock);
@@ -507,7 +504,7 @@ trait ManagesCarePlanActivities
                     ?? (filled($this->selectedProgram) ? $this->selectedProgram : null));
             // Program participation constraints only apply when a medical program is chosen.
             if (filled($programForDevice)) {
-                $guard = app(DeviceProgramParticipationGuard::class);
+                $guard = EHealth::deviceDefinition();
                 if (!$guard->deviceAllowsCarePlanActivity($this->selectedProduct, $programForDevice)) {
                     $message = __('care-plan.device_care_plan_activity_not_allowed');
                     Session::flash('error', $message);
@@ -699,7 +696,7 @@ trait ManagesCarePlanActivities
             }
 
             $devices = $this->sortDeviceSearchResults($devices, $query);
-            $guard = app(DeviceProgramParticipationGuard::class);
+            $guard = EHealth::deviceDefinition();
             $this->deviceSearchCatalog = array_values(array_filter(
                 array_map(
                     fn (array $device): array => $this->compactDeviceForState($device),
@@ -1140,7 +1137,7 @@ trait ManagesCarePlanActivities
 
             $this->applyDeviceProductFieldsFromSelection($this->selectedProduct);
 
-            $programDevice = app(DeviceProgramParticipationGuard::class)
+            $programDevice = EHealth::deviceDefinition()
                 ->resolveProgramDevice($this->selectedProduct, $this->activityForm['program'] ?: null);
             $maxDaily = isset($programDevice['max_daily_count']) ? (int) $programDevice['max_daily_count'] : null;
             $this->deviceSelectionWarning = $maxDaily !== null && $maxDaily > 0
@@ -1458,8 +1455,7 @@ trait ManagesCarePlanActivities
             return null;
         }
 
-        $assessment = app(DeviceProgramParticipationGuard::class)
-            ->assess($this->carePlan, $activity, legalEntity());
+        $assessment = $this->assessDeviceActivity($this->carePlan, $activity, legalEntity());
 
         if ($assessment->warnings !== []) {
             $this->deviceParticipationWarning = implode(' ', $assessment->warnings);

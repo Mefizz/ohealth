@@ -37,10 +37,6 @@ class EncounterPackageCreate extends EncounterPackageComponent
     use EnsuresEntityExists;
     use UpdatesReferralExecution;
 
-    use SubmitsEHealthEncounter;
-
-    use UpdatesReferralExecution;
-
     public ?int $prepersonId = null;
 
     /**

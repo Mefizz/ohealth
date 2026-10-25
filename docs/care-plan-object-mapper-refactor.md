@@ -1,5 +1,8 @@
 # CarePlan / CarePlanActivity: Symfony ObjectMapper, #841
 
+> Актуалізація 25.10.2026: роботу зведено в наявний company draft [#898](https://github.com/openhealths/nationHealth/pull/898), гілка `Mefizz:i841_object_mapper_service_request`, база main `b43c425e`. Нижче наведені історичні результати окремих інкрементів; вони не є результатами поточної консолідації. Поточний стан і відкриті перевірки — у [pr898-consolidation.md](pr898-consolidation.md).
+
+
 Стан на 25.10.2026. Інкремент переносить мапінг плану лікування та призначень із фактичними callers на актуальні FHIR-контракти аудиту. Це залежний блок після #998, а не самостійна заміна його міграцій і workflow.
 
 ## База та інтеграція

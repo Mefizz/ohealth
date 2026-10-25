@@ -1,5 +1,8 @@
 # ObjectMapper implementation — #841
 
+> Актуалізація 25.10.2026: роботу зведено в наявний company draft [#898](https://github.com/openhealths/nationHealth/pull/898), гілка `Mefizz:i841_object_mapper_service_request`, база main `b43c425e`. Нижче наведені історичні результати окремих інкрементів; вони не є результатами поточної консолідації. Поточний стан і відкриті перевірки — у [pr898-consolidation.md](pr898-consolidation.md).
+
+
 Draft PR: [#898](https://github.com/openhealths/nationHealth/pull/898). Issue: [#841](https://github.com/openhealths/nationHealth/issues/841).
 Branch: `Mefizz/ohealth:i841_object_mapper_service_request`.
 Base: upstream main `1cf8b92e`, integrated October 5 including merged #792/#907.

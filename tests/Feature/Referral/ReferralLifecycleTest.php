@@ -23,6 +23,7 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Mockery;
 use Tests\Concerns\CreatesFhirRequestIdentifiers;
+use Tests\Concerns\CreatesFhirCarePlans;
 use Tests\Concerns\MocksBasicDictionaries;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Tests\Support\DeviceRequestPayloads;
@@ -31,6 +32,7 @@ use Tests\TestCase;
 class ReferralLifecycleTest extends TestCase
 {
     use CreatesFhirRequestIdentifiers;
+    use CreatesFhirCarePlans;
     use DatabaseTransactions;
     use MocksBasicDictionaries;
 
@@ -76,7 +78,7 @@ class ReferralLifecycleTest extends TestCase
     public function test_signed_create_remains_persisted_when_requisition_enrichment_fails(): void
     {
         $uuid = (string) Str::uuid();
-        $api = Mockery::mock(ServiceRequestApi::class);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('getById')->once()->with($this->person->uuid, $uuid)->andThrow(new \RuntimeException('GET unavailable'));
         $this->instance(ServiceRequestApi::class, $api);
         $data = (new \Tests\Support\ReferralSigningHarness())->persistAfterSignedCreate([
@@ -94,7 +96,7 @@ class ReferralLifecycleTest extends TestCase
         $uuid = (string) Str::uuid();
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn(['id' => $uuid, 'status' => 'processed', 'requisition' => 'SR-ENRICHED']);
-        $api = Mockery::mock(ServiceRequestApi::class);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('getById')->once()->with($this->person->uuid, $uuid)->andReturn($response);
         $this->instance(ServiceRequestApi::class, $api);
         (new \Tests\Support\ReferralSigningHarness())->persistAfterSignedCreate([
@@ -107,7 +109,7 @@ class ReferralLifecycleTest extends TestCase
     public function test_signed_entity_metadata_is_used_without_an_extra_get(): void
     {
         $uuid = (string) Str::uuid();
-        $api = Mockery::mock(DeviceRequestApi::class);
+        $api = Mockery::mock(DeviceRequestApi::class)->makePartial();
         $api->shouldNotReceive('getById');
         $this->instance(DeviceRequestApi::class, $api);
         (new \Tests\Support\ReferralSigningHarness())->persistAfterSignedCreate([
@@ -128,7 +130,7 @@ class ReferralLifecycleTest extends TestCase
     {
         $destination = (string) Str::uuid();
         $division = (string) Str::uuid();
-        $api = Mockery::mock(ServiceRequestApi::class);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('prequalify')->once()->with($this->person->uuid, Mockery::on(function (array $payload) use ($destination, $division) {
             $this->assertSame([], $payload['programs']);
             $this->assertSame($destination, data_get($payload, 'service_request.performer.identifier.value'));
@@ -138,7 +140,7 @@ class ReferralLifecycleTest extends TestCase
         }))->andReturn(new EHealthResponse(new \GuzzleHttp\Psr7\Response(200, [], json_encode(['data' => []]))));
         $this->instance(ServiceRequestApi::class, $api);
 
-        $uuid = app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createEncounterDraft($this->encounter, [
+        $uuid = app(\Tests\Support\EncounterReferralDraftHarness::class)->createEncounterDraft($this->encounter, [
             'category' => 'transfer_of_care', 'service_id' => (string) Str::uuid(),
             'performer' => $destination, 'location_reference' => $division,
         ], 1, [
@@ -154,7 +156,7 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_transfer_rejected_by_ehealth_is_not_persisted_even_without_program(): void
     {
-        $api = Mockery::mock(ServiceRequestApi::class);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('prequalify')->once()->andThrow(new \App\Exceptions\EHealth\EHealthValidationException([
             'error' => ['message' => 'LocationReference is not an active division'],
         ]));
@@ -162,7 +164,7 @@ class ReferralLifecycleTest extends TestCase
         $count = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::count();
 
         try {
-            app(\App\Services\MedicalEvents\ReferralRequestLifecycleService::class)->createEncounterDraft($this->encounter, [
+            app(\Tests\Support\EncounterReferralDraftHarness::class)->createEncounterDraft($this->encounter, [
                 'category' => 'transfer_of_care', 'service_id' => (string) Str::uuid(),
                 'performer' => (string) Str::uuid(), 'location_reference' => (string) Str::uuid(),
             ], 1, ['employee_id' => $this->employee->id, 'employee_uuid' => $this->employee->uuid, 'legal_entity_uuid' => legalEntity()->uuid]);
@@ -271,7 +273,7 @@ class ReferralLifecycleTest extends TestCase
         $this->grantMedicalEventAbilities($this->user);
 
         // 5. Create Care Plan & Referral Care Plan Activities
-        $carePlan = \App\Models\CarePlan::create([
+        $carePlan = $this->createFhirCarePlan([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
             'author_id' => $this->employee->id,
@@ -281,7 +283,7 @@ class ReferralLifecycleTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->serviceActivity = CarePlanActivity::create([
+        $this->serviceActivity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,
@@ -292,7 +294,7 @@ class ReferralLifecycleTest extends TestCase
             'program' => (string) Str::uuid(),
         ]);
 
-        $this->deviceActivity = CarePlanActivity::create([
+        $this->deviceActivity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,
@@ -689,8 +691,11 @@ class ReferralLifecycleTest extends TestCase
 
     public function test_livewire_skips_prequalify_when_activity_has_no_program(): void
     {
-        $this->serviceActivity->update(['program' => null]);
         $carePlan = $this->serviceActivity->carePlan;
+        $activities = app(\App\Repositories\CarePlanActivityRepository::class);
+        $resource = $activities->getResource($this->serviceActivity);
+        $resource['detail']['program'] = null;
+        $this->serviceActivity = $activities->storeResource($resource, $carePlan, $this->serviceActivity->id);
         $this->actingAs($this->user);
         $this->mockActivityRegisteredInEHealth();
 
@@ -1220,7 +1225,7 @@ class ReferralLifecycleTest extends TestCase
     public function test_init_referral_form_blocks_medication_activity(): void
     {
         $carePlan = $this->serviceActivity->carePlan;
-        $medicationActivity = CarePlanActivity::create([
+        $medicationActivity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,
@@ -1247,7 +1252,7 @@ class ReferralLifecycleTest extends TestCase
         $deviceUuid = (string) Str::uuid();
         $activityUuid = (string) Str::uuid();
 
-        $draftDeviceActivity = CarePlanActivity::create([
+        $draftDeviceActivity = $this->createFhirCarePlanActivity([
             'uuid' => $activityUuid,
             'care_plan_id' => $carePlan->id,
             'author_id' => $this->employee->id,

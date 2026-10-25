@@ -1053,9 +1053,10 @@ trait ManagesCarePlanReferrals
 
     protected function createCarePlanReferralDraft(CarePlan $carePlan, array $formData, float $qty, array $employeeContext): string
     {
-        $activity = CarePlanActivity::query()
-            ->with('carePlan')
-            ->findOrFail($formData['activity_id']);
+        $activity = app(CarePlanActivityRepository::class)->findOwned(
+            (int) $carePlan->id,
+            (int) $formData['activity_id']
+        );
 
         $resolvedKind = $activity->resolvedKind();
         if (!in_array($resolvedKind, ['service_request', 'device_request'], true)) {

@@ -10,8 +10,12 @@ use App\Dto\PaperReferral\Ehealth;
 use App\Dto\PaperReferral\Form;
 use App\Enums\Person\DiagnosticReportStatus;
 use App\Models\LegalEntity;
-use App\Services\MedicalEvents\Mappers\DiagnosticReportMapper;
-use App\Services\MedicalEvents\Mappers\ProcedureMapper;
+use App\Dto\DiagnosticReport\Ehealth as DiagnosticReportData;
+use App\Dto\DiagnosticReport\Form as DiagnosticReportForm;
+use App\Dto\Procedure\Ehealth as ProcedureData;
+use App\Dto\Procedure\Form as ProcedureForm;
+use Illuminate\Support\Collection;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -42,16 +46,16 @@ class PaperReferralMappingTest extends TestCase
             'primarySource' => true, 'performerEmployeeId' => 'employee',
             'issuedDate' => '05.10.2026', 'issuedTime' => '10:00',
         ];
-        $uuids = ['procedure' => 'procedure', 'diagnosticReport' => 'diagnostic', 'employee' => 'employee'];
+        $mapper = app(ObjectMapperInterface::class);
         $parents = [
-            new ProcedureMapper()->toFhir($fields, $uuids),
-            new DiagnosticReportMapper()->toFhir($fields, $uuids, DiagnosticReportStatus::FINAL),
+            $mapper->map(new FormCollection($fields), new ProcedureData('procedure', 'legal-entity', 'employee'))->toArray(),
+            $mapper->map(new FormCollection($fields), new DiagnosticReportData('diagnostic', DiagnosticReportStatus::FINAL, 'legal-entity', 'employee'))->toArray(),
         ];
         foreach ($parents as $parent) {
-            $this->assertSame($expected['outbound'], $parent['paperReferral'] ?? null);
+            $this->assertSame($expected['outbound'] === null ? null : Arr::toSnakeCase($expected['outbound']), $parent['paper_referral'] ?? null);
         }
-        foreach ([new ProcedureMapper(), new DiagnosticReportMapper()] as $mapper) {
-            $form = $mapper->fromFhir($input['inbound']);
+        foreach ([ProcedureForm::class, DiagnosticReportForm::class] as $target) {
+            $form = $mapper->map(new Collection($input['inbound']), $target)->toArray();
             $this->assertSame($expected['form'], Arr::only($form, array_keys($expected['form'])));
         }
         $this->assertSame([], $queries);

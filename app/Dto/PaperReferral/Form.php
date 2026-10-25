@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Dto\PaperReferral;
 
 use App\Dto\FormCollection;
+use Illuminate\Support\Collection;
 use App\Mapping\Conditions\SourceHasPath;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\ObjectMapper;
 use Symfony\Component\PropertyAccess\PropertyAccess;
 
 /** Shared referral fields hydrated from the parent clinical resource. */
-#[Map(source: FormCollection::class)]
+#[Map(source: Collection::class)]
 final class Form
 {
     #[Map(source: '[paperReferral?]', transform: [self::class, 'available'])]
@@ -43,12 +44,12 @@ final class Form
         return new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())->map($source, self::class);
     }
 
-    public static function available(mixed $paper, FormCollection $source): bool
+    public static function available(mixed $paper, Collection $source): bool
     {
         return !empty($paper) || !empty($source['basedOn']);
     }
 
-    public static function mapReferralType(mixed $paper, FormCollection $source): string
+    public static function mapReferralType(mixed $paper, Collection $source): string
     {
         return !empty($paper) ? 'paper' : (!empty($source['basedOn']) ? 'electronic' : '');
     }

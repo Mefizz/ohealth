@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
+use App\Dto\FormCollection;
+use App\Dto\CarePlanActivity\Model as ActivityData;
+use App\Dto\CarePlanActivity\Form as ActivityFormData;
+
 use App\Core\Arr;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use App\Services\MedicalEvents\Fhir;
 use Illuminate\Support\Facades\DB;
 use App\Repositories\MedicalEvents\Concerns\PersistsCarePlanFhir;
 use App\Models\Employee\Employee;
@@ -102,7 +105,7 @@ class CarePlanActivityRepository
             }
             $options['productType'] = $data['productReferenceType'];
         }
-        $resource = Fhir::carePlanActivity()->toFhir($data, $options);
+        $resource = ActivityData::fromSource(new FormCollection($data), $options)->toArray();
 
         return $this->presentForUi($this->storeResource($resource, $plan, $localId));
     }
@@ -110,31 +113,7 @@ class CarePlanActivityRepository
     public function presentForUi(CarePlanActivity $activity): CarePlanActivity
     {
         $resource = $this->getResource($activity);
-        $detail = $resource['detail'];
-        $projection = [
-            'productReference' => data_get($detail, 'productReference.identifier.value'),
-            'productReferenceType' => data_get($detail, 'productReference.identifier.type.coding.0.code'),
-            'productCodeableConcept' => data_get($detail, 'productCodeableConcept.coding.0.code'),
-            'program' => data_get($detail, 'program.identifier.value'),
-            'reasonCode' => data_get($detail, 'reasonCode.0.coding.0.code'),
-            'goal' => array_map(static fn (array $concept): string => $concept['coding'][0]['code'], $detail['goal'] ?? []),
-            'reasonReference' => array_map(static function (array $reference): string {
-                $type = $reference['identifier']['type']['coding'][0]['code'];
-                $type = match ($type) {
-                    'condition' => 'Condition', 'observation' => 'Observation', 'diagnostic_report' => 'DiagnosticReport', default => $type
-                };
-
-                return $type.'/'.$reference['identifier']['value'];
-            }, $detail['reasonReference'] ?? []),
-            'scheduledPeriodStart' => data_get($detail, 'scheduledPeriod.start'),
-            'scheduledPeriodEnd' => data_get($detail, 'scheduledPeriod.end'),
-            'statusReason' => data_get($detail, 'statusReason.coding.0.code'),
-        ];
-        foreach (['quantity', 'dailyAmount', 'remainingQuantity'] as $field) {
-            $projection[$field] = data_get($detail, $field.'.value');
-            $projection[$field.'System'] = data_get($detail, $field.'.system');
-            $projection[$field.'Code'] = data_get($detail, $field.'.code');
-        }
+        $projection = ActivityFormData::fromSource(new FormCollection($resource))->toUiArray();
         $activity->forceFill($projection)->syncOriginal();
 
         return $activity;
@@ -189,7 +168,7 @@ class CarePlanActivityRepository
         }
         unset($data['outcomeReference'], $data['outcomeCodeableConcept'], $data['statusReason']);
 
-        return Fhir::carePlanActivity()->toFhir($data, ['carePlanUuid' => $plan->uuid ?? 'preflight-plan']);
+        return ActivityData::fromSource(new FormCollection($data), ['carePlanUuid' => $plan->uuid ?? 'preflight-plan'])->toArray();
     }
 
     /** Store a complete activity; remainingQuantity is supplied by the source, never recalculated. */

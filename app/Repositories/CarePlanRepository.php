@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
+use App\Dto\FormCollection;
+use App\Dto\CarePlan\Model as CarePlanData;
+use App\Dto\CarePlan\Form as CarePlanFormData;
+
 use App\Enums\CarePlanStatus;
 use App\Models\CarePlan;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
@@ -14,7 +18,6 @@ use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Encounter;
 use InvalidArgumentException;
 use Illuminate\Support\Str;
-use App\Services\MedicalEvents\Fhir;
 use App\Core\Arr;
 use Throwable;
 
@@ -76,7 +79,7 @@ class CarePlanRepository
     public function saveForm(array $form, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
     {
         $input = $this->formContext($form, $localId);
-        $resource = Fhir::carePlan()->toFhir($input['data'], $input['context']);
+        $resource = CarePlanData::fromSource(new FormCollection($input['data']), $input['context'])->toArray();
 
         return $this->present($this->storeResource($resource, $personId, $legalEntityId, $localId));
     }
@@ -92,7 +95,7 @@ class CarePlanRepository
             throw new InvalidArgumentException('Care Plan requires a full import or draft backfill before use.');
         }
         $resource = $this->getResource($plan);
-        $form = Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone')]);
+        $form = CarePlanFormData::fromSource(new FormCollection($resource), ['timezone' => config('app.timezone')])->toArray();
         $plan->forceFill([
             'category' => $form['category'], 'termsOfService' => $form['termsOfService'],
             'context' => $resource['context'] ?? null,
@@ -218,7 +221,7 @@ class CarePlanRepository
             $data['period'] = MedicalEventsRepository::period()->toResource($plan->effectivePeriod);
         }
 
-        return Fhir::carePlan()->toFhir($data, ['timezone' => config('app.timezone')]);
+        return CarePlanData::fromSource(new FormCollection($data), ['timezone' => config('app.timezone')])->toArray();
     }
 
     /** Store a complete, normalized resource. This method performs no remote requests. */

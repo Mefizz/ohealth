@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Dto\CarePlan\Model as CarePlanData;
+
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Enums\CarePlanStatus;
@@ -888,7 +890,7 @@ class CarePlanCreate extends BasePatientComponent
                 'author' => $author?->uuid,
                 'addresses' => $encounterData['addresses'],
             ]));
-            $carePlanResource = \App\Services\MedicalEvents\Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
+            $carePlanResource = CarePlanData::fromForm($this->form, $mapping['data'], $mapping['context'])->toArray();
             $carePlanPayload = EHealth::carePlan()->buildCreateContent($carePlanResource);
             $generatedUuid = $carePlanPayload['id'];
 

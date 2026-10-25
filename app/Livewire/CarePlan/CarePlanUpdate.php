@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Dto\FormCollection;
+use App\Dto\CarePlan\Model as CarePlanData;
+use App\Dto\CarePlan\Form as CarePlanFormData;
+
 use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -39,7 +43,7 @@ class CarePlanUpdate extends CarePlanCreate
         $this->authorize('view', $this->carePlan);
         parent::mount($legalEntity, $this->carePlan->personId);
         $resource = $repository->getResource($this->carePlan->id);
-        $fields = \App\Services\MedicalEvents\Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]);
+        $fields = CarePlanFormData::fromSource(new FormCollection($resource), ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')])->toArray();
         foreach ($fields as $field => $value) {
             if (property_exists($this->form, $field)) {
                 $this->form->{$field} = $value ?? '';
@@ -159,7 +163,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'author' => $author?->uuid,
                 'addresses' => $encounterData['addresses'],
             ]), $this->carePlan->id);
-            $carePlanResource = \App\Services\MedicalEvents\Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
+            $carePlanResource = CarePlanData::fromForm($this->form, $mapping['data'], $mapping['context'])->toArray();
             $carePlanPayload = EHealth::carePlan()->buildCreateContent($carePlanResource);
 
             $signedContent = signatureService()->signData(

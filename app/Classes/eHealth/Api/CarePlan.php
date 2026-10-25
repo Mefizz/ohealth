@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
+use App\Dto\CarePlan\Ehealth as CarePlanCreateData;
+use App\Dto\FormCollection;
+
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthConnectionException;
@@ -34,11 +37,8 @@ class CarePlan extends Request
             'addresses' => ['required', 'array', 'min:1'],
             'termsOfService.coding' => ['required', 'array', 'min:1'],
         ])->validate();
-        $content = array_intersect_key($resource, array_flip(['id', 'category', 'title', 'description', 'period', 'supportingInfo', 'note', 'encounter', 'addresses', 'author', 'contributor', 'termsOfService', 'informWith']));
-        $content['intent'] = 'order';
-        $content['status'] = 'new';
 
-        return $this->resourcePayload($content);
+        return $this->resourcePayload(CarePlanCreateData::fromSource(new FormCollection($resource))->toArray());
     }
 
     public function buildCancelContent(array $snapshot, array $statusReason): array

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
+use App\Dto\CarePlanActivity\Ehealth as ActivityCreateData;
+use App\Dto\FormCollection;
+
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthConnectionException;
@@ -44,11 +47,8 @@ class CarePlanActivity extends Request
         if (isset($detail['productReference']) === isset($detail['productCodeableConcept'])) {
             throw ValidationException::withMessages(['product' => 'Exactly one product variant is required.']);
         }
-        $content = array_intersect_key($resource, array_flip(['id', 'author', 'carePlan']));
-        $content['detail'] = array_intersect_key($detail, array_flip(['kind', 'productReference', 'productCodeableConcept', 'reasonCode', 'reasonReference', 'goal', 'quantity', 'location', 'performer', 'dailyAmount', 'scheduledPeriod', 'scheduledTiming', 'scheduledString', 'description', 'program', 'doNotPerform']));
-        $content['detail']['status'] = 'scheduled';
 
-        return $this->resourcePayload($content);
+        return $this->resourcePayload(ActivityCreateData::fromSource(new FormCollection(array_replace($resource, ['detail' => $detail])))->toArray());
     }
 
     public function fetchCancelSnapshot(string $patientUuid, string $planUuid, string $activityUuid): array

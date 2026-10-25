@@ -17,7 +17,7 @@ use Tests\TestCase;
 class CompositionFormMappingTest extends TestCase
 {
     #[DataProvider('contracts')]
-    public function test_actual_refinement_and_continuation_preserve_independent_form_baselines_without_io(array $input, array $expected): void
+    public function testActualRefinementAndContinuationPreserveBaselineWithoutIo(array $input, array $expected): void
     {
         config(['app.timezone' => $input['timezone'] ?? 'Europe/Kyiv', 'app.date_format' => $input['dateFormat'] ?? 'd.m.Y']);
         date_default_timezone_set($input['timezone'] ?? 'Europe/Kyiv');

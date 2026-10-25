@@ -23,7 +23,7 @@ use Tests\TestCase;
 class CompositionMappingTest extends TestCase
 {
     #[DataProvider('contracts')]
-    public function test_current_main_json_and_actual_callers_are_preserved_without_io(array $input, array $expected): void
+    public function testMainJsonAndActualCallersArePreservedWithoutIo(array $input, array $expected): void
     {
         config(['app.timezone' => $input['timezone'] ?? 'Europe/Kyiv', 'app.date_format' => 'd.m.Y']);
         date_default_timezone_set($input['timezone'] ?? 'Europe/Kyiv');
@@ -71,7 +71,7 @@ class CompositionMappingTest extends TestCase
     }
 
     #[DataProvider('literalValues')]
-    public function test_typed_extension_values_do_not_use_global_empty_filtering(array $row): void
+    public function testTypedExtensionValuesPreserveEmptyLiterals(array $row): void
     {
         $mapper = new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor());
 

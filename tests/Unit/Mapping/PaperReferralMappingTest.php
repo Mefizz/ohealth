@@ -20,7 +20,7 @@ use Tests\TestCase;
 class PaperReferralMappingTest extends TestCase
 {
     #[DataProvider('contracts')]
-    public function test_independent_main_contracts_and_both_parent_callers_without_io(array $input, array $expected): void
+    public function testMainContractsAndBothParentCallersWithoutIo(array $input, array $expected): void
     {
         config(['app.timezone' => 'Europe/Kyiv', 'app.date_format' => 'd.m.Y']);
         date_default_timezone_set('Europe/Kyiv');

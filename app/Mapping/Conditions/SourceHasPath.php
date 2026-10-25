@@ -7,7 +7,7 @@ namespace App\Mapping\Conditions;
 use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\ConditionCallableInterface;
 
-/** Plain input presence: an explicit null is different from an absent field. No model getters/IO. */
+/** An explicit null in plain input is distinct from an absent field; no model getters are invoked. */
 final readonly class SourceHasPath implements ConditionCallableInterface
 {
     public function __construct(private string $path)

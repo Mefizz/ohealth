@@ -22,6 +22,8 @@ DOMAIN_PATHS=(
   tests/Unit/Livewire/CarePlan
   tests/Unit/Livewire/CarePlanLockedStateTest.php
   tests/Unit/CarePlan
+  tests/Unit/Mapping
+  tests/Unit/Composition/CompositionPayloadTest.php
   tests/Unit/Exceptions/EHealthValidationExceptionCarePlanMessageTest.php
   tests/Unit/Models/CarePlanActivityResolvedKindTest.php
   tests/Unit/Repositories/CarePlanActivityRepositoryTest.php
@@ -45,6 +47,10 @@ DOMAIN_PATHS=(
   tests/Feature/Employee
   tests/Feature/Party
   tests/Feature/CarePlan
+  tests/Feature/Composition/CompositionFormTest.php
+  tests/Feature/Composition/CompositionTempDisabilityFormTest.php
+  tests/Feature/Composition/CompositionApiTest.php
+  tests/Feature/Composition/CompositionResponseValidationTest.php
   tests/Feature/CarePlanActivityPayloadTest.php
   tests/Feature/Livewire/CarePlan
   tests/Feature/MedicationRequest

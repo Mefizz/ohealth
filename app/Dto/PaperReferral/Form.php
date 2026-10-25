@@ -4,18 +4,20 @@ declare(strict_types=1);
 
 namespace App\Dto\PaperReferral;
 
+use App\Dto\FormCollection;
 use App\Mapping\Conditions\SourceHasPath;
-use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\Attribute\Map;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 
-/** Parent clinical document to the shared editable referral fields. */
-#[Map(source: Collection::class)]
+/** Shared referral fields hydrated from the parent clinical resource. */
+#[Map(source: FormCollection::class)]
 final class Form
 {
     #[Map(source: '[paperReferral?]', transform: [self::class, 'available'])]
     public bool $isReferralAvailable;
 
-    #[Map(source: '[paperReferral?]', transform: [self::class, 'type'])]
+    #[Map(source: '[paperReferral?]', transform: [self::class, 'mapReferralType'])]
     public string $referralType;
 
     #[Map(source: '[paperReferral?][requisition?]', if: new SourceHasPath('paperReferral.requisition'))]
@@ -36,12 +38,17 @@ final class Form
     #[Map(source: '[paperReferral?][note?]', if: new SourceHasPath('paperReferral.note'))]
     public mixed $paperReferralNote = '';
 
-    public static function available(mixed $paper, Collection $source): bool
+    public static function fromSource(FormCollection $source): self
+    {
+        return new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())->map($source, self::class);
+    }
+
+    public static function available(mixed $paper, FormCollection $source): bool
     {
         return !empty($paper) || !empty($source['basedOn']);
     }
 
-    public static function type(mixed $paper, Collection $source): string
+    public static function mapReferralType(mixed $paper, FormCollection $source): string
     {
         return !empty($paper) ? 'paper' : (!empty($source['basedOn']) ? 'electronic' : '');
     }

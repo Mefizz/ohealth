@@ -1,44 +1,39 @@
-# Звіт про рефактор ObjectMapper — 06.10.2026
+# Symfony ObjectMapper: стан #841 на 25.10.2026
 
-Міграцію всіх 17 старих медичних array-маперів завершено у [draft PR #898](https://github.com/openhealths/nationHealth/pull/898), [issue #841](https://github.com/openhealths/nationHealth/issues/841). `app/Services/MedicalEvents` більше не містить PHP-файлів. База — main `1cf8b92e` зі змердженими #792/#907. До ready залишаються інтеграційні перевірки та окремі попередні обмеження, описані нижче.
+Рефактор оновлено від main `b43c425ecc53738460e8e3c27fcef52952f6decf`. Поточний інкремент переносить Composition та PaperReferral у DTO за патерном Division/HealthcareService. Він не містить повторної копії FHIR-стеку з аудиту й не означає завершення міграції всіх медичних сервісів.
 
-## Відповідність патерну тім ліда
+## Реалізовано
 
-DTO розташовані в `app/Dto/<Resource>`: Model для локального запису, Ehealth для API та Form для фактичної hydration. Один target підтримує кілька source classes, коли потрібні різні правила імпорту. Валідовані Livewire Form/preloaded Model передаються прямо; flat encounter rows використовують FormCollection. MapCollection обробляє вкладені списки об'єктів, чисті transforms лишаються поряд із DTO або в спільному mapping каталозі.
+- `Composition/Ehealth`: створення МВН і МВТН із реальних Livewire Form, один target для кількох source classes; Event/Extension через MapCollection.
+- `Composition/EhealthCancellation`: чинний native контракт скасування. Видалено BuildsCompositionPayload, форми делегують DTO.
+- `Composition/Form`: заповнення уточнення та продовження МВТН із попереднього документа. Збережено dates, relation, окремий focus, explicit false та правила очищення полів продовження. ExtensionValue — чисте читання typed value.
+- `PaperReferral/Ehealth` і `Form`: outbound та hydration у фактичних ProcedureMapper/DiagnosticReportMapper. Видалено PaperReferralMapper. SourceHasPath розрізняє missing та explicit null.
+- DTO не виконують SQL/HTTP, не генерують UUID і не визначають поточного користувача. Native payload names, підписаний документ, API, Repository та workflow залишаються у чинних власників.
 
-Workflow читається у Livewire і protected concerns; HTTP/job/verdict — наявні `app/Classes/eHealth/Api`, enums — `app/Enums`, SQL/Identifier/transaction — Repository. DTO не виконує SQL/HTTP/Auth/session lookup та не створює UUID/now. Окремих Actions/Managers чи нового сервісного шару немає.
+## Перевірки
 
-Серіалізація використовує спільний EhealthMapping із #907. Medical normalization зберігає 0/false/[], literal keys та точні signing bytes; попередня Division поведінка не змінена. ServiceRequestPayloads, DeviceRequestPayloads і MedicationRequestPayloads видалені: production callers напряму викликають ObjectMapper. Малий Tests/Support harness потрібен лише для збереження попередніх поведінкових assertions і використовує реальні DTO/concerns.
+На main-базі та окремо на зафіксованому опублікованому audit snapshot `979e534727111629ca5d952ab8aba86627b9a74d` із накладеним лише цим app/tests diff отримано однаковий результат: **94 тести, 384 assertions, exit 0, без failures/errors**. Є одне наявне deprecation notice PDO; це не повністю чистий від notices прогін.
 
-## Що завершено
+Знімок аудиту створено з Git commit, без локальних незакомічених UAT-правок. Перед накладанням diff перевірено байтову тотожність оригіналів усіх змінюваних/видалених файлів між main-базою та аудитом. Окремий autoloader підтвердив, що форми й helpers завантажено саме зі snapshot. Робоча UAT-гілка та її БД не змінювались.
 
-- CarePlan: Form→Model/Ehealth, remote→Model, Model→Form, legacy model-source signPlan. Activity draft/sync/create/edit, raw cancel та unsigned complete; payload builders і lifecycle/gate/validation/program guards видалені.
-- ServiceRequest/DeviceRequest: create/prequalify, draft/sign/sync/print/SMS, full import/partial updates, take/qualify/complete/cancel usage. Успішний signed create зберігається до best-effort GET; ownership і Identifier links збережені.
-- eRx: структурований dosage/create/prequalify, standalone string dosage, raw-first sign/reject, fallback signing, active UUID, block/unblock, print/notifications і partial sync. Lifecycle/static wrapper видалені.
-- Approvals/OTP: queue/poll, scoped access, inpatient без OTP, read access, throttle та provisional UUID replacement. Pharmacy dispense: DTO, qualify/raw sign/process, employee lookup у Repository.
-- PaperReferral, DetectedIssue, DeviceAssociation, Device, DeviceDispense, Specimen і Procedure: усі legacy callers переведено на DTO; payload/hydration, вкладені списки та фактичні action/cancellation workflows збережені.
-- Condition, Immunization, ClinicalImpression, Observation, DiagnosticReport, Episode і Encounter: останні сім маперів замінено Ehealth/Form DTO. Episode прямо приймає свої Livewire форми для create/update/cancel/close. DiagnosticReport і Encounter cancellation зберігають raw fields та попередню семантику вибіркового скасування.
-- EncounterPackageBuilder/Loader, Fhir/FhirResource та FhirMapperContract видалені. BuildsEncounterPackage/LoadsEncounterPackage містять protected workflow/context preparation, DTO — mapping. Чинний camelCase Repository input має явну boundary conversion; це не дублікат array-маперів.
+Склад прогону:
 
-Загалом видалено 16 попередніх lifecycle/guard/helper класів, усі 17 legacy-маперів, два package класи, два FHIR helpers та їхні невикористовувані інтерфейси/wrappers. `SignatureService`, `DictionaryService` та немедичні Services поза цією областю.
+- `tests/Unit/Mapping`: 43 незалежні baseline cases (14 create/cancel, 9 paper referral, 20 refinement/continuation) і 3 додаткові literal Extension cases. Перевіряються exact arrays/JSON, фактичні callers, незмінність source, відсутність SQL та HTTP.
+- Чинні `CompositionPayloadTest`, `CompositionFormTest`, `CompositionTempDisabilityFormTest`, `CompositionApiTest`, `CompositionResponseValidationTest`.
+- PHP lint і точковий Pint для нових/перенесених класів. Весь великий legacy parent mapper заради форматування не переписувався.
 
-## Перевірки останньої хвилі
+Ці самі mapping/Composition paths додані до явного переліку `scripts/ci/run-domain-tests.sh`, щоб нові контрактні тести виконувались у чинному GitHub/Azure domain CI. Решта переліку та налаштування jobs не змінені. Результат локального прогону не підміняє статус актуального CI.
 
-Procedure має 18 нових тестів: незалежні old JSON/hydration/cancellation contracts, actual callers та PostgreSQL для Person/Preperson × date_time/period. Останні сім ресурсів додають 79 mapping tests і 10 PostgreSQL round-trip cases. Baseline отримано зі старих маперів до видалення, а не з нового DTO. Перевіряються sparse lists, null/zero/false, date/time/DST, aliases, raw unknown fields, cancellation sections і no SQL/HTTP під час mapping.
+Прогін виконано в ізольованому PHP 8.5 Docker runner без мережі та БД; API-тести використовують fake HTTP. Це не повний application regression, не PostgreSQL round-trip і не перевірка браузера, реального ЕСОЗ чи КЕП. Для майбутніх persistence/workflow інкрементів потрібні окремі докази.
 
-SQL round-trip виявив стару втрату Observation.specimen: `store()` тепер зберігає Identifier, getter завантажує relation. Тест перевіряє повторну hydration, очищення reference та відсутність дубліката. Обмеження дробової Immunization dose не приховано; воно залишається окремим schema питанням.
+Походження expectations: [fixtures README](../tests/Fixtures/Mapping/README.md). Вони зняті до заміни реалізації; поточний DTO їх не генерує.
 
-Медична регресія: **780 тестів / 4303 assertions**, без failures/errors/skipped/risky tests; одне наявне PDO deprecation. Перевірено mapping і точні signing bytes, API/job, Repository/Identifier links, PostgreSQL round-trip, care plan/activity, referrals, eRx/device, registry, approvals і pharmacy dispense, standalone Encounter/Specimen/Procedure callers. Додатковий фінальний прогін direct callers/cancellation/SQL: **63 тести / 359 assertions**, без failures/errors, з тим самим PDO deprecation. Pint перевіряє 107 PHP-файлів останнього інкременту; `git diff --check` проходить.
+## Що залишилось
 
-Використано наявні isolated mapper841 PHP 8.5.3/PostgreSQL контейнери. Нових контейнерів не створено, робочі ohealth/employee середовища й дані не змінено. Нових application migrations та змін Composer у цьому інкременті немає. У disposable testing DB застосовано вже наявну DiagnosticReport migration `2026_03_31_124801`, щоб узгодити тестову схему з поточною базою main.
+1. Після узгодження спільної бази #1022 переносити актуальні канонічні перетворення CarePlan/Activity (#998), ServiceRequest (#1006), MedicationRequest (#1011). Контракти уточнюються за кожним новим head, а не за старим draft #898.
+2. Зберегти вже реалізоване в аудиті fresh-detail signing та відновлення eRx після прийнятого підпису без повторного КЕП; structured dosage/units та distinct MRR/MR UUID не спрощувати.
+3. Для Composition full detail/persistence узгоджуватися з #1042. Редагована форма не замінює повний ресурс з metadata, усіма codings та правилами partial import.
+4. Далі переносити решту clinical/EncounterPackage маперів фактичними вертикальними сценаріями. Device #1016/#1030/#1031 перевіряти окремо: вони не входять до протестованого комбінованого snapshot.
+5. Видаляти старі мапери та прикладні MedicalEvents services після останнього caller і відповідних regression checks. Зараз у цьому шарі **41 PHP-файл і 16 legacy-маперів** проти 42/17 у базі; повне видалення ще попереду.
 
-## Що ще потрібно
-
-1. Реальний КЕП/eHealth UAT для create/sign/cancel/sync та HTTP authorization suite з Vite assets. Тестова заміна Cipher перевіряє workflow, але не замінює інтеграційний підпис.
-2. Перевірка конкурентних issuance/sign операцій. Область наявної quantity-транзакції збережено; атомарність усього сценарію не заявляється.
-3. Окреме виправлення схеми Immunization: форма дозволяє дробову дозу, а чинна колонка `value` — integer. DTO зберігає 1.5 без округлення (golden test), але така доза поки не записується у чинну SQL-схему. Це попереднє обмеження, не виправлене цим рефактором; PostgreSQL round-trip використовує допустимі integer/ML.
-4. Окреме виправлення Division baseline failures і перевірка актуальності main перед ready. Повний Division feature suite має 91 тест / 401 assertions, 5 errors, 1 failure і 4 risky tests; ті самі збої відтворено на незміненому main `1cf8b92e`. Application-wide green не заявляється.
-
-Composition окремого mapper/Livewire workflow у базовому main `1cf8b92e` не має; наявні API paths не змінені. Новий Composition сценарій не реалізовано і не додається штучний DTO без caller.
-
-PR лишається draft, issue відкритою; тестове mapper841 середовище збережено для UAT і рев'ю. [План](ehealth-object-mapper-plan.md), [implementation notes](object-mapper-refactor.md).
+Детальні межі та критерії наступних інкрементів: [план](ehealth-object-mapper-plan.md). Порядок audit-залежностей: #1022 → #998 → #1006 → #1011 → #1042. Вони є цільовими контрактами до злиття, а не твердженням, що всі ці PR уже схвалені чи присутні в main.

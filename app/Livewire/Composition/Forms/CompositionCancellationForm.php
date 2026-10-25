@@ -6,7 +6,7 @@ namespace App\Livewire\Composition\Forms;
 
 use App\Core\BaseForm;
 use App\Enums\Composition\CompositionType;
-use App\Mapping\Transforms\FhirCodeableConcept;
+use App\Dto\Composition\EhealthCancellation;
 
 /**
  * Marking a Composition (МВН / МВТН) as entered in error.
@@ -45,10 +45,7 @@ class CompositionCancellationForm extends BaseForm
      */
     public function toCancellationPayload(string $compositionUuid, CompositionType $type): array
     {
-        $reason = new FhirCodeableConcept('eHealth/'.$type->cancellationReasonDictionary(), includeText: true)($this->reason, $this, null);
-        $reason['text'] = $this->reasonText;
-
-        return ['id' => $compositionUuid, 'reason' => $reason];
+        return EhealthCancellation::fromForm($this, $compositionUuid, $type)->toArray();
     }
 
     public function resetCancellationFields(): void

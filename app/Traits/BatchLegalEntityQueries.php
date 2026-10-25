@@ -6,6 +6,8 @@ namespace App\Traits;
 
 use stdClass;
 use Exception;
+use Throwable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Models\User;
 use App\Core\EHealthJob;
 use App\Enums\JobStatus;
@@ -266,11 +268,11 @@ trait BatchLegalEntityQueries
 
             try {
                 $pendingJob = @unserialize($command);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 return [];
             }
 
-            if (!$pendingJob instanceof \Illuminate\Contracts\Queue\ShouldQueue) {
+            if (!$pendingJob instanceof ShouldQueue) {
                 return [];
             }
 

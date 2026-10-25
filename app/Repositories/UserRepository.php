@@ -6,12 +6,29 @@ namespace App\Repositories;
 
 use App\Enums\User\Role;
 use App\Models\User;
+use App\Models\LegalEntity;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 class UserRepository
 {
+    /** Reject queued login events after logout, re-login, expiry, or a change of legal entity. */
+    public function hasSyncSessionToken(User $user, LegalEntity $legalEntity, string $token, ?string $sessionId): bool
+    {
+        if ($sessionId === null) {
+            return false;
+        }
+
+        $payload = $this->getSyncSessionPayload($user, $sessionId);
+        $currentToken = $payload[config('ehealth.api.oauth.bearer_token')] ?? null;
+        $expiresAt = $payload['auth_token_expires_at'] ?? null;
+
+        return is_string($currentToken) && $currentToken !== '' && hash_equals($currentToken, $token)
+            && ($payload['ehealth_legal_entity_uuid'] ?? null) === $legalEntity->uuid
+            && ($expiresAt === null || (is_numeric($expiresAt) && (int) $expiresAt > now()->timestamp));
+    }
+
     /** @return Collection<int, User> */
     public function getSyncRetryCandidates(User $excludedUser, int $legalEntityId): Collection
     {
@@ -37,12 +54,13 @@ class UserRepository
     }
 
     /** Read only the session currently bound in the database, even for a serialized User. */
-    public function getSyncSessionPayload(User $user): array
+    public function getSyncSessionPayload(User $user, ?string $sessionId = null): array
     {
         $payload = DB::table('sessions')
             ->join('users', 'users.session_id', '=', 'sessions.id')
             ->where('users.id', $user->id)
             ->where('sessions.user_id', $user->id)
+            ->when($sessionId !== null, fn ($query) => $query->where('sessions.id', $sessionId))
             ->where('sessions.last_activity', '>=', now()->subMinutes((int) config('session.lifetime'))->timestamp)
             ->value('sessions.payload');
 

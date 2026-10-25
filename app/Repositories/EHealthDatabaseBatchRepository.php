@@ -13,6 +13,29 @@ use stdClass;
 
 class EHealthDatabaseBatchRepository extends DatabaseBatchRepository
 {
+    /** Capture only IDs at login; never load every serialized batch option into the listener. */
+    public function getFailedSyncBatchIds(int $legalEntityId): array
+    {
+        return $this->connection->table($this->table)
+            ->where('legal_entity_id', $legalEntityId)
+            ->where('failed_jobs', '>', 0)
+            ->orderBy('cancelled_at')
+            ->orderBy('id')
+            ->pluck('id')->all();
+    }
+
+    public function getFailedSyncBatches(int $legalEntityId, array $batchIds): Collection
+    {
+        return $this->connection->table($this->table)
+            ->select(['id', 'name'])
+            ->where('legal_entity_id', $legalEntityId)
+            ->where('failed_jobs', '>', 0)
+            ->whereIn('id', $batchIds)
+            ->orderBy('cancelled_at')
+            ->orderBy('id')
+            ->get();
+    }
+
     public function findForUpdate(string $batchId): ?stdClass
     {
         return $this->connection->table($this->table)->where('id', $batchId)->lockForUpdate()->first();

@@ -26,6 +26,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use App\Classes\eHealth\EHealthResponse;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use App\Exceptions\EHealth\EHealthResponseException;
 
 abstract class EHealthJob implements ShouldQueue
 {
@@ -58,6 +59,9 @@ abstract class EHealthJob implements ShouldQueue
      * @var string
      */
     protected string $token = '';
+
+    /** @var list<string> Token fingerprints rejected during this automatic retry sequence. */
+    protected array $rejectedTokenHashes = [];
 
     /**
      * The user associated with the job, if has an active session
@@ -125,7 +129,19 @@ abstract class EHealthJob implements ShouldQueue
 
         $this->token = Crypt::decryptString($this->batch()->options['token'] ?? '');
 
-        $response = $this->sendRequest($this->token);
+        try {
+            $response = $this->sendRequest($this->token);
+        } catch (EHealthResponseException $exception) {
+            if (!in_array($exception->getCode(), [401, 403], true) || $this->job === null) {
+                throw $exception;
+            }
+
+            // A denied token cannot recover through backoff. Enter the shared failure lifecycle
+            // immediately; temporary failures and rate limits retain the worker's delayed retries.
+            $this->fail($exception);
+
+            return;
+        }
 
         $this->processResponse($response);
 
@@ -196,6 +212,12 @@ abstract class EHealthJob implements ShouldQueue
             return;
         }
 
+        $this->rejectedTokenHashes = $this->batch()?->options['rejected_token_hashes'] ?? [];
+        if (in_array($exception->getCode(), [401, 403], true)) {
+            $failedToken = Crypt::decryptString($this->batch()->options['token']);
+            $this->rejectedTokenHashes[] = hash('sha256', $failedToken);
+        }
+
         $this->user = $oldUser === null || !$this->shouldRetryWithAnotherUser($exception)
             ? null
             : $this->getUserWithActiveSession($oldUser);
@@ -234,6 +256,7 @@ abstract class EHealthJob implements ShouldQueue
                 ->withOption('legal_entity_id', $this->legalEntity->id)
                 ->withOption('token', Crypt::encryptString($this->token)) // Passing the same token to the next job
                 ->withOption('user', $this->user)
+                ->withOption('rejected_token_hashes', array_values(array_unique($this->rejectedTokenHashes)))
                 ->withOption('sync_entity', $this->batch()?->options['sync_entity'] ?? null)
                 ->withOption('patient_uuid', $this->batch()?->options['patient_uuid'] ?? null)
                 ->withOption('person_id', $this->batch()?->options['person_id'] ?? null)
@@ -359,7 +382,16 @@ abstract class EHealthJob implements ShouldQueue
                     // Read the token and its scopes together from the current database binding.
                     // Reject missing/expired sessions, a token for another LE, or insufficient scopes.
                     // first() returns null when none qualify, without treating search(false) as key 0.
-                    return $this->hasRequiredScopes($permissions) && $this->syncSessionToken($candidate) !== '';
+                    if (!$this->hasRequiredScopes($permissions)) {
+                        return false;
+                    }
+
+                    $token = $this->syncSessionToken($candidate);
+
+                    // Never rotate back to an API-rejected token, even if its local session is
+                    // still active. A later login starts a new sequence with fresh credentials.
+                    return $token !== ''
+                        && !in_array(hash('sha256', $token), $this->rejectedTokenHashes, true);
                 });
         } finally {
             // Do not leak this job's permission context into the caller or the worker's next job,

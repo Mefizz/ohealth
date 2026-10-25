@@ -69,6 +69,7 @@ class PartyVerificationResumeTest extends TestCase
         ]);
         $this->user = $this->createUser();
         $this->withSession([config('ehealth.api.oauth.bearer_token') => 'new-token']);
+        $this->bindLoginSession();
     }
 
     public function testLoginWithoutReadScopePreservesFailedBatchAndSendsNoResumeNotification(): void
@@ -264,6 +265,163 @@ class PartyVerificationResumeTest extends TestCase
         $this->assertDatabaseCount('failed_jobs', 1);
     }
 
+    public function testRedeliveredLoginDoesNotResumeFailuresCreatedAfterThatLogin(): void
+    {
+        $original = $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        $event = new EHealthUserLogin($this->user, $this->legalEntity, $this->user->uuid, [PartyVerificationSync::SCOPE_REQUIRED]);
+        $payload = serialize($event);
+        (new OnRegularLoginSyncronization())->handle($event);
+        $this->assertDatabaseMissing('job_batches', ['id' => $original->id]);
+
+        $replacement = $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        Notification::fake();
+        (new OnRegularLoginSyncronization())->handle(unserialize($payload));
+
+        $this->assertDatabaseHas('job_batches', ['id' => $replacement->id, 'failed_jobs' => 1]);
+        $this->assertSyncJobsCount(1);
+        Notification::assertNothingSent();
+    }
+
+    #[DataProvider('staleLogins')]
+    public function testStaleLoginCannotReplaceAFailedBatch(string $change): void
+    {
+        $batch = $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        $event = new EHealthUserLogin($this->user, $this->legalEntity, $this->user->uuid, [PartyVerificationSync::SCOPE_REQUIRED]);
+        if ($change === 'logout') {
+            $this->user->forceFill(['session_id' => null])->save();
+        } elseif ($change === 'relogin') {
+            $this->bindLoginSession('another-token');
+        } elseif ($change === 'expired session') {
+            DB::table('sessions')->where('user_id', $this->user->id)->update(['last_activity' => 0]);
+        } elseif ($change === 'new session with same token') {
+            $session = (array) DB::table('sessions')->where('user_id', $this->user->id)->first();
+            $session['id'] = 'another-session';
+            DB::table('sessions')->insert($session);
+            $this->user->forceFill(['session_id' => $session['id']])->save();
+        } else {
+            $this->bindLoginSession(expiresAt: now()->subSecond()->timestamp);
+        }
+
+        (new OnRegularLoginSyncronization())->handle(unserialize(serialize($event)));
+
+        $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $this->assertSyncJobsCount(0);
+        Notification::assertNothingSent();
+    }
+
+    public static function staleLogins(): array
+    {
+        return ['logout' => ['logout'], 'relogin' => ['relogin'], 'expired session' => ['expired session'], 'expired token' => ['expired token'], 'new session with same token' => ['new session with same token']];
+    }
+
+    public function testFirstLocalLoginCanResumeAnExistingLegalEntity(): void
+    {
+        $batch = $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        (new OnRegularLoginSyncronization())->handle(new EHealthUserLogin(
+            $this->user,
+            $this->legalEntity,
+            $this->user->uuid,
+            [PartyVerificationSync::SCOPE_REQUIRED],
+            isFirstLogin: true
+        ));
+
+        $this->assertDatabaseMissing('job_batches', ['id' => $batch->id]);
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertSyncJobsCount(1);
+    }
+
+    public function testBacklogIsResumedInBoundedDeliveriesWithoutRepeatedNotifications(): void
+    {
+        $count = OnRegularLoginSyncronization::BATCHES_PER_RUN + 2;
+        for ($index = 0; $index < $count; $index++) {
+            $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        }
+        $event = new EHealthUserLogin($this->user, $this->legalEntity, $this->user->uuid, [PartyVerificationSync::SCOPE_REQUIRED]);
+        (new OnRegularLoginSyncronization())->handle($event);
+
+        $this->assertDatabaseCount('failed_jobs', 2);
+        Notification::assertNothingSent();
+        $continuation = DB::table('jobs')->where('queue', 'sync')->orderByDesc('id')->first();
+        // Deliver the continuation first; HTTP jobs remain queued and require no external API.
+        DB::table('jobs')->where('queue', 'sync')->where('id', '!=', $continuation->id)->update(['available_at' => now()->addMinute()->timestamp]);
+        $this->runNextJob();
+
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertSyncJobsCount($count);
+        Notification::assertSentToTimes($this->user, SyncNotification::class, 1);
+    }
+
+    public function testLogoutDuringABacklogLeavesTheRemainingFailuresForTheNextLogin(): void
+    {
+        for ($index = 0; $index < OnRegularLoginSyncronization::BATCHES_PER_RUN + 1; $index++) {
+            $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        }
+        $event = new EHealthUserLogin($this->user, $this->legalEntity, $this->user->uuid, [PartyVerificationSync::SCOPE_REQUIRED]);
+        (new OnRegularLoginSyncronization())->handle($event);
+        $continuation = DB::table('jobs')->where('queue', 'sync')->orderByDesc('id')->first();
+        DB::table('jobs')->where('queue', 'sync')->where('id', '!=', $continuation->id)->update(['available_at' => now()->addMinute()->timestamp]);
+        $this->user->forceFill(['session_id' => null])->save();
+
+        $this->runNextJob();
+
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $this->assertSyncJobsCount(OnRegularLoginSyncronization::BATCHES_PER_RUN);
+        Notification::assertNothingSent();
+    }
+
+    private function bindLoginSession(string $token = 'new-token', ?int $expiresAt = null): void
+    {
+        $id = 'resume-session-' . $this->user->id;
+        DB::table('sessions')->updateOrInsert(['id' => $id], [
+            'user_id' => $this->user->id, 'last_activity' => now()->timestamp,
+            'payload' => base64_encode(serialize([
+                config('ehealth.api.oauth.bearer_token') => $token,
+                'ehealth_legal_entity_uuid' => $this->legalEntity->uuid,
+                'auth_token_expires_at' => $expiresAt ?? now()->addHour()->timestamp,
+            ])),
+        ]);
+        $this->user->forceFill(['session_id' => $id])->save();
+    }
+
+    #[DataProvider('loginLogoutRuns')]
+    public function testRepeatedLoginCyclesDoNotAccumulateFailedBatches(bool $logout): void
+    {
+        $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
+        for ($cycle = 0; $cycle < 3; $cycle++) {
+            $token = 'cycle-token-' . $cycle;
+            $this->withSession([config('ehealth.api.oauth.bearer_token') => $token]);
+            $this->bindLoginSession($token);
+            $event = new EHealthUserLogin($this->user, $this->legalEntity, $this->user->uuid, [PartyVerificationSync::SCOPE_REQUIRED]);
+            $payload = serialize($event);
+            (new OnRegularLoginSyncronization())->handle($event);
+            if ($logout) {
+                $this->user->forceFill(['session_id' => null])->save();
+            }
+            $api = Mockery::mock(PartyApi::class);
+            $api->shouldReceive('withToken')->once()->with($token)->andReturnSelf();
+            $api->shouldReceive('getMany')->once()->andThrow(new EHealthResponseException(
+                new Response(new GuzzleResponse(401, [], json_encode(['error' => ['message' => 'Revoked token']])))
+            ));
+            $this->instance(PartyApi::class, $api);
+            $this->runNextJob();
+            (new OnRegularLoginSyncronization())->handle(unserialize($payload));
+
+            $this->assertDatabaseCount('job_batches', 1);
+            $this->assertDatabaseCount('failed_jobs', 1);
+            $this->assertSyncJobsCount(0);
+            $failedUuid = DB::table('failed_jobs')->value('uuid');
+            $batch = DB::table('job_batches')->first();
+            $this->assertSame([$failedUuid], json_decode($batch->failed_job_ids, true));
+            $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->partyVerificationSyncStatus);
+        }
+    }
+
+    public static function loginLogoutRuns(): array
+    {
+        return ['login and stay' => [false], 'login then logout' => [true]];
+    }
+
     public function testFailureAfterEnqueueRestoresFailedRecordsAndRollsBackNewJob(): void
     {
         $batch = $this->failedBatch([new PartyVerificationSync($this->legalEntity)]);
@@ -335,6 +493,7 @@ class PartyVerificationResumeTest extends TestCase
         $api->shouldReceive('getMany')->once()->with([], 1)->andReturn($response);
         $this->instance(PartyApi::class, $api);
         $this->withSession([config('ehealth.api.oauth.bearer_token') => 'fresh-token']);
+        $this->bindLoginSession('fresh-token');
 
         $this->login([PartyVerificationSync::SCOPE_REQUIRED]);
 
@@ -368,7 +527,7 @@ class PartyVerificationResumeTest extends TestCase
     {
         return [
             'temporary failure' => [503, 'Temporarily unavailable'],
-            'another forbidden response' => [403, 'Party is not verified'],
+            'rate limit' => [429, 'Too many requests'],
         ];
     }
 

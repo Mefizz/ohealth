@@ -251,23 +251,28 @@ class ScopedSyncRetryTest extends TestCase
         $this->assertDatabaseMissing('job_batches', ['id' => $batch->id]);
     }
 
-    public function testWorkerPreservesFailedJobWhenNoSessionHasTheRequiredScope(): void
+    public static function immediateFailureStatuses(): array
+    {
+        return ['unauthorized' => [401], 'forbidden' => [403]];
+    }
+
+    #[DataProvider('immediateFailureStatuses')]
+    public function testWorkerPreservesFailedJobWhenNoSessionHasTheRequiredScope(int $status): void
     {
         $this->bindSession(scopes: []);
         $api = Mockery::mock(EmployeeApi::class);
         $api->shouldReceive('withToken')->once()->with('old-token')->andReturnSelf();
         $api->shouldReceive('getMany')->once()->andThrow(new EHealthResponseException(
-            new Response(new GuzzleResponse(401, [], json_encode(['error' => ['message' => 'Token expired']])))
+            new Response(new GuzzleResponse($status, [], json_encode(['error' => ['message' => 'Access denied']])))
         ));
         $this->instance(EmployeeApi::class, $api);
         $job = new EmployeeSync($this->legalEntity, standalone: true);
-        $job->tries = 1;
         $batch = Bus::batch([$job])->name('EmployeeFullSync')
             ->withOption('legal_entity_id', $this->legalEntity->id)
             ->withOption('user', $this->oldUser)->withOption('token', Crypt::encryptString('old-token'))
             ->onQueue('sync')->dispatch();
 
-        app('queue.worker')->runNextJob('database', 'sync', new WorkerOptions(sleep: 0, maxTries: 1));
+        app('queue.worker')->runNextJob('database', 'sync', new WorkerOptions(sleep: 0, maxTries: 3));
 
         $this->assertDatabaseHas('job_batches', ['id' => $batch->id, 'failed_jobs' => 1]);
         $this->assertDatabaseCount('failed_jobs', 1);
@@ -358,6 +363,7 @@ class ScopedSyncRetryTest extends TestCase
             $this->assertDatabaseHas('job_batches', ['id' => $retry->batchId, 'failed_jobs' => 1]);
             $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->employeeSyncStatus);
             $this->withSession([config('ehealth.api.oauth.bearer_token') => 'fresh-token']);
+            $this->bindSession(token: 'fresh-token');
             (new OnRegularLoginSyncronization())->handle(new EHealthUserLogin(
                 $this->candidate,
                 $this->legalEntity,
@@ -382,6 +388,42 @@ class ScopedSyncRetryTest extends TestCase
     public static function retryLifecycles(): array
     {
         return ['retry succeeds' => [false], 'retry pauses then resumes on login' => [true]];
+    }
+
+    public function testDeniedTokensCannotPingPongBetweenTwoActiveUsers(): void
+    {
+        $oldEmployee = Employee::create([
+            'uuid' => (string) Str::uuid(), 'legal_entity_id' => $this->legalEntity->id,
+            'user_id' => $this->oldUser->id, 'employee_type' => 'DOCTOR',
+            'status' => 'APPROVED', 'is_active' => true, 'position' => 'P1', 'start_date' => '2020-01-01',
+        ]);
+        $this->oldUser->employees()->attach($oldEmployee->id);
+        $permission = Permission::where('name', 'employee:read')->where('guard_name', 'ehealth')->firstOrFail();
+        $this->oldUser->permissions()->attach($permission, ['legal_entity_id' => $this->legalEntity->id]);
+        DB::table('sessions')->insert([
+            'id' => 'old-session', 'user_id' => $this->oldUser->id, 'last_activity' => now()->timestamp,
+            'payload' => base64_encode(serialize($this->payload('old-token'))),
+        ]);
+        $this->oldUser->forceFill(['session_id' => 'old-session'])->save();
+        $api = Mockery::mock(EmployeeApi::class);
+        $api->shouldReceive('withToken')->once()->with('old-token')->andReturnSelf();
+        $api->shouldReceive('withToken')->once()->with('current-token')->andReturnSelf();
+        $api->shouldReceive('getMany')->twice()->andThrow(new EHealthResponseException(
+            new Response(new GuzzleResponse(401, [], json_encode(['error' => ['message' => 'Revoked token']])))
+        ));
+        $this->instance(EmployeeApi::class, $api);
+        Bus::batch([new EmployeeSync($this->legalEntity, standalone: true)])
+            ->name(EmployeeSync::BATCH_NAME)->withOption('legal_entity_id', $this->legalEntity->id)
+            ->withOption('user', $this->oldUser)->withOption('token', Crypt::encryptString('old-token'))
+            ->onQueue('sync')->dispatch();
+
+        $this->runNextSyncJob();
+        $this->runNextSyncJob();
+
+        $this->assertSame(0, DB::table('jobs')->where('queue', 'sync')->count());
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $this->assertDatabaseCount('job_batches', 1);
+        $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->employeeSyncStatus);
     }
 
     private function runNextSyncJob(): void

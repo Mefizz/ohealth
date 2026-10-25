@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Composition\Forms;
 
 use App\Core\BaseForm;
-use App\Livewire\Composition\Forms\Concerns\BuildsCompositionPayload;
+use App\Dto\Composition\Ehealth as CompositionData;
 use App\Enums\Composition\CompositionRelation;
 use App\Enums\Composition\CompositionCategory;
 use App\Enums\Composition\CompositionType;
@@ -14,8 +14,6 @@ use Illuminate\Validation\Rule;
 
 class CompositionTempDisabilityForm extends BaseForm
 {
-    use BuildsCompositionPayload;
-
     /** Fixed — this form only ever produces a МВТН. */
     public string $type = CompositionType::TEMP_DISABILITY->value;
 
@@ -132,58 +130,7 @@ class CompositionTempDisabilityForm extends BaseForm
      */
     public function toPayload(string $authorEmployeeUuid): array
     {
-        $subjectResource = $this->isUnidentified ? 'preperson' : 'person';
-
-        $payload = $this->base([
-            'type' => CompositionType::TEMP_DISABILITY,
-            'category' => $this->category,
-            'subjectUuid' => $this->subjectUuid,
-            'subjectResource' => $subjectResource,
-            'encounterUuid' => $this->encounterUuid,
-            'authorEmployeeUuid' => $authorEmployeeUuid,
-            'focusUuid' => $this->sectionFocusUuid,
-            'focusResource' => $subjectResource,
-            'periodStart' => $this->startOfDay($this->eventPeriodStart),
-            'periodEnd' => $this->endOfDay($this->eventPeriodEnd),
-        ]);
-
-        $extensions = $this->informWith($this->informWithUuid ?? null);
-
-        foreach ([
-            'IS_ACCIDENT' => $this->isAccident ?? false,
-            'IS_INTOXICATED' => $this->isIntoxicated ?? false,
-            'IS_FOREIGN_TREATMENT' => $this->isForeignTreatment ?? false,
-            'IS_FORCE_RENEW' => $this->isForceRenew ?? false,
-        ] as $code => $isSet) {
-            if ($isSet) {
-                $extensions[] = ['valueCode' => $code, 'valueBoolean' => true];
-            }
-        }
-
-        if (!empty($this->treatmentViolation)) {
-            $extensions[] = [
-                'valueCode' => 'TREATMENT_VIOLATION',
-                'valueString' => $this->treatmentViolation,
-            ];
-
-            if (!empty($this->treatmentViolationDate)) {
-                $extensions[] = [
-                    'valueCode' => 'TREATMENT_VIOLATION_DATE',
-                    'valueDate' => $this->date($this->treatmentViolationDate),
-                ];
-            }
-        }
-
-        $payload['extension'] = $extensions;
-
-        if (!empty($this->relatesToTargetUuid)) {
-            $payload['relatesTo'] = [
-                'code' => $this->relatesToCode ?? CompositionRelation::REPLACES->value,
-                'targetIdentifier' => $this->resourceIdentifier('composition', $this->relatesToTargetUuid),
-            ];
-        }
-
-        return $payload;
+        return CompositionData::fromForm($this, $authorEmployeeUuid)->toArray();
     }
 
     /**

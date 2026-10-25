@@ -40,7 +40,7 @@ class CarePlanMappingContractTest extends TestCase
                 default => $data::fromSource($source, $input['context'])->toArray(),
             };
             $this->assertArrayNotHasKey('exception', $expected);
-            $this->assertSame($expected['data'], $result);
+            $this->assertSame(json_decode($expected['json'], true, flags: JSON_THROW_ON_ERROR), $result);
             $this->assertSame($expected['json'], json_encode($result, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
             if (isset($expected['signingJson'])) {
                 $api = $input['target'] === 'plan' ? app(CarePlanApi::class) : app(ActivityApi::class);

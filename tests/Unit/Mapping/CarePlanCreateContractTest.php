@@ -26,7 +26,7 @@ class CarePlanCreateContractTest extends TestCase
         $source = $input['input'];
         $actual = $api->buildCreateContent($source);
         $json = json_encode($actual, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
-        $this->assertSame($input['expected'], $actual);
+        $this->assertSame(json_decode($input['json'], true, flags: JSON_THROW_ON_ERROR), $actual);
         $this->assertSame($input['json'], $json);
         $this->assertStringNotContainsString('serverOnly', $json);
         $this->assertStringNotContainsString('synthetic-server-field', $json);

@@ -9,7 +9,7 @@
             "category": {
                 "coding": [
                     {
-                        "system": "eHealth\/care_plan_categories",
+                        "system": "eHealth/care_plan_categories",
                         "code": "TEST",
                         "display": "Synthetic category"
                     }
@@ -34,7 +34,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "employee"
                             }
                         ]
@@ -48,7 +48,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "encounter"
                             }
                         ]
@@ -62,7 +62,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -76,7 +76,7 @@
                 {
                     "coding": [
                         {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
+                            "system": "eHealth/ICD10_AM/condition_codes",
                             "code": "A00"
                         }
                     ]
@@ -88,7 +88,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "episode_of_care"
                                 }
                             ]
@@ -102,7 +102,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "procedure"
                                 }
                             ]
@@ -116,117 +116,7 @@
                 "zero": 0
             }
         },
-        "expected": {
-            "id": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd",
-            "title": "Synthetic care plan",
-            "category": {
-                "coding": [
-                    {
-                        "system": "eHealth\/care_plan_categories",
-                        "code": "TEST",
-                        "display": "Synthetic category"
-                    }
-                ],
-                "text": "Keep category text"
-            },
-            "terms_of_service": {
-                "coding": [
-                    {
-                        "system": "PROVIDING_CONDITION",
-                        "code": "OUTPATIENT"
-                    }
-                ],
-                "text": "Keep terms text"
-            },
-            "period": {
-                "start": "2026-10-19T10:20:30.123Z"
-            },
-            "author": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "employee"
-                            }
-                        ]
-                    },
-                    "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                },
-                "display_value": "Synthetic author"
-            },
-            "encounter": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "encounter"
-                            }
-                        ]
-                    },
-                    "value": "f0579e07-58aa-40c2-a2c7-5ee5e7e820ee"
-                }
-            },
-            "contributor": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    },
-                    "display_value": "Synthetic contributor"
-                }
-            ],
-            "addresses": [
-                {
-                    "coding": [
-                        {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
-                            "code": "A00"
-                        }
-                    ]
-                }
-            ],
-            "supporting_info": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "episode_of_care"
-                                }
-                            ]
-                        },
-                        "value": "19de152b-eead-4b3d-acef-8b5eaf1c5d0f"
-                    },
-                    "display_value": "Synthetic episode"
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "procedure"
-                                }
-                            ]
-                        },
-                        "value": "915c394e-656a-4adf-b199-f94c3253032b"
-                    }
-                }
-            ],
-            "intent": "order",
-            "status": "new"
-        },
-        "json": "{\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"title\":\"Synthetic care plan\",\"category\":{\"coding\":[{\"system\":\"eHealth\\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}]}],\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"intent\":\"order\",\"status\":\"new\"}"
+        "json": "{\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"title\":\"Synthetic care plan\",\"category\":{\"coding\":[{\"system\":\"eHealth\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}]}],\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"intent\":\"order\",\"status\":\"new\"}"
     },
     "plan reversed": {
         "target": "plan",
@@ -241,7 +131,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "episode_of_care"
                                 }
                             ]
@@ -255,7 +145,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "procedure"
                                 }
                             ]
@@ -268,7 +158,7 @@
                 {
                     "coding": [
                         {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
+                            "system": "eHealth/ICD10_AM/condition_codes",
                             "code": "A00"
                         }
                     ]
@@ -280,7 +170,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -295,7 +185,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "encounter"
                             }
                         ]
@@ -308,7 +198,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "employee"
                             }
                         ]
@@ -333,7 +223,7 @@
             "category": {
                 "coding": [
                     {
-                        "system": "eHealth\/care_plan_categories",
+                        "system": "eHealth/care_plan_categories",
                         "code": "TEST",
                         "display": "Synthetic category"
                     }
@@ -345,117 +235,7 @@
             "title": "Synthetic care plan",
             "id": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd"
         },
-        "expected": {
-            "supporting_info": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "episode_of_care"
-                                }
-                            ]
-                        },
-                        "value": "19de152b-eead-4b3d-acef-8b5eaf1c5d0f"
-                    },
-                    "display_value": "Synthetic episode"
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "procedure"
-                                }
-                            ]
-                        },
-                        "value": "915c394e-656a-4adf-b199-f94c3253032b"
-                    }
-                }
-            ],
-            "addresses": [
-                {
-                    "coding": [
-                        {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
-                            "code": "A00"
-                        }
-                    ]
-                }
-            ],
-            "contributor": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    },
-                    "display_value": "Synthetic contributor"
-                }
-            ],
-            "encounter": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "encounter"
-                            }
-                        ]
-                    },
-                    "value": "f0579e07-58aa-40c2-a2c7-5ee5e7e820ee"
-                }
-            },
-            "author": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "employee"
-                            }
-                        ]
-                    },
-                    "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                },
-                "display_value": "Synthetic author"
-            },
-            "period": {
-                "start": "2026-10-19T10:20:30.123Z"
-            },
-            "terms_of_service": {
-                "coding": [
-                    {
-                        "system": "PROVIDING_CONDITION",
-                        "code": "OUTPATIENT"
-                    }
-                ],
-                "text": "Keep terms text"
-            },
-            "category": {
-                "coding": [
-                    {
-                        "system": "eHealth\/care_plan_categories",
-                        "code": "TEST",
-                        "display": "Synthetic category"
-                    }
-                ],
-                "text": "Keep category text"
-            },
-            "title": "Synthetic care plan",
-            "id": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd",
-            "intent": "order",
-            "status": "new"
-        },
-        "json": "{\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}]}],\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"category\":{\"coding\":[{\"system\":\"eHealth\\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"title\":\"Synthetic care plan\",\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"intent\":\"order\",\"status\":\"new\"}"
+        "json": "{\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}]}],\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"category\":{\"coding\":[{\"system\":\"eHealth\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"title\":\"Synthetic care plan\",\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"intent\":\"order\",\"status\":\"new\"}"
     },
     "plan detailFirst": {
         "target": "plan",
@@ -471,7 +251,7 @@
             "category": {
                 "coding": [
                     {
-                        "system": "eHealth\/care_plan_categories",
+                        "system": "eHealth/care_plan_categories",
                         "code": "TEST",
                         "display": "Synthetic category"
                     }
@@ -492,7 +272,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "employee"
                             }
                         ]
@@ -506,7 +286,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "encounter"
                             }
                         ]
@@ -520,7 +300,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -534,7 +314,7 @@
                 {
                     "coding": [
                         {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
+                            "system": "eHealth/ICD10_AM/condition_codes",
                             "code": "A00"
                         }
                     ]
@@ -546,7 +326,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "episode_of_care"
                                 }
                             ]
@@ -560,7 +340,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "procedure"
                                 }
                             ]
@@ -574,117 +354,7 @@
                 "zero": 0
             }
         },
-        "expected": {
-            "period": {
-                "start": "2026-10-19T10:20:30.123Z"
-            },
-            "id": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd",
-            "title": "Synthetic care plan",
-            "category": {
-                "coding": [
-                    {
-                        "system": "eHealth\/care_plan_categories",
-                        "code": "TEST",
-                        "display": "Synthetic category"
-                    }
-                ],
-                "text": "Keep category text"
-            },
-            "terms_of_service": {
-                "coding": [
-                    {
-                        "system": "PROVIDING_CONDITION",
-                        "code": "OUTPATIENT"
-                    }
-                ],
-                "text": "Keep terms text"
-            },
-            "author": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "employee"
-                            }
-                        ]
-                    },
-                    "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                },
-                "display_value": "Synthetic author"
-            },
-            "encounter": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "encounter"
-                            }
-                        ]
-                    },
-                    "value": "f0579e07-58aa-40c2-a2c7-5ee5e7e820ee"
-                }
-            },
-            "contributor": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    },
-                    "display_value": "Synthetic contributor"
-                }
-            ],
-            "addresses": [
-                {
-                    "coding": [
-                        {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
-                            "code": "A00"
-                        }
-                    ]
-                }
-            ],
-            "supporting_info": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "episode_of_care"
-                                }
-                            ]
-                        },
-                        "value": "19de152b-eead-4b3d-acef-8b5eaf1c5d0f"
-                    },
-                    "display_value": "Synthetic episode"
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "procedure"
-                                }
-                            ]
-                        },
-                        "value": "915c394e-656a-4adf-b199-f94c3253032b"
-                    }
-                }
-            ],
-            "intent": "order",
-            "status": "new"
-        },
-        "json": "{\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"title\":\"Synthetic care plan\",\"category\":{\"coding\":[{\"system\":\"eHealth\\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}]}],\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"intent\":\"order\",\"status\":\"new\"}"
+        "json": "{\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"title\":\"Synthetic care plan\",\"category\":{\"coding\":[{\"system\":\"eHealth\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}]}],\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"intent\":\"order\",\"status\":\"new\"}"
     },
     "plan detailLast": {
         "target": "plan",
@@ -696,7 +366,7 @@
             "category": {
                 "coding": [
                     {
-                        "system": "eHealth\/care_plan_categories",
+                        "system": "eHealth/care_plan_categories",
                         "code": "TEST",
                         "display": "Synthetic category"
                     }
@@ -717,7 +387,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "employee"
                             }
                         ]
@@ -731,7 +401,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "encounter"
                             }
                         ]
@@ -745,7 +415,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -759,7 +429,7 @@
                 {
                     "coding": [
                         {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
+                            "system": "eHealth/ICD10_AM/condition_codes",
                             "code": "A00"
                         }
                     ]
@@ -771,7 +441,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "episode_of_care"
                                 }
                             ]
@@ -785,7 +455,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "procedure"
                                 }
                             ]
@@ -803,117 +473,7 @@
                 "end": null
             }
         },
-        "expected": {
-            "id": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd",
-            "title": "Synthetic care plan",
-            "category": {
-                "coding": [
-                    {
-                        "system": "eHealth\/care_plan_categories",
-                        "code": "TEST",
-                        "display": "Synthetic category"
-                    }
-                ],
-                "text": "Keep category text"
-            },
-            "terms_of_service": {
-                "coding": [
-                    {
-                        "system": "PROVIDING_CONDITION",
-                        "code": "OUTPATIENT"
-                    }
-                ],
-                "text": "Keep terms text"
-            },
-            "author": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "employee"
-                            }
-                        ]
-                    },
-                    "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                },
-                "display_value": "Synthetic author"
-            },
-            "encounter": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "encounter"
-                            }
-                        ]
-                    },
-                    "value": "f0579e07-58aa-40c2-a2c7-5ee5e7e820ee"
-                }
-            },
-            "contributor": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    },
-                    "display_value": "Synthetic contributor"
-                }
-            ],
-            "addresses": [
-                {
-                    "coding": [
-                        {
-                            "system": "eHealth\/ICD10_AM\/condition_codes",
-                            "code": "A00"
-                        }
-                    ]
-                }
-            ],
-            "supporting_info": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "episode_of_care"
-                                }
-                            ]
-                        },
-                        "value": "19de152b-eead-4b3d-acef-8b5eaf1c5d0f"
-                    },
-                    "display_value": "Synthetic episode"
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "procedure"
-                                }
-                            ]
-                        },
-                        "value": "915c394e-656a-4adf-b199-f94c3253032b"
-                    }
-                }
-            ],
-            "period": {
-                "start": "2026-10-19T10:20:30.123Z"
-            },
-            "intent": "order",
-            "status": "new"
-        },
-        "json": "{\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"title\":\"Synthetic care plan\",\"category\":{\"coding\":[{\"system\":\"eHealth\\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}]}],\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"intent\":\"order\",\"status\":\"new\"}"
+        "json": "{\"id\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\",\"title\":\"Synthetic care plan\",\"category\":{\"coding\":[{\"system\":\"eHealth\\/care_plan_categories\",\"code\":\"TEST\",\"display\":\"Synthetic category\"}],\"text\":\"Keep category text\"},\"terms_of_service\":{\"coding\":[{\"system\":\"PROVIDING_CONDITION\",\"code\":\"OUTPATIENT\"}],\"text\":\"Keep terms text\"},\"author\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"},\"display_value\":\"Synthetic author\"},\"encounter\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"encounter\"}]},\"value\":\"f0579e07-58aa-40c2-a2c7-5ee5e7e820ee\"}},\"contributor\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"},\"display_value\":\"Synthetic contributor\"}],\"addresses\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}]}],\"supporting_info\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"episode_of_care\"}]},\"value\":\"19de152b-eead-4b3d-acef-8b5eaf1c5d0f\"},\"display_value\":\"Synthetic episode\"},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"procedure\"}]},\"value\":\"915c394e-656a-4adf-b199-f94c3253032b\"}}],\"period\":{\"start\":\"2026-10-19T10:20:30.123Z\"},\"intent\":\"order\",\"status\":\"new\"}"
     },
     "activity original": {
         "target": "activity",
@@ -924,7 +484,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "care_plan"
                             }
                         ]
@@ -938,7 +498,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -951,7 +511,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -969,7 +529,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "medication"
                                 }
                             ]
@@ -1004,7 +564,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
+                                "system": "eHealth/ICD10_AM/condition_codes",
                                 "code": "A00"
                             }
                         ],
@@ -1017,7 +577,7 @@
                             "type": {
                                 "coding": [
                                     {
-                                        "system": "eHealth\/resources",
+                                        "system": "eHealth/resources",
                                         "code": "observation"
                                     }
                                 ]
@@ -1030,7 +590,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_A"
                             }
                         ]
@@ -1038,7 +598,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_B"
                             }
                         ]
@@ -1055,129 +615,7 @@
                 "zero": 0
             }
         },
-        "expected": {
-            "id": "86cd9064-7be2-4596-a87e-bf989e4d388e",
-            "care_plan": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "care_plan"
-                            }
-                        ]
-                    },
-                    "value": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd"
-                }
-            },
-            "author": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                    }
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    }
-                }
-            ],
-            "detail": {
-                "kind": "medication_request",
-                "do_not_perform": false,
-                "product_reference": {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "medication"
-                                }
-                            ]
-                        },
-                        "value": "a3968b0d-ab41-4121-b295-6684ebc3e5b2"
-                    }
-                },
-                "quantity": {
-                    "value": 1.2345,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "daily_amount": {
-                    "value": 0.1234,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "scheduled_period": {
-                    "start": "2026-10-19T10:20:30.123Z",
-                    "end": "2026-11-01T21:59:59Z"
-                },
-                "reason_code": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
-                                "code": "A00"
-                            }
-                        ],
-                        "text": "Keep all coding"
-                    }
-                ],
-                "reason_reference": [
-                    {
-                        "identifier": {
-                            "type": {
-                                "coding": [
-                                    {
-                                        "system": "eHealth\/resources",
-                                        "code": "observation"
-                                    }
-                                ]
-                            },
-                            "value": "90da1323-42b8-4abe-8777-c39864179d3b"
-                        }
-                    }
-                ],
-                "goal": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_A"
-                            }
-                        ]
-                    },
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_B"
-                            }
-                        ]
-                    }
-                ],
-                "status": "scheduled"
-            }
-        },
-        "json": "{\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
+        "json": "{\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
     },
     "activity reversed": {
         "target": "activity",
@@ -1197,7 +635,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "medication"
                                 }
                             ]
@@ -1232,7 +670,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
+                                "system": "eHealth/ICD10_AM/condition_codes",
                                 "code": "A00"
                             }
                         ],
@@ -1245,7 +683,7 @@
                             "type": {
                                 "coding": [
                                     {
-                                        "system": "eHealth\/resources",
+                                        "system": "eHealth/resources",
                                         "code": "observation"
                                     }
                                 ]
@@ -1258,7 +696,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_A"
                             }
                         ]
@@ -1266,7 +704,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_B"
                             }
                         ]
@@ -1282,7 +720,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -1295,7 +733,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -1309,7 +747,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "care_plan"
                             }
                         ]
@@ -1319,129 +757,7 @@
             },
             "id": "86cd9064-7be2-4596-a87e-bf989e4d388e"
         },
-        "expected": {
-            "author": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                    }
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    }
-                }
-            ],
-            "care_plan": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "care_plan"
-                            }
-                        ]
-                    },
-                    "value": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd"
-                }
-            },
-            "id": "86cd9064-7be2-4596-a87e-bf989e4d388e",
-            "detail": {
-                "kind": "medication_request",
-                "do_not_perform": false,
-                "product_reference": {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "medication"
-                                }
-                            ]
-                        },
-                        "value": "a3968b0d-ab41-4121-b295-6684ebc3e5b2"
-                    }
-                },
-                "quantity": {
-                    "value": 1.2345,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "daily_amount": {
-                    "value": 0.1234,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "scheduled_period": {
-                    "start": "2026-10-19T10:20:30.123Z",
-                    "end": "2026-11-01T21:59:59Z"
-                },
-                "reason_code": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
-                                "code": "A00"
-                            }
-                        ],
-                        "text": "Keep all coding"
-                    }
-                ],
-                "reason_reference": [
-                    {
-                        "identifier": {
-                            "type": {
-                                "coding": [
-                                    {
-                                        "system": "eHealth\/resources",
-                                        "code": "observation"
-                                    }
-                                ]
-                            },
-                            "value": "90da1323-42b8-4abe-8777-c39864179d3b"
-                        }
-                    }
-                ],
-                "goal": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_A"
-                            }
-                        ]
-                    },
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_B"
-                            }
-                        ]
-                    }
-                ],
-                "status": "scheduled"
-            }
-        },
-        "json": "{\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
+        "json": "{\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
     },
     "activity detailFirst": {
         "target": "activity",
@@ -1455,7 +771,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "medication"
                                 }
                             ]
@@ -1490,7 +806,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
+                                "system": "eHealth/ICD10_AM/condition_codes",
                                 "code": "A00"
                             }
                         ],
@@ -1503,7 +819,7 @@
                             "type": {
                                 "coding": [
                                     {
-                                        "system": "eHealth\/resources",
+                                        "system": "eHealth/resources",
                                         "code": "observation"
                                     }
                                 ]
@@ -1516,7 +832,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_A"
                             }
                         ]
@@ -1524,7 +840,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_B"
                             }
                         ]
@@ -1540,7 +856,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "care_plan"
                             }
                         ]
@@ -1554,7 +870,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -1567,7 +883,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -1583,129 +899,7 @@
                 "zero": 0
             }
         },
-        "expected": {
-            "id": "86cd9064-7be2-4596-a87e-bf989e4d388e",
-            "care_plan": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "care_plan"
-                            }
-                        ]
-                    },
-                    "value": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd"
-                }
-            },
-            "author": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                    }
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    }
-                }
-            ],
-            "detail": {
-                "kind": "medication_request",
-                "do_not_perform": false,
-                "product_reference": {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "medication"
-                                }
-                            ]
-                        },
-                        "value": "a3968b0d-ab41-4121-b295-6684ebc3e5b2"
-                    }
-                },
-                "quantity": {
-                    "value": 1.2345,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "daily_amount": {
-                    "value": 0.1234,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "scheduled_period": {
-                    "start": "2026-10-19T10:20:30.123Z",
-                    "end": "2026-11-01T21:59:59Z"
-                },
-                "reason_code": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
-                                "code": "A00"
-                            }
-                        ],
-                        "text": "Keep all coding"
-                    }
-                ],
-                "reason_reference": [
-                    {
-                        "identifier": {
-                            "type": {
-                                "coding": [
-                                    {
-                                        "system": "eHealth\/resources",
-                                        "code": "observation"
-                                    }
-                                ]
-                            },
-                            "value": "90da1323-42b8-4abe-8777-c39864179d3b"
-                        }
-                    }
-                ],
-                "goal": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_A"
-                            }
-                        ]
-                    },
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_B"
-                            }
-                        ]
-                    }
-                ],
-                "status": "scheduled"
-            }
-        },
-        "json": "{\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
+        "json": "{\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
     },
     "activity detailLast": {
         "target": "activity",
@@ -1716,7 +910,7 @@
                     "type": {
                         "coding": [
                             {
-                                "system": "eHealth\/resources",
+                                "system": "eHealth/resources",
                                 "code": "care_plan"
                             }
                         ]
@@ -1730,7 +924,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -1743,7 +937,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "employee"
                                 }
                             ]
@@ -1767,7 +961,7 @@
                         "type": {
                             "coding": [
                                 {
-                                    "system": "eHealth\/resources",
+                                    "system": "eHealth/resources",
                                     "code": "medication"
                                 }
                             ]
@@ -1802,7 +996,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
+                                "system": "eHealth/ICD10_AM/condition_codes",
                                 "code": "A00"
                             }
                         ],
@@ -1815,7 +1009,7 @@
                             "type": {
                                 "coding": [
                                     {
-                                        "system": "eHealth\/resources",
+                                        "system": "eHealth/resources",
                                         "code": "observation"
                                     }
                                 ]
@@ -1828,7 +1022,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_A"
                             }
                         ]
@@ -1836,7 +1030,7 @@
                     {
                         "coding": [
                             {
-                                "system": "eHealth\/care_plan_activity_goals",
+                                "system": "eHealth/care_plan_activity_goals",
                                 "code": "SYNTHETIC_B"
                             }
                         ]
@@ -1847,128 +1041,6 @@
                 }
             }
         },
-        "expected": {
-            "id": "86cd9064-7be2-4596-a87e-bf989e4d388e",
-            "care_plan": {
-                "identifier": {
-                    "type": {
-                        "coding": [
-                            {
-                                "system": "eHealth\/resources",
-                                "code": "care_plan"
-                            }
-                        ]
-                    },
-                    "value": "8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd"
-                }
-            },
-            "author": [
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "47ee824a-eb47-48ef-8d30-1109e3c89f0c"
-                    }
-                },
-                {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "employee"
-                                }
-                            ]
-                        },
-                        "value": "8ae23990-0133-4fbb-a50d-181a80e780cc"
-                    }
-                }
-            ],
-            "detail": {
-                "kind": "medication_request",
-                "do_not_perform": false,
-                "product_reference": {
-                    "identifier": {
-                        "type": {
-                            "coding": [
-                                {
-                                    "system": "eHealth\/resources",
-                                    "code": "medication"
-                                }
-                            ]
-                        },
-                        "value": "a3968b0d-ab41-4121-b295-6684ebc3e5b2"
-                    }
-                },
-                "quantity": {
-                    "value": 1.2345,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "daily_amount": {
-                    "value": 0.1234,
-                    "system": "MEDICATION_UNIT",
-                    "code": "ML",
-                    "unit": "ml"
-                },
-                "scheduled_period": {
-                    "start": "2026-10-19T10:20:30.123Z",
-                    "end": "2026-11-01T21:59:59Z"
-                },
-                "reason_code": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/ICD10_AM\/condition_codes",
-                                "code": "A00"
-                            }
-                        ],
-                        "text": "Keep all coding"
-                    }
-                ],
-                "reason_reference": [
-                    {
-                        "identifier": {
-                            "type": {
-                                "coding": [
-                                    {
-                                        "system": "eHealth\/resources",
-                                        "code": "observation"
-                                    }
-                                ]
-                            },
-                            "value": "90da1323-42b8-4abe-8777-c39864179d3b"
-                        }
-                    }
-                ],
-                "goal": [
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_A"
-                            }
-                        ]
-                    },
-                    {
-                        "coding": [
-                            {
-                                "system": "eHealth\/care_plan_activity_goals",
-                                "code": "SYNTHETIC_B"
-                            }
-                        ]
-                    }
-                ],
-                "status": "scheduled"
-            }
-        },
-        "json": "{\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\\/ICD10_AM\\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
+        "json": "{\"id\":\"86cd9064-7be2-4596-a87e-bf989e4d388e\",\"care_plan\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"care_plan\"}]},\"value\":\"8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd\"}},\"author\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"47ee824a-eb47-48ef-8d30-1109e3c89f0c\"}},{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"employee\"}]},\"value\":\"8ae23990-0133-4fbb-a50d-181a80e780cc\"}}],\"detail\":{\"kind\":\"medication_request\",\"do_not_perform\":false,\"product_reference\":{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"medication\"}]},\"value\":\"a3968b0d-ab41-4121-b295-6684ebc3e5b2\"}},\"quantity\":{\"value\":1.2345,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"daily_amount\":{\"value\":0.1234,\"system\":\"MEDICATION_UNIT\",\"code\":\"ML\",\"unit\":\"ml\"},\"scheduled_period\":{\"start\":\"2026-10-19T10:20:30.123Z\",\"end\":\"2026-11-01T21:59:59Z\"},\"reason_code\":[{\"coding\":[{\"system\":\"eHealth\\/ICD10_AM\\/condition_codes\",\"code\":\"A00\"}],\"text\":\"Keep all coding\"}],\"reason_reference\":[{\"identifier\":{\"type\":{\"coding\":[{\"system\":\"eHealth\\/resources\",\"code\":\"observation\"}]},\"value\":\"90da1323-42b8-4abe-8777-c39864179d3b\"}}],\"goal\":[{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_A\"}]},{\"coding\":[{\"system\":\"eHealth\\/care_plan_activity_goals\",\"code\":\"SYNTHETIC_B\"}]}],\"status\":\"scheduled\"}}"
     }
 }

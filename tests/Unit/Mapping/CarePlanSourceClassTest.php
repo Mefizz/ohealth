@@ -32,7 +32,7 @@ class CarePlanSourceClassTest extends TestCase
         $before = $form->toArray();
         $prepared = app(CarePlanRepository::class)->formContext(array_replace($before, $input['resolved']));
         $actual = Model::fromForm($form, $prepared['data'], $input['context'])->toArray();
-        $this->assertSame($expected['data'], $actual);
+        $this->assertSame(json_decode($expected['resourceJson'], true, flags: JSON_THROW_ON_ERROR), $actual);
         $json = json_encode(app(CarePlanApi::class)->buildCreateContent($actual), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
         $this->assertSame($expected['signingJson'], $json);
         $this->assertStringNotContainsString('synthetic-secret-never-in-payload', $json);

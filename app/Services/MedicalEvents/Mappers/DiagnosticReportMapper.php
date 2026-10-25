@@ -6,6 +6,9 @@ namespace App\Services\MedicalEvents\Mappers;
 
 use App\Core\Arr;
 use App\Contracts\FhirMapperContract;
+use App\Dto\FormCollection;
+use App\Dto\PaperReferral\Ehealth as PaperReferralData;
+use App\Dto\PaperReferral\Form as PaperReferralFormData;
 use App\Enums\Person\DiagnosticReportStatus;
 use App\Enums\Person\ObservationStatus;
 use App\Services\MedicalEvents\FhirResource;
@@ -65,7 +68,7 @@ class DiagnosticReportMapper implements FhirMapperContract
                 ->toIdentifier($data['basedOnIdentifier']);
         }
 
-        $paperReferral = PaperReferralMapper::toFhir($data);
+        $paperReferral = PaperReferralData::fromSource(new FormCollection($data))?->toArray();
         if ($paperReferral !== null) {
             $result['paperReferral'] = $paperReferral;
         }
@@ -175,7 +178,7 @@ class DiagnosticReportMapper implements FhirMapperContract
             'primarySource' => data_get($data, 'primarySource'),
             'reportOriginCode' => data_get($data, 'reportOrigin.coding.0.code', ''),
             'reportOriginText' => data_get($data, 'reportOrigin.text', ''),
-            ...PaperReferralMapper::fromFhir($data),
+            ...PaperReferralFormData::fromSource(new FormCollection($data))->toArray(),
             'conclusionCode' => data_get($data, 'conclusionCode.coding.0.code', ''),
             'conclusion' => data_get($data, 'conclusion', ''),
             'divisionId' => data_get($data, 'division.identifier.value', ''),

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents\Mappers;
 
 use App\Contracts\FhirMapperContract;
+use App\Dto\FormCollection;
+use App\Dto\PaperReferral\Ehealth as PaperReferralData;
+use App\Dto\PaperReferral\Form as PaperReferralFormData;
 use App\Enums\Person\ProcedureStatus;
 use App\Services\MedicalEvents\FhirResource;
 use App\Core\Arr;
@@ -62,7 +65,7 @@ class ProcedureMapper implements FhirMapperContract
                 ->toIdentifier($data['basedOnIdentifier']);
         }
 
-        $paperReferral = PaperReferralMapper::toFhir($data);
+        $paperReferral = PaperReferralData::fromSource(new FormCollection($data))?->toArray();
         if ($paperReferral !== null) {
             $result['paperReferral'] = $paperReferral;
         }
@@ -233,7 +236,7 @@ class ProcedureMapper implements FhirMapperContract
             'outcomeCode' => data_get($data, 'outcome.coding.0.code', ''),
             'note' => data_get($data, 'note', ''),
             'basedOnIdentifier' => data_get($data, 'basedOn.0.identifier.value', data_get($data, 'basedOn.identifier.value', '')),
-            ...PaperReferralMapper::fromFhir($data),
+            ...PaperReferralFormData::fromSource(new FormCollection($data))->toArray(),
             'performedType' => match (true) {
                 !empty($performedDateTime) => 'date_time',
                 !empty($performedPeriodStartDate) => 'period',

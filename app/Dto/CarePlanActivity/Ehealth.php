@@ -4,51 +4,35 @@ declare(strict_types=1);
 
 namespace App\Dto\CarePlanActivity;
 
-use App\Dto\EhealthMapping;
-use App\Dto\Shared\EhealthReference;
-use App\Mapping\Transforms\FhirIdentifier;
-use App\Models\CarePlanActivity;
+use App\Dto\Fhir\CreateData;
+use App\Dto\FormCollection;
+use App\Mapping\Conditions\SourceHasPath;
+use Illuminate\Contracts\Support\Arrayable;
 use Symfony\Component\ObjectMapper\Attribute\Map;
-use Symfony\Component\ObjectMapper\Transform\MapCollection;
-use Symfony\Component\Serializer\NameConverter\CamelCaseToSnakeCaseNameConverter;
 
-#[Map(source: CarePlanActivity::class)]
-final class Ehealth
+/** Endpoint create allowlist; server metadata and full persistence belong to Model/Repository. */
+#[Map(source: FormCollection::class)]
+final class Ehealth implements Arrayable
 {
-    use EhealthMapping;
+    use CreateData;
+    #[Map(source: '[id?]', if: new SourceHasPath('id'))]
+    public mixed $id;
 
-    #[Map(source: '[uuid?]')]
-    public ?string $id;
+    #[Map(source: '[author?]', if: new SourceHasPath('author'), transform: [self::class, 'mapReferences'])]
+    public mixed $author;
 
-    #[Map(source: '[author?][uuid?]', transform: [[self::class, 'authors'], new MapCollection(targetClass: EhealthReference::class)])]
-    public array $author;
+    #[Map(source: '[carePlan?]', if: new SourceHasPath('carePlan'))]
+    public mixed $carePlan;
 
-    #[Map(source: '[carePlan?][uuid?]', transform: [self::class, 'carePlan'])]
-    public array $care_plan;
-
-    public function __construct(#[Map(if: false)] public readonly EhealthDetail $detail)
+    #[Map(source: '[detail?]', if: new SourceHasPath('detail'), transform: [self::class, 'mapDetail'])]
+    public mixed $detail;
+    public static function mapDetail(mixed $value): EhealthDetail
     {
+        return EhealthDetail::fromSource(new FormCollection($value));
     }
 
-    public static function authors(?string $uuid): array
+    protected function trailingFields(): array
     {
-        return [(object) ['uuid' => $uuid, 'type' => 'employee']];
-    }
-
-    public static function carePlan(?string $uuid, CarePlanActivity $source): array
-    {
-        return ['identifier' => new FhirIdentifier('care_plan')($uuid, $source, null)];
-    }
-
-    protected function normalizeMappedData(array $data, CamelCaseToSnakeCaseNameConverter $converter): array
-    {
-        // Keep the existing activity contract, including its empty-value removal policy.
-        $order = array_flip([
-            'kind', 'status', 'do_not_perform', 'description', 'product_reference', 'product_codeable_concept',
-            'scheduled_period', 'quantity', 'daily_amount', 'reason_code', 'reason_reference', 'goal', 'program',
-        ]);
-        $data['detail'] = array_replace(array_intersect_key($order, $data['detail']), $data['detail']);
-
-        return removeEmptyKeys($data);
+        return ['detail'];
     }
 }

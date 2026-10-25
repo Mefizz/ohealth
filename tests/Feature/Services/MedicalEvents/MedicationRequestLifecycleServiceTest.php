@@ -20,6 +20,7 @@ use Mockery;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunClassInSeparateProcess;
 use Tests\Concerns\CreatesFhirRequestIdentifiers;
+use Tests\Concerns\CreatesFhirCarePlans;
 use Tests\TestCase;
 
 #[RunClassInSeparateProcess]
@@ -28,6 +29,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 {
     use CreatesFhirRequestIdentifiers;
     use DatabaseTransactions;
+    use CreatesFhirCarePlans;
 
     protected Person $person;
 
@@ -122,7 +124,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'ehealth_inserted_at' => now(),
         ]);
 
-        $this->carePlan = CarePlan::create([
+        $this->carePlan = $this->createFhirCarePlan([
             'uuid' => (string) Str::uuid(),
             'person_id' => $this->person->id,
             'author_id' => $this->employee->id,
@@ -132,7 +134,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->activity = CarePlanActivity::create([
+        $this->activity = $this->createFhirCarePlanActivity([
             'uuid' => (string) Str::uuid(),
             'care_plan_id' => $this->carePlan->id,
             'author_id' => $this->employee->id,
@@ -243,6 +245,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_reject_active_stops_when_ehealth_denies_access(): void
     {
+        \Illuminate\Support\Facades\Log::spy();
         $requestRecord = MedicationRequestRequest::create([
             'uuid' => (string) Str::uuid(),
             'employee_id' => $this->employee->id,

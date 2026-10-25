@@ -4,133 +4,325 @@ declare(strict_types=1);
 
 namespace App\Dto\CarePlan;
 
+use App\Core\Arr;
+use App\Dto\Fhir\CodeableConcept;
+use App\Dto\Fhir\Reference;
+use App\Dto\Fhir\ResourceData;
+use App\Dto\FormCollection;
+use App\Mapping\Conditions\CollectionHasPath;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanSync;
-use App\Enums\CarePlanStatus;
-use App\Mapping\Transforms\FallbackValue;
-use Carbon\Carbon;
-use Carbon\CarbonInterface;
-use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\Condition\SourceClass;
+use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Support\Arrayable;
+use InvalidArgumentException;
+use Symfony\Component\ObjectMapper\Attribute\Map;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 
-/** Local editable fields only; ownership, author and encounter context are resolved by the caller. */
-#[Map(source: CarePlanForm::class, if: new SourceClass(CarePlanForm::class))]
-#[Map(source: CarePlanSync::class, if: new SourceClass(CarePlanSync::class))]
-final class Model
+/** Canonical CarePlan projection. Native create/cancel envelopes remain on the API. */
+#[Map(source: FormCollection::class)]
+#[Map(source: CarePlanForm::class)]
+final class Model implements Arrayable
 {
-    #[Map(source: '[id?]', if: new SourceClass(CarePlanSync::class), transform: new FallbackValue('uuid'))]
-    public ?string $uuid = null;
+    use ResourceData;
+    #[Map(if: false)]
+    public readonly string $id;
 
-    #[Map(source: '[status?]', if: new SourceClass(CarePlanSync::class), transform: [self::class, 'remoteStatus'])]
-    public ?string $status = null;
+    #[Map(source: '[title?]', if: new CollectionHasPath('title'))]
+    #[Map(source: 'title', if: new SourceClass(CarePlanForm::class))]
+    public mixed $title;
 
-    #[Map(if: new SourceClass(CarePlanForm::class))]
-    public string $category;
+    #[Map(source: '[description?]', if: new CollectionHasPath('description'))]
+    #[Map(source: 'description', if: new SourceClass(CarePlanForm::class))]
+    public mixed $description;
 
-    #[Map(if: new SourceClass(CarePlanForm::class), transform: [self::class, 'optionalString'])]
-    public ?string $context = null;
+    #[Map(source: '[note?]', if: new CollectionHasPath('note'))]
+    #[Map(source: 'note', if: new SourceClass(CarePlanForm::class))]
+    public mixed $note;
 
-    #[Map(if: new SourceClass(CarePlanForm::class))]
-    #[Map(source: '[title?]', if: new SourceClass(CarePlanSync::class), transform: [self::class, 'remoteTitle'])]
-    public string $title;
+    #[Map(source: '[intent?]', if: new CollectionHasPath('intent'))]
+    #[Map(source: 'intent', if: new SourceClass(CarePlanForm::class))]
+    public mixed $intent;
 
-    #[Map(source: 'termsOfService', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'optionalString'])]
-    #[Map(source: '[terms_of_service?][coding?][0?][code?]', if: new SourceClass(CarePlanSync::class))]
-    public ?string $terms_of_service = null;
+    #[Map(source: '[status?]', if: new CollectionHasPath('status'))]
+    public mixed $status;
 
-    #[Map(source: 'periodStart', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'formStart'])]
-    #[Map(source: '[period?][start?]', if: new SourceClass(CarePlanSync::class), transform: [self::class, 'remoteStart'])]
-    public mixed $period_start;
+    #[Map(source: '[requisition?]', if: new CollectionHasPath('requisition'))]
+    public mixed $requisition;
 
-    #[Map(source: 'periodEnd', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'optionalDate'])]
-    #[Map(source: '[period?][end?]', if: new SourceClass(CarePlanSync::class), transform: [self::class, 'remoteEnd'])]
-    public mixed $period_end = null;
+    #[Map(source: '[context?]', if: new CollectionHasPath('context'))]
+    #[Map(source: 'context', if: new SourceClass(CarePlanForm::class))]
+    public mixed $context;
 
-    #[Map(source: 'episodes', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapSupportingInfo'])]
-    public array $supporting_info;
+    #[Map(source: '[statusReason?]', if: new CollectionHasPath('statusReason'))]
+    public mixed $statusReason;
 
-    #[Map(if: new SourceClass(CarePlanForm::class), transform: [self::class, 'optionalString'])]
-    #[Map(source: '[description?]', if: new SourceClass(CarePlanSync::class), transform: [self::class, 'remoteDescription'])]
-    public ?string $description = null;
+    #[Map(source: '[category?]', if: new CollectionHasPath('category'), transform: [self::class, 'mapCategory'])]
+    #[Map(source: 'category', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapCategory'])]
+    public ?CodeableConcept $category;
 
-    #[Map(if: new SourceClass(CarePlanForm::class), transform: [self::class, 'optionalString'])]
-    #[Map(source: '[note?]', if: new SourceClass(CarePlanSync::class), transform: [self::class, 'remoteNote'])]
-    public ?string $note = null;
+    #[Map(source: '[termsOfService?]', if: new CollectionHasPath('termsOfService'), transform: [self::class, 'mapTerms'])]
+    #[Map(source: 'termsOfService', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapTerms'])]
+    public ?CodeableConcept $termsOfService;
 
-    #[Map(source: 'informWith', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'optionalString'])]
-    public ?string $inform_with = null;
+    #[Map(source: '[author?]', if: new SourceClass(FormCollection::class), transform: [self::class, 'mapAuthor'])]
+    #[Map(source: 'author', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapAuthor'])]
+    public ?Reference $author;
 
+    #[Map(source: '[encounter?]', if: new SourceClass(FormCollection::class), transform: [self::class, 'mapEncounter'])]
+    #[Map(source: 'encounter', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapEncounter'])]
+    public ?Reference $encounter;
+
+    #[Map(source: '[careManager?]', if: new SourceClass(FormCollection::class), transform: [self::class, 'mapCareManager'])]
+    public ?Reference $careManager;
+
+    #[Map(source: '[managingOrganization?]', if: new SourceClass(FormCollection::class), transform: [self::class, 'mapManagingOrganization'])]
+    public ?Reference $managingOrganization;
+
+    #[Map(source: '[addresses?]', if: new CollectionHasPath('addresses'), transform: [self::class, 'mapAddresses'])]
+    public ?array $addresses;
+
+    #[Map(source: '[supportingInfo?]', if: new CollectionHasPath(['supportingInfo', 'episodes', 'medicalRecords']), transform: [self::class, 'mapSupportingInfo'])]
+    #[Map(source: 'medicalRecords', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapSupportingInfo'])]
+    public ?array $supportingInfo;
+
+    #[Map(source: '[contributor?]', if: new CollectionHasPath(['contributor', 'coAuthors']), transform: [self::class, 'mapContributors'])]
+    #[Map(source: 'coAuthors', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapContributors'])]
+    public ?array $contributor;
+
+    #[Map(source: '[basedOn?]', if: new CollectionHasPath('basedOn'))]
+    #[Map(source: 'based_on', if: new SourceClass(CarePlanForm::class))]
+    public mixed $basedOn;
+
+    #[Map(source: '[partOf?]', if: new CollectionHasPath('partOf'))]
+    #[Map(source: 'part_of', if: new SourceClass(CarePlanForm::class))]
+    public mixed $partOf;
+
+    #[Map(source: '[period?]', if: new CollectionHasPath(['period', 'periodStart', 'periodEnd']), transform: [self::class, 'mapPeriod'])]
+    #[Map(source: 'periodStart', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapPeriod'])]
+    public mixed $period;
+
+    #[Map(source: '[informWith?]', if: new CollectionHasPath('informWith'), transform: [self::class, 'mapInformWith'])]
+    #[Map(source: 'informWith', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'mapInformWith'])]
+    public mixed $informWith;
     public function __construct(
-        #[Map(if: false)] private readonly string $fallbackTitle = 'План лікування',
-        #[Map(if: false)] private readonly ?string $fallbackDescription = null,
-        #[Map(if: false)] private readonly ?string $fallbackNote = null,
-        #[Map(if: false)] private readonly ?CarbonInterface $mappedAt = null,
+        #[Map(if: false)] private readonly array $options = [],
+        #[Map(if: false)] private readonly array $input = [],
     ) {
+        $this->original = $options['resource'] ?? [];
+        $id = $input['uuid'] ?? $options['id'] ?? $this->original['id'] ?? null;
+        if (!is_string($id) || $id === '') {
+            throw new InvalidArgumentException('Care Plan mapping requires an allocated resource UUID.');
+        }
+        $this->id = $id;
     }
 
-    public static function remoteStatus(?string $value): string
+    public static function fromSource(FormCollection $source, array $context = []): self
     {
-        return $value ?? CarePlanStatus::ACTIVE->value;
+        $data = Arr::toCamelCase($source->all());
+        foreach (['addresses', 'supportingInfo', 'contributor', 'basedOn', 'partOf'] as $field) {
+            if (!array_key_exists($field, $data) && !array_key_exists($field, $context['resource'] ?? []) && array_key_exists($field, $context)) {
+                $data[$field] = $context[$field];
+            }
+        }
+
+        return new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())->map(new FormCollection($data), new self($context, $data));
     }
 
-    public static function remoteTitle(?string $value, CarePlanSync $source, self $target): string
+    public static function fromForm(CarePlanForm $form, array $resolvedFields, array $context = []): self
     {
-        return !empty($value) ? $value : $target->fallbackTitle;
+        // Repository has already resolved identity, author, encounter and the seed resource.
+        $target = new self($context, Arr::toCamelCase($resolvedFields));
+        if (array_key_exists('addresses', $resolvedFields)) {
+            $target->addresses = self::mapAddresses($resolvedFields['addresses']);
+        }
+
+        return new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())->map($form, $target);
     }
 
-    public static function remoteDescription(?string $value, CarePlanSync $source, self $target): ?string
+    public static function mapCategory(mixed $value, FormCollection|CarePlanForm $source, self $target): ?CodeableConcept
     {
-        return !empty($value) ? $value : $target->fallbackDescription;
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['category'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+
+        return $target->mapConcept($value, 'category', 'eHealth/care_plan_categories');
     }
 
-    public static function remoteNote(?string $value, CarePlanSync $source, self $target): ?string
+    public static function mapTerms(mixed $value, FormCollection|CarePlanForm $source, self $target): ?CodeableConcept
     {
-        return !empty($value) ? $value : $target->fallbackNote;
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['termsOfService'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+
+        return $target->mapConcept($value, 'termsOfService', 'PROVIDING_CONDITION');
     }
 
-    public static function remoteStart(mixed $value, CarePlanSync $source, self $target): mixed
+    private function mapConcept(mixed $value, string $field, string $system): ?CodeableConcept
     {
-        return $value !== null ? Carbon::parse($value) : ($source['ehealth_inserted_at'] ?? $target->mappedAt);
+        if (is_string($value) && $value === data_get($this->original, $field.'.coding.0.code')) {
+            $value = $this->original[$field];
+        }
+
+        return CodeableConcept::fromValue($value, $system);
     }
 
-    public static function remoteEnd(?string $value): ?Carbon
+    public static function mapAuthor(mixed $value, FormCollection|CarePlanForm $source, self $target): ?Reference
     {
-        return $value !== null ? Carbon::parse($value) : null;
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['author'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+
+        return $target->mapReference($value, 'author', 'employee');
     }
 
-    public static function optionalString(string $value): ?string
+    public static function mapEncounter(mixed $value, FormCollection|CarePlanForm $source, self $target): ?Reference
     {
-        return $value ?: null;
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['encounter'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+
+        return $target->mapReference($value, 'encounter', 'encounter');
     }
 
-    public static function formStart(string $value, CarePlanForm $source): string
+    public static function mapCareManager(mixed $value, FormCollection $source, self $target): ?Reference
     {
-        return $source->periodStartIsoDate();
+        return $target->mapReference($value, 'careManager', 'employee');
     }
 
-    public static function optionalDate(string $value, CarePlanForm $source): ?string
+    public static function mapManagingOrganization(mixed $value, FormCollection $source, self $target): ?Reference
     {
-        return $source->periodEndIsoDate();
+        return $target->mapReference($value, 'managingOrganization', 'legal_entity');
     }
 
-    public static function mapSupportingInfo(array $episodes, CarePlanForm $source): array
+    private function mapReference(mixed $value, string $field, string $type): ?Reference
     {
-        // These are local display snapshots; retain their keys and fields rather than emitting FHIR references.
-        return ['episodes' => $episodes, 'medical_records' => $source->medicalRecords];
+        $value ??= $this->options[$field.'Uuid'] ?? ($field === 'author' ? ($this->options['employeeUuid'] ?? null) : null);
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value) && $value === data_get($this->original, $field.'.identifier.value')) {
+            $value = $this->original[$field];
+        }
+
+        return Reference::fromValue($value, $type);
     }
 
+    public static function mapAddresses(mixed $value): ?array
+    {
+        return self::mapRows($value, CodeableConcept::class);
+    }
+
+    public static function mapContributors(mixed $value, FormCollection|CarePlanForm $source, self $target): ?array
+    {
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['contributor'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+        if ($source->has('coAuthors')) {
+            $existing = $value ?? $target->original['contributor'] ?? [];
+            $value = array_map(static fn (mixed $author): array => Reference::value($author, 'employee', $existing), $source['coAuthors']);
+        }
+
+        return self::mapRows($value, Reference::class);
+    }
+
+    public static function mapSupportingInfo(mixed $value, FormCollection|CarePlanForm $source, self $target): ?array
+    {
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['supportingInfo'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+        $info = $source->has('supportingInfo') ? $value : ($target->original['supportingInfo'] ?? []);
+        if ($source->has('episodes')) {
+            $others = array_values(array_filter($info ?? [], static fn (array $reference): bool => data_get($reference, 'identifier.type.coding.0.code') !== 'episode_of_care'));
+            $episodes = array_map(static fn (mixed $episode): array => Reference::value(is_array($episode) && !isset($episode['identifier']) ? ($episode['uuid'] ?? $episode['id'] ?? '') : $episode, 'episode_of_care', $info ?? []), $source['episodes']);
+            $info = [...$others, ...$episodes];
+        }
+        if ($source->has('medicalRecords')) {
+            $episodes = array_values(array_filter($info ?? [], static fn (array $reference): bool => data_get($reference, 'identifier.type.coding.0.code') === 'episode_of_care'));
+            $info = [...$episodes, ...$source['medicalRecords']];
+        }
+
+        return self::mapRows($info, Reference::class);
+    }
+
+    public static function mapPeriod(mixed $value, FormCollection|CarePlanForm $source, self $target): mixed
+    {
+        if ($source instanceof CarePlanForm) {
+            $value = $target->input['period'] ?? null;
+            $source = new FormCollection($target->input);
+        }
+        if ($source->has('period')) {
+            return $value;
+        }
+        $period = $target->original['period'] ?? [];
+        foreach (['start', 'end'] as $boundary) {
+            $field = 'period'.ucfirst($boundary);
+            if ($source->has($field)) {
+                $period[$boundary] = $target->dateTime($source[$field], $source[$field.'Time'] ?? null, $period[$boundary] ?? null, $boundary === 'end');
+            }
+        }
+
+        return $period;
+    }
+
+    private function dateTime(?string $date, ?string $time, ?string $original, bool $end): ?string
+    {
+        if ($date === null || $date === '') {
+            return null;
+        }
+        $timezone = $this->options['timezone'] ?? 'UTC';
+        $format = $this->options['dateFormat'] ?? 'Y-m-d';
+        $parsed = CarbonImmutable::hasFormat($date, $format) ? CarbonImmutable::createFromFormat('!'.$format, $date, $timezone) : CarbonImmutable::parse($date, $timezone);
+        if ($original !== null) {
+            $previous = CarbonImmutable::parse($original)->setTimezone($timezone);
+            if ($previous->toDateString() === $parsed->toDateString() && ($time === null || $time === '' || $previous->format(strlen($time) === 5 ? 'H:i' : 'H:i:s') === $time)) {
+                return $original;
+            }
+        }
+        if (!str_contains($date, 'T') && !preg_match('/\\d{2}:\\d{2}/', $date)) {
+            $parsed = $parsed->setTimeFromTimeString($time ?: ($end ? '23:59:59' : '00:00:00'));
+        }
+
+        return $parsed->utc()->toIso8601ZuluString();
+    }
+
+    public static function mapInformWith(mixed $value): mixed
+    {
+        return is_array($value) || $value === null ? $value : ($value === '' ? null : ['authMethodId' => $value]);
+    }
+    /** Retain native insertion order as well as values for existing signing callers. */
     public function toArray(): array
     {
-        return array_intersect_key(get_object_vars($this), array_flip([
-            'category', 'context', 'title', 'terms_of_service', 'period_start', 'period_end',
-            'supporting_info', 'description', 'note', 'inform_with',
-        ]));
-    }
+        $fields = $this->mappedFields();
+        $result = $this->original;
+        foreach (['id', 'title', 'description', 'note', 'intent', 'status', 'requisition', 'context', 'statusReason', 'category', 'termsOfService', 'author', 'encounter', 'careManager', 'managingOrganization'] as $field) {
+            if (array_key_exists($field, $fields) && (!in_array($field, ['author', 'encounter', 'careManager', 'managingOrganization'], true) || $fields[$field] !== null)) {
+                $result[$field] = $fields[$field];
+            }
+        }
+        foreach (['addresses', 'supportingInfo', 'contributor', 'basedOn', 'partOf'] as $field) {
+            if (array_key_exists($field, $this->input)) {
+                $result[$field] = $fields[$field];
+            }
+        }
+        if (array_key_exists('coAuthors', $this->input)) {
+            $result['contributor'] = $fields['contributor'];
+        }
+        if (array_key_exists('episodes', $this->input) || array_key_exists('medicalRecords', $this->input)) {
+            $result['supportingInfo'] = $fields['supportingInfo'];
+        }
+        foreach (['period', 'informWith'] as $field) {
+            if (array_key_exists($field, $fields)) {
+                $result[$field] = $fields[$field];
+            }
+        }
 
-    public function toSyncAttributes(): array
-    {
-        return array_intersect_key(get_object_vars($this), array_flip([
-            'uuid', 'status', 'title', 'description', 'note', 'period_start', 'period_end', 'terms_of_service',
-        ]));
+        return $result;
     }
 }

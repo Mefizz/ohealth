@@ -409,11 +409,13 @@ class ServiceRequestRequestRepository extends BaseRepository
         }
     }
 
-    public function sumIssuedQuantityByActivity(string $activityUuid): float
+    public function sumIssuedQuantityByActivity(string $activityUuid, ?array $excludedStatuses = null, ?string $excludedUuid = null): float
     {
+        $excludedStatuses ??= \App\Enums\MedicalEvents\RequestQuantityStatus::excluded();
         return (float) $this->model->newQuery()
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
-            ->whereNotIn('status', \App\Enums\MedicalEvents\RequestQuantityStatus::excluded())
+            ->whereNotIn('status', $excludedStatuses)
+            ->when($excludedUuid, fn ($query) => $query->where('uuid', '!=', $excludedUuid))
             ->sum('quantity');
     }
 
@@ -605,5 +607,16 @@ class ServiceRequestRequestRepository extends BaseRepository
             ?: data_get($encounter, 'incomingReferral.value');
 
         return filled($uuid) ? (string) $uuid : null;
+    }
+
+    public function saveStatus(ServiceRequestRequest $record, string $status): void
+    {
+        $record->status = $status;
+        $record->save();
+    }
+
+    public function refreshRecord(ServiceRequestRequest $record): void
+    {
+        $record->refresh();
     }
 }

@@ -6,6 +6,8 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\Ehealth as CarePlanEhealthData;
+use App\Dto\CarePlan\Model as CarePlanModelData;
 use App\Enums\CarePlanStatus;
 use App\Enums\CarePlanTermsOfService;
 use App\Enums\EmployeeRole\Status as EmployeeRoleStatus;
@@ -18,8 +20,8 @@ use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Livewire\CarePlan\Forms\PatientSearchForm;
 use App\Livewire\Person\Records\BasePatientComponent;
 use App\Models\CarePlan;
-use App\Models\EmployeeRole;
 use App\Models\Employee\Employee;
+use App\Models\EmployeeRole;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\Encounter;
@@ -27,8 +29,6 @@ use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\Person\Person;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
-use App\Services\MedicalEvents\CarePlanLifecycleService;
 use App\Traits\InteractsWithApprovals;
 use Carbon\Carbon;
 use Exception;
@@ -40,11 +40,16 @@ use Illuminate\Validation\ValidationException;
 use Livewire\WithFileUploads;
 use RuntimeException;
 use Throwable;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
 class CarePlanCreate extends BasePatientComponent
 {
     use WithFileUploads;
     use InteractsWithApprovals;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\SelectsCarePlanApprovalAccess;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\RequestsCarePlanApprovals;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\QueuesCarePlanApproval;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\PollsCarePlanApprovals;
 
     public bool $showSignatureModal = false;
     public bool $showMethodSelectionModal = false;
@@ -568,10 +573,10 @@ class CarePlanCreate extends BasePatientComponent
             }
 
             $carePlan = CarePlan::where('uuid', $this->carePlanUuid)->firstOrFail();
-            $approvalService = app(CarePlanApprovalService::class);
+
             $skipsOtp = $this->shouldSkipPatientAuthUi($carePlan);
 
-            $result = $approvalService->create(
+            $result = $this->createCarePlanApproval(
                 carePlan: $carePlan,
                 patientUuid: $this->patientUuid,
                 employeeUuid: $employeeUuid,
@@ -618,7 +623,7 @@ class CarePlanCreate extends BasePatientComponent
             return;
         }
 
-        $status = app(CarePlanApprovalService::class)->resolveAsyncJob($this->pollingLinkId);
+        $status = $this->resolveCarePlanApprovalJob($this->pollingLinkId);
 
         if ($status->isPending()) {
             return;
@@ -678,28 +683,17 @@ class CarePlanCreate extends BasePatientComponent
 
         $encounterData = $this->resolveEncounterData();
 
-        $carePlan = $repository->create([
-            'person_id' => $this->resolvePersonId(),
-            'author_id' => Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null)?->id,
-            'legal_entity_id' => $legalEntity?->id,
-            'status' => CarePlanStatus::DRAFT->value,
-            'category' => $this->form->category,
-            'context' => $this->form->context ?: null,
-            'title' => $this->form->title,
-            'terms_of_service' => $this->form->termsOfService ?: null,
-            'period_start' => $this->form->periodStartIsoDate(),
-            'period_end' => $this->form->periodEndIsoDate(),
-            'encounter_id' => $encounterData['id'],
-            'addresses' => $encounterData['addresses'],
-            'supporting_info' => [
-                'episodes' => $this->form->episodes,
-                'medical_records' => $this->form->medicalRecords,
-            ],
-            'description' => $this->form->description ?: null,
-            'note' => $this->form->note ?: null,
-            'inform_with' => $this->form->informWith ?: null,
-            'terms_of_service' => $this->form->termsOfService ?: null,
-        ]);
+        $carePlan = $repository->create(array_replace(
+            app(ObjectMapperInterface::class)->map($this->form, CarePlanModelData::class)->toArray(),
+            [
+                'person_id' => $this->resolvePersonId(),
+                'author_id' => Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null)?->id,
+                'legal_entity_id' => $legalEntity?->id,
+                'status' => CarePlanStatus::DRAFT->value,
+                'encounter_id' => $encounterData['id'],
+                'addresses' => $encounterData['addresses'],
+            ]
+        ));
 
         session()->flash('success', __('care-plan.draft_saved'));
         $this->redirectRoute('care-plans.edit', [legalEntity(), $carePlan->id], navigate: true);
@@ -856,10 +850,10 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         try {
-            $response = app(CarePlanApprovalService::class)->verify(
+            $response = EHealth::approval()->verify(
                 $this->patientUuid,
                 $this->approvalId,
-                (int) $this->verificationCode,
+                ['code' => (int) $this->verificationCode],
             );
 
             if ($response->successful()) {
@@ -881,7 +875,7 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         try {
-            app(CarePlanApprovalService::class)->resendSms($this->patientUuid, $this->approvalId);
+            $this->resendCarePlanApprovalSms($this->patientUuid, $this->approvalId);
             $this->smsResent = true;
             Session::flash('success', __('SMS надіслано повторно'));
         } catch (Exception $e) {
@@ -939,16 +933,15 @@ class CarePlanCreate extends BasePatientComponent
                 ]);
             }
 
-            $carePlanPayload = $repository->formatCarePlanRequest(
-                array_replace($this->form->toArray(), [
-                    'periodStart' => $this->form->periodStartIsoDate(),
-                    'periodEnd' => $this->form->periodEndIsoDate(),
-                ]),
-                $this->form->encounter ?: null,
-                $encounterData,
-                $author?->uuid,
-                $this->carePlanUuid ?: null
-            );
+            $carePlanPayload = app(ObjectMapperInterface::class)->map(
+                $this->form,
+                new CarePlanEhealthData(
+                    $this->carePlanUuid ?: (string) Str::uuid(),
+                    $author?->uuid,
+                    $encounterData,
+                    config('app.timezone', 'Europe/Kyiv'),
+                )
+            )->toArray();
             $generatedUuid = $carePlanPayload['id'];
 
             $signedContent = signatureService()->signData(
@@ -959,8 +952,7 @@ class CarePlanCreate extends BasePatientComponent
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = app(CarePlanLifecycleService::class)
-                ->submitSignedCreate($this->uuid, $signedContent);
+            $finalResponse = EHealth::carePlan()->createSignedAndResolve($this->uuid, $signedContent);
 
             $carePlanUuid = $this->carePlanUuid;
             if (!$carePlanUuid && isset($finalResponse['links']) && is_array($finalResponse['links'])) {
@@ -1129,8 +1121,7 @@ class CarePlanCreate extends BasePatientComponent
                     $localCarePlan = CarePlan::where('uuid', $generatedUuid)->first();
 
                     if (!$localCarePlan) {
-                        $carePlanData = app(CarePlanLifecycleService::class)
-                            ->getDetails($this->patientUuid ?: $this->uuid, $generatedUuid);
+                        $carePlanData = EHealth::carePlan()->getDetails($this->patientUuid ?: $this->uuid, $generatedUuid)->getData();
 
                         $carePlanStatus = $carePlanData['status'] ?? CarePlanStatus::PENDING->value;
                         if ($carePlanStatus === 'processed') {
@@ -1346,7 +1337,7 @@ class CarePlanCreate extends BasePatientComponent
      */
     protected function shouldSkipPatientAuthUi(?CarePlan $carePlan): bool
     {
-        if ($carePlan && app(CarePlanApprovalService::class)->skipsPatientOtp($carePlan)) {
+        if ($carePlan && $this->skipsPatientOtp($carePlan)) {
             return true;
         }
 

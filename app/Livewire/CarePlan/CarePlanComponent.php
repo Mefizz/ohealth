@@ -10,6 +10,9 @@ use App\Enums\CarePlanStatus;
 use App\Enums\MedicalProgram\Type;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\User\Role;
+use App\Livewire\Concerns\MedicalEvents\Activity\VerifiesCarePlanActivityRegistration;
+use App\Livewire\Concerns\MedicalEvents\CarePlan\ValidatesCarePlanStatusChanges;
+use App\Livewire\Concerns\MedicalEvents\Referral\SelectsReferralApi;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
@@ -21,9 +24,6 @@ use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Services\Dictionary\DictionaryManager;
 use App\Services\Dictionary\MedicationProgramPicker;
-use App\Services\MedicalEvents\CarePlanActivityValidationService;
-use App\Services\MedicalEvents\CarePlanLifecycleGateService;
-use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
 use App\Traits\InteractsWithApprovals;
 use Carbon\Carbon;
 use Exception;
@@ -42,8 +42,18 @@ use Livewire\WithFileUploads;
 
 abstract class CarePlanComponent extends Component
 {
+    use \App\Livewire\Concerns\MedicalEvents\Activity\ValidatesActivityRequirements;
+    use \App\Livewire\Concerns\MedicalEvents\Activity\ChecksDeviceProgramParticipation;
+    use \App\Livewire\Concerns\MedicalEvents\Activity\MapsCarePlanActivityPayload;
     use WithFileUploads;
     use InteractsWithApprovals;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\SelectsCarePlanApprovalAccess;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\RequestsCarePlanApprovals;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\QueuesCarePlanApproval;
+    use \App\Livewire\Concerns\MedicalEvents\Approval\PollsCarePlanApprovals;
+    use VerifiesCarePlanActivityRegistration;
+    use SelectsReferralApi;
+    use ValidatesCarePlanStatusChanges;
 
     // Everything the server derives is #[Locked]: it is sent to the browser on every request
     // and would otherwise come back whatever the client made of it. Only properties bound with
@@ -604,8 +614,7 @@ abstract class CarePlanComponent extends Component
         if (in_array($actionType, ['cancel_activity', 'complete_activity'], true) && $activityId) {
 
             if ($activity) {
-                $blockReason = app(CarePlanLifecycleGateService::class)
-                    ->activityStatusChangeBlockReason($activity, $actionType);
+                $blockReason = $this->activityStatusChangeBlockReason($activity, $actionType);
 
                 if ($blockReason !== null) {
                     Session::flash('error', $blockReason);
@@ -616,8 +625,7 @@ abstract class CarePlanComponent extends Component
         }
 
         if ($actionType === 'cancel') {
-            $blockReason = app(CarePlanLifecycleGateService::class)
-                ->planCancelBlockReason($this->carePlan);
+            $blockReason = $this->planCancelBlockReason($this->carePlan);
 
             if ($blockReason !== null) {
                 Session::flash('error', $blockReason);
@@ -627,8 +635,7 @@ abstract class CarePlanComponent extends Component
         }
 
         if ($actionType === 'complete') {
-            $blockReason = app(CarePlanLifecycleGateService::class)
-                ->planCompleteBlockReason($this->carePlan);
+            $blockReason = $this->planCompleteBlockReason($this->carePlan);
 
             if ($blockReason !== null) {
                 Session::flash('error', $blockReason);
@@ -934,14 +941,12 @@ abstract class CarePlanComponent extends Component
             });
         }
 
-        $activityValidation = app(CarePlanActivityValidationService::class);
         $filtered = $filtered->filter(
-            fn (array $program): bool => $activityValidation->providingConditionsBlockReason($this->carePlan, $program) === null
+            fn (array $program): bool => $this->providingConditionsBlockReason($this->carePlan, $program) === null
         );
 
         if ($this->participatingDeviceProgramIds !== []) {
-            $filtered = app(DeviceProgramParticipationGuard::class)
-                ->filterProgramsForParticipation($filtered, $this->participatingDeviceProgramIds);
+            $filtered = $filtered->filter(fn (array $program): bool => in_array((string) ($program['id'] ?? ''), $this->participatingDeviceProgramIds, true));
         }
 
         return $filtered;
@@ -949,8 +954,7 @@ abstract class CarePlanComponent extends Component
 
     protected function loadDeviceProgramParticipationState(): void
     {
-        $guard = app(DeviceProgramParticipationGuard::class);
-        $this->participatingDeviceProgramIds = $guard->resolveParticipatingProgramIds(legalEntity());
+        $this->participatingDeviceProgramIds = $this->resolveParticipatingProgramIds(legalEntity());
         $this->deviceParticipationWarning = $this->participatingDeviceProgramIds === []
             ? __('care-plan.device_program_participation_sync_hint')
             : '';

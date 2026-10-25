@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\Composition\Forms\Concerns;
 
-use App\Services\MedicalEvents\FhirResource;
+use App\Mapping\Transforms\FhirCodeableConcept;
+use App\Mapping\Transforms\FhirIdentifier;
 use Carbon\CarbonImmutable;
 
 trait BuildsCompositionPayload
@@ -46,17 +47,16 @@ trait BuildsCompositionPayload
 
     private function codeableConcept(string $system, string $code): array
     {
-        $concept = FhirResource::make()->coding($system, $code)->toCodeableConcept();
-        unset($concept['text']);
-
-        return $concept;
+        return new FhirCodeableConcept($system)($code, $this, null);
     }
 
     private function resourceIdentifier(string $resource, string $uuid): array
     {
         // Composition uses the bare Identifier, without the Reference wrapper.
-        return FhirResource::make()->coding('eHealth/resources', $resource)
-            ->toIdentifier($uuid, $resource)['identifier'];
+        $identifier = new FhirIdentifier($resource, includeText: true)($uuid, $this, null);
+        $identifier['type']['text'] = $resource;
+
+        return $identifier;
     }
 
     private function startOfDay(string $date): string

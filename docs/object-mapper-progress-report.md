@@ -22,6 +22,8 @@
 - Чинні `CompositionPayloadTest`, `CompositionFormTest`, `CompositionTempDisabilityFormTest`, `CompositionApiTest`, `CompositionResponseValidationTest`.
 - PHP lint і точковий Pint для нових/перенесених класів. Весь великий legacy parent mapper заради форматування не переписувався.
 
+Ці самі mapping/Composition paths додані до явного переліку `scripts/ci/run-domain-tests.sh`, щоб нові контрактні тести виконувались у чинному GitHub/Azure domain CI. Решта переліку та налаштування jobs не змінені. Результат локального прогону не підміняє статус актуального CI.
+
 Прогін виконано в ізольованому PHP 8.5 Docker runner без мережі та БД; API-тести використовують fake HTTP. Це не повний application regression, не PostgreSQL round-trip і не перевірка браузера, реального ЕСОЗ чи КЕП. Для майбутніх persistence/workflow інкрементів потрібні окремі докази.
 
 Походження expectations: [fixtures README](../tests/Fixtures/Mapping/README.md). Вони зняті до заміни реалізації; поточний DTO їх не генерує.

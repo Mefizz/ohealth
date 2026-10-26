@@ -188,6 +188,8 @@ class EHealthValidationException extends EHealthException
             '$.quantity.value' => __('care-plan.ehealth_fields.quantity_value'),
             'requester.identifier.value' => __('care-plan.ehealth_fields.requester'),
             'context' => __('care-plan.encounter'),
+            '$.encounter.identifier.value' => __('care-plan.encounter'),
+            'encounter.identifier.value' => __('care-plan.encounter'),
             'data.context' => __('care-plan.encounter'),
             'authored_on' => __('care-plan.ehealth_fields.authored_on'),
             '$.authored_on' => __('care-plan.ehealth_fields.authored_on'),
@@ -390,6 +392,10 @@ class EHealthValidationException extends EHealthException
             return __('errors.ehealth.messages.integer_required');
         }
 
+        if (str_contains($message, 'Encounter is from another legal entity')) {
+            return __('errors.ehealth.messages.encounter_other_legal_entity');
+        }
+
         if (str_contains($message, 'Created_at must be within the encounter period')) {
             return __('errors.ehealth.messages.prescription_created_outside_encounter');
         }
@@ -514,6 +520,9 @@ class EHealthValidationException extends EHealthException
      */
     protected function translateEntry(string $entry): string
     {
+        if (in_array($entry, ['$.encounter.identifier.value', 'encounter.identifier.value'], true)) {
+            return __('care-plan.encounter');
+        }
         if (in_array($entry, ['$.detail.quantity.value', 'detail.quantity.value', '$.quantity.value', 'quantity.value'], true)) {
             return __('care-plan.ehealth_fields.quantity_value');
         }

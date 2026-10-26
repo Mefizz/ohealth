@@ -237,7 +237,16 @@ class CarePlanIndexTest extends TestCase
             'language' => 'uk'
         ]);
 
-        $identifierId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => (string) Str::uuid()])->id;
+        $episodeUuid = (string) Str::uuid();
+        $owner = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $legalEntity->uuid]);
+        \App\Models\MedicalEvents\Sql\Episode::create([
+            'uuid' => $episodeUuid,
+            'person_id' => $person->id,
+            'status' => 'active',
+            'name' => 'Synthetic patient search episode',
+            'managing_organization_id' => $owner->id,
+        ]);
+        $identifierId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $episodeUuid])->id;
         $codingId = \App\Models\MedicalEvents\Sql\Coding::create(['code' => 'AMB', 'system' => 'eHealth/encounter_classes'])->id;
         $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
 

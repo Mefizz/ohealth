@@ -538,15 +538,18 @@ class CarePlanRepository
 
     public function searchPatients(string $firstName, string $lastName, string $birthDate): array
     {
+        $firstName = trim($firstName);
+        $lastName = trim($lastName);
+
         return \App\Models\Person\Person::query()
             ->where('birth_date', $birthDate)
             ->where(function ($query) use ($firstName, $lastName) {
                 $query->whereHas('names', function ($nameQuery) use ($firstName, $lastName) {
-                    $nameQuery->where('first_name', $firstName)
-                        ->where('last_name', $lastName);
+                    $nameQuery->whereLike('first_name', $firstName)
+                        ->whereLike('last_name', $lastName);
                 })->orWhereHas('names', function ($nameQuery) use ($firstName, $lastName) {
-                    $nameQuery->where('first_name', $lastName)
-                        ->where('last_name', $firstName);
+                    $nameQuery->whereLike('first_name', $lastName)
+                        ->whereLike('last_name', $firstName);
                 });
             })
             ->with('names') // Eager load names so fullName works!

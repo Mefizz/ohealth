@@ -13,7 +13,6 @@ use App\Enums\User\Role;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
-use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Services\Dictionary\DictionaryManager;
 use App\Services\Dictionary\MedicationProgramPicker;
 use App\Services\MedicalEvents\CarePlanActivityValidationService;
@@ -403,9 +402,8 @@ abstract class CarePlanComponent extends Component
         $this->patientId = $this->carePlan->person->uuid;
         $this->loadDeviceProgramParticipationState();
 
-        $this->activePrescriptions = MedicationRequestRequest::with('basedOn')
-            ->whereHas('basedOn', fn ($q) => $q->whereIn('value', $this->carePlan->activities->pluck('uuid')))
-            ->get()
+        $this->activePrescriptions = app(\App\Repositories\CarePlanActivityRepository::class)
+            ->linkedDocuments($this->carePlan->activities->pluck('uuid')->all(), 'medication_request')
             ->map(function ($record): array {
                 $row = $record->toArray();
                 $row['based_on_uuid'] = $record->basedOn?->value;

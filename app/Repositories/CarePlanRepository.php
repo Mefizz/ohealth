@@ -481,7 +481,15 @@ class CarePlanRepository
 
     public function encounterChoices(int $personId): array
     {
+        $legalEntityUuid = legalEntity()?->uuid;
+        $eligibleEpisodes = \App\Models\MedicalEvents\Sql\Episode::wherePersonId($personId)
+            ->whereHas('managingOrganization', fn ($query) => $query->whereValue($legalEntityUuid))
+            ->selectRaw('uuid::text');
         $encounters = Encounter::wherePersonId($personId)->whereStatus('finished')
+            ->when($legalEntityUuid !== null, fn ($query) => $query->whereHas(
+                'episode',
+                fn ($episode) => $episode->whereIn('value', $eligibleEpisodes)
+            ))
             ->with(['period', 'episode'])->orderByDesc('ehealth_inserted_at')
             ->get(['id', 'uuid', 'episode_id', 'ehealth_inserted_at']);
         $episodeUuids = $encounters->pluck('episode.value')

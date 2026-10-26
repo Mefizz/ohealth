@@ -183,6 +183,29 @@ class CarePlanShowActionsTest extends TestCase
         $this->assertFalse(session()->has('success'));
     }
 
+    public function test_post_sign_refresh_failure_keeps_the_accepted_signature_success(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $request = MedicationRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'person_id' => $this->person->id,
+            'employee_id' => $this->employee->id, 'status' => 'new',
+        ]);
+        $service = Mockery::mock(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class);
+        $service->shouldReceive('signPrescription')->once()->andReturn([
+            'success_message' => 'Prescription accepted', 'warning_message' => 'Existing quantity warning',
+        ]);
+        $this->instance(\App\Services\MedicalEvents\MedicationRequestLifecycleService::class, $service);
+
+        Livewire::test(CarePlanRefreshFailureHarness::class, ['carePlan' => $plan])
+            ->call('prepareSignedRequest', $request->uuid)
+            ->call('signEPrescription')
+            ->assertSee('Prescription accepted')->assertSee('Existing quantity warning')
+            ->assertSee(__('care-plan.eprescription_signed_refresh_pending'))
+            ->assertDontSee('Помилка при підписанні рецепту')
+            ->assertSet('showSignatureModal', false)->assertSet('ePrescriptionRequestIdToSign', null);
+    }
+
     public function test_prescription_sync_keeps_signed_requests_and_prescription_states_separate(): void
     {
         $this->actingAs($this->user);
@@ -433,5 +456,25 @@ class CarePlanShowActionsTest extends TestCase
             'status' => $status,
             'is_verified' => true,
         ]);
+    }
+}
+
+class CarePlanRefreshFailureHarness extends CarePlanShow
+{
+    public bool $failRefresh = false;
+
+    public function prepareSignedRequest(string $requestUuid): void
+    {
+        $this->ePrescriptionRequestIdToSign = $requestUuid;
+        $this->failRefresh = true;
+    }
+
+    protected function refreshCarePlan(): void
+    {
+        if ($this->failRefresh) {
+            throw new \RuntimeException('Synthetic local page refresh failure');
+        }
+
+        parent::refreshCarePlan();
     }
 }

@@ -63,6 +63,24 @@ class EHealthValidationExceptionCarePlanMessageTest extends TestCase
         }
     }
 
+    public function test_encounter_from_another_legal_entity_is_translated_in_both_formats(): void
+    {
+        app()->setLocale('uk');
+        $exception = new EHealthValidationException(['error' => [
+            'type' => 'validation_failed',
+            'invalid' => [[
+                'entry' => '$.encounter.identifier.value',
+                'rules' => [['description' => 'Encounter is from another legal entity']],
+            ]],
+        ]]);
+
+        foreach ([$exception->getFormattedMessage(), $exception->getTranslatedMessage()] as $message) {
+            $this->assertStringContainsString(__('errors.ehealth.messages.encounter_other_legal_entity'), $message);
+            $this->assertStringNotContainsString('Encounter is from another legal entity', $message);
+            $this->assertStringNotContainsString('$.encounter', $message);
+        }
+    }
+
     public function test_unknown_error_type_keeps_the_existing_message_fallback(): void
     {
         $exception = new EHealthValidationException(['error' => ['type' => 'future_type', 'message' => 'Future API message']]);

@@ -548,7 +548,13 @@ trait ManagesCarePlanEPrescription
 
             Session::flash('success', $result['success_message']);
             $this->showSignatureModal = false;
-            $this->refreshCarePlan();
+            $this->ePrescriptionRequestIdToSign = null;
+            try {
+                $this->refreshCarePlan();
+            } catch (\Throwable $exception) {
+                Log::warning('Signed prescription page refresh is pending', ['exceptionType' => $exception::class]);
+                Session::flash('warning', trim(($result['warning_message'] ?? '')."\n".__('care-plan.eprescription_signed_refresh_pending')));
+            }
 
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));

@@ -165,7 +165,7 @@ return [
 
     // Medication search drawer
     'medication_search' => 'Пошук ліки',
-    'medication_search_placeholder' => 'Дротаверин',
+    'medication_search_placeholder' => 'Введіть назву засобу',
     'inn_name' => 'Міжнародна непатентована назва ЛЗ',
     'atc_code' => 'Код анатомо-терапевтично-хімічної класифікації',
     'dosage_form' => 'Лікарська форма',

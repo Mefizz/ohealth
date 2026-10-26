@@ -7,3 +7,10 @@ The repository persists complete type/category and Identifier type codings with 
 The install/update migration is idempotent across the project’s migration paths. A down migration refuses destructive metadata removal. Deployment needs the shared Identifier/CodeableConcept/Period helpers from #1022. New synthetic fidelity tests use DatabaseTransactions, not the schema-reset Composition trait.
 
 Review includes registry sync/translations and encounter preselection retained after the main frontend merge. These corrections do not claim all functional TV 3.8 cases certified; creation, approvals and human KEP remain acceptance steps.
+
+
+## Deployment prerequisite and recovery
+
+Run the standard project update before serving the FHIR release. Both `2026_10_18_230000_complete_shared_fhir_primitives` and `2026_10_24_160000_preserve_composition_fhir_details` must be recorded as applied. Back up the database before applying migrations. The Composition wizard checks for its owned metadata column before creating an ESOZ request and reports a translated maintenance error if the schema is outdated. It does not silently discard metadata.
+
+If ESOZ already created a preliminary conclusion while the local import failed, resume/poll the existing operation or synchronize that conclusion after updating the schema; do not create a replacement merely to retry the local save.

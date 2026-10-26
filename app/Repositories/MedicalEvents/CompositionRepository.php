@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Repositories\MedicalEvents;
 
 use App\Enums\Composition\CompositionStatus;
+use App\Exceptions\MedicalEvents\CompositionGuardException;
 use App\Enums\Composition\CompositionExtension;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -57,6 +59,13 @@ class CompositionRepository extends BaseRepository
         }
 
         return $query->paginate($perPage);
+    }
+
+    public function assertFhirStorageReady(): void
+    {
+        if (!Schema::hasColumn($this->model->getTable(), 'fhir_metadata')) {
+            throw new CompositionGuardException(__('compositions.errors.storage_update_required'));
+        }
     }
 
     public function store(array $details, Person|Preperson $patient, ?string $episodeUuid = null): ?Composition

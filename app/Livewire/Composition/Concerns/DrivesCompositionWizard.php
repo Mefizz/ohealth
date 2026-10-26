@@ -16,6 +16,7 @@ use App\Exceptions\MedicalEvents\CompositionGuardException;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MedicalEvents\Sql\CompositionOperation;
 use App\Repositories\MedicalEvents\CompositionOperationRepository;
+use App\Repositories\MedicalEvents\CompositionRepository;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Enums\Composition\CompositionJobStatus;
@@ -357,6 +358,7 @@ trait DrivesCompositionWizard
 
         try {
             $this->form->validate($this->detailsRules());
+            app(CompositionRepository::class)->assertFhirStorageReady();
             $this->assertSubmissionAllowed();
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->getMessageBag());

@@ -430,6 +430,33 @@ class CarePlanShowActionsTest extends TestCase
             ->assertSet('showSignatureModal', true);
     }
 
+    public function test_plan_page_loads_multiple_prescriptions_with_strict_identifier_relations(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $activity = $this->createFhirCarePlanActivity([
+            'care_plan_id' => $plan->id, 'author_id' => $this->employee->id,
+            'uuid' => (string) Str::uuid(), 'kind' => 'medication_request', 'status' => 'draft',
+        ]);
+        foreach (range(1, 2) as $index) {
+            $basis = Identifier::create(['value' => $activity->uuid]);
+            MedicationRequestRequest::create([
+                'uuid' => (string) Str::uuid(), 'person_id' => $this->person->id,
+                'employee_id' => $this->employee->id, 'based_on_id' => $basis->id,
+                'status' => 'signed', 'request_number' => 'SYNTHETIC-'.$index,
+            ]);
+        }
+        $previous = \Illuminate\Database\Eloquent\Model::preventsLazyLoading();
+        \Illuminate\Database\Eloquent\Model::preventLazyLoading();
+
+        try {
+            Livewire::test(CarePlanShow::class, ['carePlan' => $plan])->assertOk()
+                ->assertSet('activePrescriptions', static fn (array $rows): bool => count($rows) === 2);
+        } finally {
+            \Illuminate\Database\Eloquent\Model::preventLazyLoading($previous);
+        }
+    }
+
     private function makeSignedNewPlan(): CarePlan
     {
         return $this->createFhirCarePlan([

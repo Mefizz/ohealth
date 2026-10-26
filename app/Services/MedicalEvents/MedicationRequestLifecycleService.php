@@ -329,7 +329,7 @@ class MedicationRequestLifecycleService extends EHealthRequestLifecycleService i
         );
 
         $medicationQty = (float) ($requestRecord->medicationQty ?? 0);
-        if ($this->shouldWarnRemainingQty($remainingQty, $medicationQty)) {
+        if ($activityUuid && $this->shouldWarnRemainingQty($remainingQty, $medicationQty)) {
             $unit = (string) ($formData['medication_unit'] ?? 'од.');
             $result['warning_message'] = trim(($result['warning_message'] ?? '').' '.$this->buildRemainingQtyWarningMessage($remainingQty, $unit));
             $result['show_remaining_qty_warning'] = true;

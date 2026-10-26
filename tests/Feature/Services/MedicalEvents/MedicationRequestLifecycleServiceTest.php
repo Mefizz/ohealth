@@ -652,16 +652,25 @@ class MedicationRequestLifecycleServiceTest extends TestCase
     public static function signedDetailCases(): array
     {
         return [
-            'care-plan full detail' => [true, false],
-            'care-plan GET failure' => [false, false],
-            'encounter full detail' => [true, true],
-            'encounter GET failure' => [false, true],
+            'care-plan full detail' => [true, false, true, 15.0, true],
+            'care-plan GET failure' => [false, false, true, 15.0, true],
+            'encounter with activity full detail' => [true, true, true, 15.0, true],
+            'encounter with activity GET failure' => [false, true, true, 15.0, true],
+            'standalone encounter full detail' => [true, true, false, 0.0, false],
+            'standalone encounter GET failure' => [false, true, false, 0.0, false],
+            'care-plan context without activity' => [true, false, false, 0.0, false],
+            'activity has enough remaining' => [true, false, true, 30.0, false],
         ];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('signedDetailCases')]
-    public function test_sign_sets_tv_success_and_remaining_warning(bool $detailsAvailable, bool $fromEncounter): void
-    {
+    public function test_sign_sets_tv_success_and_remaining_warning(
+        bool $detailsAvailable,
+        bool $fromEncounter,
+        bool $withActivity,
+        float $remainingQty,
+        bool $expectQuantityWarning
+    ): void {
         $requestRecord = MedicationRequestRequest::create([
             'uuid' => (string) Str::uuid(),
             'employee_id' => $this->employee->id,
@@ -670,7 +679,8 @@ class MedicationRequestLifecycleServiceTest extends TestCase
             'medication_id' => 'INN-101',
             'medication_qty' => 10.0,
             'intent' => 'order',
-            ...$this->fhirBasedOnContextIds((string) $this->activity->uuid, (string) $this->encounter->uuid),
+            'based_on_id' => $withActivity ? $this->fhirIdentifierId((string) $this->activity->uuid) : null,
+            'context_id' => $this->fhirIdentifierId((string) $this->encounter->uuid),
             'inform_with' => 'auth-1|OTP|+380******12',
             'request_number' => '9999000011112222',
             'ehealth_payload' => [
@@ -716,12 +726,19 @@ class MedicationRequestLifecycleServiceTest extends TestCase
                 'medication_unit' => 'шт.',
             ],
             (string) $requestRecord->inform_with,
-            15.0
+            $remainingQty
         );
 
         $this->assertStringContainsString('СМС', $result['success_message']);
-        $this->assertTrue($result['show_remaining_qty_warning'] ?? false);
-        $this->assertStringContainsString('15', $result['warning_message']);
+        $this->assertSame($expectQuantityWarning, $result['show_remaining_qty_warning'] ?? false);
+        if ($expectQuantityWarning) {
+            $this->assertStringContainsString((string) $remainingQty, $result['warning_message']);
+        } else {
+            $this->assertStringNotContainsString('лікаря-спеціаліста', $result['warning_message'] ?? '');
+            if ($detailsAvailable) {
+                $this->assertArrayNotHasKey('warning_message', $result);
+            }
+        }
         $this->assertDatabaseHas('medication_request_requests', [
             'uuid' => $requestRecord->uuid,
             'status' => 'signed',

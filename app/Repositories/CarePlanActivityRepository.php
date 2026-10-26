@@ -384,7 +384,7 @@ class CarePlanActivityRepository
             'device_request' => \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class,
             default => throw new InvalidArgumentException('Unsupported linked document kind.'),
         };
-        $relations = $kind === 'medication_request' ? ['basedOn'] : ['employee', 'basedOn', 'category', 'priority'];
+        $relations = $kind === 'medication_request' ? ['basedOn.type.coding'] : ['employee', 'basedOn.type.coding', 'category', 'priority'];
 
         return $model::with($relations)->whereHas('basedOn', fn ($query) => $query->whereIn('value', $activityUuids))->get();
     }

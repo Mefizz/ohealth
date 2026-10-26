@@ -61,6 +61,29 @@ class EncounterPrimaryDiagnosisPersistenceTest extends TestCase
         return $condition;
     }
 
+    public function test_encounter_choices_exclude_known_foreign_legal_entity_episodes(): void
+    {
+        $organizationUuid = (string) Str::uuid();
+        $this->instance('legalEntity', new \App\Models\LegalEntity(['uuid' => $organizationUuid]));
+        $encounter = $this->encounter();
+        $foreign = $this->encounter();
+        $foreign->update(['person_id' => $encounter->person_id]);
+        $unknown = $this->encounter();
+        $unknown->update(['person_id' => $encounter->person_id]);
+        foreach ([[$encounter, $organizationUuid], [$foreign, (string) Str::uuid()]] as [$record, $ownerUuid]) {
+            $owner = Identifier::create(['value' => $ownerUuid]);
+            Episode::create([
+                'uuid' => $record->episode->value, 'person_id' => $encounter->person_id,
+                'status' => 'active', 'name' => 'Synthetic episode', 'managing_organization_id' => $owner->id,
+            ]);
+        }
+
+        $choices = app(CarePlanRepository::class)->encounterChoices((int) $encounter->person_id);
+
+        $this->assertCount(1, $choices);
+        $this->assertSame($encounter->uuid, $choices[0]['uuid']);
+    }
+
     public function test_encounter_choices_read_selected_timestamp_under_strict_attributes(): void
     {
         config(['app.timezone' => 'Europe/Kyiv']);

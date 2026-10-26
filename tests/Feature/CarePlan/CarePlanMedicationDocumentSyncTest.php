@@ -29,6 +29,30 @@ class CarePlanMedicationDocumentSyncTest extends TestCase
         ]);
     }
 
+    public function test_linked_documents_can_be_serialized_without_lazy_loading_identifiers(): void
+    {
+        $request = $this->request();
+        $activityUuid = $request->basedOn->value;
+        $basis = Identifier::create(['value' => $activityUuid]);
+        $concept = $basis->type()->create(['text' => 'Activity']);
+        $concept->coding()->create(['system' => 'eHealth/resources', 'code' => 'activity']);
+        $second = $request->replicate();
+        $second->fill(['uuid' => (string) Str::uuid(), 'based_on_id' => $basis->id])->save();
+        $previous = \Illuminate\Database\Eloquent\Model::preventsLazyLoading();
+        \Illuminate\Database\Eloquent\Model::preventLazyLoading();
+
+        try {
+            $rows = app(\App\Repositories\CarePlanActivityRepository::class)
+                ->linkedDocuments([$activityUuid], 'medication_request')->keyBy('uuid')->toArray();
+
+            $this->assertCount(2, $rows);
+            $this->assertSame($activityUuid, $rows[$request->uuid]['basedOn']['identifier']['value']);
+            $this->assertSame('activity', $rows[$second->uuid]['basedOn']['identifier']['type']['coding'][0]['code']);
+        } finally {
+            \Illuminate\Database\Eloquent\Model::preventLazyLoading($previous);
+        }
+    }
+
     public function test_sync_keeps_separate_signed_request_and_active_prescription_identities(): void
     {
         $request = $this->request();

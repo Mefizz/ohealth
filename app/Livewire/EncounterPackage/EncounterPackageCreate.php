@@ -176,7 +176,7 @@ class EncounterPackageCreate extends EncounterPackageComponent
         if ($this->prepersonId !== null) {
             $this->redirectRoute(
                 'prepersons.encounter.edit',
-                [legalEntity(), 'preperson' => $this->prepersonId, 'encounter' =>$encounterId],
+                [legalEntity(), 'preperson' => $this->prepersonId, 'encounter' => $encounterId],
                 navigate: true
             );
 
@@ -184,6 +184,41 @@ class EncounterPackageCreate extends EncounterPackageComponent
         }
 
         $this->redirectRoute('encounter.edit', [legalEntity(), $this->personId, $encounterId], navigate: true);
+    }
+
+    /**
+     * Validate the encounter package before opening the signature modal.
+     *
+     * @return void
+     */
+    public function openSignatureModal(): void
+    {
+        if (Auth::user()->cannot('create', Encounter::class)) {
+            Session::flash('error', __('encounters.policy.create'));
+
+            return;
+        }
+
+        $this->syncEncounterParticipants();
+
+        try {
+            $validatedData = $this->validate();
+            $this->resolveAllReferrals($validatedData, requirePreparation: true);
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+            $this->dispatch('scroll-to-error');
+
+            return;
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            $exception->handle('Error while searching for referral');
+            $this->dispatch('scroll-to-error');
+
+            return;
+        }
+
+        $this->actionType = null;
+        $this->showSignatureModal = true;
     }
 
     /**
@@ -290,8 +325,8 @@ class EncounterPackageCreate extends EncounterPackageComponent
             $this->redirectRoute(
                 $this->prepersonId !== null ? 'prepersons.encounter.edit' : 'encounter.edit',
                 $this->prepersonId !== null
-                    ? [legalEntity(), 'preperson' => $this->prepersonId, 'encounter' =>$createdEncounterId]
-                    : [legalEntity(), 'person' => $this->personId, 'encounter' =>$createdEncounterId],
+                    ? [legalEntity(), 'preperson' => $this->prepersonId, 'encounter' => $createdEncounterId]
+                    : [legalEntity(), 'person' => $this->personId, 'encounter' => $createdEncounterId],
                 navigate: true
             );
 
@@ -316,13 +351,13 @@ class EncounterPackageCreate extends EncounterPackageComponent
         if ($this->prepersonId !== null) {
             $this->redirectRoute(
                 'prepersons.encounter.view',
-                [legalEntity(), 'preperson' => $this->prepersonId, 'encounter' =>$encounterId],
+                [legalEntity(), 'preperson' => $this->prepersonId, 'encounter' => $encounterId],
                 navigate: true
             );
         } else {
             $this->redirectRoute(
                 'encounter.view',
-                [legalEntity(), 'person' => $this->personId, 'encounter' =>$encounterId],
+                [legalEntity(), 'person' => $this->personId, 'encounter' => $encounterId],
                 navigate: true
             );
         }

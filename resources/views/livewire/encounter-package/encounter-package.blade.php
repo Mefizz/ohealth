@@ -425,14 +425,18 @@
                             </button>
 
                             <button
-                                type="submit"
-                                @click="
-                                    $wire.set('actionType', null, false);
-                                    $wire.showSignatureModal = true;
-                                "
-                                class="button-primary"
+                                wire:click.prevent="openSignatureModal"
+                                type="button"
+                                class="button-primary flex items-center gap-2"
+                                wire:loading.attr="disabled"
+                                wire:target="openSignatureModal"
                             >
-                                {{ __('forms.complete_the_interaction_and_sign') }}
+                                <span wire:loading.remove wire:target="openSignatureModal">
+                                    {{ __('forms.complete_the_interaction_and_sign') }}
+                                </span>
+                                <span wire:loading wire:target="openSignatureModal">
+                                    {{ __('forms.loading') }}...
+                                </span>
                             </button>
                         @endunless
                     </div>

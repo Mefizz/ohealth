@@ -83,7 +83,17 @@ class CipherRequest extends PendingRequest
 
         $signedData = $this->getSignedData($ticketUuid);
 
-        $this->deleteSession($ticketUuid);
+        if (function_exists('defer')) {
+            defer(function () use ($ticketUuid): void {
+                try {
+                    $this->deleteSession($ticketUuid);
+                } catch (\Throwable) {
+                    // Silently ignore session cleanup failures in background
+                }
+            });
+        } else {
+            $this->deleteSession($ticketUuid);
+        }
 
         return $signedData;
     }

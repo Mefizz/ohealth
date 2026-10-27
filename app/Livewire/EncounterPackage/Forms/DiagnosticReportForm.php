@@ -93,8 +93,7 @@ class DiagnosticReportForm extends Form
 
                     $service = dictionary()
                         ->services()
-                        ->flattened()
-                        ->firstWhere('id', $value);
+                        ->findById($value);
 
                     if ($service === null || data_get($service, 'category') !== $categoryCode) {
                         $fail(

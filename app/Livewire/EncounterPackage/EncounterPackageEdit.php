@@ -430,6 +430,45 @@ class EncounterPackageEdit extends EncounterPackageComponent
     }
 
     /**
+     * Validate the encounter package before opening the signature modal.
+     *
+     * @return void
+     */
+    public function openSignatureModal(): void
+    {
+        if ($this->isReadonly) {
+            return;
+        }
+
+        if (Auth::user()->cannot('update', Encounter::findOrFail($this->encounterId))) {
+            Session::flash('error', __('encounters.policy.update'));
+
+            return;
+        }
+
+        $this->syncEncounterParticipants();
+
+        try {
+            $validated = $this->validate();
+            $this->resolveAllReferrals($validated);
+        } catch (ValidationException $exception) {
+            Session::flash('error', $exception->validator->errors()->first());
+            $this->setErrorBag($exception->validator->getMessageBag());
+            $this->dispatch('scroll-to-error');
+
+            return;
+        } catch (EHealthException|EHealthConnectionException $exception) {
+            $exception->handle('Error while searching for referral');
+            $this->dispatch('scroll-to-error');
+
+            return;
+        }
+
+        $this->actionType = null;
+        $this->showSignatureModal = true;
+    }
+
+    /**
      * Submit encrypted data about person encounter.
      *
      * @return void

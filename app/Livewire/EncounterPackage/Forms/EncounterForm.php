@@ -576,7 +576,7 @@ class EncounterForm extends BaseForm
                 return;
             }
 
-            $serviceCategories = dictionary()->services()->flattened()->pluck('category', 'id');
+            $serviceCategories = dictionary()->services()->categories();
 
             $hasCounsellingReference = $actionReferenceIds->contains(
                 static fn (string $serviceId): bool => $serviceCategories->get($serviceId) === 'counselling'
@@ -621,7 +621,7 @@ class EncounterForm extends BaseForm
                 ->merge(collect($this->component->procedureForm->procedures)->pluck('codeValue'));
 
             if (!$providedServiceIds->contains($serviceId)) {
-                $service = dictionary()->services()->flattened()->firstWhere('id', $serviceId);
+                $service = dictionary()->services()->findById($serviceId);
 
                 $fail(__('validation.custom.encounter.referralNumber.service_not_provided', [
                     'service' => $service !== null ? "{$service['code']} «{$service['name']}»" : $serviceId
@@ -675,7 +675,7 @@ class EncounterForm extends BaseForm
     {
         $isAmbulatory = ($this->encounter['classCode'] ?? null) === 'AMB';
 
-        $serviceCategories = dictionary()->services()->flattened()->pluck('category', 'id');
+        $serviceCategories = dictionary()->services()->categories();
 
         return static function (
             string $attribute,

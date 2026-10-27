@@ -8,8 +8,16 @@ use Illuminate\Support\Collection;
 
 class ServiceCollection extends Collection
 {
+    protected static ?self $flattenedCache = null;
+
+    /** @var Collection<string, string|null>|null */
+    protected static ?Collection $categoriesCache = null;
+
+    /** @var Collection<string, array<string, mixed>>|null */
+    protected static ?Collection $byIdCache = null;
+
     /**
-     * Get flattened service structure.
+     * Get flattened service structure with in-memory memoization.
      *
      * Converts hierarchical service structure into a flat collection,
      * processing nested groups and services while filtering out inactive
@@ -19,12 +27,16 @@ class ServiceCollection extends Collection
      */
     public function flattened(): self
     {
+        if (static::$flattenedCache !== null) {
+            return static::$flattenedCache;
+        }
+
         $items = $this->flatMap(function (array $item) {
             return $this->flattenServiceItem($item);
         });
         $seenIds = [];
 
-        return $items->filter(static function (array $item) use (&$seenIds): bool {
+        return static::$flattenedCache = $items->filter(static function (array $item) use (&$seenIds): bool {
             $id = serialize($item['id']);
             if (isset($seenIds[$id])) {
                 return false;
@@ -34,6 +46,43 @@ class ServiceCollection extends Collection
 
             return true;
         });
+    }
+
+    /**
+     * Get a cached map of [service_id => category].
+     *
+     * @return Collection<string, string|null>
+     */
+    public function categories(): Collection
+    {
+        return static::$categoriesCache ??= $this->flattened()->pluck('category', 'id');
+    }
+
+    /**
+     * Fast O(1) service lookup by ID.
+     *
+     * @param  string|null  $id
+     * @return array<string, mixed>|null
+     */
+    public function findById(?string $id): ?array
+    {
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        static::$byIdCache ??= $this->flattened()->keyBy('id');
+
+        return static::$byIdCache->get($id);
+    }
+
+    /**
+     * Flush memoized caches (useful for testing or after refreshing dictionary cache).
+     */
+    public static function flushFlattenedCache(): void
+    {
+        static::$flattenedCache = null;
+        static::$categoriesCache = null;
+        static::$byIdCache = null;
     }
 
     /**

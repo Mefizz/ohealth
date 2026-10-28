@@ -24,7 +24,7 @@ class EHealthUserLogin
 
     public string $token = '';
 
-    /** @var list<string> Failures present at login; replacements require a later login. */
+    /** @var list<string> Failed/running batches present at login; replacements require a later login. */
     public array $failedSyncBatchIds = [];
 
     public bool $syncResumed = false;
@@ -49,6 +49,6 @@ class EHealthUserLogin
 
         /** @var EHealthDatabaseBatchRepository $repository */
         $repository = app(BatchRepository::class);
-        $this->failedSyncBatchIds = $repository->getFailedSyncBatchIds($legalEntity->id);
+        $this->failedSyncBatchIds = $repository->getSyncResumeBatchIds($legalEntity->id);
     }
 }

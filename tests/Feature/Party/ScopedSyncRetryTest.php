@@ -7,15 +7,20 @@ namespace Tests\Feature\Party;
 use App\Enums\JobStatus;
 use App\Classes\eHealth\Api\Employee as EmployeeApi;
 use App\Classes\eHealth\Api\Party as PartyApi;
+use App\Classes\eHealth\Api\Declaration as DeclarationApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Events\EHealthUserLogin;
 use App\Listeners\OnRegularLoginSyncronization;
 use App\Jobs\EmployeeSync;
+use App\Jobs\DeclarationsSync;
 use App\Jobs\PartyVerificationSync;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\User;
+use App\Models\Relations\Party;
+use App\Models\Role as AppRole;
+use App\Models\Permission as AppPermission;
 use App\Notifications\SyncNotification;
 use App\Repositories\Repository;
 use App\Repositories\UserRepository;
@@ -26,6 +31,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\WorkerOptions;
 use Illuminate\Http\Client\Response;
@@ -424,6 +430,67 @@ class ScopedSyncRetryTest extends TestCase
         $this->assertDatabaseCount('failed_jobs', 1);
         $this->assertDatabaseCount('job_batches', 1);
         $this->assertSame(JobStatus::PAUSED->value, $this->legalEntity->fresh()->employeeSyncStatus);
+    }
+
+    #[DataProvider('retryRequestResults')]
+    public function testDeclarationRetryUsesItsLegalEntityRoleContextAndRestoresTheWorker(bool $throws): void
+    {
+        $party = Party::create(['uuid' => (string) Str::uuid(), 'first_name' => 'Doctor', 'last_name' => 'Fixture', 'gender' => 'MALE']);
+        $this->candidate->forceFill(['party_id' => $party->id])->save();
+        $employee = $this->candidate->employees()->firstOrFail();
+        $employee->partyId = $party->id;
+        $employee->save();
+        $this->grant(DeclarationsSync::SCOPE_REQUIRED);
+        $this->bindSession(scopes: [DeclarationsSync::SCOPE_REQUIRED]);
+        setPermissionsTeamId($this->legalEntity->id);
+        $role = AppRole::firstOrCreate(['name' => 'DOCTOR', 'guard_name' => 'ehealth', 'legal_entity_id' => null]);
+        $permission = AppPermission::findByName(DeclarationsSync::SCOPE_REQUIRED, 'ehealth');
+        $permission->legalEntityTypes()->syncWithoutDetaching([$this->legalEntity->legalEntityTypeId]);
+        $role->syncPermissions([$permission]);
+        Auth::shouldUse('ehealth');
+        $this->candidate->assignRole($role);
+        $this->assertTrue($this->candidate->hasAllowedRole('DOCTOR'));
+        $previousTeamId = $this->otherLegalEntity()->id;
+        setPermissionsTeamId($previousTeamId);
+        Auth::shouldUse('web');
+        $workerErrors = [];
+        Event::listen(\Illuminate\Queue\Events\JobExceptionOccurred::class, static function ($event) use (&$workerErrors): void {
+            $workerErrors[] = $event->exception->getMessage();
+        });
+        $queries = [];
+        $api = Mockery::mock(DeclarationApi::class);
+        $api->shouldReceive('withToken')->once()->with('old-token')->andReturnSelf();
+        $api->shouldReceive('withToken')->once()->with('current-token')->andReturnSelf();
+        $api->shouldReceive('getMany')->twice()->andReturnUsing(function (...$arguments) use (&$queries, $throws): EHealthResponse {
+            $queries[] = $arguments['query'] ?? $arguments[0];
+            if (count($queries) === 1 || $throws) {
+                $status = count($queries) === 1 ? 401 : 503;
+                throw new EHealthResponseException(new Response(new GuzzleResponse($status, [], json_encode(['error' => ['message' => 'Fixture error']]))));
+            }
+
+            return new EHealthResponse(new GuzzleResponse(200, [], json_encode(['data' => []])), static fn () => [], static fn () => []);
+        });
+        $this->instance(DeclarationApi::class, $api);
+        Bus::batch([new DeclarationsSync($this->legalEntity, standalone: true)])
+            ->name(DeclarationsSync::BATCH_NAME)->withOption('legal_entity_id', $this->legalEntity->id)
+            ->withOption('user', $this->oldUser)->withOption('token', Crypt::encryptString('old-token'))
+            ->onQueue('sync')->dispatch();
+
+        $this->runNextSyncJob();
+        $this->assertSame([], $workerErrors, json_encode($workerErrors));
+        $this->assertSame($previousTeamId, getPermissionsTeamId());
+        $this->assertSame('web', Auth::getDefaultDriver());
+        $this->runNextSyncJob();
+
+        $this->assertCount(2, $queries);
+        $this->assertSame($employee->uuid, $queries[1]['employee_id'] ?? null);
+        $this->assertSame($previousTeamId, getPermissionsTeamId());
+        $this->assertSame('web', Auth::getDefaultDriver());
+    }
+
+    public static function retryRequestResults(): array
+    {
+        return ['success' => [false], 'API exception' => [true]];
     }
 
     private function runNextSyncJob(): void

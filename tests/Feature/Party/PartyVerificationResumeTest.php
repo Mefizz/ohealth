@@ -282,6 +282,24 @@ class PartyVerificationResumeTest extends TestCase
         Notification::assertNothingSent();
     }
 
+    public function testLoginResumesAnExistingBatchThatFailsAfterTheEventWasCreated(): void
+    {
+        $this->queuePartyJob();
+        $batchId = $this->queuedJob()->batchId;
+        $this->assertDatabaseHas('job_batches', ['id' => $batchId, 'failed_jobs' => 0]);
+        $event = new EHealthUserLogin($this->user, $this->legalEntity, $this->user->uuid, [PartyVerificationSync::SCOPE_REQUIRED]);
+        $this->mockPartyError(401, 'Revoked token');
+
+        $this->runNextJob();
+        $this->assertDatabaseHas('job_batches', ['id' => $batchId, 'failed_jobs' => 1]);
+        (new OnRegularLoginSyncronization())->handle(unserialize(serialize($event)));
+
+        $this->assertDatabaseMissing('job_batches', ['id' => $batchId]);
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertSyncJobsCount(1);
+        Notification::assertSentTo($this->user, SyncNotification::class, fn ($notification) => $notification->toArray($this->user)['action'] === 'resumed');
+    }
+
     #[DataProvider('staleLogins')]
     public function testStaleLoginCannotReplaceAFailedBatch(string $change): void
     {

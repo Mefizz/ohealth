@@ -27,6 +27,7 @@ use App\Classes\eHealth\EHealthResponse;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Exceptions\EHealth\EHealthResponseException;
+use App\Jobs\Middleware\UseEHealthPermissionContext;
 
 abstract class EHealthJob implements ShouldQueue
 {
@@ -104,7 +105,7 @@ abstract class EHealthJob implements ShouldQueue
         // Ensure the job has a user with an active session
         $this->user ??= $this->batch()->options['user'];
 
-        return $this->getAdditionalMiddleware();
+        return [new UseEHealthPermissionContext(), ...$this->getAdditionalMiddleware()];
     }
 
     public function __construct(

@@ -13,12 +13,13 @@ use stdClass;
 
 class EHealthDatabaseBatchRepository extends DatabaseBatchRepository
 {
-    /** Capture only IDs at login; never load every serialized batch option into the listener. */
-    public function getFailedSyncBatchIds(int $legalEntityId): array
+    /** Include running batches: an old token may fail after login but before the listener runs. */
+    public function getSyncResumeBatchIds(int $legalEntityId): array
     {
         return $this->connection->table($this->table)
             ->where('legal_entity_id', $legalEntityId)
-            ->where('failed_jobs', '>', 0)
+            ->where(fn ($query) => $query->where('failed_jobs', '>', 0)
+                ->orWhere(fn ($query) => $query->whereNull('finished_at')->whereNull('cancelled_at')))
             ->orderBy('cancelled_at')
             ->orderBy('id')
             ->pluck('id')->all();

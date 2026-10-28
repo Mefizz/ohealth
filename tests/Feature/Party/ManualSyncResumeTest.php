@@ -42,7 +42,7 @@ class ManualSyncResumeTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['queue.default' => 'database']);
+        config(['queue.default' => 'database', 'pagination.per_page' => 10]);
         Notification::fake();
         Http::preventStrayRequests();
         $this->legalEntity = LegalEntity::create([

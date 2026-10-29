@@ -23,22 +23,30 @@ readonly class EmployeeRepository
     {
         if ((int) $request->legalEntityId !== (int) $employee->legalEntityId
             || ($request->employeeId !== null && (int) $request->employeeId !== (int) $employee->id)
-            || ($request->partyId !== null && (int) $request->partyId !== (int) $employee->partyId)
-            || (filled($request->employeeType) && $request->employeeType !== $employee->employeeType)
-            || (filled($request->position) && $request->position !== $employee->position)) {
+            || ($request->partyId !== null && (int) $request->partyId !== (int) $employee->partyId)) {
             return false;
         }
 
         $employeeUuid = data_get($request->revision?->data, 'employee_uuid');
+        if (filled($employeeUuid) && $employeeUuid !== $employee->uuid) {
+            return false;
+        }
+
+        // Position and type are editable values, not identity, once the Employee is known.
+        if ($request->employeeId !== null || filled($employeeUuid)) {
+            return true;
+        }
+
         $revisionEmployeeType = data_get($request->revision?->data, 'employee_request_data.employee_type');
         $revisionPosition = data_get($request->revision?->data, 'employee_request_data.position');
-        if ((filled($employeeUuid) && $employeeUuid !== $employee->uuid)
+        if ((filled($request->employeeType) && $request->employeeType !== $employee->employeeType)
+            || (filled($request->position) && $request->position !== $employee->position)
             || (filled($revisionEmployeeType) && $revisionEmployeeType !== $employee->employeeType)
             || (filled($revisionPosition) && $revisionPosition !== $employee->position)) {
             return false;
         }
 
-        if ($request->employeeId !== null || $request->partyId !== null) {
+        if ($request->partyId !== null) {
             return true;
         }
 

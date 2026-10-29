@@ -229,11 +229,106 @@ class EmployeeSpecialityOwnershipTest extends TestCase
         $employee = $this->employee('SPECIALIST', ['THERAPIST']);
         $request = $this->request($employee, ['NURSING']);
         $data = $request->revision->data;
-        $data['employee_request_data']['employee_type'] = 'ASSISTANT';
+        $data['employee_uuid'] = (string) Str::uuid();
         $request->revision->update(['data' => $data]);
         Livewire::test(EmployeeEdit::class, ['legalEntity' => $this->legalEntity, 'employee' => $employee])
             ->assertOk()->assertSet('employeeRequestId', null)
             ->assertSet('form.doctor.specialities', fn (array $rows): bool => array_column($rows, 'speciality') === ['THERAPIST']);
+    }
+
+    public static function changedPositionAttributes(): array
+    {
+        return [
+            'position' => ['P3', 'SPECIALIST', 'THERAPIST'],
+            'employee type' => ['P8', 'ASSISTANT', 'NURSING'],
+            'position and type' => ['P3', 'ASSISTANT', 'NURSING'],
+        ];
+    }
+
+    #[DataProvider('changedPositionAttributes')]
+    public function test_own_edit_with_changed_position_attributes_can_be_reopened_saved_and_applied(string $position, string $employeeType, string $speciality): void
+    {
+        $employee = $this->employee('SPECIALIST', ['THERAPIST']);
+        $other = $this->employee('SPECIALIST', ['SURGERY']);
+        $request = $this->request($employee, [$speciality]);
+        $request->update(['position' => $position, 'employee_type' => $employeeType]);
+        $data = $request->revision->data;
+        $data['employee_request_data']['position'] = $position;
+        $data['employee_request_data']['employee_type'] = $employeeType;
+        $request->revision->update(['data' => $data]);
+
+        $this->assertSame($request->id, (new EmployeeRepository())->latestDraftForEmployee($employee)?->id);
+        Livewire::test(EmployeeEdit::class, ['legalEntity' => $this->legalEntity, 'employee' => $employee])
+            ->assertOk()->assertSet('employeeRequestId', $request->id)
+            ->assertSet('form.position', $position)->assertSet('form.employeeType', $employeeType);
+
+        $editor = Livewire::test(EmployeeRequestEdit::class, ['legalEntity' => $this->legalEntity, 'employee_request' => $request])->instance();
+        $saved = (new ReflectionMethod($editor, 'handleDraftPersistence'))->invoke($editor);
+        $this->assertSame($request->id, $saved->id);
+        $this->assertSame($employee->uuid, $saved->fresh()->revision->data['employee_uuid']);
+
+        app(EmployeeRequestProcessor::class)->applyApprovedRequest($saved->fresh(), ['employee_id' => $employee->uuid, 'status' => 'APPROVED']);
+        $this->assertSame($position, $employee->fresh()->position);
+        $this->assertSame($employeeType, $employee->fresh()->employeeType);
+        $this->assertSame([$speciality], $employee->specialities()->pluck('speciality')->all());
+        $this->assertSame(['SURGERY'], $other->specialities()->pluck('speciality')->all());
+        $this->assertSame($employee->id, $saved->fresh()->employeeId);
+    }
+
+    public function test_linked_legacy_edit_without_revision_uuid_can_change_position_attributes(): void
+    {
+        $employee = $this->employee('SPECIALIST', ['THERAPIST']);
+        $request = $this->request($employee, ['NURSING']);
+        $request->update(['position' => 'P3', 'employee_type' => 'ASSISTANT']);
+        $data = $request->revision->data;
+        unset($data['employee_uuid']);
+        $data['employee_request_data'] = ['position' => 'P3', 'employee_type' => 'ASSISTANT'];
+        $request->revision->update(['data' => $data]);
+
+        $this->assertTrue((new EmployeeRepository())->requestMatchesEmployee($request->fresh(), $employee));
+    }
+
+    public function test_unlinked_request_without_stable_employee_identity_must_still_match_position_attributes(): void
+    {
+        $employee = $this->employee('SPECIALIST', ['THERAPIST']);
+        $request = $this->request($employee, ['NURSING']);
+        $request->update(['employee_id' => null, 'position' => 'P3', 'employee_type' => 'ASSISTANT']);
+        $data = $request->revision->data;
+        unset($data['employee_uuid']);
+        $data['employee_request_data'] = ['position' => 'P3', 'employee_type' => 'ASSISTANT'];
+        $request->revision->update(['data' => $data]);
+
+        $this->assertFalse((new EmployeeRepository())->requestMatchesEmployee($request->fresh(), $employee));
+    }
+
+    public static function conflictingEmployeeIdentity(): array
+    {
+        return ['employee ID' => ['employee_id'], 'employee UUID' => ['employee_uuid'],
+            'legal entity' => ['legal_entity_id'], 'party' => ['party_id']];
+    }
+
+    #[DataProvider('conflictingEmployeeIdentity')]
+    public function test_changed_position_attributes_do_not_allow_conflicting_employee_identity(string $field): void
+    {
+        $employee = $this->employee('SPECIALIST', ['THERAPIST']);
+        $other = $this->employee('SPECIALIST', ['SURGERY']);
+        $request = $this->request($employee, ['NURSING']);
+        $request->update(['position' => 'P3', 'employee_type' => 'ASSISTANT']);
+        $data = $request->revision->data;
+        $data['employee_request_data'] = ['position' => 'P3', 'employee_type' => 'ASSISTANT'];
+        if ($field === 'employee_uuid') {
+            $data['employee_uuid'] = $other->uuid;
+        } else {
+            $value = match ($field) {
+                'employee_id' => $other->id,
+                'legal_entity_id' => LegalEntity::create(['uuid' => (string) Str::uuid(), 'legal_entity_type_id' => $this->legalEntity->legalEntityTypeId])->id,
+                'party_id' => Party::create(['uuid' => (string) Str::uuid(), 'first_name' => 'Інша', 'last_name' => 'Особа'])->id,
+            };
+            $request->update([$field => $value]);
+        }
+        $request->revision->update(['data' => $data]);
+
+        $this->assertFalse((new EmployeeRepository())->requestMatchesEmployee($request->fresh(), $employee));
     }
 
     public function test_approved_request_cannot_overwrite_a_different_employee_of_the_same_party(): void

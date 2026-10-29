@@ -339,6 +339,7 @@
                                             class="peer input"
                                             x-bind:disabled="isDisabled"
                                             name="longitude"
+                                            @input.capture="$el.value = $el.value.replace(/([.,]\d{14})\d+/, '$1')"
                                             wire:model='divisionForm.division.location.longitude'
                                         />
                                         <label
@@ -362,6 +363,7 @@
                                             placeholder=" "
                                             class="peer input"
                                             x-bind:disabled="isDisabled"
+                                            @input.capture="$el.value = $el.value.replace(/([.,]\d{14})\d+/, '$1')"
                                             wire:model='divisionForm.division.location.latitude'
                                         />
 
@@ -828,10 +830,8 @@
                         </fieldset>
 
                         <div class="flex gap-2 items-center additional-actions">
-                            <a role="button"
-                            class="button-minor cursor-pointer inline-flex items-center leading-none"
-                            href="javascript:history.back()">
-                                {{ __('forms.cancel') }}
+                            <a href="{{ route('division.index', [legalEntity()]) }}" class="button-minor">
+                                &larr; {{ __('forms.back') }}
                             </a>
 
                             @yield('additional-buttons')

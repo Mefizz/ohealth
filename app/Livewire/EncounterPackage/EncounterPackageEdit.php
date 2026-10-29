@@ -165,13 +165,13 @@ class EncounterPackageEdit extends EncounterPackageComponent
     public function openDeviceRequest(): void
     {
         abort_unless($this->personId !== null, 403);
-        abort_unless(Auth::user()->can('create', [DeviceRequestRequest::class, legalEntity()]), 403);
+        abort_unless(Auth::user()->can('create', DeviceRequestRequest::class), 403);
         try {
             $service = app(DeviceRequestLifecycleService::class);
             $employee = $service->authorizeAction(legalEntity(), 'device_request:write');
             $person = $this->patient();
             $service->encounter($person, $employee, $this->encounterUuid);
-            $this->redirectRoute('device-requests.create', ['legalEntity' => legalEntity(), 'person' => $person, 'encounter' => $this->encounterId]);
+            $this->redirectRoute('persons.device-requests.create', ['legalEntity' => legalEntity(), 'person' => $person, 'encounter' => $this->encounterId]);
         } catch (ValidationException $exception) {
             Session::flash('error', $exception->validator->errors()->first());
         }

@@ -26,9 +26,10 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
     public function authorizeAction(LegalEntity $legalEntity, string $scope): Employee
     {
         $user = Auth::user();
-        Gate::authorize('perform', [DeviceRequestRequest::class, $legalEntity, $scope]);
+        abort_unless($legalEntity->is(legalEntity()), 404);
+        Gate::authorize('perform', [DeviceRequestRequest::class, $scope]);
 
-        $employee = app(DeviceRequestRequestPolicy::class)->employee($user, $legalEntity, $scope);
+        $employee = app(DeviceRequestRequestPolicy::class)->employee($user, $scope);
         abort_unless($employee !== null, 404);
 
         return $employee;

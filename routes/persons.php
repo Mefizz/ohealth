@@ -20,6 +20,7 @@ use App\Livewire\DeviceAssociation\DeviceAssociationIndex;
 use App\Livewire\DeviceAssociation\DeviceAssociationView;
 use App\Livewire\DeviceDispense\DeviceDispenses;
 use App\Livewire\DeviceDispense\DeviceDispenseView;
+use App\Livewire\DeviceRequest\DeviceRequestForm;
 use App\Livewire\DiagnosticReport\DiagnosticReportCreate;
 use App\Livewire\DiagnosticReport\DiagnosticReportEdit;
 use App\Livewire\DiagnosticReport\DiagnosticReportIndex;
@@ -160,10 +161,12 @@ Route::prefix('persons')->whereNumber('person')
                     ->name('prescription-requests.view');
                 Route::get('/referrals', PatientReferrals::class)->name('referrals');
                 Route::get('/device-requests', PatientDeviceRequests::class)
-                    ->name('device-requests');
+                    ->can('viewAny', DeviceRequestRequest::class)->name('device-requests');
+                Route::get('/device-requests/create', DeviceRequestForm::class)
+                    ->can('create', DeviceRequestRequest::class)->name('device-requests.create');
                 Route::get('/device-requests/{deviceRequest}', PatientDeviceRequestView::class)
                     ->whereUuid('deviceRequest')
-                    ->middleware('can:viewAny,'.DeviceRequestRequest::class.',legalEntity')->name('device-requests.view');
+                    ->can('viewAny', DeviceRequestRequest::class)->name('device-requests.view');
                 Route::get('/observations', ObservationIndex::class)
                     ->can('viewAny', Observation::class)
                     ->name('observations');

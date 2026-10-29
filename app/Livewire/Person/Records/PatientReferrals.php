@@ -142,7 +142,7 @@ class PatientReferrals extends BasePatientComponent
     {
         $record = $this->ownedReferral($uuid);
         if ($record instanceof DeviceRequestRequest) {
-            $this->redirectRoute('device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->patient(), 'draft' => $uuid]);
+            $this->redirectRoute('persons.device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->patient(), 'draft' => $uuid]);
 
             return;
         }
@@ -192,7 +192,7 @@ class PatientReferrals extends BasePatientComponent
     {
         $record = $this->ownedReferral($uuid);
         if ($record instanceof DeviceRequestRequest) {
-            $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->patient()]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->patient()]);
 
             return;
         }
@@ -290,7 +290,7 @@ class PatientReferrals extends BasePatientComponent
 
         $record = $this->ownedReferral((string) $this->requestIdToSign);
         if ($record instanceof DeviceRequestRequest) {
-            $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->patient()]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->patient()]);
 
             return;
         }
@@ -341,7 +341,7 @@ class PatientReferrals extends BasePatientComponent
 
         $requestRecord = $this->ownedReferral((string) $this->requestIdToSign);
         if ($requestRecord instanceof DeviceRequestRequest) {
-            $this->redirectRoute('device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->patient(), 'draft' => $requestRecord->uuid]);
+            $this->redirectRoute('persons.device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->patient(), 'draft' => $requestRecord->uuid]);
 
             return;
         }
@@ -438,7 +438,7 @@ class PatientReferrals extends BasePatientComponent
     {
         $record = $this->ownedReferral($uuid);
         if ($record instanceof DeviceRequestRequest) {
-            $this->redirectRoute('device-requests.index', ['legalEntity' => legalEntity(), 'person' => $this->patient()]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->patient()]);
 
             return;
         }

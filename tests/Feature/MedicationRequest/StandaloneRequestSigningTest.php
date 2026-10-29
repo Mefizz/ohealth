@@ -301,9 +301,9 @@ class StandaloneRequestSigningTest extends TestCase
         $service->shouldReceive('permittedTypes')->andReturn([]);
         $this->instance(DeviceRequestLifecycleService::class, $service);
         Livewire::withQueryParams(['encounter' => $encounter->id])->test(DeviceRequestForm::class, ['legalEntity' => $this->legalEntity, 'person' => $person])
+            ->assertHasNoErrors()
             ->assertSet('request.encounter_uuid', $encounter->uuid)
-            ->assertSet('programs', [$deviceProgram])
-            ->assertHasNoErrors();
+            ->assertSet('programs', [$deviceProgram]);
     }
 
     public static function encounterLocalTimes(): array
@@ -388,7 +388,7 @@ class StandaloneRequestSigningTest extends TestCase
         $component->encounterId = $encounter->id;
         $component->encounterUuid = $encounter->uuid;
         $component->openDeviceRequest();
-        $this->assertSame(route('device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
+        $this->assertSame(route('persons.device-requests.create', ['legalEntity' => $this->legalEntity, 'person' => $person, 'encounter' => $encounter->id]), $component->redirectedUrl);
     }
 
     public function test_assistant_with_write_scope_cannot_prescribe_devices(): void
@@ -421,7 +421,7 @@ class StandaloneRequestSigningTest extends TestCase
 
         Livewire::test(DeviceEncounterActionsHarness::class, ['personId' => $person->id, 'compositionUrl' => null])
             ->assertDontSeeHtml('wire:click="openDeviceRequest"')
-            ->assertSeeHtml('href="'.route('device-requests.index', ['legalEntity' => $this->legalEntity, 'person' => $person->id]).'"')
+            ->assertSeeHtml('href="'.route('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $person->id]).'"')
             ->assertSeeHtml('disabled')
             ->assertSee(__('encounters.medical_report_creation_unavailable'));
     }
@@ -429,15 +429,98 @@ class StandaloneRequestSigningTest extends TestCase
     public function test_device_policy_requires_matching_team_scope_and_active_prescriber(): void
     {
         $model = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
-        $this->assertTrue($this->user->can('create', [$model, $this->legalEntity]));
-        $this->assertFalse($this->user->can('perform', [$model, $this->legalEntity, 'unrelated:write']));
-        $this->assertFalse($this->user->can('perform', [$model, $this->legalEntity, 'device_request:revoke']));
-        $this->assertSame(404, \Illuminate\Support\Facades\Gate::inspect('perform', [$model, $this->legalEntity, 'device_request:revoke'])->status());
+        $this->assertTrue($this->user->can('create', $model));
+        $this->assertTrue($this->user->can('viewAny', $model));
+        $this->assertFalse($this->user->can('perform', [$model, 'unrelated:write']));
+        $this->assertFalse($this->user->can('perform', [$model, 'device_request:revoke']));
+        $this->assertSame(404, \Illuminate\Support\Facades\Gate::inspect('perform', [$model, 'device_request:revoke'])->status());
         setPermissionsTeamId($this->legalEntity->id + 1000);
-        $this->assertFalse($this->user->can('create', [$model, $this->legalEntity]));
+        $this->assertFalse($this->user->can('create', $model));
+        $this->assertFalse($this->user->can('viewAny', $model));
         setPermissionsTeamId($this->legalEntity->id);
         $this->user->employees()->firstOrFail()->update(['is_active' => false]);
-        $this->assertFalse($this->user->can('create', [$model, $this->legalEntity]));
+        $this->assertFalse($this->user->can('create', $model));
+    }
+
+    public function testDevicePolicyDeniesRequestsWithoutLegalEntityContext(): void
+    {
+        $this->app->forgetInstance('legalEntity');
+        $model = \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class;
+        $this->assertFalse($this->user->can('viewAny', $model));
+        $this->assertFalse($this->user->can('create', $model));
+        $this->assertSame(404, \Illuminate\Support\Facades\Gate::inspect('viewAny', $model)->status());
+    }
+
+    public static function deniedDeviceRoutes(): array
+    {
+        return [
+            ['device-requests.index', 'device_request:read'],
+            ['persons.device-requests', 'device_request:read'],
+            ['persons.device-requests.create', 'device_request:write'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('deniedDeviceRoutes')]
+    public function testDeviceRouteRejectsMissingPermissionBeforeMountAndApi(string $routeName, string $scope): void
+    {
+        $this->withoutVite();
+        $this->withoutMiddleware([
+            \App\Http\Middleware\Authenticate::class,
+            \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+            \App\Http\Middleware\EnsureSingleSession::class,
+            \App\Classes\eHealth\Middleware\CheckSessionToken::class,
+        ]);
+        $this->grantMedicalEventAbilities($this->user, ['patient_summary:read']);
+        $this->user->revokePermissionTo($scope);
+        $this->user->unsetRelation('permissions')->unsetRelation('roles');
+        $this->assertTrue($this->user->can('access', $this->legalEntity));
+        $this->assertTrue($this->user->can('view', \App\Models\Person\Person::class));
+        $this->assertFalse($this->user->can($scope));
+        $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\DeviceRequest::class);
+        $api->shouldNotReceive('getBySearchParams');
+        $this->instance(\App\Classes\eHealth\Api\Patient\DeviceRequest::class, $api);
+        $component = Mockery::mock(\App\Livewire\DeviceRequest\DeviceRequestIndex::class)->makePartial();
+        $component->shouldNotReceive('mount');
+        $this->instance(\App\Livewire\DeviceRequest\DeviceRequestIndex::class, $component);
+        $form = Mockery::mock(DeviceRequestForm::class)->makePartial();
+        $form->shouldNotReceive('mount');
+        $this->instance(DeviceRequestForm::class, $form);
+        $person = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+        $parameters = ['legalEntity' => $this->legalEntity];
+        if ($routeName !== 'device-requests.index') {
+            $parameters['person'] = $person;
+        }
+
+        $this->get(route($routeName, $parameters))->assertNotFound();
+    }
+
+    public function testDeviceAuthorizationRejectsAnotherEntityArgumentDespiteCurrentEntityPermission(): void
+    {
+        $otherEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'status' => 'ACTIVE']);
+        $this->assertTrue($this->user->can('create', \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class));
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        app(DeviceRequestLifecycleService::class)->authorizeAction($otherEntity, 'device_request:write');
+    }
+
+    public function testDeviceFormActionsStopWhenPrescriberPermissionIsRevoked(): void
+    {
+        $this->withoutVite();
+        $person = \App\Models\Person\Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class)->makePartial();
+        $service->shouldReceive('authMethods')->once()->andReturn([]);
+        $service->shouldReceive('permittedTypes')->once()->andReturn([]);
+        $service->shouldNotReceive('collectPages');
+        $service->shouldNotReceive('prescribingOptions');
+        $this->instance(DeviceRequestLifecycleService::class, $service);
+        $component = Livewire::test(DeviceRequestForm::class, ['legalEntity' => $this->legalEntity, 'person' => $person]);
+        $this->user->employees()->firstOrFail()->update(['is_active' => false]);
+
+        foreach (['searchModels', 'refreshOptions', 'confirmPhone'] as $action) {
+            $component->call($action)->assertStatus(200)
+                ->assertSee(__('device-requests.policy.create'))
+                ->assertSet('request.phone_confirmed', false)
+                ->assertSet('models', [])->assertSet('options', []);
+        }
     }
 
     public function test_assistant_with_extra_write_scope_can_still_open_device_registry(): void
@@ -451,7 +534,7 @@ class StandaloneRequestSigningTest extends TestCase
         $response->shouldReceive('getData')->andReturn([]);
         $response->shouldReceive('getPaging')->andReturn(['total_pages' => 1]);
         $api = Mockery::mock(\App\Classes\eHealth\Api\Patient\DeviceRequest::class);
-        $api->shouldReceive('getBySearchParams')->twice()->with($person->uuid, ['requester_legal_entity' => $this->legalEntity->uuid, 'page' => 1])->andReturn($response);
+        $api->shouldReceive('getBySearchParams')->twice()->with($person->uuid, ['page' => 1])->andReturn($response);
         $this->instance(\App\Classes\eHealth\Api\Patient\DeviceRequest::class, $api);
         Livewire::test(\App\Livewire\DeviceRequest\DeviceRequestIndex::class, ['legalEntity' => $this->legalEntity, 'person' => $person])
             ->assertSet('legalEntityId', $this->legalEntity->id)
@@ -525,7 +608,8 @@ class StandaloneRequestSigningTest extends TestCase
         $component = Livewire::test(\App\Livewire\DeviceRequest\DeviceRequestIndex::class, ['legalEntity' => $this->legalEntity]);
         $this->user->employees()->firstOrFail()->update(['is_active' => false]);
 
-        $component->call('searchPatients')->assertStatus(404);
+        $component->call('searchPatients')->assertStatus(200)
+            ->assertSee(__('device-requests.policy.perform'));
     }
 
     public function test_doctor_can_write_only_in_the_current_permission_team(): void

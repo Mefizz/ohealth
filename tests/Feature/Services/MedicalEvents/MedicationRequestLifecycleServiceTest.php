@@ -365,6 +365,7 @@ class MedicationRequestLifecycleServiceTest extends TestCase
 
     public function test_find_eligible_encounters_requires_today_period_and_current_performer(): void
     {
+        $this->travelTo(now()->setTime(23, 30));
         $performer = \App\Models\MedicalEvents\Sql\Identifier::create([
             'value' => $this->employee->uuid,
         ]);

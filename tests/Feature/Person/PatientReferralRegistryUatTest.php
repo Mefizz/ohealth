@@ -62,7 +62,7 @@ class PatientReferralRegistryUatTest extends TestCase
         $this->mock(\App\Classes\eHealth\Api\Patient\DeviceRequest::class)->shouldNotReceive('cancel');
         Livewire::test(PatientReferrals::class, ['legalEntity' => $legalEntity, 'personId' => $person->id])
             ->call('cancelReferral', $device->uuid, 'service_request')
-            ->assertRedirect(route('device-requests.index', ['legalEntity' => $legalEntity, 'person' => $person]))
+            ->assertRedirect(route('persons.device-requests', ['legalEntity' => $legalEntity, 'person' => $person]))
             ->assertSet('showSignatureModal', false);
     }
 

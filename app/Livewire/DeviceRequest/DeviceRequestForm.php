@@ -265,7 +265,11 @@ class DeviceRequestForm extends Component
 
     public function searchModels(): void
     {
-        $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:write']);
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return;
+        }
 
         try {
             $this->modelSearch = trim($this->modelSearch);
@@ -296,8 +300,13 @@ class DeviceRequestForm extends Component
 
     public function refreshOptions(): void
     {
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return;
+        }
+
         $service = app(DeviceRequestLifecycleService::class);
-        $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:write']);
 
         try {
             $this->options = $service->prescribingOptions($this->request);
@@ -361,8 +370,13 @@ class DeviceRequestForm extends Component
 
     public function confirmPhone(): void
     {
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return;
+        }
+
         $service = app(DeviceRequestLifecycleService::class);
-        $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:write']);
         $methods = $service->authMethods($this->person);
         $method = collect($methods)->firstWhere('id', $this->request['inform_with']);
 
@@ -467,7 +481,7 @@ class DeviceRequestForm extends Component
 
             $service->sync($this->person, $remote);
             Session::flash('success', $service->createdMessage($remote['requisition'], !empty($saved['data']['program_id']), $prepared['authType']));
-            $this->redirectRoute('device-requests.index', ['legalEntity' => $this->legalEntity, 'person' => $this->person]);
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $this->person]);
         } catch (Throwable $exception) {
             $this->refreshOptions();
             $this->reportError($exception);

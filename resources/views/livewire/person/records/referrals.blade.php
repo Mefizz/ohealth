@@ -1,3 +1,5 @@
+@use(App\Models\MedicalEvents\Sql\DeviceRequestRequest)
+
 <x-layouts.patient
     :showLegacyMessages="false"
     :personId="$personId"
@@ -10,7 +12,7 @@
     <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
 
     <x-slot name="headerActions">
-        @can('viewAny', [\App\Models\MedicalEvents\Sql\DeviceRequestRequest::class, legalEntity()])
+        @can('viewAny', DeviceRequestRequest::class)
             <a
                 href="{{ route('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $personId]) }}"
                 class="button-primary-outline px-5 py-2 text-sm whitespace-nowrap"

@@ -3,6 +3,7 @@
     use App\Models\Employee\{Employee,EmployeeRequest};
     use App\Models\Person\{Person,PersonRequest};
     use App\Models\Connection;
+    use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
     use App\Models\Preperson;
     use App\Models\MedicalEvents\Sql\Specimen;
     use App\Models\Relations\PersonVerificationDetail;
@@ -438,6 +439,16 @@
                         </a>
                     </li>
                 @endif
+
+                @can('viewAny', DeviceRequestRequest::class)
+                    <li>
+                        <a href="{{ route('device-requests.index', [legalEntity()]) }}"
+                           class="menu-item-simple {{ request()->routeIs('device-requests.index') ? 'menu-item-active' : '' }}">
+                            @icon('device-requests')
+                            <span>{{ __('device-requests.labels.registry') }}</span>
+                        </a>
+                    </li>
+                @endcan
 
                 @can('view', Specimen::class)
                     <li>

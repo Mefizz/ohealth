@@ -15,6 +15,11 @@ use Illuminate\Support\Facades\Log;
  */
 class EmployeeRequestMatcher
 {
+    public static function remoteDivisionUuid(array $employee): ?string
+    {
+        return $employee['division']['uuid'] ?? $employee['division_id'] ?? null;
+    }
+
     /**
      * Remote Create Employee Request statuses that mean "not decided yet".
      */
@@ -55,7 +60,7 @@ class EmployeeRequestMatcher
             return null;
         }
 
-        $divisionUuid = $request->division?->uuid;
+        $divisionUuid = $request->division?->uuid ?? $request->divisionUuid;
         $employeeType = $request->employeeType;
         $targetPosition = $request->position;
         $targetStartDate = $request->startDate;
@@ -81,10 +86,7 @@ class EmployeeRequestMatcher
                 $dateMatch = self::datesMatchSameDay($targetStartDate, $remoteEmp['start_date']);
             }
 
-            $divisionMatch = true;
-            if ($divisionUuid) {
-                $divisionMatch = ($remoteEmp['division_id'] ?? null) === $divisionUuid;
-            }
+            $divisionMatch = filled($employeeUuid) || self::remoteDivisionUuid($remoteEmp) === $divisionUuid;
 
             if ($posMatch && $typeMatch && $dateMatch && $divisionMatch) {
                 $matches[] = $remoteEmp;
@@ -107,7 +109,7 @@ class EmployeeRequestMatcher
         Log::info("[EmployeeRequestMatcher] Searching eHealth for Employee by TaxID: {$taxId}");
 
         try {
-            $divisionUuid = $request->division?->uuid;
+            $divisionUuid = $request->division?->uuid ?? $request->divisionUuid;
             $employeeType = $request->employeeType;
 
             $params = [
@@ -125,7 +127,7 @@ class EmployeeRequestMatcher
                 $params['employee_type'] = $employeeType;
             }
 
-            $employeesList = EHealth::employee()->getMany($params)->validate();
+            $employeesList = EHealth::employee()->getMany($params, withIdentity: true)->validate();
 
             if (empty($employeesList)) {
                 Log::warning(

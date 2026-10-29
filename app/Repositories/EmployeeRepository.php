@@ -261,9 +261,17 @@ readonly class EmployeeRepository
                 // eHealth UUID onto the draft row and hits parties_uuid_unique.
                 // Relink first, then update the row that already owns the UUID.
                 $previousPartyUuid = $model->party->uuid;
+                $previousPartyId = $model->partyId;
 
                 $model->party()->associate($partyByUuid)->save();
                 $partyByUuid->update($party);
+
+                if ($model instanceof Employee) {
+                    EmployeeRequest::whereEmployeeId($model->id)
+                        ->whereLegalEntityId($model->legalEntityId)
+                        ->wherePartyId($previousPartyId)
+                        ->update(['party_id' => $partyByUuid->id]);
+                }
 
                 Log::warning('Potential party merge scenario detected', [
                     'model_party_uuid' => $previousPartyUuid,

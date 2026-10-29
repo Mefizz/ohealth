@@ -269,9 +269,15 @@ class EmployeeRequestProcessor
             }
 
             // 9. Update Details (Party, Documents, Phones...)
+            $partyData = $mappedLocalData['party'];
+            if (!$isNew && $employee->partyId) {
+                // A revision UUID may predate a confirmed canonical-party relink.
+                unset($partyData['uuid']);
+            }
+
             Repository::employee()->updateDetails(
                 $employee,
-                $mappedLocalData['party'],
+                $partyData,
                 $mappedLocalData['documents'],
                 $mappedLocalData['phones'],
                 $mappedLocalData['educations'] ?? null,

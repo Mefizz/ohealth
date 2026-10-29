@@ -22,6 +22,7 @@ use App\Models\Relations\Party;
 use App\Models\User;
 use App\Repositories\EmployeeRepository;
 use App\Services\Employee\EmployeeRequestProcessor;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
@@ -137,6 +138,38 @@ class EmployeeSpecialityOwnershipTest extends TestCase
         $this->syncDetails($employee);
         $this->assertSame($other->id, $request->fresh()->employeeId);
         $this->assertSame(['SURGERY'], $other->specialities()->pluck('speciality')->all());
+        $this->assertSame(['THERAPIST'], $employee->specialities()->pluck('speciality')->all());
+    }
+
+    public static function existingUserLinks(): array
+    {
+        return ['resolve user by email' => [false], 'preserve existing user' => [true]];
+    }
+
+    #[DataProvider('existingUserLinks')]
+    public function test_detail_sync_resolves_request_email_without_hydrating_a_partial_user(bool $hasExistingLink): void
+    {
+        $employee = $this->employee('SPECIALIST', ['THERAPIST']);
+        $request = $this->request($employee, ['THERAPIST']);
+        $emailUser = User::create(['email' => Str::uuid().'@example.test', 'party_id' => $this->party->id, 'password' => bcrypt('test')]);
+        $request->update(['uuid' => (string) Str::uuid(), 'email' => $emailUser->email]);
+        $expectedUserId = $emailUser->id;
+        if ($hasExistingLink) {
+            $existingUser = User::create(['email' => Str::uuid().'@example.test', 'party_id' => $this->party->id, 'password' => bcrypt('test')]);
+            $employee->update(['user_id' => $existingUser->id]);
+            $expectedUserId = $existingUser->id;
+        }
+
+        $wasStrict = Model::preventsAccessingMissingAttributes();
+        Model::preventAccessingMissingAttributes();
+        try {
+            $this->syncDetails($employee);
+        } finally {
+            Model::preventAccessingMissingAttributes($wasStrict);
+        }
+
+        $this->assertSame($expectedUserId, $employee->fresh()->userId);
+        $this->assertSame($employee->id, $request->fresh()->employeeId);
         $this->assertSame(['THERAPIST'], $employee->specialities()->pluck('speciality')->all());
     }
 

@@ -93,7 +93,7 @@ class EmployeeDetailsUpsert extends EHealthJob
 
         $employeeRequest = Repository::employee()->requestForEmployeeDetails($this->employee, $divisionUuid, $startDate);
 
-        $userId = $employeeRequest?->email ? User::whereEmail($employeeRequest->email)->value('id') : null;
+        $userId = $employeeRequest?->email ? User::whereEmail($employeeRequest->email)->toBase()->value('id') : null;
 
         $employeeRequest?->update(['employee_id' => $this->employee->id]);
 

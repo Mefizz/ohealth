@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Employee;
 
 use App\Classes\eHealth\EHealthResponse;
+use App\Classes\eHealth\EHealth;
 use App\Enums\Employee\RequestStatus;
 use App\Enums\Employee\RevisionStatus;
 use App\Enums\Status;
@@ -21,6 +22,7 @@ use App\Models\LegalEntityType;
 use App\Models\Relations\Party;
 use App\Models\User;
 use App\Repositories\EmployeeRepository;
+use App\Repositories\Repository;
 use App\Services\Employee\EmployeeRequestProcessor;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -93,6 +95,51 @@ class EmployeeSpecialityOwnershipTest extends TestCase
         $this->request($this->employee('SPECIALIST', ['THERAPIST']), ['NURSING']);
         Livewire::test(EmployeePositionAdd::class, ['legalEntity' => $this->legalEntity, 'party' => $this->party])
             ->assertOk()->assertSet('form.doctor.specialities', []);
+    }
+
+    public function test_aggregated_person_qualifications_remain_accessible_and_survive_edit_draft_roundtrip(): void
+    {
+        $employee = $this->employee('SPECIALIST', ['PEDIATRICIAN', 'OBSTETRICS_AND_GYNECOLOGY']);
+        $other = $this->employee('ASSISTANT', ['NURSING']);
+        $originalRows = $employee->specialities->map(fn ($row) => $row->getRawOriginal())->all();
+
+        foreach ([EmployeeShow::class, EmployeeEdit::class] as $component) {
+            Livewire::test($component, ['legalEntity' => $this->legalEntity, 'employee' => $employee->fresh()])
+                ->assertOk()
+                ->assertSeeHtml('data-speciality-group="position"')
+                ->assertSeeHtml('data-speciality-group="person"')
+                ->assertSee(__('employees.position_speciality'))
+                ->assertSee(__('employees.additional_person_specialities'))
+                ->assertSet('form.doctor.specialities', fn (array $rows): bool => count($rows) === 2
+                    && $rows[0]['specialityOfficio'] === true && $rows[1]['specialityOfficio'] === false);
+        }
+
+        $component = Livewire::test(EmployeeEdit::class, ['legalEntity' => $this->legalEntity, 'employee' => $employee->fresh()]);
+        $request = (new ReflectionMethod(EmployeeEdit::class, 'handleDraftPersistence'))->invoke($component->instance());
+        $saved = collect($request->revision->data['doctor']['specialities'])->keyBy('speciality');
+        $this->assertTrue($saved['PEDIATRICIAN']['speciality_officio']);
+        $this->assertFalse($saved['OBSTETRICS_AND_GYNECOLOGY']['speciality_officio']);
+        $this->assertCount(2, $saved);
+        $payload = EHealth::employeeRequest()->schemaCreate($request->revision->data)['employee_request'];
+        $this->assertSame($employee->uuid, $payload['employee_id']);
+        $payloadSpecialities = collect($payload['specialist']['specialities'])->keyBy('speciality');
+        $this->assertCount(2, $payloadSpecialities);
+        $this->assertTrue($payloadSpecialities['PEDIATRICIAN']['speciality_officio']);
+        $this->assertFalse($payloadSpecialities['OBSTETRICS_AND_GYNECOLOGY']['speciality_officio']);
+        $this->assertTrue(Repository::employee()->requestMatchesEmployee($request, $employee));
+        $this->assertSame($originalRows, $employee->fresh()->specialities->map(fn ($row) => $row->getRawOriginal())->all());
+        $this->assertSame(['NURSING'], $other->specialities()->pluck('speciality')->all());
+
+        Livewire::test(EmployeeEdit::class, ['legalEntity' => $this->legalEntity, 'employee' => $employee->fresh()])
+            ->assertSet('form.doctor.specialities', fn (array $rows): bool => count($rows) === 2
+                && collect($rows)->firstWhere('speciality', 'OBSTETRICS_AND_GYNECOLOGY')['specialityOfficio'] === false);
+    }
+
+    public function test_non_medical_position_does_not_show_professional_blocks_even_when_party_has_qualifications(): void
+    {
+        $employee = $this->employee('HR', ['OBSTETRICS_AND_GYNECOLOGY']);
+        Livewire::test(EmployeeShow::class, ['legalEntity' => $this->legalEntity, 'employee' => $employee])
+            ->assertOk()->assertDontSeeHtml('data-speciality-group=');
     }
 
     public function test_edit_does_not_load_another_positions_draft_even_if_it_was_wrongly_linked(): void

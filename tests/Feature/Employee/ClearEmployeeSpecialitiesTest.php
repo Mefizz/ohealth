@@ -17,9 +17,11 @@ use App\Models\LegalEntityType;
 use App\Models\Relations\Party;
 use App\Models\User;
 use App\Repositories\EmployeeRepository;
+use App\Repositories\UserRepository;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -51,6 +53,10 @@ class ClearEmployeeSpecialitiesTest extends TestCase
         $this->legalEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'legal_entity_type_id' => $type->id]);
         $party = Party::create(['uuid' => (string) Str::uuid(), 'first_name' => 'Test', 'last_name' => 'Repair', 'tax_id' => '1234567890']);
         $this->operator = User::create(['email' => Str::uuid().'@example.test', 'password' => bcrypt('test')]);
+        DB::table('sessions')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $this->operator->id,
+            'payload' => base64_encode(serialize(['auth_token' => 'test-operator-token'])), 'last_activity' => now()->timestamp,
+        ]);
         $this->employee = Employee::create([
             'uuid' => (string) Str::uuid(), 'legal_entity_id' => $this->legalEntity->id, 'party_id' => $party->id,
             'employee_type' => 'SPECIALIST', 'position' => 'P8', 'start_date' => '2024-01-01', 'status' => 'APPROVED',
@@ -79,7 +85,6 @@ class ClearEmployeeSpecialitiesTest extends TestCase
     public function test_command_only_queues_local_suspects_and_defaults_to_audit(bool $apply): void
     {
         Bus::fake();
-        putenv('EHEALTH_ACCESS_TOKEN=test-operator-token');
         $verifiedPath = tempnam(sys_get_temp_dir(), 'specialities-clear-');
         file_put_contents($verifiedPath, json_encode([$this->employee->uuid], JSON_THROW_ON_ERROR));
         try {
@@ -96,7 +101,6 @@ class ClearEmployeeSpecialitiesTest extends TestCase
             Http::assertNothingSent();
             $this->assertSame(2, $this->employee->specialities()->count());
         } finally {
-            putenv('EHEALTH_ACCESS_TOKEN');
             unlink($verifiedPath);
         }
     }
@@ -139,14 +143,31 @@ class ClearEmployeeSpecialitiesTest extends TestCase
     {
         Bus::fake();
         config(['queue.default' => 'sync']);
-        putenv('EHEALTH_ACCESS_TOKEN=test-operator-token');
-        try {
-            $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id])
-                ->assertExitCode(2);
-            Bus::assertNothingBatched();
-        } finally {
-            putenv('EHEALTH_ACCESS_TOKEN');
-        }
+        $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id])
+            ->assertExitCode(2);
+        Bus::assertNothingBatched();
+    }
+
+    public function test_missing_operator_token_does_not_queue_jobs(): void
+    {
+        Bus::fake();
+        DB::table('sessions')->where('user_id', $this->operator->id)->delete();
+        $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id])
+            ->assertExitCode(2);
+        Bus::assertNothingBatched();
+    }
+
+    public function test_normal_sync_and_cleanup_use_the_same_session_token_reader(): void
+    {
+        $normalSync = new \App\Jobs\EmployeeDetailsUpsert($this->employee, $this->legalEntity);
+        $normalSync->user = $this->operator;
+        $token = (new \ReflectionMethod($normalSync, 'getToken'))->invoke($normalSync);
+        $this->assertSame('test-operator-token', $token);
+        $this->assertSame($token, app(UserRepository::class)->getEHealthTokenFromSession($this->operator));
+        DB::table('sessions')->where('user_id', $this->operator->id)->update(['payload' => base64_encode(serialize([]))]);
+        $this->assertSame('', (new \ReflectionMethod($normalSync, 'getToken'))->invoke($normalSync));
+        DB::table('sessions')->where('user_id', $this->operator->id)->delete();
+        $this->assertSame('', (new \ReflectionMethod($normalSync, 'getToken'))->invoke($normalSync));
     }
 
     public function test_audit_and_centrally_registered_additional_codes_are_preserved(): void

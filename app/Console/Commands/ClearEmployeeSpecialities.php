@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\ClearEmployeeSpecialities as ClearJob;
 use App\Repositories\EmployeeRepository;
+use App\Repositories\UserRepository;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Crypt;
@@ -15,14 +16,14 @@ class ClearEmployeeSpecialities extends Command
 {
     protected $signature = 'specialities_clear
         {--legal-entity= : Local legal entity ID (required)}
-        {--user= : Operator user ID for the shared eHealth rate limiter (required)}
+        {--user= : Logged-in operator user ID for the eHealth session and shared rate limiter (required)}
         {--employee= : Restrict to one Employee UUID}
         {--verified-employees= : JSON file of reviewed MIS-created Employee UUIDs; required with --apply}
         {--apply : Remove confirmed extra local specialities; default is queued audit only}';
 
-    protected $description = 'One-off queued repair of MIS-created employees; requires EHEALTH_ACCESS_TOKEN and an async queue';
+    protected $description = 'One-off queued repair using the operator eHealth session; audit only unless --apply is supplied';
 
-    public function handle(EmployeeRepository $repository): int
+    public function handle(EmployeeRepository $repository, UserRepository $userRepository): int
     {
         $legalEntityId = filter_var($this->option('legal-entity'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         $userId = filter_var($this->option('user'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -56,11 +57,11 @@ class ClearEmployeeSpecialities extends Command
             return self::INVALID;
         }
         [$legalEntity, $user] = $repository->specialityClearContext($legalEntityId, $userId);
-        $token = getenv('EHEALTH_ACCESS_TOKEN');
+        $token = $user ? $userRepository->getEHealthTokenFromSession($user) : '';
         $connection = config('queue.default');
         $driver = config("queue.connections.{$connection}.driver");
         if (!$legalEntity || !$user || !is_string($token) || trim($token) === '' || in_array($driver, [null, 'sync', 'null'], true)) {
-            $this->error('Existing legal entity/operator, EHEALTH_ACCESS_TOKEN and an asynchronous queue connection are required.');
+            $this->error('Existing legal entity, an operator signed in to eHealth and an asynchronous queue connection are required.');
 
             return self::INVALID;
         }

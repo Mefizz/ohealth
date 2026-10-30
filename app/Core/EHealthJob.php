@@ -6,6 +6,7 @@ namespace App\Core;
 
 use Throwable;
 use App\Models\User;
+use App\Repositories\Repository;
 use ReflectionClass;
 use App\Enums\JobStatus;
 use Illuminate\Bus\Batch;
@@ -267,15 +268,7 @@ abstract class EHealthJob implements ShouldQueue
             return '';
         }
 
-        $session = DB::table('sessions')->where('user_id', $this->user->id)->first();
-
-        if (!$session) {
-            return '';
-        }
-
-        $payload = unserialize(base64_decode($session->payload));
-
-        return $payload['auth_token'] ?? '';
+        return Repository::user()->getEHealthTokenFromSession($this->user);
     }
 
     /**

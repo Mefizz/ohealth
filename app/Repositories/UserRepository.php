@@ -8,9 +8,22 @@ use App\Enums\User\Role;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class UserRepository
 {
+    public function getEHealthTokenFromSession(User $user): string
+    {
+        $session = DB::table('sessions')->where('user_id', $user->id)->first();
+        if (!$session) {
+            return '';
+        }
+
+        $payload = unserialize(base64_decode($session->payload));
+
+        return $payload['auth_token'] ?? '';
+    }
+
     /**
      * Get list of users that:
      * 1) have permission 'division:write'

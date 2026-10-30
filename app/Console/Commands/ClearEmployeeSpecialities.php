@@ -9,80 +9,61 @@ use App\Repositories\EmployeeRepository;
 use App\Repositories\UserRepository;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 
 class ClearEmployeeSpecialities extends Command
 {
     protected $signature = 'specialities_clear
-        {--legal-entity= : Local legal entity ID (required)}
-        {--user= : Logged-in operator user ID for the eHealth session and shared rate limiter (required)}
+        {--legal-entity= : Restrict to one local legal entity ID; default is the whole database}
+        {--user= : Restrict to one logged-in operator; default is available eHealth sessions}
         {--employee= : Restrict to one Employee UUID}
-        {--verified-employees= : JSON file of reviewed MIS-created Employee UUIDs; required with --apply}
         {--apply : Remove confirmed extra local specialities; default is queued audit only}';
 
     protected $description = 'One-off queued repair using the operator eHealth session; audit only unless --apply is supplied';
 
     public function handle(EmployeeRepository $repository, UserRepository $userRepository): int
     {
-        $legalEntityId = filter_var($this->option('legal-entity'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $userId = filter_var($this->option('user'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $legalEntityId = $this->option('legal-entity') === null ? null : filter_var($this->option('legal-entity'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $userId = $this->option('user') === null ? null : filter_var($this->option('user'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         $employeeUuid = $this->option('employee');
-        if (!$legalEntityId || !$userId || ($employeeUuid !== null && !Str::isUuid($employeeUuid))) {
+        if ($legalEntityId === false || $userId === false || ($employeeUuid !== null && !Str::isUuid($employeeUuid))) {
             $this->error('Provide positive --legal-entity and --user IDs, and a valid optional --employee UUID.');
 
             return self::INVALID;
         }
-        $verifiedUuids = [];
-        $verifiedPath = $this->option('verified-employees');
-        if ($verifiedPath !== null) {
-            try {
-                if (!is_file($verifiedPath) || !is_readable($verifiedPath)) {
-                    throw new \RuntimeException('Unreadable verified UUID file.');
-                }
-                $verifiedUuids = json_decode(file_get_contents($verifiedPath), true, flags: JSON_THROW_ON_ERROR);
-                if (!is_array($verifiedUuids) || !array_is_list($verifiedUuids) || $verifiedUuids === []
-                    || count(array_filter($verifiedUuids, fn ($uuid) => is_string($uuid) && Str::isUuid($uuid))) !== count($verifiedUuids)) {
-                    throw new \RuntimeException('Invalid verified UUID list.');
-                }
-            } catch (\Throwable) {
-                $this->error('--verified-employees must be a readable JSON array of reviewed Employee UUIDs.');
-
-                return self::INVALID;
-            }
-        }
-        if ($this->option('apply') && $verifiedUuids === []) {
-            $this->error('--apply requires --verified-employees: old employee_id links alone do not prove creation by our MIS.');
-
-            return self::INVALID;
-        }
-        [$legalEntity, $user] = $repository->specialityClearContext($legalEntityId, $userId);
-        $token = $user ? $userRepository->getEHealthTokenFromSession($user) : '';
         $connection = config('queue.default');
         $driver = config("queue.connections.{$connection}.driver");
-        if (!$legalEntity || !$user || !is_string($token) || trim($token) === '' || in_array($driver, [null, 'sync', 'null'], true)) {
-            $this->error('Existing legal entity, an operator signed in to eHealth and an asynchronous queue connection are required.');
+        if (in_array($driver, [null, 'sync', 'null'], true)) {
+            $this->error('An asynchronous queue connection is required.');
 
             return self::INVALID;
         }
 
-        $encryptedToken = Crypt::encryptString($token);
-        $jobs = [];
-        foreach ($repository->specialityClearCandidates($legalEntityId, $employeeUuid) as $plan) {
-            if ($this->option('apply') && !in_array($plan['employeeUuid'], $verifiedUuids, true)) {
-                continue;
+        $sessions = $userRepository->getSpecialityClearSessions($userId);
+        $queued = 0;
+        $skipped = [];
+        foreach ($repository->specialityClearCandidates($legalEntityId, $employeeUuid)->chunk(100) as $employees) {
+            $jobs = [];
+            foreach ($employees as $employee) {
+                $session = $sessions[$employee->legalEntity?->uuid ?? ''] ?? null;
+                if ($session === null) {
+                    $skipped[$employee->legalEntityId] = ($skipped[$employee->legalEntityId] ?? 0) + 1;
+                    continue;
+                }
+                $jobs[] = new ClearJob($employee->id, $employee->legalEntityId, $session['user'], (bool) $this->option('apply'), $employee->uuid);
             }
-            $jobs[] = new ClearJob($plan['requestId'], $legalEntityId, $user, $encryptedToken, (bool) $this->option('apply'), $this->option('apply') ? $plan['employeeUuid'] : null);
+            if ($jobs !== []) {
+                $batch = Bus::batch($jobs)->name('EmployeeSpecialitiesClear')->allowFailures()->onQueue('sync')->dispatch();
+                $queued += count($jobs);
+                $this->line('Queued '.count($jobs).' employees; batch '.$batch->id.'.');
+            }
         }
-        if ($jobs === []) {
-            $this->info('No eligible creation-request candidates with extra local codes. Unproven, ambiguous, pending and unapproved UUIDs are excluded.');
-
-            return self::SUCCESS;
+        foreach ($skipped as $id => $count) {
+            $this->warn("Skipped {$count} employees in local legal entity {$id}: no unexpired eHealth session with employee:details for this entity.");
         }
-        $batch = Bus::batch($jobs)->name('EmployeeSpecialitiesClear')->allowFailures()->onQueue('sync')->dispatch();
-        $this->info('Queued '.count($jobs).' candidates; batch '.$batch->id.'. Mode: '.($this->option('apply') ? 'APPLY' : 'AUDIT (no deletions)').'.');
-        $this->line('Run the sync queue worker; results are logged as EmployeeSpecialitiesClear. Failed jobs can be retried via queue:retry-batch '.$batch->id.'.');
+        $this->info('Queued '.$queued.' employees. Mode: '.($this->option('apply') ? 'APPLY' : 'AUDIT (no deletions)').'.');
+        $this->line('Run the sync queue worker; results are logged as EmployeeSpecialitiesClear. Retry failed jobs via queue:retry-batch BATCH_ID.');
 
-        return self::SUCCESS;
+        return $skipped === [] ? self::SUCCESS : self::FAILURE;
     }
 }

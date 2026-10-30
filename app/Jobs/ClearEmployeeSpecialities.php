@@ -8,6 +8,7 @@ use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Models\User;
 use App\Repositories\EmployeeRepository;
+use App\Repositories\Repository;
 use DateTimeInterface;
 use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,8 +16,8 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\Middleware\SkipIfBatchCancelled;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ClearEmployeeSpecialities implements ShouldQueue
 {
@@ -29,12 +30,11 @@ class ClearEmployeeSpecialities implements ShouldQueue
     private int $expiresAt;
 
     public function __construct(
-        public int $requestId,
+        public int $employeeId,
         public int $legalEntityId,
         public User $user,
-        private string $encryptedToken,
-        public bool $apply = false,
-        private ?string $verifiedEmployeeUuid = null,
+        public bool $apply,
+        private string $employeeUuid,
     ) {
         $this->expiresAt = now()->addDay()->timestamp;
         $this->onQueue('sync');
@@ -57,15 +57,21 @@ class ClearEmployeeSpecialities implements ShouldQueue
 
     public function handle(EmployeeRepository $repository): void
     {
-        $plan = $repository->refreshSpecialityClearPlan($this->requestId, $this->legalEntityId);
+        $plan = $repository->refreshSpecialityClearPlan($this->employeeId, $this->legalEntityId, $this->employeeUuid);
         if ($plan === null) {
+            Log::info('EmployeeSpecialitiesClear', ['employeeId' => $this->employeeId, 'employeeUuid' => $this->employeeUuid, 'legalEntityId' => $this->legalEntityId, 'apply' => $this->apply, 'outcome' => 'skipped_local_state']);
+
             return;
         }
-        if ($this->apply && $this->verifiedEmployeeUuid !== $plan['employeeUuid']) {
-            throw new \LogicException('Applying repair requires an explicitly reviewed Employee UUID.');
+        $session = Repository::user()->getSpecialityClearSessions($this->user->id)[$plan['legalEntityUuid']] ?? null;
+        if ($session === null) {
+            Log::info('EmployeeSpecialitiesClear', ['employeeId' => $this->employeeId, 'employeeUuid' => $this->employeeUuid, 'legalEntityId' => $this->legalEntityId, 'apply' => $this->apply, 'outcome' => 'awaiting_session']);
+            $this->release(60);
+
+            return;
         }
         try {
-            $response = EHealth::employee()->withToken(Crypt::decryptString($this->encryptedToken))->getDetails($plan['employeeUuid']);
+            $response = EHealth::employee()->withToken($session['token'])->getDetails($plan['employeeUuid']);
         } catch (EHealthResponseException $exception) {
             if ($exception->getCode() !== 429) {
                 throw $exception;
@@ -75,7 +81,14 @@ class ClearEmployeeSpecialities implements ShouldQueue
 
             return;
         }
-        $result = $repository->clearExtraSpecialities($plan, $response->getData(), $this->apply, $this->verifiedEmployeeUuid);
-        Log::info('EmployeeSpecialitiesClear', ['employeeId' => $plan['employeeId'], 'employeeUuid' => $plan['employeeUuid'], 'requestId' => $this->requestId, 'requestUuid' => $plan['requestUuid'], 'apply' => $this->apply] + $result);
+        $result = $repository->clearExtraSpecialities($plan, $response->getData(), $this->apply);
+        Log::info('EmployeeSpecialitiesClear', ['employeeId' => $plan['employeeId'], 'employeeUuid' => $plan['employeeUuid'], 'legalEntityId' => $plan['legalEntityId'], 'apply' => $this->apply] + $result);
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        Log::error('EmployeeSpecialitiesClear', ['employeeId' => $this->employeeId, 'employeeUuid' => $this->employeeUuid,
+            'legalEntityId' => $this->legalEntityId, 'apply' => $this->apply, 'batchId' => $this->batchId,
+            'outcome' => 'failed', 'exceptionType' => $exception ? $exception::class : null]);
     }
 }

@@ -12,6 +12,33 @@ use Illuminate\Support\Facades\DB;
 
 class UserRepository
 {
+    /** Latest usable session per legal entity; a token must never be reused across entities. */
+    public function getSpecialityClearSessions(?int $userId = null): array
+    {
+        $contexts = [];
+        $sessions = DB::table('sessions')->whereNotNull('user_id')
+            ->when($userId !== null, fn ($query) => $query->where('user_id', $userId))
+            ->orderByDesc('last_activity')->cursor();
+        foreach ($sessions as $session) {
+            $payload = @unserialize(base64_decode($session->payload), ['allowed_classes' => false]);
+            $legalEntityUuid = is_array($payload) ? ($payload['ehealth_legal_entity_uuid'] ?? null) : null;
+            $token = is_array($payload) ? ($payload[config('ehealth.api.oauth.bearer_token')] ?? null) : null;
+            $scopes = is_array($payload) ? ($payload[config('ehealth.api.oauth.token_scopes')] ?? null) : null;
+            if (!is_string($legalEntityUuid) || isset($contexts[$legalEntityUuid])
+                || !is_string($token) || trim($token) === ''
+                || !is_numeric($payload['auth_token_expires_at'] ?? null) || $payload['auth_token_expires_at'] <= now()->timestamp
+                || !is_array($scopes) || !in_array('employee:details', $scopes, true)) {
+                continue;
+            }
+            $user = User::find($session->user_id);
+            if ($user) {
+                $contexts[$legalEntityUuid] = ['user' => $user, 'token' => $token];
+            }
+        }
+
+        return $contexts;
+    }
+
     public function getEHealthTokenFromSession(User $user): string
     {
         $session = DB::table('sessions')->where('user_id', $user->id)->first();

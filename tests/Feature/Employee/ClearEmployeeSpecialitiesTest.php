@@ -20,7 +20,6 @@ use App\Repositories\EmployeeRepository;
 use App\Repositories\UserRepository;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -55,7 +54,9 @@ class ClearEmployeeSpecialitiesTest extends TestCase
         $this->operator = User::create(['email' => Str::uuid().'@example.test', 'password' => bcrypt('test')]);
         DB::table('sessions')->insert([
             'id' => (string) Str::uuid(), 'user_id' => $this->operator->id,
-            'payload' => base64_encode(serialize(['auth_token' => 'test-operator-token'])), 'last_activity' => now()->timestamp,
+            'payload' => base64_encode(serialize(['auth_token' => 'test-operator-token',
+                'ehealth_legal_entity_uuid' => $this->legalEntity->uuid, 'auth_token_expires_at' => now()->addHour()->timestamp,
+                'auth_token_scopes' => ['employee:details']])), 'last_activity' => now()->timestamp,
         ]);
         $this->employee = Employee::create([
             'uuid' => (string) Str::uuid(), 'legal_entity_id' => $this->legalEntity->id, 'party_id' => $party->id,
@@ -82,27 +83,21 @@ class ClearEmployeeSpecialitiesTest extends TestCase
     }
 
     #[DataProvider('modes')]
-    public function test_command_only_queues_local_suspects_and_defaults_to_audit(bool $apply): void
+    public function test_command_queues_all_positions_without_a_manual_uuid_list_and_defaults_to_audit(bool $apply): void
     {
         Bus::fake();
-        $verifiedPath = tempnam(sys_get_temp_dir(), 'specialities-clear-');
-        file_put_contents($verifiedPath, json_encode([$this->employee->uuid], JSON_THROW_ON_ERROR));
-        try {
-            $imported = $this->employee->replicate();
-            $imported->uuid = (string) Str::uuid();
-            $imported->position = 'P3';
-            $imported->save();
-            $imported->specialities()->create($this->certificate('NURSING'));
-            $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id] + ($apply ? ['--apply' => true, '--verified-employees' => $verifiedPath] : []))
-                ->expectsOutputToContain($apply ? 'Mode: APPLY' : 'Mode: AUDIT')->assertSuccessful();
-            Bus::assertBatched(fn ($batch) => count($batch->jobs) === 1
-                && $batch->jobs[0]->requestId === $this->request->id && $batch->jobs[0]->apply === $apply
-                && $batch->options['queue'] === 'sync');
-            Http::assertNothingSent();
-            $this->assertSame(2, $this->employee->specialities()->count());
-        } finally {
-            unlink($verifiedPath);
-        }
+        $imported = $this->employee->replicate();
+        $imported->uuid = (string) Str::uuid();
+        $imported->position = 'P3';
+        $imported->save();
+        $imported->specialities()->create($this->certificate('NURSING'));
+        $this->artisan('specialities_clear', $apply ? ['--apply' => true] : [])
+            ->expectsOutputToContain($apply ? 'Mode: APPLY' : 'Mode: AUDIT')->assertSuccessful();
+        Bus::assertBatched(fn ($batch) => count($batch->jobs) === 2
+            && $batch->jobs[0]->employeeId === $this->employee->id && $batch->jobs[0]->apply === $apply
+            && $batch->jobs[1]->employeeId === $imported->id && $batch->options['queue'] === 'sync');
+        Http::assertNothingSent();
+        $this->assertSame(2, $this->employee->specialities()->count());
     }
 
     public function test_apply_removes_only_confirmed_extra_rows_and_is_idempotent(): void
@@ -114,23 +109,25 @@ class ClearEmployeeSpecialitiesTest extends TestCase
         $other->save();
         $other->specialities()->create($this->certificate('NURSING'));
         $revision = $this->request->revision->getAttributes();
-        $this->fakeDetails($this->remote(['THERAPIST']));
+        $this->fakeDetails($this->remote(['THERAPIST']), $this->remote(['THERAPIST']));
         $this->job()->handle($this->repository);
         $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
         $this->assertSame(['NURSING'], $other->specialities()->pluck('speciality')->all());
         $this->assertSame($revision, $this->request->revision->fresh()->getAttributes());
         $this->job()->handle($this->repository);
+        $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
     }
 
-    public function test_soft_deleted_applied_revisions_still_prove_local_creation(): void
+    public function test_deleted_request_history_does_not_prevent_exact_employee_reconciliation(): void
     {
         $this->request->revision->delete();
+        $this->request->delete();
         $this->fakeDetails($this->remote(['THERAPIST']));
         $this->job()->handle($this->repository);
         $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
     }
 
-    public function test_queue_serialization_preserves_approval_without_exposing_the_token(): void
+    public function test_queue_serialization_preserves_employee_identity_without_exposing_the_token(): void
     {
         $payload = serialize($this->job());
         $this->assertStringNotContainsString('test-operator-token', $payload);
@@ -153,17 +150,18 @@ class ClearEmployeeSpecialitiesTest extends TestCase
         Bus::fake();
         DB::table('sessions')->where('user_id', $this->operator->id)->delete();
         $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id])
-            ->assertExitCode(2);
+            ->expectsOutputToContain('no unexpired eHealth session')->assertExitCode(1);
         Bus::assertNothingBatched();
     }
 
-    public function test_normal_sync_and_cleanup_use_the_same_session_token_reader(): void
+    public function test_normal_sync_session_reader_is_preserved_and_cleanup_resolves_its_entity_context(): void
     {
         $normalSync = new \App\Jobs\EmployeeDetailsUpsert($this->employee, $this->legalEntity);
         $normalSync->user = $this->operator;
         $token = (new \ReflectionMethod($normalSync, 'getToken'))->invoke($normalSync);
         $this->assertSame('test-operator-token', $token);
         $this->assertSame($token, app(UserRepository::class)->getEHealthTokenFromSession($this->operator));
+        $this->assertSame($token, app(UserRepository::class)->getSpecialityClearSessions()[$this->legalEntity->uuid]['token']);
         DB::table('sessions')->where('user_id', $this->operator->id)->update(['payload' => base64_encode(serialize([]))]);
         $this->assertSame('', (new \ReflectionMethod($normalSync, 'getToken'))->invoke($normalSync));
         DB::table('sessions')->where('user_id', $this->operator->id)->delete();
@@ -179,15 +177,16 @@ class ClearEmployeeSpecialitiesTest extends TestCase
         $this->assertSame(2, $this->employee->specialities()->count());
     }
 
-    public function test_apply_without_a_reviewed_uuid_list_does_not_queue_jobs(): void
+    public function test_employee_uuid_change_after_queueing_is_skipped_without_a_request(): void
     {
-        Bus::fake();
-        $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id, '--apply' => true])
-            ->assertExitCode(2);
-        Bus::assertNothingBatched();
+        $job = $this->job();
+        $this->employee->update(['uuid' => (string) Str::uuid()]);
+        $job->handle($this->repository);
+        $this->assertSame(2, $this->employee->specialities()->count());
+        Http::assertNothingSent();
     }
 
-    public function test_old_relink_to_a_unique_imported_employee_is_not_origin_proof(): void
+    public function test_wrong_historical_request_link_does_not_select_another_employee(): void
     {
         $imported = $this->employee->replicate();
         $imported->uuid = (string) Str::uuid();
@@ -196,37 +195,22 @@ class ClearEmployeeSpecialitiesTest extends TestCase
             $imported->specialities()->create($this->certificate($code));
         }
         $this->request->update(['employee_id' => $imported->id]);
-        $this->employee->delete();
-        $plan = $this->repository->refreshSpecialityClearPlan($this->request->id, $this->legalEntity->id);
-        $this->assertNotNull($plan, 'A historical wrong link can pass attribute matching; it still needs explicit origin approval.');
-        $job = new ClearEmployeeSpecialities($this->request->id, $this->legalEntity->id, $this->operator, Crypt::encryptString('test-operator-token'), true);
-        try {
-            $job->handle($this->repository);
-            $this->fail('An old employee_id link must not authorize imported-employee repair.');
-        } catch (\LogicException $exception) {
-            $this->assertSame('Applying repair requires an explicitly reviewed Employee UUID.', $exception->getMessage());
-            $this->assertSame(2, $imported->specialities()->count());
-            Http::assertNothingSent();
-        }
+        $this->fakeDetails($this->remote(['THERAPIST']));
+        $this->job()->handle($this->repository);
+        $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
+        $this->assertSame(['THERAPIST', 'NURSING'], $imported->specialities()->pluck('speciality')->all());
     }
 
-    public static function unprovenSources(): array
+    public static function requestHistories(): array
     {
-        return ['imported' => ['imported'], 'wrong submit ID' => ['response'], 'edit request' => ['edit'],
-            'wrong party' => ['party'], 'pending edit' => ['pending'], 'ambiguous positions' => ['ambiguous']];
+        return ['imported' => ['imported'], 'wrong submit ID' => ['response'], 'edit request' => ['edit'], 'wrong party' => ['party']];
     }
 
-    #[DataProvider('unprovenSources')]
-    public function test_unproven_and_busy_records_do_not_send_requests(string $case): void
+    #[DataProvider('requestHistories')]
+    public function test_cleanup_uses_current_ehealth_instead_of_unreliable_request_history(string $case): void
     {
         $revision = $this->request->revision;
-        if ($case === 'pending') {
-            EmployeeRequest::create(['employee_id' => $this->employee->id, 'legal_entity_id' => $this->legalEntity->id, 'status' => RequestStatus::NEW]);
-        } elseif ($case === 'ambiguous') {
-            $other = $this->employee->replicate();
-            $other->uuid = (string) Str::uuid();
-            $other->save();
-        } elseif ($case === 'imported' || $case === 'response') {
+        if ($case === 'imported' || $case === 'response') {
             $revision->ehealthResponse = $case === 'imported' ? null : ['data' => ['id' => (string) Str::uuid()]];
             $revision->save();
         } else {
@@ -238,9 +222,182 @@ class ClearEmployeeSpecialitiesTest extends TestCase
             }
             $revision->update(['data' => $data]);
         }
+        $this->fakeDetails($this->remote(['THERAPIST']));
+        $this->job()->handle($this->repository);
+        $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
+    }
+
+    public function test_pending_edit_is_not_overwritten(): void
+    {
+        EmployeeRequest::create(['employee_id' => $this->employee->id, 'legal_entity_id' => $this->legalEntity->id, 'status' => RequestStatus::SIGNED]);
         $this->job()->handle($this->repository);
         Http::assertNothingSent();
         $this->assertSame(2, $this->employee->specialities()->count());
+    }
+
+    public function test_whole_database_uses_each_entity_session_and_reports_entities_without_access(): void
+    {
+        Bus::fake();
+        $otherEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'legal_entity_type_id' => $this->legalEntity->legalEntityTypeId]);
+        $otherOperator = User::create(['email' => Str::uuid().'@example.test', 'password' => bcrypt('test')]);
+        $this->storeSession($otherOperator, $otherEntity, 'other-entity-token');
+        $other = $this->employee->replicate();
+        $other->uuid = (string) Str::uuid();
+        $other->legalEntityId = $otherEntity->id;
+        $other->save();
+        $other->specialities()->create($this->certificate('NURSING'));
+        $inaccessibleEntity = LegalEntity::create(['uuid' => (string) Str::uuid(), 'legal_entity_type_id' => $this->legalEntity->legalEntityTypeId]);
+        $inaccessible = $other->replicate();
+        $inaccessible->uuid = (string) Str::uuid();
+        $inaccessible->legalEntityId = $inaccessibleEntity->id;
+        $inaccessible->save();
+        $inaccessible->specialities()->create($this->certificate('NURSING'));
+
+        $this->artisan('specialities_clear', ['--apply' => true])
+            ->expectsOutputToContain('Queued 2 employees. Mode: APPLY')
+            ->expectsOutputToContain('local legal entity '.$inaccessibleEntity->id.': no unexpired eHealth session')
+            ->assertExitCode(1);
+        Bus::assertBatched(fn ($batch) => count($batch->jobs) === 2
+            && $batch->jobs[0]->user->id === $this->operator->id && $batch->jobs[1]->user->id === $otherOperator->id);
+        $this->fakeDetails($this->remote(['THERAPIST']));
+        $otherRemote = $this->remote([]);
+        $otherRemote['id'] = $other->uuid;
+        $otherRemote['legal_entity']['id'] = $otherEntity->uuid;
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('getData')->once()->andReturn($otherRemote);
+        $this->api->shouldReceive('withToken')->with('other-entity-token')->once()->andReturnSelf();
+        $this->api->shouldReceive('getDetails')->with($other->uuid)->once()->andReturn($response);
+        foreach (Bus::batched(fn ($batch) => true)->first()->jobs as $job) {
+            $job->handle($this->repository);
+        }
+        $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
+        $this->assertSame(0, $other->specialities()->count());
+        $this->assertSame(1, $inaccessible->specialities()->count());
+    }
+
+    public function test_bulk_dispatch_is_bounded_and_does_not_require_request_history(): void
+    {
+        Bus::fake();
+        for ($index = 0; $index < 100; $index++) {
+            $employee = $this->employee->replicate();
+            $employee->uuid = (string) Str::uuid();
+            $employee->save();
+            $employee->specialities()->create($this->certificate('NURSING'));
+        }
+        $this->artisan('specialities_clear')->expectsOutputToContain('Queued 101 employees')->assertSuccessful();
+        $sizes = Bus::batched(fn ($batch) => true)->map(fn ($batch) => count($batch->jobs))->all();
+        $this->assertSame([100, 1], $sizes);
+        Http::assertNothingSent();
+    }
+
+    public function test_optional_filters_restrict_the_bulk_run(): void
+    {
+        Bus::fake();
+        $other = $this->employee->replicate();
+        $other->uuid = (string) Str::uuid();
+        $other->save();
+        $other->specialities()->create($this->certificate('NURSING'));
+        $this->artisan('specialities_clear', ['--legal-entity' => $this->legalEntity->id, '--user' => $this->operator->id, '--employee' => $other->uuid])
+            ->assertSuccessful();
+        Bus::assertBatched(fn ($batch) => count($batch->jobs) === 1 && $batch->jobs[0]->employeeId === $other->id);
+    }
+
+    public static function unusableSessions(): array
+    {
+        return ['wrong entity' => ['entity'], 'expired' => ['expired'], 'missing scopes' => ['scope'], 'malformed' => ['malformed']];
+    }
+
+    #[DataProvider('unusableSessions')]
+    public function test_unusable_sessions_never_authorize_a_bulk_run(string $case): void
+    {
+        Bus::fake();
+        $payload = ['auth_token' => 'test-operator-token', 'ehealth_legal_entity_uuid' => $this->legalEntity->uuid,
+            'auth_token_expires_at' => now()->addHour()->timestamp, 'auth_token_scopes' => ['employee:details']];
+        if ($case === 'entity') {
+            $payload['ehealth_legal_entity_uuid'] = (string) Str::uuid();
+        } elseif ($case === 'expired') {
+            $payload['auth_token_expires_at'] = now()->subMinute()->timestamp;
+        } elseif ($case === 'scope') {
+            $payload['auth_token_scopes'] = ['employee:read'];
+        }
+        DB::table('sessions')->where('user_id', $this->operator->id)->update(['payload' => $case === 'malformed' ? 'invalid-session' : base64_encode(serialize($payload))]);
+        $this->artisan('specialities_clear', ['--apply' => true])->assertExitCode(1);
+        Bus::assertNothingBatched();
+        $this->assertSame(2, $this->employee->specialities()->count());
+    }
+
+    public function test_latest_valid_session_wins_without_using_an_expired_or_foreign_token(): void
+    {
+        $this->storeSession($this->operator, $this->legalEntity, 'newest-valid-token', 10);
+        $this->storeSession($this->operator, $this->legalEntity, 'expired-token', 20, true);
+        $contexts = app(UserRepository::class)->getSpecialityClearSessions($this->operator->id);
+        $this->assertSame('newest-valid-token', $contexts[$this->legalEntity->uuid]['token']);
+        $this->assertSame([], app(UserRepository::class)->getSpecialityClearSessions($this->operator->id + 100000));
+    }
+
+    public function test_queued_job_uses_a_refreshed_session_instead_of_a_token_captured_at_dispatch(): void
+    {
+        $job = unserialize(serialize($this->job()));
+        DB::table('sessions')->where('user_id', $this->operator->id)->delete();
+        $this->storeSession($this->operator, $this->legalEntity, 'refreshed-token');
+        $this->api->shouldReceive('withToken')->with('refreshed-token')->once()->andReturnSelf();
+        $this->fakeDetails($this->remote(['THERAPIST']));
+        $job->handle($this->repository);
+        $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
+    }
+
+    public function test_job_waits_for_a_valid_session_and_resumes_after_login(): void
+    {
+        $job = $this->job()->withFakeQueueInteractions();
+        DB::table('sessions')->where('user_id', $this->operator->id)->delete();
+        $this->storeSession($this->operator, $this->legalEntity, 'expired-token', expired: true);
+        $job->handle($this->repository);
+        $job->assertReleased(60);
+        $this->assertSame(2, $this->employee->specialities()->count());
+        Http::assertNothingSent();
+        $this->storeSession($this->operator, $this->legalEntity, 'new-token');
+        $this->api->shouldReceive('withToken')->with('new-token')->once()->andReturnSelf();
+        $this->fakeDetails($this->remote(['THERAPIST']));
+        $job->handle($this->repository);
+        $this->assertSame(['THERAPIST'], $this->employee->specialities()->pluck('speciality')->all());
+    }
+
+    public function test_existing_code_with_a_changed_certificate_during_get_is_preserved(): void
+    {
+        $this->fakeDetails(function () {
+            $this->employee->specialities()->whereSpeciality('NURSING')->update(['certificate_number' => 'CHANGED']);
+
+            return $this->remote(['THERAPIST']);
+        });
+        $this->job()->handle($this->repository);
+        $this->assertSame(2, $this->employee->specialities()->count());
+        $this->assertSame('CHANGED', $this->employee->specialities()->whereSpeciality('NURSING')->first()->certificateNumber);
+    }
+
+    public function test_explicit_empty_ehealth_list_clears_only_the_target_position(): void
+    {
+        $other = $this->employee->replicate();
+        $other->uuid = (string) Str::uuid();
+        $other->employeeType = 'ASSISTANT';
+        $other->save();
+        $other->specialities()->create($this->certificate('NURSING'));
+        $this->fakeDetails($this->remote([]));
+        $this->job()->handle($this->repository);
+        $this->assertSame(0, $this->employee->specialities()->count());
+        $this->assertSame(['NURSING'], $other->specialities()->pluck('speciality')->all());
+    }
+
+    public function test_http_error_never_clears_local_specialities(): void
+    {
+        $response = new \Illuminate\Http\Client\Response(new \GuzzleHttp\Psr7\Response(403, [], '{}'));
+        $this->api->shouldReceive('getDetails')->with($this->employee->uuid)->once()->andThrow(new EHealthResponseException($response));
+        try {
+            $this->job()->handle($this->repository);
+            $this->fail('A refused API request must not clear data.');
+        } catch (EHealthResponseException $exception) {
+            $this->assertSame(403, $exception->getCode());
+            $this->assertSame(2, $this->employee->specialities()->count());
+        }
     }
 
     public static function invalidResponses(): array
@@ -307,7 +464,17 @@ class ClearEmployeeSpecialitiesTest extends TestCase
 
     private function job(bool $apply = true): ClearEmployeeSpecialities
     {
-        return new ClearEmployeeSpecialities($this->request->id, $this->legalEntity->id, $this->operator, Crypt::encryptString('test-operator-token'), $apply, $apply ? $this->employee->uuid : null);
+        return new ClearEmployeeSpecialities($this->employee->id, $this->legalEntity->id, $this->operator, $apply, $this->employee->uuid);
+    }
+
+    private function storeSession(User $user, LegalEntity $entity, string $token, int $ageOffset = 0, bool $expired = false): void
+    {
+        DB::table('sessions')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $user->id, 'last_activity' => now()->timestamp + $ageOffset,
+            'payload' => base64_encode(serialize(['auth_token' => $token, 'ehealth_legal_entity_uuid' => $entity->uuid,
+                'auth_token_expires_at' => ($expired ? now()->subHour() : now()->addHour())->timestamp,
+                'auth_token_scopes' => ['employee:details']])),
+        ]);
     }
 
     private function fakeDetails(array|callable ...$payloads): void

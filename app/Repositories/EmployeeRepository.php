@@ -16,88 +16,9 @@ use App\Enums\Employee\RequestStatus;
 use App\Models\Employee\EmployeeRequest;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
-use Illuminate\Support\LazyCollection;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 readonly class EmployeeRepository
 {
-    /** Scan local positions in bounded chunks; request history is not proof of Employee identity. */
-    public function specialityClearCandidates(?int $legalEntityId = null, ?string $employeeUuid = null): LazyCollection
-    {
-        return Employee::whereNotNull('uuid')->whereHas('specialities')
-            ->when($legalEntityId !== null, fn (Builder $query) => $query->whereLegalEntityId($legalEntityId))
-            ->when($employeeUuid !== null, fn (Builder $query) => $query->whereUuid($employeeUuid))
-            ->with('legalEntity')->lazyById(100);
-    }
-
-    public function refreshSpecialityClearPlan(int $employeeId, int $legalEntityId, string $employeeUuid): ?array
-    {
-        $employee = Employee::whereKey($employeeId)->whereLegalEntityId($legalEntityId)->whereUuid($employeeUuid)
-            ->with(['party', 'specialities', 'legalEntity'])->first();
-
-        return $employee ? $this->specialityClearPlan($employee) : null;
-    }
-
-    private function specialityClearPlan(Employee $employee): ?array
-    {
-        if (!$employee->party || !$employee->legalEntity
-            || !Str::isUuid($employee->uuid) || !Str::isUuid($employee->party->uuid) || !Str::isUuid($employee->legalEntity->uuid)
-            || $employee->specialities->isEmpty()) {
-            return null;
-        }
-
-        if (EmployeeRequest::whereEmployeeId($employee->id)->whereLegalEntityId($employee->legalEntityId)
-            ->whereIn('status', [RequestStatus::NEW->value, RequestStatus::SIGNED->value])->exists()) {
-            return null;
-        }
-
-        $rows = $employee->specialities->sortBy('id');
-
-        return [
-            'employeeId' => $employee->id, 'legalEntityId' => $employee->legalEntityId,
-            'employeeUuid' => $employee->uuid, 'legalEntityUuid' => $employee->legalEntity->uuid,
-            'partyUuid' => $employee->party->uuid, 'employeeType' => $employee->employeeType,
-            'employeeSnapshot' => $employee->getRawOriginal(),
-            'specialitySnapshot' => $rows->map(fn ($row) => $row->getRawOriginal())->values()->all(),
-            'suspectRows' => $rows->mapWithKeys(fn ($row) => [$row->id => $row->speciality])->all(),
-        ];
-    }
-
-    /** Reconcile only this Employee's local codes against its current, explicitly identified eHealth record. */
-    public function clearExtraSpecialities(array $plan, array $remote, bool $apply): array
-    {
-        $key = array_key_exists(strtolower($plan['employeeType']), $remote) ? strtolower($plan['employeeType']) : 'doctor';
-        if ($key !== 'doctor' && array_key_exists('doctor', $remote) && data_get($remote, "{$key}.specialities") !== data_get($remote, 'doctor.specialities')) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['specialities' => 'Ambiguous professional blocks in eHealth response.']);
-        }
-        $validated = Validator::make($remote, [
-            'id' => ['required', 'uuid', Rule::in([$plan['employeeUuid']])],
-            'legal_entity.id' => ['required', 'uuid', Rule::in([$plan['legalEntityUuid']])],
-            'party.id' => ['required', 'uuid', Rule::in([$plan['partyUuid']])],
-            'employee_type' => ['required', Rule::in([$plan['employeeType']])],
-            'status' => ['required', Rule::in(['APPROVED', 'REORGANIZED', 'STOPPED', 'ENTERED IN ERROR', 'ENTERED_IN_ERROR', 'AUTODEACTIVATED'])],
-            "{$key}.specialities" => ['present', 'array'],
-            "{$key}.specialities.*.speciality" => ['required', 'string'],
-        ])->validate();
-        $remoteCodes = array_column(data_get($validated, "{$key}.specialities"), 'speciality');
-
-        return DB::transaction(function () use ($plan, $remoteCodes, $apply): array {
-            $employee = Employee::whereKey($plan['employeeId'])->whereLegalEntityId($plan['legalEntityId'])->lockForUpdate()->firstOrFail();
-            $employee->load(['party', 'legalEntity', 'specialities' => fn ($query) => $query->lockForUpdate()]);
-            if ($this->specialityClearPlan($employee) !== $plan) {
-                return ['outcome' => 'changed_locally', 'rowIds' => [], 'codes' => []];
-            }
-            $extra = array_filter($plan['suspectRows'], fn ($code) => !in_array($code, $remoteCodes, true));
-            if ($apply && $extra !== []) {
-                $employee->specialities()->whereKey(array_keys($extra))->whereIn('speciality', array_values($extra))->delete();
-            }
-
-            return ['outcome' => $extra === [] ? 'matches_ehealth' : ($apply ? 'removed' : 'would_remove'), 'rowIds' => array_keys($extra), 'codes' => array_values(array_unique($extra))];
-        });
-    }
-
     public function requestMatchesEmployee(EmployeeRequest $request, Employee $employee): bool
     {
         if ((int) $request->legalEntityId !== (int) $employee->legalEntityId

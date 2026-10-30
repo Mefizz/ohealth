@@ -24,7 +24,10 @@
 >
     <livewire:components.x-message :key="now()->timestamp"/>
 
-    <x-header-navigation class="items-start" x-data="{ showFilter: false }">
+    <x-header-navigation class="items-start"
+                         x-data="{ showFilter: false }"
+                         x-on:pageshow.window="if ($event.persisted) { window.location.reload() }"
+    >
         <x-slot name="title">{{ __('forms.divisions') }}</x-slot>
 
         <div class="mt-3 ml-0 flex flex-col sm:flex-row sm:flex-wrap gap-2 self-start">
@@ -51,7 +54,7 @@
         </div>
 
         <x-slot name="navigation">
-            <div class="flex flex-col -my-4">
+            <form wire:submit.prevent="search" autocomplete="off" class="flex flex-col -my-4">
                 <div class="flex flex-wrap items-end justify-between gap-4">
                     <div class="flex flex-col lg:flex-row items-stretch lg:items-end gap-2 lg:gap-4 w-full">
                         <div class="w-full lg:w-96 pt-6 lg:pt-0">
@@ -69,6 +72,7 @@
                             </div>
                         </div>
                         <button
+                            type="button"
                             class="button-minor flex items-center justify-center gap-2 w-full lg:w-auto self-stretch lg:self-auto h-[46px]"
                             @click="showFilter = !showFilter"
                         >
@@ -78,11 +82,16 @@
                     </div>
 
                     {{-- Filters --}}
-                    <div x-cloak x-show="showFilter" x-transition class="pt-0 mt-4 w-full lg:w-96">
+                    <div x-show="showFilter || $wire.isFiltersApplied"
+                         x-transition
+                         style="{{ $isFiltersApplied ? '' : 'display: none;' }}"
+                         class="pt-0 mt-4 w-full lg:w-96"
+                    >
                         <div class="flex flex-col gap-4">
                             <div class="form-group group relative" style="z-index: 30;">
                                 <x-forms.multiselect
                                     bind="typeFilter"
+                                    :initial="$typeFilter"
                                     :options="$availableTypes"
                                     label="{{ __('forms.select_type') }}"
                                     placeholder="{{ __('forms.select') }}"
@@ -92,6 +101,7 @@
                             <div class="form-group group relative" style="z-index: 20;">
                                 <x-forms.multiselect
                                     bind="searchByUuid"
+                                    :initial="$searchByUuid"
                                     :options="$divisionUuids"
                                     label="{{ __('forms.select') }}"
                                     placeholder="{{ __('forms.uuid') }}"
@@ -103,6 +113,7 @@
                             <div class="form-group group relative" style="z-index: 10;">
                                 <x-forms.multiselect
                                     bind="statusFilter"
+                                    :initial="$statusFilter"
                                     :options="array_merge(DivisionStatus::entries(), [
                                         Status::DRAFT->value => Status::DRAFT->label(),
                                         Status::UNSYNCED->value => Status::UNSYNCED->label(),
@@ -118,8 +129,7 @@
                     <div class="mb-9 mt-6 flex flex-col sm:flex-row gap-2 w-full">
                         @can('viewAny', Division::class)
                             <button
-                                type="button"
-                                wire:click.prevent="search"
+                                type="submit"
                                 class="button-primary"
                             >
                                 @icon('search', 'w-4 h-4')
@@ -129,6 +139,7 @@
                             <button
                                 type="button"
                                 wire:click="resetFilters"
+                                @click="showFilter = false"
                                 class="button-primary-outline-red"
                             >
                                 {{ __('forms.reset_all_filters') }}
@@ -136,7 +147,7 @@
                         @endcan
                     </div>
                 </div>
-            </div>
+            </form>
         </x-slot>
     </x-header-navigation>
 

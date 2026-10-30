@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Rules\DivisionRules;
 
 use Closure;
+use Brick\Math\BigDecimal;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 class LocationRule implements ValidationRule
@@ -22,7 +23,7 @@ class LocationRule implements ValidationRule
      */
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        if (is_null($value)) {
+        if (!is_numeric($value)) {
             return;
         }
 
@@ -30,7 +31,7 @@ class LocationRule implements ValidationRule
 
         $maximum = $fieldName === 'longitude' ? 180 : 90;
 
-        if (abs((float) $value) > $maximum) {
+        if (!is_finite((float) $value) || BigDecimal::of(trim((string) $value))->abs()->isGreaterThan($maximum)) {
             $fail(__("divisions.errors.location.{$fieldName}_misformat"));
 
             return;

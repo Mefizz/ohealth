@@ -18,35 +18,27 @@ class PatientDeviceRequests extends DeviceRequestIndex
     public function mount(LegalEntity $legalEntity, ?Person $person = null): void
     {
         abort_unless($person?->exists, 404);
-        $this->legalEntityId = $legalEntity->id;
-        $this->personId = $person->id;
-        $this->filters['requester_legal_entity'] = $legalEntity->uuid;
-        if ($this->canReadRequests) {
-            $this->search();
-        }
+        parent::mount($legalEntity, $person);
     }
 
     #[Computed]
     public function canReadRequests(): bool
     {
-        return Auth::user()?->can('viewAny', [DeviceRequestRequest::class, $this->legalEntity]) ?? false;
+        return Auth::user()?->can('viewAny', DeviceRequestRequest::class) ?? false;
     }
 
     public function search(bool $resetPage = true): void
     {
-        $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:read']);
-        $this->requesterEntitySearch = $this->filters['requester_legal_entity'];
-        $this->validate(['filters.requester_legal_entity' => 'nullable|uuid']);
+        if (!$this->canPerform('device_request:read')) {
+            return;
+        }
+        $this->filters->validateOnly('parameters.requester_legal_entity');
+        $this->requesterEntitySearch = $this->filters->parameters['requester_legal_entity'];
 
-        if ($this->filters['status'] === 'draft') {
+        if ($this->filters->parameters['status'] === 'draft') {
             abort_unless($this->person?->exists, 404);
-            $this->validate([
-                'filters.requester_legal_entity' => 'nullable|uuid',
-                'filters.context_episode_id' => 'nullable|uuid',
-                'filters.encounter' => 'nullable|uuid',
-                'filters.program' => 'nullable|uuid',
-                'filters.code' => 'nullable|string|max:100',
-            ]);
+            $this->filters->toQuery(localDraft: true);
+            $this->clearDetails();
             $this->requests = [];
             $this->page = $this->totalPages = 1;
         } else {
@@ -54,8 +46,8 @@ class PatientDeviceRequests extends DeviceRequestIndex
         }
 
         $this->drafts = [];
-        if (!in_array($this->filters['status'], ['', 'draft'], true)
-            || !Auth::user()->can('create', [DeviceRequestRequest::class, $this->legalEntity])) {
+        if (!in_array($this->filters->parameters['status'], ['', 'draft'], true)
+            || !Auth::user()->can('create', DeviceRequestRequest::class)) {
             return;
         }
 
@@ -69,22 +61,13 @@ class PatientDeviceRequests extends DeviceRequestIndex
             ->filter(function (array $draft): bool {
                 foreach (['program' => 'program.identifier.value', 'encounter' => 'encounter.identifier.value',
                     'context_episode_id' => 'context.identifier.value', 'requester_legal_entity' => 'requester_legal_entity.identifier.value'] as $filter => $path) {
-                    if ($this->filters[$filter] !== '' && data_get($draft, $path) !== $this->filters[$filter]) {
+                    if ($this->filters->parameters[$filter] !== '' && data_get($draft, $path) !== $this->filters->parameters[$filter]) {
                         return false;
                     }
                 }
 
-                return $this->filters['code'] === '' || collect(data_get($draft, 'code.coding', []))->contains('code', $this->filters['code']);
+                return $this->filters->parameters['code'] === '' || collect(data_get($draft, 'code.coding', []))->contains('code', $this->filters->parameters['code']);
             })->values()->all();
-    }
-
-    public function resetFilters(): void
-    {
-        $this->filters = array_fill_keys(array_keys($this->filters), '');
-        $this->resetValidation();
-        if ($this->canReadRequests) {
-            $this->search();
-        }
     }
 
     #[Computed]

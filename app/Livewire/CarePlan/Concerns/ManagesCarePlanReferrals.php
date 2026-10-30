@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
-use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Classes\eHealth\EHealth as SubmissionApi;
+use App\Livewire\Concerns\SubmitsClinicalOperations;
+use App\Repositories\Repository as BaseRepository;
 use App\Services\MedicalEvents\Fhir;
 
 use App\Classes\eHealth\EHealth;
@@ -25,13 +26,13 @@ use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Illuminate\Validation\ValidationException;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Throwable;
 
@@ -103,7 +104,7 @@ trait ManagesCarePlanReferrals
         if ($existingDraft) {
             if (app(ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth($this->carePlan, $activity, $existingDraft, $resolvedKind)) {
                 if ($activity->status === 'scheduled') {
-                    app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
+                    BaseRepository::carePlanActivity()->updateById($activity->id, ['status' => 'in-progress']);
                 }
                 $this->refreshCarePlan();
                 $documentLabel = $resolvedKind === 'device_request'
@@ -368,7 +369,7 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
+            $this->carePlan = BaseRepository::carePlan()->findById($this->carePlan->id);
 
             $employeeContext = app(ReferralRequestLifecycleService::class)->resolveEmployeeContext(
                 $this->carePlan,
@@ -460,7 +461,7 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
+        $this->carePlan = BaseRepository::carePlan()->findById($this->carePlan->id);
 
         try {
             $requestRecord = app(MedicalRequestOwnership::class)
@@ -538,7 +539,7 @@ trait ManagesCarePlanReferrals
 
         } catch (ValidationException $exception) {
             $this->showSignatureModal = false;
-            $this->initReferralForm($activity->id, app(CarePlanActivityRepository::class));
+            $this->initReferralForm($activity->id, BaseRepository::carePlanActivity());
             $this->setErrorBag($exception->validator->errors());
             $this->flashUserError($exception->validator->errors()->first());
         } catch (EHealthValidationException $e) {
@@ -827,7 +828,7 @@ trait ManagesCarePlanReferrals
             ]);
 
             if ($activity->status === 'scheduled') {
-                app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
+                BaseRepository::carePlanActivity()->updateById($activity->id, ['status' => 'in-progress']);
             }
 
             $this->refreshCarePlan();
@@ -1143,7 +1144,7 @@ trait ManagesCarePlanReferrals
         }
 
         if ($activity->status === 'scheduled') {
-            app(\App\Repositories\CarePlanActivityRepository::class)->updateById($activity->id, ['status' => 'in-progress']);
+            BaseRepository::carePlanActivity()->updateById($activity->id, ['status' => 'in-progress']);
         }
 
         $this->showSignatureModal = false;

@@ -50,9 +50,13 @@ class DeviceRequestSearchForm extends Form
         return $rules;
     }
 
-    public function toQuery(): array
+    public function toQuery(bool $localDraft = false): array
     {
-        $validated = $this->validate();
+        $rules = $this->rules();
+        if ($localDraft) {
+            $rules['parameters.status'] = ['required', Rule::in([DeviceRequestStatus::DRAFT->value])];
+        }
+        $validated = $this->validate($rules);
         $filters = array_intersect_key($validated['parameters'], array_flip(array_map(
             static fn (string $field): string => substr($field, strlen('parameters.')),
             array_keys($this->rules())

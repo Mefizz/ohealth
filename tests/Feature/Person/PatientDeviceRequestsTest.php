@@ -7,9 +7,9 @@ namespace Tests\Feature\Person;
 use App\Classes\eHealth\Api\DeviceDefinition;
 use App\Classes\eHealth\Api\Patient\DeviceRequest;
 use App\Classes\eHealth\EHealthResponse;
-use App\Livewire\Person\Records\PatientDeviceRequests;
-use App\Livewire\Person\Records\PatientDeviceRequestView;
 use App\Livewire\DeviceRequest\DeviceRequestIndex;
+use App\Livewire\Person\Records\PatientDeviceRequestView;
+use App\Livewire\Person\Records\PatientDeviceRequests;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -103,7 +103,7 @@ class PatientDeviceRequestsTest extends TestCase
     public function test_registry_uses_patient_scoped_search_and_links_to_the_new_detail_page(): void
     {
         $api = Mockery::mock(DeviceRequest::class);
-        $api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['requester_legal_entity' => $this->legalEntity->uuid, 'page' => 1])->andReturn($this->response([$this->record()]));
+        $api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['page' => 1])->andReturn($this->response([$this->record()]));
         $this->instance(DeviceRequest::class, $api);
         Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
             ->assertSee('Ортез')->assertSee('Лікарня №4')->assertSee('28.10.2026')
@@ -127,7 +127,7 @@ class PatientDeviceRequestsTest extends TestCase
         $episodeUuid = (string) Str::uuid();
         $api = Mockery::mock(DeviceRequest::class);
         $api->shouldReceive('getBySearchParams')->once()->ordered()
-            ->with($this->person->uuid, ['requester_legal_entity' => $this->legalEntity->uuid, 'page' => 1])
+            ->with($this->person->uuid, ['page' => 1])
             ->andReturn($this->response([], 3));
         $filters = ['requester_legal_entity' => $otherEntityUuid, 'status' => 'active', 'context_episode_id' => $episodeUuid];
         $api->shouldReceive('getBySearchParams')->once()->ordered()
@@ -145,13 +145,13 @@ class PatientDeviceRequestsTest extends TestCase
         $this->instance(DeviceRequest::class, $api);
 
         Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
-            ->assertSet('filters.requester_legal_entity', $this->legalEntity->uuid)
-            ->set('filters.requester_legal_entity', $otherEntityUuid)
-            ->set('filters.status', 'active')->set('filters.context_episode_id', $episodeUuid)
+            ->assertSet('filters.parameters.requester_legal_entity', '')
+            ->set('filters.parameters.requester_legal_entity', $otherEntityUuid)
+            ->set('filters.parameters.status', 'active')->set('filters.parameters.context_episode_id', $episodeUuid)
             ->call('search')->assertHasNoErrors()->assertSet('requesterEntitySearch', $otherEntityUuid)
-            ->call('goToPage', 2)->assertSet('page', 2)->assertSet('filters.requester_legal_entity', $otherEntityUuid)
-            ->set('filters.requester_legal_entity', '')->call('search')->assertSet('requesterEntitySearch', '')
-            ->set('filters.requester_legal_entity', $otherEntityUuid)->call('search')
+            ->call('goToPage', 2)->assertSet('page', 2)->assertSet('filters.parameters.requester_legal_entity', $otherEntityUuid)
+            ->set('filters.parameters.requester_legal_entity', '')->call('search')->assertSet('requesterEntitySearch', '')
+            ->set('filters.parameters.requester_legal_entity', $otherEntityUuid)->call('search')
             ->call('resetFilters')->assertSet('requesterEntitySearch', '')->assertSet('page', 1)
             ->assertSet('personId', $this->person->id)->assertHasNoErrors();
     }
@@ -160,12 +160,12 @@ class PatientDeviceRequestsTest extends TestCase
     {
         $api = Mockery::mock(DeviceRequest::class);
         $api->shouldReceive('getBySearchParams')->once()
-            ->with($this->person->uuid, ['requester_legal_entity' => $this->legalEntity->uuid, 'page' => 1])
+            ->with($this->person->uuid, ['page' => 1])
             ->andReturn($this->response([]));
         $this->instance(DeviceRequest::class, $api);
         Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
-            ->set('filters.requester_legal_entity', 'not-a-uuid')->call('search')
-            ->assertHasErrors(['filters.requester_legal_entity' => 'uuid']);
+            ->set('filters.parameters.requester_legal_entity', 'not-a-uuid')->call('search')
+            ->assertHasErrors(['filters.parameters.requester_legal_entity' => 'uuid']);
     }
 
     public function testGeneralRegistryStillResolvesLegalEntityNamesForThePatientApi(): void
@@ -179,7 +179,7 @@ class PatientDeviceRequestsTest extends TestCase
         $this->instance(LegalEntityRepository::class, $repository);
         $api = Mockery::mock(DeviceRequest::class);
         $api->shouldReceive('getBySearchParams')->once()->ordered()
-            ->with($this->person->uuid, ['requester_legal_entity' => $this->legalEntity->uuid, 'page' => 1])
+            ->with($this->person->uuid, ['page' => 1])
             ->andReturn($this->response([]));
         $api->shouldReceive('getBySearchParams')->once()->ordered()
             ->with($this->person->uuid, ['requester_legal_entity' => $otherEntityUuid, 'page' => 1])
@@ -187,7 +187,7 @@ class PatientDeviceRequestsTest extends TestCase
         $this->instance(DeviceRequest::class, $api);
         Livewire::test(DeviceRequestIndex::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
             ->set('requesterEntitySearch', 'інша лікарня')->call('search')->assertHasNoErrors()
-            ->assertSet('filters.requester_legal_entity', $otherEntityUuid);
+            ->assertSet('filters.parameters.requester_legal_entity', $otherEntityUuid);
     }
 
     public function test_details_are_patient_scoped_and_the_existing_catalog_is_loaded_only_on_open(): void
@@ -221,7 +221,7 @@ class PatientDeviceRequestsTest extends TestCase
         $api->shouldReceive('getBySearchParams')->once()->andReturn($this->response([]));
         $this->instance(DeviceRequest::class, $api);
         Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
-            ->set('filters.status', 'draft')->call('search')->assertSet('requests', [])
+            ->set('filters.parameters.status', 'draft')->call('search')->assertSet('requests', [])
             ->assertSet('drafts', fn (array $drafts): bool => count($drafts) === 1 && $drafts[0]['uuid'] === $ownDraft->uuid);
     }
 
@@ -234,6 +234,55 @@ class PatientDeviceRequestsTest extends TestCase
         $this->instance(DeviceRequest::class, $api);
         Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
             ->assertSee(__('device-requests.patient.tab'))->assertSet('requests', [])
-            ->call('search')->assertNotFound();
+            ->call('search')->assertStatus(200)->assertSee(__('device-requests.policy.perform'));
     }
+    public function testPatientRegistryCannotSwitchOrClearThePatient(): void
+    {
+        $api = Mockery::mock(DeviceRequest::class);
+        $api->shouldReceive('getBySearchParams')->once()->with($this->person->uuid, ['page' => 1])
+            ->andReturn($this->response([]));
+        $this->instance(DeviceRequest::class, $api);
+        $otherPerson = Person::create(['uuid' => (string) Str::uuid(), 'gender' => 'MALE']);
+
+        Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person])
+            ->call('openPatient', $otherPerson->id)->assertSet('personId', $this->person->id)
+            ->call('clearPatient')->assertSet('personId', $this->person->id)
+            ->assertSee(__('device-requests.policy.patient_context'));
+    }
+
+    public function testPatientRegistryDenialPreservesFiltersAndPaginationWithoutApiCalls(): void
+    {
+        $api = Mockery::mock(DeviceRequest::class);
+        $api->shouldReceive('getBySearchParams')->once()->andReturn($this->response([]));
+        $this->instance(DeviceRequest::class, $api);
+        $component = Livewire::test(PatientDeviceRequests::class, ['legalEntity' => $this->legalEntity, 'person' => $this->person]);
+        $this->employee->update(['is_active' => false]);
+
+        $component->set('filters.parameters.code', 'orthosis')->set('page', 2)
+            ->call('resetFilters')->assertSet('filters.parameters.code', 'orthosis')->assertSet('page', 2)
+            ->call('search')->assertSet('page', 2)->assertSee(__('device-requests.policy.perform'));
+    }
+
+    public function testDetailActionsStopBeforeOpeningModalsWhenAccessIsRevoked(): void
+    {
+        $api = Mockery::mock(DeviceRequest::class);
+        $api->shouldReceive('getById')->once()->with($this->person->uuid, $this->requestId)
+            ->andReturn($this->response($this->record()));
+        $api->shouldNotReceive('getDispenses');
+        $this->instance(DeviceRequest::class, $api);
+        $service = Mockery::mock(DeviceRequestLifecycleService::class)->makePartial();
+        $service->shouldReceive('dictionary')->andReturn(['orthosis' => 'Ортез']);
+        $service->shouldNotReceive('assertTransition');
+        $this->instance(DeviceRequestLifecycleService::class, $service);
+        $component = Livewire::test(PatientDeviceRequestView::class, [
+            'legalEntity' => $this->legalEntity, 'person' => $this->person, 'deviceRequest' => $this->requestId,
+        ]);
+        $this->employee->update(['is_active' => false]);
+
+        $component->call('openSmsModal')->assertSet('showSmsModal', false)
+            ->call('loadDispenses')->assertSet('showDispenses', false)
+            ->call('startAction', 'revoke')->assertSet('showStatusActionModal', false)->assertSet('action', '')
+            ->assertSee(__('device-requests.policy.perform'));
+    }
+
 }

@@ -14,7 +14,7 @@
         <form wire:submit="search">
             <div class="form-row-3">
                 <div class="form-group group">
-                    <select id="deviceRequestStatus" wire:model="filters.status" class="input-select peer">
+                    <select id="deviceRequestStatus" wire:model="filters.parameters.status" class="input-select peer">
                         <option value="">{{ __('device-requests.labels.all') }}</option>
                         <option value="draft">{{ __('forms.draft') }}</option>
                         @foreach (['active', 'completed', 'revoked', 'entered-in-error'] as $status)
@@ -24,24 +24,24 @@
                         @endforeach
                     </select>
                     <label for="deviceRequestStatus" class="label">{{ __('forms.status.label') }}</label>
-                    @error('filters.status')
+                    @error('filters.parameters.status')
                         <p class="text-error">{{ $message }}</p>
                     @enderror
                 </div>
                 <div class="form-group group">
-                    <select id="deviceRequestCode" wire:model="filters.code" class="input-select peer">
+                    <select id="deviceRequestCode" wire:model="filters.parameters.code" class="input-select peer">
                         <option value="">{{ __('device-requests.labels.all') }}</option>
                         @foreach ($deviceTypes as $code => $name)
                             <option value="{{ $code }}">{{ $name }}</option>
                         @endforeach
                     </select>
                     <label for="deviceRequestCode" class="label">{{ __('device-requests.labels.device_type') }}</label>
-                    @error('filters.code')
+                    @error('filters.parameters.code')
                         <p class="text-error">{{ $message }}</p>
                     @enderror
                 </div>
                 <div class="form-group group">
-                    <select id="deviceRequestProgram" wire:model="filters.program" class="input-select peer">
+                    <select id="deviceRequestProgram" wire:model="filters.parameters.program" class="input-select peer">
                         <option value="">{{ __('device-requests.labels.all') }}</option>
                         @foreach ($programs as $program)
                             <option value="{{ $program['id'] }}">{{ $program['name'] }}</option>
@@ -51,7 +51,7 @@
                         for="deviceRequestProgram"
                         class="label"
                     >{{ __('device-requests.labels.program_short') }}</label>
-                    @error('filters.program')
+                    @error('filters.parameters.program')
                         <p class="text-error">{{ $message }}</p>
                     @enderror
                 </div>
@@ -92,7 +92,7 @@
                     <div class="form-group group">
                         <input
                             id="deviceRequest-{{ $filter }}"
-                            wire:model="filters.{{ $filter }}"
+                            wire:model="filters.parameters.{{ $filter }}"
                             class="input peer pr-7"
                             type="text"
                             placeholder=" "
@@ -105,12 +105,12 @@
                         <button
                             type="button"
                             class="absolute top-2 right-0 text-gray-500"
-                            wire:click="$set('filters.{{ $filter }}', '')"
+                            wire:click="$set('filters.parameters.{{ $filter }}', '')"
                             aria-label="{{ __('forms.reset_all_filters') }}: {{ __('device-requests.labels.'.$label) }}"
                         >
                             @icon('close', 'w-4 h-4')
                         </button>
-                        @error('filters.'.$filter)
+                        @error('filters.parameters.'.$filter)
                             <p class="text-error">{{ $message }}</p>
                         @enderror
                     </div>
@@ -175,7 +175,7 @@
                                 @if ($record['isDraft'] ?? false)
                                     <a
                                         class="dropdown-item"
-                                        href="{{ route('device-requests.create', [legalEntity(), 'person' => $personId, 'draft' => $requestId]) }}"
+                                        href="{{ route('persons.device-requests.create', [legalEntity(), 'person' => $personId, 'draft' => $requestId]) }}"
                                     >
                                         @icon('edit', 'w-5 h-5 text-gray-500')
                                         {{ __('device-requests.labels.open_draft') }}

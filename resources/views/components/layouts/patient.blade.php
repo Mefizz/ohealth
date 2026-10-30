@@ -14,6 +14,7 @@
     use App\Models\MedicalEvents\Sql\DetectedIssue;
     use App\Models\MedicalEvents\Sql\DeviceAssociation;
     use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
+    use Illuminate\Support\Facades\Auth;
     use App\Models\MedicalEvents\Sql\Encounter;
     use App\Models\Person\Person;
     use App\Models\Relations\PersonVerificationDetail;
@@ -248,17 +249,6 @@
                                 </a>
                             @endcan
 
-                            @if ($personId)
-                                @can('viewAny', DeviceRequestRequest::class)
-                                    <a
-                                        href="{{ route('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $personId]) }}"
-                                        class="summary-tab {{ ($activeTab === 'device-requests' || $isCurrentRoute('persons.device-requests*')) ? 'summary-tab-active' : 'summary-tab-inactive' }}"
-                                    >
-                                        {{ __('device-requests.labels.patient_tab') }}
-                                    </a>
-                                @endcan
-                            @endif
-
                             <a
                                 href="{{ route("$routePrefix.specimens", [legalEntity(), $routeParamKey => $recordId]) }}"
                                 class="summary-tab {{ $isCurrentRoute("$routePrefix.specimens") ? 'summary-tab-active' : 'summary-tab-inactive' }}"
@@ -268,13 +258,13 @@
 
                             <div class="flex-1"></div>
                         </div>
-                        @if ($personId)
+                        @if ($personId && Auth::user()->can('viewAny', DeviceRequestRequest::class))
                             <div class="summary-nav-row">
                                 <a
                                     href="{{ route('persons.device-requests', [legalEntity(), 'person' => $personId]) }}"
-                                    class="summary-tab {{ ($activeTab === 'device-requests' || $isCurrentRoute('persons.device-requests')) ? 'summary-tab-active' : 'summary-tab-inactive' }}"
+                                    class="summary-tab {{ ($activeTab === 'device-requests' || $isCurrentRoute('persons.device-requests*')) ? 'summary-tab-active' : 'summary-tab-inactive' }}"
                                 >
-                                    {{ __('device-requests.patient.tab') }}
+                                    {{ __('device-requests.labels.patient_tab') }}
                                 </a>
                                 <div class="flex-1"></div>
                             </div>

@@ -7,18 +7,17 @@ namespace App\Livewire\DeviceRequest;
 use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
+use App\Livewire\DeviceRequest\Forms\DeviceRequestSearchForm;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\Person\Person;
-use App\Repositories\LegalEntityRepository;
-use App\Repositories\PersonRepository;
-use App\Repositories\MedicalEvents\DeviceRequestRequestRepository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
-use App\Livewire\DeviceRequest\Forms\DeviceRequestSearchForm;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Livewire\Attributes\Locked;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Throwable;
@@ -99,7 +98,7 @@ class DeviceRequestIndex extends Component
     {
         $this->legalEntityId = $legalEntity->id;
         $this->personId = $person?->exists ? $person->id : null;
-        $this->legalEntityOptions = app(LegalEntityRepository::class)->getLegalEntitiesList();
+        $this->legalEntityOptions = Repository::legalEntity()->getLegalEntitiesList();
         $this->patientContext = $this->personId !== null;
 
         if ($person?->exists) {
@@ -111,13 +110,13 @@ class DeviceRequestIndex extends Component
     #[Computed]
     public function legalEntity(): LegalEntity
     {
-        return app(LegalEntityRepository::class)->getById($this->legalEntityId);
+        return Repository::legalEntity()->getById($this->legalEntityId);
     }
 
     #[Computed]
     public function person(): ?Person
     {
-        return $this->personId === null ? null : app(PersonRepository::class)->getById($this->personId);
+        return $this->personId === null ? null : Repository::person()->getById($this->personId);
     }
 
     public function searchPatients(): void
@@ -137,7 +136,7 @@ class DeviceRequestIndex extends Component
             return;
         }
         $this->validate(['patientSearch' => 'required|string|min:3|max:100']);
-        $this->patients = app(PersonRepository::class)->searchBySurname(trim($this->patientSearch));
+        $this->patients = Repository::person()->searchBySurname(trim($this->patientSearch));
     }
 
     public function openPatient(int $id): void
@@ -156,7 +155,7 @@ class DeviceRequestIndex extends Component
 
             return;
         }
-        $person = app(PersonRepository::class)->getById($id);
+        $person = Repository::person()->getById($id);
         abort_unless(\Illuminate\Support\Str::isUuid($person->uuid), 404);
         $this->personId = $person->id;
         unset($this->person);
@@ -188,7 +187,7 @@ class DeviceRequestIndex extends Component
         $this->drafts = [];
         if (Auth::user()->can('create', DeviceRequestRequest::class)) {
             $employee = app(DeviceRequestLifecycleService::class)->authorizeAction($this->legalEntity, 'device_request:write');
-            $this->drafts = app(DeviceRequestRequestRepository::class)->draftsForPatientEmployee($this->personId, $employee->id);
+            $this->drafts = MedicalEventsRepository::deviceRequest()->draftsForPatientEmployee($this->personId, $employee->id);
         }
     }
 
@@ -203,7 +202,7 @@ class DeviceRequestIndex extends Component
         $this->search();
     }
 
-    private function clearDetails(): void
+    protected function clearDetails(): void
     {
         $this->reset(
             'selected',
@@ -454,7 +453,7 @@ class DeviceRequestIndex extends Component
         }
     }
 
-    private function canPerform(string $scope): bool
+    protected function canPerform(string $scope): bool
     {
         if (Auth::user()->cannot('perform', [DeviceRequestRequest::class, $scope])) {
             Session::flash('error', __('device-requests.policy.perform'));

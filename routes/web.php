@@ -82,6 +82,7 @@ use Illuminate\Support\Facades\Route;
 use App\Livewire\LegalEntity\Connections\LegalEntityConnectionShow;
 use App\Livewire\LegalEntity\Connections\LegalEntityConnectionIndex;
 use App\Livewire\LegalEntity\Connections\LegalEntityConnectionCreate;
+use App\Repositories\Repository;
 
 /*
 |--------------------------------------------------------------------------
@@ -335,7 +336,7 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 ->name('care-plans.create')
                 ->can('create', \App\Models\CarePlan::class);
             $redirectEncounterCarePlan = static function (\App\Models\LegalEntity $legalEntity, \App\Models\MedicalEvents\Sql\Encounter $encounter) {
-                $person = app(\App\Repositories\CarePlanRepository::class)->findPatient((int) $encounter->person_id) ?? abort(404);
+                $person = Repository::carePlan()->findPatient((int) $encounter->person_id) ?? abort(404);
                 \Illuminate\Support\Facades\Gate::authorize('view', [$encounter, $person]);
 
                 return redirect()->route('care-plans.create-by-encounter', ['legalEntity' => $legalEntity, 'person' => $person, 'encounter' => $encounter]);

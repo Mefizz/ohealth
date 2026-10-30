@@ -6,7 +6,6 @@ namespace App\Livewire\Person\Records;
 
 use App\Livewire\DeviceRequest\DeviceRequestIndex;
 use App\Models\LegalEntity;
-use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\Person\Person;
 use Illuminate\Support\Str;
 
@@ -25,6 +24,7 @@ class PatientDeviceRequestView extends DeviceRequestIndex
         abort_unless($person?->exists && $deviceRequest !== null && Str::isUuid($deviceRequest), 404);
         $this->legalEntityId = $legalEntity->id;
         $this->personId = $person->id;
+        $this->patientContext = true;
         $this->showDetails($deviceRequest, false);
     }
 
@@ -38,13 +38,19 @@ class PatientDeviceRequestView extends DeviceRequestIndex
 
     public function loadDispenses(): void
     {
+        if (!$this->canPerform('device_dispense:read')) {
+            return;
+        }
+
         parent::loadDispenses();
         $this->showDispenses = true;
     }
 
     public function openSmsModal(): void
     {
-        $this->authorize('perform', [DeviceRequestRequest::class, $this->legalEntity, 'device_request:resend']);
+        if (!$this->canPerform('device_request:resend')) {
+            return;
+        }
         abort_unless($this->selectedId !== null && $this->phone !== '' && ($this->selected['status'] ?? '') === 'active', 404);
         $this->phoneConfirmed = false;
         $this->showSmsModal = true;
@@ -61,6 +67,10 @@ class PatientDeviceRequestView extends DeviceRequestIndex
 
     public function startAction(string $action): void
     {
+        if (!$this->canPerform('device_request:'.$action)) {
+            return;
+        }
+
         $this->showStatusActionModal = false;
         $this->action = '';
         parent::startAction($action);

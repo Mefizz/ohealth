@@ -6,7 +6,7 @@ namespace App\Policies;
 
 use App\Models\Employee\Employee;
 use App\Models\User;
-use App\Repositories\EmployeeRepository;
+use App\Repositories\Repository;
 use Illuminate\Auth\Access\Response;
 
 class DeviceRequestRequestPolicy
@@ -40,6 +40,6 @@ class DeviceRequestRequestPolicy
             ? ['DOCTOR', 'SPECIALIST']
             : ['DOCTOR', 'SPECIALIST', 'ASSISTANT', 'MED_COORDINATOR', 'MED_ADMIN'];
 
-        return app(EmployeeRepository::class)->activeForLegalEntity($user, legalEntity(), $types);
+        return Repository::employee()->activeForLegalEntity($user, legalEntity(), $types);
     }
 }

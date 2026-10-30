@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\Api\DeviceRequest;
-use App\Contracts\EHealthRequestLifecycleContract;
 use App\Classes\eHealth\EHealth;
+use App\Contracts\EHealthRequestLifecycleContract;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Policies\DeviceRequestRequestPolicy;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
 use App\Services\Dictionary\Collections\BasicDictionaryCollection;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
@@ -120,7 +122,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     public function carePlanContext(Person $person, string $carePlanUuid, string $activityUuid): array
     {
-        $localPlan = app(\App\Repositories\CarePlanRepository::class)->findByUuid($carePlanUuid, legalEntity()?->id, $person->id);
+        $localPlan = Repository::carePlan()->findByUuid($carePlanUuid, legalEntity()?->id, $person->id);
         if ($localPlan === null) {
             $this->invalid('activity', __('care-plan.full_sync_required'));
         }
@@ -399,7 +401,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             $this->invalid('quantity_code', __('device-requests.validation.quantity_unit_invalid'));
         }
         if (!empty($data['reason_reference'])) {
-            $reasons = app(\App\Repositories\MedicalEvents\DeviceRequestRequestRepository::class)->reasonOptions($person);
+            $reasons = MedicalEventsRepository::deviceRequest()->reasonOptions($person);
             $seen = [];
             foreach ($data['reason_reference'] as $index => $reason) {
                 $key = $reason['type'].'|'.$reason['uuid'];

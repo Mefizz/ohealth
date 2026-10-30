@@ -123,6 +123,11 @@ final class Repository
         return app(CarePlanRepository::class);
     }
 
+    public static function carePlanActivity(): CarePlanActivityRepository
+    {
+        return app(CarePlanActivityRepository::class);
+    }
+
     public static function observationConfig(): ObservationConfigRepository
     {
         return app(ObservationConfigRepository::class);

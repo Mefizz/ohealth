@@ -188,3 +188,11 @@ When an element has text content (or a Blade echo) and its attributes fit on a s
        class="label"
 >{{ __('healthcare-services.providing_condition') }}</label>
 ```
+
+## Repositories
+
+Access repositories through the static `Repository::...()` entry points, rather
+than `app(SomeRepository::class)`. Use `App\Repositories\Repository` for general
+repositories and `App\Repositories\MedicalEvents\Repository` for medical events;
+alias one import when a file needs both. Keep container resolution inside these
+entry points so test bindings continue to work.

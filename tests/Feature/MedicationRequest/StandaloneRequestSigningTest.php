@@ -10,17 +10,17 @@ use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\Relations\Party;
 use App\Models\User;
-use App\Repositories\MedicalEvents\PeriodRepository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Services\Dictionary\Dictionaries\MedicalProgramDictionary;
 use App\Services\MedicalEvents\DeviceRequestLifecycleService;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use App\Services\SignatureService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Cache;
-use App\Services\Dictionary\Dictionaries\MedicalProgramDictionary;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Mockery;
@@ -272,7 +272,7 @@ class StandaloneRequestSigningTest extends TestCase
             'class_id' => \App\Models\MedicalEvents\Sql\Coding::create(['code' => 'AMB', 'system' => 'eHealth/encounter_classes'])->id,
             'type_id' => \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id, 'ehealth_inserted_at' => now(),
         ]);
-        app(PeriodRepository::class)->sync($encounter, [
+        MedicalEventsRepository::period()->sync($encounter, [
             'start' => now()->subHour()->utc()->toIso8601String(),
             'end' => now()->utc()->toIso8601String(),
         ]);
@@ -456,6 +456,7 @@ class StandaloneRequestSigningTest extends TestCase
         return [
             ['device-requests.index', 'device_request:read'],
             ['persons.device-requests', 'device_request:read'],
+            ['persons.device-requests.view', 'device_request:read'],
             ['persons.device-requests.create', 'device_request:write'],
         ];
     }
@@ -489,6 +490,10 @@ class StandaloneRequestSigningTest extends TestCase
         $parameters = ['legalEntity' => $this->legalEntity];
         if ($routeName !== 'device-requests.index') {
             $parameters['person'] = $person;
+        }
+
+        if ($routeName === 'persons.device-requests.view') {
+            $parameters['deviceRequest'] = (string) Str::uuid();
         }
 
         $this->get(route($routeName, $parameters))->assertNotFound();

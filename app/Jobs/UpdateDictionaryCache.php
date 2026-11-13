@@ -8,12 +8,14 @@ use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Services\Dictionary\Dictionaries\BasicDictionary;
+use App\Services\Dictionary\Dictionaries\ServiceDictionary;
 use App\Services\Dictionary\DictionaryManager;
 use Exception;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class UpdateDictionaryCache implements ShouldQueue
 {
@@ -49,11 +51,22 @@ class UpdateDictionaryCache implements ShouldQueue
                 session()->put(config('ehealth.api.oauth.bearer_token'), $this->bearerToken);
             }
 
+            if ($manager->requiresCompleteContract($this->dictionaryKey)) {
+                // Old queued page jobs also refresh atomically; never append a
+                // partial catalog to the current authoritative prescribing rules.
+                $data = $manager->fetchCompleteValidated($this->dictionaryKey);
+                Cache::put($this->dictionaryKey, $data, now()->addWeek());
+                Cache::put($this->dictionaryKey.':fresh', true, now()->endOfDay());
+
+                return;
+            }
+
             $response = $manager->fetchPage($this->dictionaryKey, $this->pageNumber);
-            $paging = $response->getPaging();
             $currentPageData = $this->dictionaryKey === BasicDictionary::KEY
                 ? BasicDictionary::prune($response->getData())
-                : $response->getData();
+                : ($this->dictionaryKey === ServiceDictionary::KEY ? $response->validate() : $response->getData());
+
+            $paging = $response->getPaging();
 
             // Get existing cache data and update it
             if ($this->pageNumber === 1) {
@@ -100,7 +113,7 @@ class UpdateDictionaryCache implements ShouldQueue
             ]);
 
             throw $e; // Will retry due to network issues
-        } catch (EHealthResponseException|EHealthValidationException $e) {
+        } catch (EHealthResponseException|EHealthValidationException|ValidationException $e) {
             Log::error("Dictionary API error - will not retry", [
                 'dictionary' => $this->dictionaryKey,
                 'page' => $this->pageNumber,

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Lang;
 use Throwable;
 
 /** Project persisted referral data into registry and encounter-card display values. */
-final class ServiceRequestRegistryMapper
+class ServiceRequestRegistryMapper
 {
     private ?array $serviceNames = null;
 
@@ -93,6 +93,7 @@ final class ServiceRequestRegistryMapper
             'statusBadge' => ServiceRequestStatus::colorFor($status),
             'itemName' => $itemName !== '' && $itemName !== '—' ? $itemName : 'Послуга',
             'quantity' => $qtyLabel !== '' ? $qtyLabel : '—',
+            'remainingQuantity' => (float) ($request->remainingQuantity?->value ?? 0),
             'startedAt' => $startedAt?->toDateString(),
             'endedAt' => $endedAt?->toDateString(),
             'periodLabel' => $periodLabel,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Dictionary;
 
 use App\Classes\eHealth\EHealth;
+
 use App\Enums\MedicalProgram\Type;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -66,7 +68,7 @@ class DeviceDefinition extends Component
      */
     public string $filterClassificationTypeCode = '';
 
-    #[\Livewire\Attributes\Locked]
+    #[Locked]
     public bool $embedded = false;
 
     public array $dictionaryNames = [
@@ -176,6 +178,11 @@ class DeviceDefinition extends Component
 
         try {
             $response = EHealth::deviceDefinition()->getMany($filters);
+            $rows = $response->validate();
+        } catch (ValidationException $exception) {
+            Session::flash('error', __('errors.ehealth.messages.response_contract_invalid'));
+
+            return new LengthAwarePaginator([], 0, $perPage, 1);
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error when searching for device definitions list.');
 
@@ -183,7 +190,7 @@ class DeviceDefinition extends Component
         }
 
         return new LengthAwarePaginator(
-            collect($response->getData()),
+            collect($rows),
             $response->getPaging()['total_entries'],
             $perPage,
             $currentPage,

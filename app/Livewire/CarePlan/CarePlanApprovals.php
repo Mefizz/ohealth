@@ -6,40 +6,39 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Enums\CarePlanStatus;
-use App\Enums\Person\ApprovalStatus;
+use App\Exceptions\EHealth\EHealthJobTimeoutException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Exceptions\EHealth\EHealthJobTimeoutException;
+use App\Livewire\CarePlan\Concerns\HandlesCarePlanApprovalSms;
 use App\Models\CarePlan;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
-use App\Repositories\Repository;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
-use App\Services\MedicalEvents\PatientApprovalService;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
+use App\Services\MedicalEvents\PatientApprovalService;
 use App\Traits\FormTrait;
 use App\Traits\InteractsWithApprovals;
-use Exception;
 use Carbon\CarbonImmutable;
-use Illuminate\Validation\ValidationException;
+use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Throwable;
-use App\Livewire\CarePlan\Concerns\HandlesCarePlanApprovalSms;
 
 class CarePlanApprovals extends Component
 {
     use FormTrait;
-    use InteractsWithApprovals;
     use HandlesCarePlanApprovalSms;
+    use InteractsWithApprovals;
 
     #[Locked]
-    public int $carePlanId;
+    public int $carePlanId = 0;
 
     #[Locked]
     public string $carePlanUuid = '';
@@ -80,9 +79,14 @@ class CarePlanApprovals extends Component
     #[Locked]
     public bool $skipsPatientOtp = false;
 
-    public function mount(LegalEntity $legalEntity, CarePlan $carePlan): void
+    public function mount(LegalEntity $legalEntity, CarePlan $carePlan, ?string $actingEmployeeUuid = null): void
     {
-        $this->authorize('view', $carePlan);
+        if (Auth::user()->cannot('view', $carePlan)) {
+            $this->isReadOnly = true;
+            Session::flash('error', __('care-plan.approval_access_denied'));
+
+            return;
+        }
 
         $this->carePlanId = $carePlan->id;
         $this->carePlanUuid = $carePlan->uuid ?? '';
@@ -99,10 +103,11 @@ class CarePlanApprovals extends Component
         if ($legalEntityId) {
             $this->employees = Repository::carePlan()->approvalEmployees($legalEntityId);
 
-            $writerUuid = Auth::user()?->getCarePlanWriterEmployee($carePlan->termsOfServiceCode())?->uuid;
+            // Document forms pass their selected physician so receipt never silently changes the actor.
+            $writerUuid = Auth::user()?->getCarePlanWriterEmployee($carePlan->termsOfServiceCode(), $actingEmployeeUuid)?->uuid;
             if ($writerUuid && collect($this->employees)->contains(fn (array $employee): bool => $employee['uuid'] === $writerUuid)) {
                 $this->newApproval['employee_uuid'] = $writerUuid;
-            } elseif (count($this->employees) === 1) {
+            } elseif ($actingEmployeeUuid === null && count($this->employees) === 1) {
                 $this->newApproval['employee_uuid'] = $this->employees[0]['uuid'];
             }
         }
@@ -111,7 +116,8 @@ class CarePlanApprovals extends Component
 
     public function loadAuthMethods(): void
     {
-        if (!$this->guardApprovalAccess($this->currentCarePlan()) || $this->isReadOnly) {
+        // A denied mount leaves the plan id unset, so skip deferred initialization before resolving it.
+        if ($this->isReadOnly || !$this->guardApprovalAccess($this->currentCarePlan())) {
             return;
         }
         if ($this->skipsPatientOtp) {
@@ -124,7 +130,7 @@ class CarePlanApprovals extends Component
         }
         if (empty($this->selectedAuthMethodUuid)) {
             $method = collect($this->authMethods)->firstWhere('type', 'OTP') ?? ($this->authMethods[0] ?? null);
-            $this->selectedAuthMethodUuid = $method['id'] ?? $method['uuid'] ?? null;
+            $this->selectedAuthMethodUuid = $method['id'] ?? ($method['uuid'] ?? null);
         }
     }
 
@@ -565,12 +571,11 @@ class CarePlanApprovals extends Component
     public function getSelectedEmployeeHasAccessProperty(): bool
     {
         return collect($this->approvals)->contains(function (array $approval): bool {
-            $expiresAt = $approval['expiresAt'] ?? $approval['expires_at'] ?? null;
+            $expiresAt = $approval['expiresAt'] ?? ($approval['expires_at'] ?? null);
 
             return data_get($approval, 'grantedTo.value', data_get($approval, 'granted_to.value')) === $this->newApproval['employee_uuid']
-                && ($approval['isVerified'] ?? $approval['is_verified'] ?? false)
-                && ($expiresAt === null || CarbonImmutable::parse($expiresAt)->isFuture())
-                && ApprovalStatus::resolve($approval['status'] ?? null)?->isGranted();
+                && ($approval['isVerified'] ?? ($approval['is_verified'] ?? false))
+                && $expiresAt !== null && CarbonImmutable::parse($expiresAt)->isFuture();
         });
     }
 

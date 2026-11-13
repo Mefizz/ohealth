@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run PHPUnit suites owned for:
-# Employee · Party · Care Plan · Care Plan Activity · ePrescription · Service Request · Device Request · Healthcare Service
+# Employee · Party · Care Plan · Care Plan Activity · ePrescription · Service Request · Device Request · Composition · Healthcare Service
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,6 +24,7 @@ DOMAIN_PATHS=(
   tests/Unit/Livewire/Party
   tests/Unit/Livewire/CarePlan
   tests/Unit/Livewire/CarePlanLockedStateTest.php
+  tests/Unit/Livewire/EncounterReferralFlowTest.php
   tests/Unit/CarePlan
   tests/Unit/Exceptions/EHealthValidationExceptionCarePlanMessageTest.php
   tests/Unit/Exceptions/ClinicalErrorTranslationsTest.php
@@ -34,9 +35,12 @@ DOMAIN_PATHS=(
   tests/Unit/Repositories/MedicalEvents/MedicationRequestRepositoryFhirRefsTest.php
   tests/Unit/Services/Party
   tests/Unit/Services/MedicalEvents/CarePlanActivityLifecycleServiceTest.php
+  tests/Unit/Services/MedicalEvents/CarePlanActivityRegistrationBoundaryTest.php
   tests/Unit/Services/MedicalEvents/CarePlanLifecycleServiceTest.php
   tests/Unit/Services/MedicalEvents/EHealthJobResolverTest.php
+  tests/Unit/Services/MedicalEvents/EHealthRequestLifecycleServiceTest.php
   tests/Unit/Services/MedicalEvents/MedicationRequestSignPayloadTest.php
+  tests/Unit/Services/MedicalEvents/PrescriptionRulesTest.php
   tests/Unit/Services/MedicalEvents/Mappers/CarePlanMapperTest.php
   tests/Unit/Services/MedicalEvents/Mappers/CarePlanActivityMapperTest.php
   tests/Unit/Services/MedicalEvents/Mappers/MedicationRequestMapperTest.php
@@ -45,23 +49,36 @@ DOMAIN_PATHS=(
   tests/Unit/Services/MedicalEvents/ResolvesEmployeeContextTest.php
   tests/Unit/Services/MedicalEvents/ReferralSignPayloadTest.php
   tests/Unit/Services/MedicalEvents/ReferralRequestLifecycleWriteTest.php
+  tests/Unit/Classes/EHealth/Api/DivisionSearchContractTest.php
   tests/Unit/Services/MedicalEvents/ReferralPrintoutCode128Test.php
   tests/Unit/Services/MedicalEvents/DeviceRequestMapperTest.php
   tests/Unit/Services/MedicalEvents/DeviceRequestPrescribingTest.php
+  tests/Unit/Services/MedicalEvents/DeviceProgramParticipationGuardTest.php
+  tests/Unit/Services/MedicalEvents/ClinicalIdentifiersTv39Test.php
+  tests/Unit/Services/MedicalEvents/EncounterCancellationPaginationTest.php
+  tests/Unit/Classes/EHealth/Api/DeviceDefinitionContractTest.php
+  tests/Unit/Classes/EHealth/Api/EncounterCancellationContractTest.php
   tests/Unit/Services/MedicalEvents/EncounterReferralDisplayTest.php
   tests/Unit/eHealth/Api/Patient/MedicationRequestRejectPayloadTest.php
+  tests/Unit/eHealth
   tests/Unit/eHealth/Api/ConfigurationQueryTest.php
   tests/Feature/Employee
   tests/Feature/Party
   tests/Feature/CarePlan
   tests/Feature/CarePlanActivityPayloadTest.php
-  tests/Feature/Encounter/EncounterDocumentPagesTest.php
-  tests/Feature/Encounter/EncounterTransferDivisionLookupTest.php
+  tests/Feature/Encounter
+  tests/Feature/MedicalEvents/PatientSummaryTv39AuthorizationTest.php
+  tests/Feature/MedicalEvents/EncounterLinkedDocumentsTest.php
+  tests/Feature/MedicalEvents/ClinicalSidebarNavigationTest.php
+  tests/Feature/MedicalEvents/SharedSubmissionStatusTest.php
+  tests/Feature/MedicalEvents/Tv39ClinicalWorkplaceAccessTest.php
   tests/Feature/MedicationRequest
   tests/Feature/DeviceRequest
   tests/Feature/MedicationRequestTest.php
   tests/Feature/Referral
   tests/Feature/ReferralTest.php
+  tests/Feature/Diagnostic/ElectronicReferralAndPrescriptionDiagnosticTest.php
+  tests/Feature/Diagnostic/EncounterStandaloneReferralCreateDiagnosticTest.php
   tests/Feature/Api/ReferralControllerTest.php
   tests/Feature/Api/ReferralControllerProcessCancelUsageTest.php
   tests/Feature/EHealth/EHealthResponseExceptionPartyNotVerifiedTest.php
@@ -79,14 +96,12 @@ DOMAIN_PATHS=(
   tests/Feature/EmployeeRole
 )
 
-# Composition is a later module in the review stack; run its regressions once that slice is present.
-if [[ -f tests/Feature/Composition/CompositionFhirFidelityTest.php ]]; then
+# Include every medical-conclusion regression once the composition slice is present.
+if [[ -d tests/Feature/Composition ]]; then
   DOMAIN_PATHS+=(
-    tests/Feature/Composition/CompositionFhirFidelityTest.php
-    tests/Feature/Composition/CompositionReadRelationsTest.php
-    tests/Feature/Composition/CompositionCreateNewbornTest.php
-    tests/Feature/Composition/CompositionTempDisabilityFormTest.php
-    tests/Feature/Composition/CompositionTempDisabilityCreateTest.php
+    tests/Feature/Composition
+    tests/Unit/Composition
+    tests/Unit/Enums/CompositionEnumsTest.php
     tests/Feature/Person/PatientRegistryUatTest.php
   )
 fi

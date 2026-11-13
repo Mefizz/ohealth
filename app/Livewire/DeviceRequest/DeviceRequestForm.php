@@ -6,6 +6,7 @@ namespace App\Livewire\DeviceRequest;
 
 use App\Classes\eHealth\EHealth;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Models\CarePlan;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\Person\Person;
@@ -24,8 +25,10 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Ramsey\Uuid\Uuid;
 use Throwable;
 
 class DeviceRequestForm extends Component
@@ -82,6 +85,23 @@ class DeviceRequestForm extends Component
     #[Locked]
     public array $measurementUnits = [];
 
+    public string $carePlanSearch = '';
+
+    #[Locked]
+    public array $carePlanChoices = [];
+
+    #[Locked]
+    public array $carePlanActivityChoices = [];
+
+    #[Locked]
+    public ?int $selectedCarePlanId = null;
+
+    #[Locked]
+    public ?int $selectedCarePlanActivityId = null;
+
+    #[Locked]
+    public bool $carePlanApprovalRequired = false;
+
     public string $modelSearch = '';
 
     #[Locked]
@@ -95,7 +115,7 @@ class DeviceRequestForm extends Component
     {
         $this->legalEntityId = $legalEntity->id;
         $this->personId = $person->id;
-        $this->requestUuid = (string) Str::uuid();
+        $this->requestUuid = (string) Uuid::uuid1();
         $service = app(DeviceRequestLifecycleService::class);
         $employee = $service->authorizeAction($legalEntity, 'device_request:write');
         $activity = null;
@@ -169,9 +189,11 @@ class DeviceRequestForm extends Component
                 $this->request['confirmed_phone'] = '';
             }
             if ($activity !== null) {
+                $this->selectedCarePlanId = $activity->carePlan->id;
+                $this->selectedCarePlanActivityId = $activity->id;
                 $this->carePlanUuid = $activity->carePlan->uuid;
                 $this->activityUuid = $activity->uuid;
-                $detail = $service->carePlanContext($person, $this->carePlanUuid, $this->activityUuid)['detail'];
+                $detail = $service->carePlanContext($person, $this->carePlanUuid, $this->activityUuid, $employee->uuid)['detail'];
                 $this->request['program_id'] = data_get($detail, 'program.identifier.value', '');
                 $modelId = data_get($detail, 'product_reference.identifier.value');
                 $this->request['device_code_type'] = $modelId ? 'DEVICE_DEFINITION' : 'CLASSIFICATION_TYPE';
@@ -183,7 +205,7 @@ class DeviceRequestForm extends Component
                     $this->request['ended_at'] = CarbonImmutable::parse($detail['scheduled_period']['end'])->format('d.m.Y');
                 }
 
-                $this->request['reason_reference'] = collect($detail['reason_reference'] ?? $detail['reason_references'] ?? [])
+                $this->request['reason_reference'] = collect($detail['reason_reference'] ?? ($detail['reason_references'] ?? []))
                     ->map(fn (array $reference): array => ['uuid' => data_get($reference, 'identifier.value'), 'type' => data_get($reference, 'identifier.type.coding.0.code')])->all();
             }
 
@@ -209,10 +231,189 @@ class DeviceRequestForm extends Component
         return Repository::person()->getById($this->personId);
     }
 
+    /** BA08 uses the CP provider and requests no consent during a search. */
+    #[On('care-plan-approvals-changed')]
+    public function searchCarePlans(): void
+    {
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return;
+        }
+
+        try {
+            $this->validate(['carePlanSearch' => ['string', 'max:255']]);
+            $employeeUuid = $this->carePlanActorUuid();
+            $this->carePlanChoices = Repository::carePlan()->documentPlanChoices(
+                $this->personId,
+                $this->request['encounter_uuid'] ?? '',
+                Auth::user(),
+                $this->carePlanSearch,
+                $employeeUuid
+            );
+            if ($this->selectedCarePlanId !== null) {
+                $choice = collect(Repository::carePlan()->documentPlanChoices(
+                    $this->personId,
+                    $this->request['encounter_uuid'] ?? '',
+                    Auth::user(),
+                    actingEmployeeUuid: $employeeUuid
+                ))->firstWhere('id', $this->selectedCarePlanId);
+                if ($choice !== null && !collect($this->carePlanChoices)->contains('id', $choice['id'])) {
+                    $this->carePlanChoices[] = $choice;
+                }
+                $this->carePlanApprovalRequired = $choice === null || $choice['approvalRequired'];
+                $this->carePlanActivityChoices = $this->carePlanApprovalRequired ? [] : Repository::carePlan()->documentActivityChoices(
+                    $this->selectedCarePlanId,
+                    $this->personId,
+                    $this->request['encounter_uuid'],
+                    Auth::user(),
+                    'device_request',
+                    $employeeUuid
+                );
+            }
+        } catch (Throwable $exception) {
+            $this->carePlanChoices = $this->carePlanActivityChoices = [];
+            $this->reportError($exception);
+        }
+    }
+
+    public function selectCarePlan(int $carePlanId): void
+    {
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return;
+        }
+        $this->clearCarePlanSelection();
+        if ($carePlanId === 0) {
+            return;
+        }
+        $this->searchCarePlans();
+        $choice = collect($this->carePlanChoices)->firstWhere('id', $carePlanId);
+        if ($choice === null) {
+            Session::flash('error', __('care-plan.related_plan_unavailable'));
+
+            return;
+        }
+        $this->selectedCarePlanId = $carePlanId;
+        $this->carePlanApprovalRequired = $choice['approvalRequired'];
+        $this->searchCarePlans();
+    }
+
+    public function selectCarePlanActivity(int $activityId): void
+    {
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return;
+        }
+        $this->searchCarePlans();
+        $choice = collect($this->carePlanActivityChoices)->firstWhere('id', $activityId);
+        if ($choice === null || $this->carePlanApprovalRequired) {
+            Session::flash('error', __('device-requests.validation.inactive_plan'));
+
+            return;
+        }
+        try {
+            $plan = Repository::carePlan()->findById($this->selectedCarePlanId);
+            $context = app(DeviceRequestLifecycleService::class)->carePlanContext($this->person, $plan->uuid, $choice['uuid'], $this->carePlanActorUuid());
+            $detail = $context['detail'];
+            $this->carePlanUuid = $plan->uuid;
+            $this->activityUuid = $choice['uuid'];
+            $this->selectedCarePlanActivityId = $activityId;
+            $this->request['program_id'] = data_get($detail, 'program.identifier.value', '');
+            $modelId = data_get($detail, 'product_reference.identifier.value');
+            $this->request['device_code_type'] = $modelId ? 'DEVICE_DEFINITION' : 'CLASSIFICATION_TYPE';
+            $this->request['device_id'] = $modelId ?: data_get($detail, 'product_codeable_concept.coding.0.code', '');
+            $this->request['device_code_system'] = data_get($detail, 'product_codeable_concept.coding.0.system', '');
+            $this->request['quantity_code'] = data_get($detail, 'quantity.code', 'piece');
+            $this->request['quantity'] = null;
+            $this->request['parameter_values'] = [];
+            $this->refreshOptions();
+        } catch (Throwable $exception) {
+            $this->reportError($exception);
+        }
+    }
+
+    #[Computed]
+    public function carePlanApprovalContext(): array
+    {
+        if (!$this->carePlanApprovalRequired || $this->selectedCarePlanId === null) {
+            return [];
+        }
+        if (Auth::user()->cannot('create', DeviceRequestRequest::class)) {
+            Session::flash('error', __('device-requests.policy.create'));
+
+            return [];
+        }
+
+        try {
+            // Consent must target the selected encounter actor, never another available writer.
+            return ['actingEmployeeUuid' => $this->carePlanActorUuid()];
+        } catch (Throwable $exception) {
+            $this->reportError($exception);
+
+            return [];
+        }
+    }
+
+    private function carePlanActorUuid(): string
+    {
+        $encounter = MedicalEventsRepository::deviceRequest()->encounterForPerson($this->person, $this->request['encounter_uuid'] ?? '');
+        $employee = app(DeviceRequestLifecycleService::class)->authorizeAction($this->legalEntity, 'device_request:write', $encounter->performer?->value);
+        app(DeviceRequestLifecycleService::class)->encounter($this->person, $employee, $encounter->uuid);
+
+        return $employee->uuid;
+    }
+
+    private function clearCarePlanSelection(): void
+    {
+        $this->carePlanUuid = $this->activityUuid = null;
+        $this->selectedCarePlanId = $this->selectedCarePlanActivityId = null;
+        $this->carePlanActivityChoices = [];
+        $this->carePlanApprovalRequired = false;
+        $this->draftId = null;
+        $this->showSignatureModal = false;
+    }
+
+    /** Re-resolve IDs at save and signing so revoked approval or another patient's activity cannot be reused. */
+    private function assertCarePlanSelection(): void
+    {
+        if ($this->carePlanUuid === null && $this->activityUuid === null) {
+            if ($this->selectedCarePlanId !== null) {
+                throw ValidationException::withMessages(['activity' => __('device-requests.validation.inactive_plan')]);
+            }
+
+            return;
+        }
+        $plan = Repository::carePlan()->findByUuid($this->carePlanUuid, $this->legalEntityId, $this->personId);
+        $choices = $plan === null ? [] : Repository::carePlan()->documentActivityChoices(
+            $plan->id,
+            $this->personId,
+            $this->request['encounter_uuid'] ?? '',
+            Auth::user(),
+            'device_request',
+            $this->carePlanActorUuid()
+        );
+        if (!collect($choices)->contains('uuid', $this->activityUuid)) {
+            throw ValidationException::withMessages(['activity' => __('device-requests.validation.inactive_plan')]);
+        }
+    }
+
+    #[Computed]
+    public function selectedCarePlan(): ?CarePlan
+    {
+        return $this->selectedCarePlanId === null ? null : Repository::carePlan()->findById($this->selectedCarePlanId);
+    }
+
     public function updatedRequest(mixed $value, string $key): void
     {
         $this->showSignatureModal = false;
         $this->resetErrorBag('request.'.$key);
+        if ($key === 'encounter_uuid') {
+            $this->clearCarePlanSelection();
+            $this->carePlanChoices = [];
+        }
 
         if (preg_match('/^reason_reference\.(\d+)\.type$/D', $key, $matches)) {
             $this->request['reason_reference'][(int) $matches[1]]['uuid'] = '';
@@ -315,7 +516,7 @@ class DeviceRequestForm extends Component
             $cap = $daily ? (float) $daily * $days : null;
 
             if ($this->carePlanUuid !== null) {
-                $context = $service->carePlanContext($this->person, $this->carePlanUuid, $this->activityUuid);
+                $context = $service->carePlanContext($this->person, $this->carePlanUuid, $this->activityUuid, $this->carePlanActorUuid());
                 $remaining = data_get($context, 'detail.remaining_quantity.value', data_get($context, 'detail.remaining_quantity'));
 
                 if (is_numeric($remaining)) {
@@ -404,6 +605,7 @@ class DeviceRequestForm extends Component
         $service = app(DeviceRequestLifecycleService::class);
 
         try {
+            $this->assertCarePlanSelection();
             $this->request['uuid'] = $this->requestUuid;
             $prepared = $service->prepare($this->person, $this->legalEntity, $this->request, $this->carePlanUuid, $this->activityUuid);
 
@@ -430,7 +632,10 @@ class DeviceRequestForm extends Component
 
             return true;
         } catch (Throwable $exception) {
-            $this->refreshOptions();
+            // A rejected consent or field validation must not trigger another catalog request.
+            if (!$exception instanceof ValidationException) {
+                $this->refreshOptions();
+            }
             $this->reportError($exception);
 
             return false;
@@ -454,14 +659,15 @@ class DeviceRequestForm extends Component
 
     public function sign(): void
     {
-        $this->validate(['form.knedp' => 'required|string', 'form.keyContainerUpload' => 'required|file|max:1024|extensions:dat,pfx,zs2,jks', 'form.password' => 'required|string']);
         $lock = Cache::lock('device-request-sign:'.$this->person->uuid.':'.($this->activityUuid ?? $this->requestUuid), 600);
 
         try {
+            $this->validate(['form.knedp' => 'required|string', 'form.keyContainerUpload' => 'required|file|max:1024|extensions:dat,pfx,zs2,jks', 'form.password' => 'required|string']);
             if (!$lock->get()) {
                 throw ValidationException::withMessages(['sign' => __('device-requests.validation.concurrent_prescribing')]);
             }
 
+            $this->assertCarePlanSelection();
             $record = $this->ownedDraft();
             abort_unless($record->status === 'draft', 409);
             $saved = $record->requestPayload;
@@ -471,7 +677,8 @@ class DeviceRequestForm extends Component
             $prepared = $service->prepare($this->person, $this->legalEntity, $saved['data'], $saved['carePlanUuid'], $saved['activityUuid']);
             $signedData = signatureService()->signData($prepared['payload'], $this->form['password'], $this->form['knedp'], $this->form['keyContainerUpload'], (string) Auth::user()->party->taxId);
             $response = EHealth::deviceRequest()->createSigned($this->person->uuid, ['signed_data' => $signedData, 'signed_data_encoding' => 'base64']);
-            app(EHealthJobResolver::class)->resolve($response->getData());
+            $resolver = app(EHealthJobResolver::class);
+            $resolver->assertSuccessful($resolver->resolve($response->validate()));
             $remote = $service->details($this->person, $record->uuid);
 
             if (($remote['status'] ?? '') !== 'active' || empty($remote['requisition'])) {
@@ -480,16 +687,23 @@ class DeviceRequestForm extends Component
 
             $service->sync($this->person, $remote);
             Session::flash('success', $service->createdMessage($remote['requisition'], !empty($saved['data']['program_id']), $prepared['authType']));
-            $this->redirectRoute('persons.device-requests.view', ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'deviceRequest' => $record->uuid]);
-        } catch (Throwable $exception) {
-            $this->refreshOptions();
-            $this->reportError($exception);
-        } finally {
-            $lock->release();
             $this->showSignatureModal = false;
             $this->form['password'] = '';
             $this->form['keyContainerUpload'] = null;
             $this->form['keyContainerFileName'] = '';
+            $this->redirectRoute('persons.device-requests.view', ['legalEntity' => $this->legalEntity, 'person' => $this->person, 'deviceRequest' => $record->uuid]);
+        } catch (Throwable $exception) {
+            // Field and local validation errors must not trigger another external request.
+            if (!$exception instanceof ValidationException) {
+                try {
+                    $this->refreshOptions();
+                } catch (Throwable $refreshException) {
+                    report($refreshException);
+                }
+            }
+            $this->reportError($exception);
+        } finally {
+            $lock->release();
         }
     }
 

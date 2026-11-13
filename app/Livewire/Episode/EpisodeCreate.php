@@ -11,10 +11,12 @@ use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Models\MedicalEvents\Sql\Episode;
 use App\Repositories\MedicalEvents\Repository;
+use App\Services\MedicalEvents\EHealthJobResolver;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Ramsey\Uuid\Uuid;
 use Throwable;
 
 class EpisodeCreate extends BaseEpisodeComponent
@@ -28,7 +30,7 @@ class EpisodeCreate extends BaseEpisodeComponent
     {
         parent::initializeComponent();
 
-        $this->form->id = Str::uuid()->toString();
+        $this->form->id = Uuid::uuid1()->toString();
         $this->form->startDate = now()->format(config('app.date_format'));
         $this->form->startTime = now()->format('H:i');
     }
@@ -56,16 +58,30 @@ class EpisodeCreate extends BaseEpisodeComponent
 
         try {
             $response = EHealth::episode()->create($this->uuid, Arr::toSnakeCase($formattedData));
+            $resolver = app(EHealthJobResolver::class);
+            $resolver->assertSuccessful($resolver->resolve($response->validate()));
+            // A processed job confirms acceptance, while the patient-scoped detail
+            // supplies the authoritative episode persisted by this operation.
+            $confirmedEpisode = EHealth::episode()->getById($this->uuid, $formattedData['id'])->validate();
+            if ($confirmedEpisode['uuid'] !== $formattedData['id']
+                || $confirmedEpisode['status'] !== Status::ACTIVE->value
+                || data_get($confirmedEpisode, 'managing_organization.identifier.value') !== data_get($formattedData, 'managingOrganization.identifier.value')
+                || data_get($confirmedEpisode, 'care_manager.identifier.value') !== data_get($formattedData, 'careManager.identifier.value')) {
+                throw ValidationException::withMessages(['episode' => __('errors.ehealth.messages.response_contract_invalid')]);
+            }
+        } catch (ValidationException $exception) {
+            Session::flash('error', __('errors.ehealth.messages.validation_error'));
+
+            return;
         } catch (EHealthException|EHealthConnectionException $exception) {
             $exception->handle('Error while creating episode');
 
             return;
         }
 
-        logger()->debug('Job ID to further debug', $response->getData());
         // eHealth accepted the episode; only now persist it locally
         try {
-            Repository::episode()->store($formattedData, $this->patient());
+            Repository::episode()->syncFull($this->patient(), [$confirmedEpisode]);
         } catch (Throwable $exception) {
             $this->handleDatabaseErrors($exception, 'Failed to store created episode');
 

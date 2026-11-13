@@ -1,9 +1,12 @@
+@use('App\Enums\JobStatus')
+@use('Illuminate\Support\Facades\Lang')
+@use('App\Services\MedicalEvents\InformWith')
 <div
     x-data="{ openServiceCatalog: false }"
     @encounter-referral-service-catalog-close.window="openServiceCatalog = false"
 >
     @php
-        $submissionPending = ($encounterReferralSubmission['status'] ?? null) === \App\Enums\JobStatus::PENDING->value;
+        $submissionPending = ($encounterReferralSubmission['status'] ?? null) === JobStatus::PENDING->value;
         $preparingSignature = $prepareReferralForSigning ?? false;
     @endphp
     @if ($submissionPending)
@@ -20,7 +23,87 @@
         </div>
     @endif
     <form wire:submit.prevent="validateEncounterReferral" class="space-y-6">
-        <fieldset @disabled($submissionPending || $preparingSignature || ($referralReadonly ?? false)) class="fieldset-card p-6 sm:p-8">
+        @if (($personId ?? null) !== null && !($referralReadonly ?? false))
+            <fieldset @disabled($submissionPending || $preparingSignature) class="fieldset-card p-6 sm:p-8">
+                <legend class="legend">
+                    {{ __('referrals.plan_link.title') }}
+                </legend>
+                <div class="form-row-2 mt-6">
+                    <div class="form-group group">
+                        <label for="referralPlanSearch" class="label">
+                            {{ __('forms.search') }}
+                        </label>
+                        <input
+                            id="referralPlanSearch"
+                            type="search"
+                            class="input peer w-full"
+                            wire:model.live.debounce.300ms="encounterReferralPlanSearch"
+                        />
+                    </div>
+                    <div class="form-group group">
+                        <label for="referralPlan" class="label">
+                            {{ __('referrals.plan_link.plan') }}
+                        </label>
+                        <select
+                            id="referralPlan"
+                            class="input-select peer w-full"
+                            wire:model.live="encounterReferralForm.care_plan_id"
+                        >
+                            <option value="0">{{ __('referrals.plan_link.without_plan') }}</option>
+                            @foreach ($this->encounterReferralPlanChoices as $plan)
+                                <option value="{{ $plan['id'] }}">{{ $plan['label'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                @php
+                    $selectedPlan = collect($this->encounterReferralPlanChoices)->firstWhere('id', (int) ($encounterReferralForm['care_plan_id'] ?? 0));
+                    $selectedActivity = collect($this->encounterReferralActivityChoices)->firstWhere('id', (int) ($encounterReferralForm['care_plan_activity_id'] ?? 0));
+                @endphp
+                @if ($selectedPlan !== null && $selectedPlan['approvalRequired'])
+                    <div class="mt-4">
+                        <p class="mb-4">
+                            {{ __('referrals.plan_link.obtain_access') }}
+                        </p>
+                        @livewire('care-plan.care-plan-approvals', $this->encounterReferralApprovalContext, key('encounter-referral-plan-approval-'.$selectedPlan['id'].'-'.$this->encounterReferralApprovalContext['actingEmployeeUuid']))
+                    </div>
+                @elseif ($selectedPlan !== null)
+                    <div class="form-group group mt-6">
+                        <label for="referralPlanActivity" class="label required">
+                            {{ __('referrals.plan_link.activity') }}
+                        </label>
+                        <select
+                            id="referralPlanActivity"
+                            class="input-select peer w-full"
+                            wire:model.live="encounterReferralForm.care_plan_activity_id"
+                        >
+                            <option value="0">{{ __('forms.select') }}</option>
+                            @foreach ($this->encounterReferralActivityChoices as $activity)
+                                <option value="{{ $activity['id'] }}">{{ $activity['description'] ?: $activity['uuid'] }}</option>
+                            @endforeach
+                        </select>
+                        @error('encounterReferralForm.care_plan_activity_id')
+                            <p class="text-error">{{ $message }}</p>
+                        @enderror
+                        @if ($selectedActivity !== null)
+                            <p class="mt-2 text-sm" role="status">
+                                {{ __('care-plan.remaining_quantity') }}:
+                                {{ data_get($selectedActivity, 'remainingQuantity.value') ?? __('referrals.plan_link.unknown_remaining') }}
+                                {{ data_get($selectedActivity, 'remainingQuantity.unit') ?? data_get($selectedActivity, 'remainingQuantity.code') }}
+                            </p>
+                            <p class="mt-2 text-sm" role="status">
+                                {{ __('referrals.plan_link.activity_capacity') }}:
+                                {{ data_get($selectedActivity, 'serviceCreationCapacity.remaining') }}
+                            </p>
+                        @endif
+                    </div>
+                @endif
+            </fieldset>
+        @endif
+        <fieldset
+            @disabled($submissionPending || $preparingSignature || ($referralReadonly ?? false))
+            class="fieldset-card p-6 sm:p-8"
+        >
             <legend class="legend">{{ __('encounters.service') }}</legend>
             <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div class="form-group group md:col-span-2">
@@ -83,7 +166,7 @@
                                     $serviceCategoryKey = 'encounters.referral_category.'.strtolower((string) ($service['category'] ?? ''));
                                 @endphp
 
-                                @if (\Illuminate\Support\Facades\Lang::has($serviceCategoryKey))
+                                @if (Lang::has($serviceCategoryKey))
                                     <div class="text-xs text-gray-500 dark:text-gray-400">
                                         {{ __($serviceCategoryKey) }}
                                     </div>
@@ -120,7 +203,7 @@
                     <select
                         id="encounterReferralCategory"
                         class="input-select peer w-full"
-                        wire:model="encounterReferralForm.category"
+                        wire:model.live="encounterReferralForm.category"
                         @disabled($encounterReferralIsTransfer)
                     >
                         @if ($encounterReferralServiceType === 'service_group')
@@ -135,6 +218,30 @@
                     </select>
                 </div>
 
+                @if (!$encounterReferralIsTransfer)
+                    <div class="form-group group md:col-span-2">
+                        <label
+                            for="referralDestinationUuid"
+                            class="label"
+                        >{{ __('encounters.referral_destination') }}</label>
+                        <input
+                            id="referralDestinationUuid"
+                            type="text"
+                            wire:model="encounterReferralDestinationUuid"
+                            class="input w-full"
+                            placeholder="{{ __('referrals.destination_identifier') }}"
+                        />
+                        @error('encounterReferralDestinationUuid')
+                            <p class="text-error text-xs">{{ $message }}</p>
+                        @enderror
+                        <button type="button" class="button-minor mt-2" wire:click="selectEncounterReferralDestination">
+                            {{ __('forms.select') }}
+                        </button>
+                        @if ($encounterReferralPerformerName !== '')
+                            <p class="mt-2 text-sm">{{ $encounterReferralPerformerName }}</p>
+                        @endif
+                    </div>
+                @endif
                 @if ($encounterReferralIsTransfer)
                     <div class="form-group group md:col-span-2">
                         <label
@@ -170,10 +277,31 @@
                             @endforeach
                         </select>
                     </div>
+                @endif
+                @if (!$encounterReferralIsTransfer && $encounterReferralDivisions !== [])
+                    <div class="form-group group">
+                        <label
+                            for="referralDestinationDivision"
+                            class="label"
+                        >{{ __('encounters.referral_performer_division') }}</label>
+                        <select
+                            id="referralDestinationDivision"
+                            wire:model="encounterReferralForm.location_reference"
+                            class="input-select w-full"
+                        >
+                            <option value="">{{ __('encounters.referral_select_division') }}</option>
+                            @foreach ($encounterReferralDivisions as $division)
+                                <option value="{{ $division['id'] }}">{{ $division['name'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
+
+                @if ($encounterReferralIsTransfer || ($encounterReferralForm['category'] ?? '') === 'hospitalization')
                     <div class="form-group group">
                         <label
                             for="encounterReferralPerformerType"
-                            class="label"
+                            class="label required"
                         >{{ __('encounters.referral_performer_speciality') }}</label>
                         <select
                             id="encounterReferralPerformerType"
@@ -214,7 +342,10 @@
             </div>
         </fieldset>
 
-        <fieldset @disabled($submissionPending || $preparingSignature || ($referralReadonly ?? false)) class="fieldset-card p-6 sm:p-8">
+        <fieldset
+            @disabled($submissionPending || $preparingSignature || ($referralReadonly ?? false))
+            class="fieldset-card p-6 sm:p-8"
+        >
             <legend class="legend">{{ __('encounters.referral_drawer.validity_and_quantity') }}</legend>
             <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-3">
                 @foreach (['started_at' => 'start', 'ended_at' => 'end'] as $field => $period)
@@ -288,7 +419,10 @@
             </div>
         </fieldset>
 
-        <fieldset @disabled($submissionPending || $preparingSignature || ($referralReadonly ?? false)) class="fieldset-card p-6 sm:p-8">
+        <fieldset
+            @disabled($submissionPending || $preparingSignature || ($referralReadonly ?? false))
+            class="fieldset-card p-6 sm:p-8"
+        >
             <legend class="legend">{{ __('encounters.referral_drawer.additional') }}</legend>
             <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div class="form-group group">
@@ -301,9 +435,7 @@
                         <option value="">{{ __('encounters.referral_drawer.not_selected') }}</option>
 
                         @foreach ($encounterReferralAuthMethods as $method)
-                            <option value="{{ \App\Services\MedicalEvents\InformWith::formValue($method) }}">
-                                {{ $method['label'] ?? '' }}
-                            </option>
+                            <option value="{{ InformWith::formValue($method) }}">{{ $method['label'] ?? '' }}</option>
 
                         @endforeach
                     </select>

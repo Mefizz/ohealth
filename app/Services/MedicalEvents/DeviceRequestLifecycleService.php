@@ -6,7 +6,11 @@ namespace App\Services\MedicalEvents;
 
 use App\Classes\eHealth\Api\DeviceRequest;
 use App\Classes\eHealth\EHealth;
+use App\Classes\eHealth\SchemaResponseContract;
 use App\Contracts\EHealthRequestLifecycleContract;
+use App\Core\Arr;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -16,12 +20,15 @@ use App\Policies\DeviceRequestRequestPolicy;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
 use App\Services\Dictionary\Collections\BasicDictionaryCollection;
+use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Picqer\Barcode\BarcodeGeneratorPNG;
 
 class DeviceRequestLifecycleService extends EHealthRequestLifecycleService implements EHealthRequestLifecycleContract
 {
@@ -42,14 +49,18 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
     {
         $items = [];
         $page = 1;
+        $totalPages = null;
         do {
             $response = $fetch($page++);
+            $rows = $response->validate();
             $paging = $response->getPaging();
             if (!isset($paging['page_number'], $paging['total_pages'])
-                || (int) $paging['page_number'] !== $page - 1) {
+                || $paging['page_number'] !== $page - 1
+                || ($totalPages !== null && $paging['total_pages'] !== $totalPages)) {
                 $this->invalid('configuration', __('device-requests.validation.configuration_incomplete'));
             }
-            foreach ($response->getData() as $item) {
+            $totalPages = $paging['total_pages'];
+            foreach ($rows as $item) {
                 $items[] = $item;
             }
         } while ($response->isNotLast());
@@ -59,7 +70,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     public function dictionary(string $name): array
     {
-        $rows = EHealth::dictionary()->getMany(['name' => $name, 'is_active' => true])->getData();
+        $rows = EHealth::dictionary()->getMany(['name' => $name, 'is_active' => true])->validate();
         if ($rows === []) {
             return [];
         }
@@ -75,7 +86,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         ]));
         $types = [];
         foreach ($rows as $row) {
-            foreach ($row['content'] ?? $row['settings'] ?? [] as $entry) {
+            foreach ($this->configurationSettings($row) as $entry) {
                 $system = $entry['system'] ?? '';
                 if ($system === '') {
                     continue;
@@ -93,12 +104,12 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     public function authMethods(Person $person): array
     {
-        return EHealth::person()->getAuthMethods($person->uuid)->getData();
+        return EHealth::person()->getAuthMethods($person->uuid)->validate();
     }
 
     public function program(string $id, bool $requireActive = true): array
     {
-        $program = EHealth::medicalProgram()->asMis()->getById($id)->getData();
+        $program = EHealth::medicalProgram()->asMis()->getById($id)->validate();
         if (($program['id'] ?? '') !== $id || ($program['type'] ?? '') !== 'DEVICE'
             || ($requireActive && !($program['is_active'] ?? false))) {
             $this->invalid('program_id', __('device-requests.validation.program_unavailable'));
@@ -120,22 +131,31 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         return $encounter;
     }
 
-    public function carePlanContext(Person $person, string $carePlanUuid, string $activityUuid): array
+    public function carePlanContext(Person $person, string $carePlanUuid, string $activityUuid, ?string $actingEmployeeUuid = null): array
     {
         $localPlan = Repository::carePlan()->findByUuid($carePlanUuid, legalEntity()?->id, $person->id);
         if ($localPlan === null) {
             $this->invalid('activity', __('care-plan.full_sync_required'));
         }
-        Gate::authorize('manageActivities', $localPlan);
-        $plan = \App\Core\Arr::toSnakeCase(EHealth::carePlan()->getDetails($person->uuid, $carePlanUuid)->validate());
-        $activity = \App\Core\Arr::toSnakeCase(EHealth::carePlanActivity()->getDetails($person->uuid, $carePlanUuid, $activityUuid)->validate());
+        Gate::authorize('manageActivities', [$localPlan, $actingEmployeeUuid]);
+        $plan = Arr::toSnakeCase(EHealth::carePlan()->getDetails($person->uuid, $carePlanUuid)->validate());
+        $activity = Arr::toSnakeCase(EHealth::carePlanActivity()->getDetails($person->uuid, $carePlanUuid, $activityUuid)->validate());
         $detail = $activity['detail'] ?? $activity;
         if (($plan['status'] ?? '') !== 'active'
-            || !in_array($detail['status'] ?? $activity['status'] ?? '', ['scheduled', 'in-progress', 'active'], true)
-            || ($detail['kind'] ?? $activity['kind'] ?? '') !== 'device_request') {
+            || !in_array($detail['status'] ?? ($activity['status'] ?? ''), ['scheduled', 'in-progress', 'active'], true)
+            || ($detail['kind'] ?? ($activity['kind'] ?? '')) !== 'device_request') {
             $this->invalid('activity', __('device-requests.validation.inactive_plan'));
         }
-        foreach ([$plan['period'] ?? [], $detail['scheduled_period'] ?? []] as $period) {
+        $activityPeriod = $detail['scheduled_period'] ?? null;
+        // A non-program activity may omit its period; the plan period always applies.
+        if ($activityPeriod === null && !empty(data_get($detail, 'program.identifier.value'))) {
+            $this->invalid('activity', __('device-requests.validation.plan_period_unavailable'));
+        }
+        $periods = [$plan['period'] ?? []];
+        if ($activityPeriod !== null) {
+            $periods[] = $activityPeriod;
+        }
+        foreach ($periods as $period) {
             if (empty($period['start'])
                 || CarbonImmutable::parse($period['start'])->isFuture()
                 || (!empty($period['end']) && CarbonImmutable::parse($period['end'])->isPast())) {
@@ -157,7 +177,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         $permitted = $this->permittedTypes($programId !== '');
         $model = [];
         if (($data['device_code_type'] ?? '') === 'DEVICE_DEFINITION') {
-            $model = EHealth::deviceDefinition()->getById($data['device_id'])->getData();
+            $model = EHealth::deviceDefinition()->getById($data['device_id'])->validate();
             if (($model['is_active'] ?? false) !== true) {
                 $this->invalid('device_id', __('device-requests.validation.model_inactive'));
             }
@@ -169,7 +189,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         if (!collect($codings)->contains(fn (array $coding): bool => isset($permitted[($coding['system'] ?? '').'|'.($coding['code'] ?? '')]))) {
             $this->invalid('device_id', $programId !== '' ? __('device-requests.validation.type_not_prescribable') : __('device-requests.validation.assistive_only_without_program'));
         }
-        $settings = $program['medical_program_settings'] ?? $program['settings'] ?? [];
+        $settings = $program['medical_program_settings'] ?? ($program['settings'] ?? []);
         if ($programId !== '' && ($program['device_request_allowed'] ?? true) === false) {
             $this->invalid('program_id', __('device-requests.validation.program_prescribing_disallowed'));
         }
@@ -202,7 +222,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
                 foreach ($device['program_devices'] ?? [] as $row) {
                     if ((!isset($row['medical_program_id']) || $row['medical_program_id'] === $programId)
                         && ($row['is_active'] ?? true)
-                        && ($row['device_request_allowed'] ?? $row['request_allowed'] ?? false)
+                        && ($row['device_request_allowed'] ?? ($row['request_allowed'] ?? false))
                         && (empty($row['start_date']) || CarbonImmutable::parse($row['start_date'])->startOfDay()->lessThanOrEqualTo(now()))
                         && (empty($row['end_date']) || CarbonImmutable::parse($row['end_date'])->endOfDay()->greaterThanOrEqualTo(now()))) {
                         $programDevice = $row;
@@ -248,7 +268,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         $parameterConfigs = $this->collectPages(fn (int $page) => EHealth::configuration()->getDeviceParameters(['is_active' => true, 'page' => $page]));
         $parameterDictionaries = [];
         foreach ($parameters as &$parameter) {
-            $configs = array_filter($parameterConfigs, fn (array $config): bool => ($config['code'] ?? $config['parameter_code'] ?? '') === $parameter['code'] && ($config['system'] ?? $config['parameter_system'] ?? '') === $parameter['system']);
+            $configs = array_filter($parameterConfigs, fn (array $config): bool => ($config['code'] ?? ($config['parameter_code'] ?? '')) === $parameter['code'] && ($config['system'] ?? ($config['parameter_system'] ?? '')) === $parameter['system']);
             $parameter['type'] = 'string';
             $parameter['values'] = [];
             foreach ($configs as $config) {
@@ -301,7 +321,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
     private function propertyValueForComparison(mixed $value): mixed
     {
         if (is_int($value) || is_float($value)) {
-            return (string) \Brick\Math\BigDecimal::of(is_float($value) ? json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR) : $value)->stripTrailingZeros();
+            return (string) BigDecimal::of(is_float($value) ? json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR) : $value)->stripTrailingZeros();
         }
         if (!is_array($value)) {
             return $value;
@@ -421,7 +441,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         $period = $this->occurrenceDates($data);
         $start = $period['start'];
         $end = $period['end'];
-        $settings = $options['program']['medical_program_settings'] ?? $options['program']['settings'] ?? [];
+        $settings = $options['program']['medical_program_settings'] ?? ($options['program']['settings'] ?? []);
         if (($settings['care_plan_required'] ?? false) && ($carePlanUuid === null || $activityUuid === null)) {
             $this->invalid('activity', __('device-requests.validation.care_plan_required'));
         }
@@ -430,7 +450,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         }
         $remaining = null;
         if ($carePlanUuid !== null && $activityUuid !== null) {
-            $context = $this->carePlanContext($person, $carePlanUuid, $activityUuid);
+            $context = $this->carePlanContext($person, $carePlanUuid, $activityUuid, $employee->uuid);
             $detail = $context['detail'];
             $remaining = data_get($detail, 'remaining_quantity.value', $detail['remaining_quantity'] ?? null);
             $remaining = is_numeric($remaining) ? (float) $remaining : null;
@@ -450,7 +470,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             if ($activityProgram !== ($data['program_id'] ?? '') || (string) $activityDevice !== $data['device_id']) {
                 $this->invalid('activity', __('device-requests.validation.activity_mismatch'));
             }
-            if ($start->lessThan(CarbonImmutable::parse($detail['scheduled_period']['start']))
+            if ((!empty($detail['scheduled_period']['start']) && $start->lessThan(CarbonImmutable::parse($detail['scheduled_period']['start'])))
                 || (!empty($detail['scheduled_period']['end']) && $end->greaterThan(CarbonImmutable::parse($detail['scheduled_period']['end'])))
                 || $start->lessThan(CarbonImmutable::parse($context['plan']['period']['start']))
                 || (!empty($context['plan']['period']['end']) && $end->greaterThan(CarbonImmutable::parse($context['plan']['period']['end'])))) {
@@ -482,18 +502,18 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         $data['quantity'] = isset($data['quantity']) ? (int) $data['quantity'] : null;
         $data['started_at'] = $start->toIso8601String();
         $data['ended_at'] = $end->toIso8601String();
-        $payload = app(Mappers\DeviceRequestMapper::class)->toCreateSignedContent($data, [
+        $payload = app(DeviceRequestMapper::class)->toCreateSignedContent($data, [
             'person_uuid' => $person->uuid, 'encounter_uuid' => $data['encounter_uuid'],
             'employee_uuid' => $employee->uuid, 'legal_entity_uuid' => $legalEntity->uuid,
         ], $carePlanUuid, $activityUuid);
         // PreQualify requires a program and quantity; Create also supports requests without them.
         if ($data['program_id'] !== '') {
-            $prequalify = app(Mappers\DeviceRequestMapper::class)->toPrequalifyPayload($data, [
+            $prequalify = app(DeviceRequestMapper::class)->toPrequalifyPayload($data, [
                 'person_uuid' => $person->uuid, 'encounter_uuid' => $data['encounter_uuid'],
                 'employee_uuid' => $employee->uuid, 'legal_entity_uuid' => $legalEntity->uuid,
             ], $carePlanUuid, $activityUuid);
             $resolver = app(EHealthJobResolver::class);
-            $resolver->assertPrequalifyValid($resolver->resolve(EHealth::deviceRequest()->prequalify($person->uuid, $prequalify)->getData()));
+            $resolver->assertPrequalifyValid($resolver->resolve(EHealth::deviceRequest()->prequalify($person->uuid, $prequalify)->validate()));
         }
 
         return ['payload' => $payload, 'data' => $data, 'employee' => $employee, 'authType' => $method['type'] ?? ''];
@@ -584,7 +604,10 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
     {
         Validator::make(['id' => $id], ['id' => 'required|uuid'])->validate();
 
-        return EHealth::deviceRequest()->getById($person->uuid, $id)->getData();
+        $remote = EHealth::deviceRequest()->getById($person->uuid, $id)->validate();
+        $this->assertPatientIdentity($person, $remote, $id);
+
+        return $remote;
     }
 
     public function actionContent(Person $person, LegalEntity $legalEntity, string $id, string $action, string $reason, string $text): array
@@ -636,7 +659,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             'revoke' => $api->revoke($person->uuid, $id, ['signed_data' => $signedData]),
             'mark_in_error' => $api->markInError($person->uuid, $id, ['signed_data' => $signedData]),
         };
-        app(EHealthJobResolver::class)->resolve($response->getData());
+        app(EHealthJobResolver::class)->resolve($response->validate());
         $remote = $this->details($person, $id);
         $expected = ['complete' => 'completed', 'revoke' => 'revoked', 'mark_in_error' => 'entered-in-error'][$action];
         if (str_replace('_', '-', $remote['status']) !== $expected) {
@@ -655,13 +678,14 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         $this->authorizeAction($legalEntity, 'device_request:resend');
         Validator::make(['id' => $id], ['id' => 'required|uuid'])->validate();
         $response = EHealth::deviceRequest()->getById($person->uuid, $id);
-        $remote = $response->getData();
+        $remote = $response->validate();
+        $this->assertPatientIdentity($person, $remote, $id);
         $this->assertTransition($remote, 'resend');
         $method = $response->getUrgent()['authentication_method_current'] ?? [];
         if ($method === []) {
             $methods = $this->authMethods($person);
             $method = collect($methods)->firstWhere('id', $remote['inform_with'] ?? null)
-                ?? collect($methods)->firstWhere('type', 'OTP') ?? [];
+                ?? (collect($methods)->firstWhere('type', 'OTP') ?? []);
         }
         if (!$phoneConfirmed || empty($method['phone_number']) || $confirmedPhone !== $method['phone_number']) {
             $this->invalid('phoneConfirmed', __('device-requests.validation.sms_phone_required'));
@@ -673,15 +697,15 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             $this->invalid('sms', __('device-requests.validation.sms_already_attempted'));
         }
         try {
-            $result = EHealth::deviceRequest()->resendSms($person->uuid, $id)->getData();
+            $result = EHealth::deviceRequest()->resendSms($person->uuid, $id)->validate();
             app(EHealthJobResolver::class)->resolve($result);
             DB::table('device_request_sms_resends')->where('device_request_uuid', $id)->update(['confirmed_at' => now()]);
             DeviceRequestRequest::whereUuid($id)->wherePersonId($person->id)->update(['sms_resent_at' => now()]);
-        } catch (\App\Exceptions\EHealth\EHealthValidationException $exception) {
+        } catch (EHealthValidationException $exception) {
             // An explicit rejection is safe to retry. Timeouts/transport failures retain the claim.
             DB::table('device_request_sms_resends')->where('device_request_uuid', $id)->delete();
             throw $exception;
-        } catch (\App\Exceptions\EHealth\EHealthResponseException $exception) {
+        } catch (EHealthResponseException $exception) {
             if ($exception->response->status() < 500) {
                 DB::table('device_request_sms_resends')->where('device_request_uuid', $id)->delete();
             }
@@ -691,6 +715,8 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     public function sync(Person $person, array $remote): DeviceRequestRequest
     {
+        SchemaResponseContract::validateOperationData($remote, 'GET /api/patients/{patient_id}/device_requests/{device_request_id}');
+        $this->assertPatientIdentity($person, $remote);
         $existing = DeviceRequestRequest::whereUuid($remote['id'])->wherePersonId($person->id)->first();
         $employeeId = $existing?->employeeId ?? Employee::whereUuid(data_get($remote, 'requester.identifier.value'))->value('id');
         if (!$employeeId) {
@@ -719,7 +745,8 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
     {
         Validator::make(['id' => $id], ['id' => 'required|uuid'])->validate();
         $response = EHealth::deviceRequest()->getById($person->uuid, $id);
-        $remote = $response->getData();
+        $remote = $response->validate();
+        $this->assertPatientIdentity($person, $remote, $id);
         abort_if(empty($remote['requisition']), 409);
         $programId = data_get($remote, 'program.identifier.value');
         $program = $programId ? $this->program($programId, false) : [];
@@ -727,13 +754,21 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
         if ($programId && !in_array(data_get($urgent, 'authentication_method_current.type'), ['OTP', 'THIRD_PERSON'], true) && empty($urgent['verification_code'])) {
             $this->invalid('printout', __('device-requests.validation.print_code_unavailable'));
         }
-        $generator = new \Picqer\Barcode\BarcodeGeneratorPNG();
+        $generator = new BarcodeGeneratorPNG();
         $barcode = base64_encode($generator->getBarcode($remote['requisition'], $generator::TYPE_CODE_128_A, 2, 50));
 
         return view('livewire.device-request.printout', [
             'record' => $remote, 'person' => $person, 'barcode' => $barcode,
             'urgent' => $urgent, 'program' => $program,
         ])->render();
+    }
+
+    private function assertPatientIdentity(Person $person, array $remote, ?string $id = null): void
+    {
+        if (($id !== null && $remote['id'] !== $id)
+            || data_get($remote, 'subject.identifier.value') !== $person->uuid) {
+            $this->invalid('id', __('device-requests.validation.configuration_invalid'));
+        }
     }
 
     private function invalid(string $field, string $message): never
@@ -743,7 +778,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     private function configurationSettings(array $configuration): array
     {
-        $settings = $configuration['settings'] ?? $configuration['config'] ?? [];
+        $settings = $configuration['settings'] ?? ($configuration['config'] ?? []);
         if (is_string($settings)) {
             $settings = json_decode($settings, true, flags: JSON_THROW_ON_ERROR);
         }
@@ -756,24 +791,24 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
 
     public function preQualify(array $payload): array
     {
-        return $this->callEHealth('Prequalify', static fn (): array => app(DeviceRequest::class)->preQualify($payload)->getData());
+        return $this->callEHealth('Prequalify', static fn (): array => app(DeviceRequest::class)->preQualify($payload)->validate());
     }
 
     public function createDraft(array $payload): array
     {
-        return $this->callEHealth('Create Draft', static fn (): array => app(DeviceRequest::class)->createDeviceRequest($payload)->getData());
+        return $this->callEHealth('Create Draft', static fn (): array => app(DeviceRequest::class)->createDeviceRequest($payload)->validate());
     }
 
     public function sign(string $id, array $payload): array
     {
         $payload = $this->normalizeSignedPayload($payload);
 
-        return $this->callEHealth('Sign', static fn (): array => app(DeviceRequest::class)->signDeviceRequest($id, $payload)->getData());
+        return $this->callEHealth('Sign', static fn (): array => app(DeviceRequest::class)->signDeviceRequest($id, $payload)->validate());
     }
 
     public function reject(string $id, array $payload): array
     {
-        return $this->callEHealth('Reject', static fn (): array => app(DeviceRequest::class)->rejectDeviceRequest($id, $payload)->getData());
+        return $this->callEHealth('Reject', static fn (): array => app(DeviceRequest::class)->rejectDeviceRequest($id, $payload)->validate());
     }
 
     protected function requestType(): string

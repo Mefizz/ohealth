@@ -11,7 +11,11 @@
         <script src="{{ asset('js/print-sandboxed.js') }}"></script>
     @endassets
     <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
+    @if ($registryPrintUuid !== null)
+        <div x-data x-init="$wire.loadReferralPrintoutForm(@js($registryPrintUuid)).then((html) => { if (html) window.printSandboxedHtml(html); })"></div>
+    @endif
     @include('livewire.encounter-package.parts.referral-redeem-modal')
+    @include('livewire.person.records.parts.completed-referral-resource')
     @if ($syncBatchId !== null)
         <div wire:poll.5s="checkSyncStatus" role="status">{{ __('referrals.messages.sync_running') }}</div>
     @endif
@@ -218,6 +222,16 @@
                                                 @icon('eye', 'w-5 h-5 text-gray-500')
                                                 {{ $expandedUuid === $referral['uuid'] ? __('referrals.registry.hide') : __('forms.view_details') }}
                                             </button>
+                                            @if ($referral['canViewCompletedResource'] ?? false)
+                                                <button
+                                                    type="button"
+                                                    class="dropdown-item"
+                                                    @click="close($refs.button)"
+                                                    wire:click="viewCompletedResource('{{ $referral['uuid'] }}')"
+                                                >
+                                                    {{ __('referrals.completed_resource') }}
+                                                </button>
+                                            @endif
                                             @if (!empty($referral['canSign']))
                                                 <button
                                                     type="button"

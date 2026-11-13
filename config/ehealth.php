@@ -45,6 +45,9 @@ $specialistSpecialityTypes = [
 ];
 
 return [
+    // Official National Price Catalogue published by MOZ/DEC, verified 2026-11-11.
+    'national_price_catalogue_url' => 'https://ecatalog.moz.gov.ua/',
+
     'api' => [
         'domain' => env('EHEALTH_API_URL', 'private-anon-cb2ce4f7fc-uaehealthapi.apiary-mock.com'),
         'token' => env('EHEALTH_X_CUSTOM_PSK', 'X-Custom-PSK'),
@@ -75,6 +78,12 @@ return [
         'page_size_le_connections_max' => env('EHEALTH_MIS_CONNECTIONS_PAGE_SIZE_MAX', 100),
         // Install seeds icd_10 from the live dictionary. CI has no PSK; the public mock returns 403.
         'seed_icd10_from_api' => filter_var(env('EHEALTH_SEED_ICD10', true), FILTER_VALIDATE_BOOL),
+    ],
+
+    // TV39 names are supplied from the deployment's ESOZ configuration; unset values deny reuse/assistant categories.
+    'referrals' => [
+        'assistant_allowed_categories' => array_values(array_filter(array_map('trim', explode(',', (string) env('ASSISTANT_SERVICE_REQUEST_ALLOWED_CATEGORIES', ''))))),
+        'reuse_after_minutes' => env('SERVICE_REQUEST_REUSE_AFTER_MINUTES'),
     ],
 
     'party_verification' => [

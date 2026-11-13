@@ -8,22 +8,30 @@ use App\Classes\eHealth\EHealth;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\MedicalEvents\ClinicalStorageException;
+use App\Livewire\MedicationRequest\Forms\PrescriptionRules;
+use App\Models\CarePlan;
+use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
 use App\Services\Dictionary\MedicationProgramPicker;
+use App\Services\MedicalEvents\Mappers\MedicationRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Validation\ValidationException;
-use Livewire\Attributes\Locked;
-use Throwable;
 use Illuminate\Validation\Rule;
-use Livewire\Attributes\Computed;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
+use Throwable;
 
 trait ManagesEncounterEPrescription
 {
@@ -43,10 +51,30 @@ trait ManagesEncounterEPrescription
     #[Locked]
     public array $encounterEPrescriptionDraftForm = [];
 
+    #[Locked]
+    public ?string $encounterPrescriptionCreatedRequestId = null;
+
     public string $encounterEPrescriptionWarningMessage = '';
 
     /** @var list<array{id: string, name: string}> */
     public array $encounterEPrescriptionPrograms = [];
+
+    public string $encounterEPrescriptionPlanSearch = '';
+
+    #[Locked]
+    public array $encounterEPrescriptionPlanChoices = [];
+
+    #[Locked]
+    public array $encounterEPrescriptionActivityChoices = [];
+
+    #[Locked]
+    public ?int $encounterEPrescriptionPlanId = null;
+
+    #[Locked]
+    public ?int $encounterEPrescriptionActivityId = null;
+
+    #[Locked]
+    public bool $encounterEPrescriptionApprovalRequired = false;
 
     public string $encounterEPrescriptionSearchQuery = '';
 
@@ -54,6 +82,7 @@ trait ManagesEncounterEPrescription
     public array $encounterEPrescriptionSearchResults = [];
 
     /** @var array<string, mixed>|null */
+    #[Locked]
     public ?array $encounterEPrescriptionSelectedMedication = null;
 
     #[Computed]
@@ -64,6 +93,154 @@ trait ManagesEncounterEPrescription
         } catch (InvalidArgumentException) {
             return [];
         }
+    }
+
+    /** BA08 reuses CP search and consent; searching alone has no remote or clinical side effects. */
+    #[On('care-plan-approvals-changed')]
+    public function searchEncounterEPrescriptionCarePlans(): void
+    {
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter === null || !$this->guardEncounterPrescriptionCreate($encounter)) {
+            return;
+        }
+        try {
+            $this->validate(['encounterEPrescriptionPlanSearch' => ['string', 'max:255']]);
+            $this->encounterEPrescriptionPlanChoices = Repository::carePlan()->documentPlanChoices(
+                $this->personId,
+                $encounter->uuid,
+                Auth::user(),
+                $this->encounterEPrescriptionPlanSearch,
+                $encounter->performer?->value
+            );
+            if ($this->encounterEPrescriptionPlanId !== null) {
+                $plan = collect(Repository::carePlan()->documentPlanChoices(
+                    $this->personId,
+                    $encounter->uuid,
+                    Auth::user(),
+                    actingEmployeeUuid: $encounter->performer?->value
+                ))->firstWhere('id', $this->encounterEPrescriptionPlanId);
+                if ($plan !== null && !collect($this->encounterEPrescriptionPlanChoices)->contains('id', $plan['id'])) {
+                    $this->encounterEPrescriptionPlanChoices[] = $plan;
+                }
+                $this->encounterEPrescriptionApprovalRequired = $plan === null || $plan['approvalRequired'];
+                $this->encounterEPrescriptionActivityChoices = $this->encounterEPrescriptionApprovalRequired ? [] : Repository::carePlan()->documentActivityChoices(
+                    $this->encounterEPrescriptionPlanId,
+                    $this->personId,
+                    $encounter->uuid,
+                    Auth::user(),
+                    'medication_request',
+                    $encounter->performer?->value
+                );
+            }
+        } catch (ValidationException $exception) {
+            $this->encounterEPrescriptionPlanChoices = $this->encounterEPrescriptionActivityChoices = [];
+            Session::flash('error', $exception->getMessage());
+        } catch (Throwable $exception) {
+            $this->encounterEPrescriptionPlanChoices = $this->encounterEPrescriptionActivityChoices = [];
+            report($exception);
+            Session::flash('error', __('care-plan.related_plan_unavailable'));
+        }
+    }
+
+    public function selectEncounterEPrescriptionCarePlan(int $planId): void
+    {
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter === null || !$this->guardEncounterPrescriptionCreate($encounter)) {
+            return;
+        }
+        $this->invalidateEncounterEPrescriptionDraft();
+        $this->encounterEPrescriptionPlanId = $this->encounterEPrescriptionActivityId = null;
+        $this->encounterEPrescriptionActivityChoices = [];
+        $this->encounterEPrescriptionApprovalRequired = false;
+        if ($planId === 0) {
+            return;
+        }
+        $this->searchEncounterEPrescriptionCarePlans();
+        $choice = collect($this->encounterEPrescriptionPlanChoices)->firstWhere('id', $planId);
+        if ($choice === null) {
+            Session::flash('error', __('care-plan.related_plan_unavailable'));
+
+            return;
+        }
+        $this->encounterEPrescriptionPlanId = $planId;
+        $this->encounterEPrescriptionApprovalRequired = $choice['approvalRequired'];
+        $this->searchEncounterEPrescriptionCarePlans();
+    }
+
+    public function selectEncounterEPrescriptionActivity(int $activityId): void
+    {
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter === null || !$this->guardEncounterPrescriptionCreate($encounter)) {
+            return;
+        }
+        $this->searchEncounterEPrescriptionCarePlans();
+        $choice = collect($this->encounterEPrescriptionActivityChoices)->firstWhere('id', $activityId);
+        if ($choice === null || $this->encounterEPrescriptionApprovalRequired) {
+            Session::flash('error', __('care-plan.related_plan_unavailable'));
+
+            return;
+        }
+        $activity = Repository::carePlanActivity()->findOwned($this->encounterEPrescriptionPlanId, $activityId);
+        $resource = Repository::carePlanActivity()->getResource($activity);
+        $this->invalidateEncounterEPrescriptionDraft();
+        $this->encounterEPrescriptionActivityId = $activityId;
+        $this->encounterEPrescriptionForm['program_id'] = data_get($resource, 'detail.program.identifier.value', '');
+        $this->encounterEPrescriptionSelectedMedication = null;
+        $this->encounterEPrescriptionSearchResults = [];
+        $this->encounterEPrescriptionForm['medication_id'] = '';
+    }
+
+    #[Computed]
+    public function encounterEPrescriptionSelectedPlan(): ?CarePlan
+    {
+        return $this->encounterEPrescriptionPlanId === null ? null : Repository::carePlan()->findById($this->encounterEPrescriptionPlanId);
+    }
+
+    #[Computed]
+    public function encounterEPrescriptionApprovalContext(): array
+    {
+        if (!$this->encounterEPrescriptionApprovalRequired || $this->encounterEPrescriptionPlanId === null) {
+            return [];
+        }
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter === null || !$this->guardEncounterPrescriptionCreate($encounter)) {
+            return [];
+        }
+
+        // Consent must target the selected encounter actor, never another available writer.
+        return ['actingEmployeeUuid' => $encounter->performer->value];
+    }
+
+    private function guardEncounterPrescriptionCreate(Encounter $encounter): bool
+    {
+        if (Auth::user()->cannot('createMedicationRequest', [$encounter, Person::findOrFail($this->personId), legalEntity()])) {
+            Session::flash('error', __('medication-requests.own_finished_encounter_required'));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** A selected Activity must still be offered for this patient, encounter and exact current author at submission. */
+    private function encounterEPrescriptionActivityForCreate(Encounter $encounter): ?CarePlanActivity
+    {
+        if ($this->encounterEPrescriptionPlanId === null) {
+            return null;
+        }
+        $choices = Repository::carePlan()->documentActivityChoices(
+            $this->encounterEPrescriptionPlanId,
+            $this->personId,
+            $encounter->uuid,
+            Auth::user(),
+            'medication_request',
+            $encounter->performer?->value
+        );
+        if (!collect($choices)->contains('id', $this->encounterEPrescriptionActivityId)) {
+            throw ValidationException::withMessages(['activity' => __('care-plan.related_plan_unavailable')]);
+        }
+
+        return Repository::carePlanActivity()->findOwned($this->encounterEPrescriptionPlanId, $this->encounterEPrescriptionActivityId);
     }
 
     public function openEncounterEPrescriptionDrawer(): void
@@ -83,16 +260,23 @@ trait ManagesEncounterEPrescription
             return;
         }
 
+        if (!$this->guardEncounterPrescriptionCreate($encounter)) {
+            return;
+        }
+        $this->encounterEPrescriptionPlanId = $this->encounterEPrescriptionActivityId = null;
+        $this->encounterEPrescriptionPlanChoices = $this->encounterEPrescriptionActivityChoices = [];
+        $this->encounterEPrescriptionApprovalRequired = false;
         $this->loadEncounterEPrescriptionAuthMethods($encounter);
         $this->loadEncounterEPrescriptionPrograms();
         $this->invalidateEncounterEPrescriptionDraft();
 
+        $categories = $this->encounterEPrescriptionCategories();
         $this->encounterEPrescriptionForm = [
             'medication_id' => '',
             'program_id' => '',
-            'category' => array_key_exists('community', $this->encounterEPrescriptionCategories)
+            'category' => array_key_exists('community', $categories)
                 ? 'community'
-                : (array_key_first($this->encounterEPrescriptionCategories) ?? ''),
+                : (array_key_first($categories) ?? ''),
             'medication_qty' => '1',
             'medication_unit' => 'од.',
             'signature_text' => '',
@@ -101,7 +285,13 @@ trait ManagesEncounterEPrescription
             'max_dose_per_administration' => '1',
             'max_dose_per_period' => '1',
             'started_at' => now()->format((string) config('app.date_format')),
-            'ended_at' => now()->addDays(30)->format((string) config('app.date_format')),
+            'ended_at' => now()->addDays(29)->format((string) config('app.date_format')),
+            'duration' => 30,
+            'dose_input_unit' => 'denominator',
+            'dose_ingredient_id' => '',
+            'dose_warning_confirmed' => false,
+            'phone_confirmed' => false,
+            'container_dosage' => '',
             'note' => '',
             'inform_with' => $this->encounterEPrescriptionAuthMethods[0]['value'] ?? '',
         ];
@@ -128,6 +318,15 @@ trait ManagesEncounterEPrescription
         }
         if ($key !== null) {
             $this->resetValidation('encounterEPrescriptionForm.'.$key);
+        }
+        if (in_array($key, ['duration', 'started_at'], true)) {
+            $this->calculateEncounterPrescriptionDates();
+        }
+        if (in_array($key, ['max_dose_per_period', 'max_dose_per_administration', 'dose_input_unit', 'dose_ingredient_id'], true)) {
+            $this->encounterEPrescriptionForm['dose_warning_confirmed'] = false;
+        }
+        if ($key === 'inform_with') {
+            $this->encounterEPrescriptionForm['phone_confirmed'] = false;
         }
         $this->encounterEPrescriptionWarningMessage = '';
     }
@@ -172,17 +371,17 @@ trait ManagesEncounterEPrescription
         $filters['medical_program_id'] = $selectedProgramId;
 
         try {
-            $response = EHealth::drug()->getMany($filters)->getData();
+            $response = EHealth::drug()->getMany($filters)->validate();
             $this->encounterEPrescriptionSearchResults = collect(is_array($response) ? $response : [])
                 ->map(static function (array $drug): array {
-                    return [
+                    return array_replace($drug, [
                         'id' => (string) ($drug['id'] ?? ''),
                         'name' => (string) ($drug['name'] ?? ''),
                         'innm_name' => collect($drug['ingredients'] ?? [])->pluck('name')->filter()->implode(', ') ?: (string) ($drug['innm_name'] ?? ''),
-                        'innm_dosage_form' => (string) ($drug['form'] ?? $drug['innm_dosage_form'] ?? ''),
+                        'innm_dosage_form' => (string) ($drug['form'] ?? ($drug['innm_dosage_form'] ?? '')),
                         'ingredients' => is_array($drug['ingredients'] ?? null) ? $drug['ingredients'] : [],
                         'packages' => is_array($drug['packages'] ?? null) ? $drug['packages'] : [],
-                    ];
+                    ]);
                 })
                 ->filter(static fn (array $drug): bool => $drug['id'] !== '')
                 ->values()
@@ -211,14 +410,15 @@ trait ManagesEncounterEPrescription
         $this->resetValidation('encounterEPrescriptionForm.medication_id');
         $this->encounterEPrescriptionSelectedMedication = $selectedMedication;
         try {
-            $this->encounterEPrescriptionForm['medication_unit'] = (new \App\Services\MedicalEvents\Mappers\MedicationRequestMapper())->medicationUnit($selectedMedication);
-        } catch (\InvalidArgumentException $exception) {
+            $this->encounterEPrescriptionForm['medication_unit'] = (new MedicationRequestMapper())->medicationUnit($selectedMedication);
+        } catch (InvalidArgumentException $exception) {
             $this->encounterEPrescriptionForm['medication_unit'] = '';
             $this->encounterEPrescriptionWarningMessage = $exception->getMessage();
 
             return;
         }
 
+        $this->encounterEPrescriptionForm['dose_ingredient_id'] = $selectedMedication['ingredients'][0]['id'] ?? '';
         $packageStep = $this->resolveEncounterMedicationPackageStep($selectedMedication);
         if ($packageStep > 0) {
             $this->encounterEPrescriptionForm['medication_qty'] = (string) $packageStep;
@@ -261,14 +461,15 @@ trait ManagesEncounterEPrescription
             $this->validate([
                 'encounterEPrescriptionForm.medication_id' => 'required|string|uuid',
                 'encounterEPrescriptionForm.program_id' => 'nullable|string|uuid',
-                'encounterEPrescriptionForm.category' => ['required', 'string', Rule::in(array_keys($this->encounterEPrescriptionCategories))],
+                'encounterEPrescriptionForm.category' => ['required', 'string', Rule::in(array_keys($this->encounterEPrescriptionCategories()))],
                 'encounterEPrescriptionForm.medication_qty' => 'required|numeric|min:0.01',
                 'encounterEPrescriptionForm.signature_text' => 'required|string|min:1',
                 'encounterEPrescriptionForm.max_dose_per_administration' => 'required|numeric|min:0.01',
                 'encounterEPrescriptionForm.max_dose_per_period' => 'required|numeric|min:0.01',
                 'encounterEPrescriptionForm.started_at' => 'required|date',
                 'encounterEPrescriptionForm.ended_at' => 'required|date|after_or_equal:encounterEPrescriptionForm.started_at',
-                'encounterEPrescriptionForm.inform_with' => 'required|string',
+                'encounterEPrescriptionForm.inform_with' => 'nullable|string',
+                'encounterEPrescriptionForm.duration' => 'required|integer|min:1',
             ], [
                 'encounterEPrescriptionForm.ended_at.after_or_equal' => __('errors.ehealth.messages.period_end_before_start'),
             ], [
@@ -291,10 +492,23 @@ trait ManagesEncounterEPrescription
             return;
         }
 
-        $medicationQty = (float) ($this->encounterEPrescriptionForm['medication_qty'] ?? 0);
-        $packageStep = $this->resolveEncounterMedicationPackageStep($this->encounterEPrescriptionSelectedMedication);
-        if ($packageStep > 0 && !$this->isEncounterMedicationQtyDivisible($medicationQty, $packageStep)) {
-            $this->encounterEPrescriptionWarningMessage = __('Кількість ЛЗ має бути кратною фасуванню (:package_step).', ['package_step' => $packageStep]);
+        try {
+            $program = collect($this->encounterEPrescriptionPrograms)->firstWhere('id', $this->encounterEPrescriptionForm['program_id'] ?? '') ?? [];
+            $this->encounterEPrescriptionForm = PrescriptionRules::normalize(
+                $this->encounterEPrescriptionForm,
+                $this->encounterEPrescriptionSelectedMedication ?? [],
+                $program
+            );
+        } catch (ValidationException $exception) {
+            foreach ($exception->errors() as $field => $messages) {
+                $this->addError('encounterEPrescriptionForm.'.$field, $messages[0]);
+            }
+            $this->encounterEPrescriptionWarningMessage = $exception->validator->errors()->first();
+            Session::flash('error', $this->encounterEPrescriptionWarningMessage);
+
+            return;
+        } catch (InvalidArgumentException $exception) {
+            $this->encounterEPrescriptionWarningMessage = $exception->getMessage();
             Session::flash('error', $this->encounterEPrescriptionWarningMessage);
 
             return;
@@ -311,15 +525,20 @@ trait ManagesEncounterEPrescription
             }
 
             $employeeContext = app(MedicationRequestLifecycleService::class)->resolveEncounterEmployeeContext(
-                $encounter,
-                Auth::user()?->activeDoctorEmployee()?->id
+                $encounter
             );
 
             $formData = $this->encounterEPrescriptionForm;
             $formData['program_id'] = MedicationProgramPicker::resolve($formData['program_id'] ?? null);
 
-            $this->encounterEPrescriptionRequestIdToSign = app(MedicationRequestLifecycleService::class)
-                ->createEncounterDraft($encounter, $formData, $employeeContext);
+            if (!$this->guardEncounterPrescriptionCreate($encounter)) {
+                return;
+            }
+            $activity = $this->encounterEPrescriptionActivityForCreate($encounter);
+            $formData['encounter_id'] = $encounter->id;
+            $this->encounterEPrescriptionRequestIdToSign = $activity === null
+                ? app(MedicationRequestLifecycleService::class)->createEncounterDraft($encounter, $formData, $employeeContext)
+                : app(MedicationRequestLifecycleService::class)->createCarePlanDraft($activity->carePlan, $activity, $formData, $employeeContext);
             $this->encounterEPrescriptionDraftForm = $this->encounterEPrescriptionForm;
 
             $this->actionType = 'sign_eprescription';
@@ -329,11 +548,11 @@ trait ManagesEncounterEPrescription
             $exception->report();
             $this->encounterEPrescriptionWarningMessage = $exception->getTranslatedMessage();
             Session::flash('error', $this->encounterEPrescriptionWarningMessage);
-        } catch (\App\Exceptions\MedicalEvents\ClinicalStorageException $exception) {
+        } catch (ClinicalStorageException $exception) {
             $this->encounterEPrescriptionWarningMessage = $exception->getMessage();
             Session::flash('error', $this->encounterEPrescriptionWarningMessage);
-        } catch (\Illuminate\Database\QueryException $exception) {
-            $storageException = \App\Exceptions\MedicalEvents\ClinicalStorageException::fromQueryException($exception, 'createEncounterEPrescription');
+        } catch (QueryException $exception) {
+            $storageException = ClinicalStorageException::fromQueryException($exception, 'createEncounterEPrescription');
             $this->encounterEPrescriptionWarningMessage = $storageException->getMessage();
             Session::flash('error', $this->encounterEPrescriptionWarningMessage);
         } catch (Throwable $exception) {
@@ -345,6 +564,19 @@ trait ManagesEncounterEPrescription
 
     public function prepareEncounterEPrescriptionSigning(): void
     {
+        if ($this->encounterEPrescriptionPlanId !== null) {
+            $encounter = $this->resolveEncounterModelForStandalone();
+            if ($encounter === null || !$this->guardEncounterPrescriptionCreate($encounter)) {
+                return;
+            }
+            try {
+                $this->encounterEPrescriptionActivityForCreate($encounter);
+            } catch (ValidationException $exception) {
+                Session::flash('error', $exception->getMessage());
+
+                return;
+            }
+        }
         if ($this->encounterEPrescriptionDraftForm !== $this->encounterEPrescriptionForm) {
             $this->invalidateEncounterEPrescriptionDraft();
             Session::flash('warning', __('medication-requests.draft_form_changed'));
@@ -405,7 +637,14 @@ trait ManagesEncounterEPrescription
             return;
         }
 
+        if (!$this->guardEncounterPrescriptionCreate($encounter)) {
+            return;
+        }
+
         try {
+            if ($this->encounterEPrescriptionPlanId !== null) {
+                $this->encounterEPrescriptionActivityForCreate($encounter);
+            }
             $requestRecord = app(MedicalRequestOwnership::class)
                 ->medicationForEncounter(
                     (string) $this->encounterEPrescriptionRequestIdToSign,
@@ -414,7 +653,7 @@ trait ManagesEncounterEPrescription
 
             $validated = $this->form->validate($this->form->signingRules());
 
-            $informWith = (string) ($this->encounterEPrescriptionForm['inform_with'] ?? $requestRecord->informWith ?? '');
+            $informWith = (string) ($this->encounterEPrescriptionForm['inform_with'] ?? ($requestRecord->informWith ?? ''));
             if ($informWith !== '' && !str_contains($informWith, '|')) {
                 $matchedAuth = collect($this->encounterEPrescriptionAuthMethods)
                     ->first(static fn (array $method): bool => (string) ($method['uuid'] ?? '') === $informWith);
@@ -431,12 +670,14 @@ trait ManagesEncounterEPrescription
                     'knedp' => $validated['knedp'],
                     'keyContainerUpload' => $validated['keyContainerUpload'],
                     'medication_unit' => $this->encounterEPrescriptionForm['medication_unit'] ?? 'од.',
+                    'request_notification_disabled' => $this->encounterPrescriptionNotificationsDisabled,
                     'signer_tax_id' => Auth::user()?->party?->taxId,
                 ],
                 $informWith,
                 0.0
             );
 
+            $this->encounterPrescriptionCreatedRequestId = $requestRecord->uuid;
             $this->showSignatureModal = false;
             $this->actionType = null;
             $this->encounterEPrescriptionRequestIdToSign = null;
@@ -487,15 +728,15 @@ trait ManagesEncounterEPrescription
         }
 
         try {
-            $authMethods = EHealth::person()->getAuthMethods($person->uuid)->getData();
+            $authMethods = EHealth::person()->getAuthMethods($person->uuid)->validate();
             if (!is_array($authMethods)) {
                 return;
             }
 
             $this->encounterEPrescriptionAuthMethods = collect($authMethods)->map(static function (array $method): array {
-                $uuid = (string) ($method['id'] ?? $method['uuid'] ?? '');
+                $uuid = (string) ($method['id'] ?? ($method['uuid'] ?? ''));
                 $type = (string) ($method['type'] ?? '');
-                $phone = (string) ($method['phone_number'] ?? $method['value'] ?? '');
+                $phone = (string) ($method['phone_number'] ?? ($method['value'] ?? ''));
                 $value = $uuid;
                 if ($uuid !== '') {
                     $value = "{$uuid}|{$type}|{$phone}";
@@ -564,6 +805,7 @@ trait ManagesEncounterEPrescription
                 ->map(static fn (array $program): array => [
                     'id' => (string) ($program['id'] ?? ''),
                     'name' => (string) ($program['name'] ?? ''),
+                    'settings' => $program['settings'] ?? [],
                 ])
                 ->filter(static fn (array $program): bool => $program['id'] !== '' && $program['name'] !== '')
                 ->values()
@@ -578,35 +820,53 @@ trait ManagesEncounterEPrescription
 
     protected function resolveEncounterMedicationPackageStep(?array $medication): float
     {
-        if (!is_array($medication) || $medication === []) {
-            return 0.0;
-        }
+        $steps = collect($medication['packages'] ?? [])->map(static fn (array $package): float => (float) ($package['package_min_qty'] ?? ($package['min_qty'] ?? ($package['package_qty'] ?? 0))))->filter(static fn (float $step): bool => $step > 0);
 
-        $packages = $medication['packages'] ?? [];
-        if (!is_array($packages) || $packages === [] || !is_array($packages[0])) {
-            return 0.0;
-        }
-
-        $minQty = (float) ($packages[0]['package_min_qty'] ?? 0);
-        if ($minQty > 0) {
-            return $minQty;
-        }
-
-        $packageQty = (float) ($packages[0]['package_qty'] ?? 0);
-
-        return $packageQty > 0 ? $packageQty : 0.0;
+        return $steps->min() ?? 0.0;
     }
 
-    protected function isEncounterMedicationQtyDivisible(float $quantity, float $step): bool
+    #[Computed]
+    public function encounterPrescriptionQuantities(): array
     {
-        if ($step <= 0) {
-            return true;
-        }
-
-        $quotient = $quantity / $step;
-
-        return abs($quotient - round($quotient)) < 1e-6;
+        return PrescriptionRules::quantities($this->encounterEPrescriptionSelectedMedication ?? []);
     }
+
+    #[Computed]
+    public function encounterPrescriptionContainers(): array
+    {
+        return PrescriptionRules::containers($this->encounterEPrescriptionSelectedMedication ?? []);
+    }
+
+    #[Computed]
+    public function encounterPrescriptionIngredientDoses(): array
+    {
+        try {
+            return (new MedicationRequestMapper())->ingredientDoses((float) ($this->encounterEPrescriptionForm['max_dose_per_period'] ?? 0), $this->encounterEPrescriptionForm, $this->encounterEPrescriptionSelectedMedication ?? []);
+        } catch (InvalidArgumentException) {
+            return [];
+        }
+    }
+
+    #[Computed]
+    public function encounterPrescriptionNotificationsDisabled(): bool
+    {
+        $program = collect($this->encounterEPrescriptionPrograms)->firstWhere('id', $this->encounterEPrescriptionForm['program_id'] ?? '');
+
+        return filter_var(PrescriptionRules::programSetting($program, 'request_notification_disabled', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    public function calculateEncounterPrescriptionDates(): void
+    {
+        try {
+            $duration = (int) ($this->encounterEPrescriptionForm['duration'] ?? 0);
+            if ($duration > 0) {
+                $this->encounterEPrescriptionForm['ended_at'] = now()->parse(convertToYmd($this->encounterEPrescriptionForm['started_at']))->addDays($duration - 1)->toDateString();
+            }
+        } catch (Throwable) {
+            $this->encounterEPrescriptionForm['ended_at'] = '';
+        }
+    }
+
     protected function afterEncounterEPrescriptionSigned(): void
     {
     }

@@ -10,11 +10,10 @@ use App\Enums\JobStatus;
 use App\Enums\Person\AuthenticationMethod;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\MedicalEvents\ApprovalVerificationException;
-use App\Livewire\Person\Forms\PersonForm;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
-use App\Livewire\Person\Records\PatientData;
+use App\Livewire\Person\Forms\PersonForm;
 use App\Livewire\Person\Records\PatientApproval;
-use App\Services\MedicalEvents\PatientApprovalService;
+use App\Livewire\Person\Records\PatientData;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Approval;
@@ -24,29 +23,34 @@ use App\Models\User;
 use App\Policies\ApprovalPolicy;
 use App\Policies\PersonPolicy;
 use App\Repositories\MedicalEvents\ApprovalRepository;
-use App\Repositories\MedicalEvents\Repository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\PersonRepository;
-use App\Repositories\Repository as GeneralRepository;
+use App\Repositories\Repository;
+use App\Services\MedicalEvents\PatientApprovalService;
 use App\Traits\HasApproval;
+use BackedEnum;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\Client\Response as HttpResponse;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
-use Mockery;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
+use Tests\Support\NativeClinicalFixtures;
 use Tests\TestCase;
 
 class PatientApprovalConfirmationTest extends TestCase
@@ -116,6 +120,12 @@ class PatientApprovalConfirmationTest extends TestCase
             $table->string('status');
             $table->boolean('is_verified')->default(false);
             $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('approval_granted_resources', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('approval_id');
+            $table->unsignedBigInteger('granted_to_id');
             $table->timestamps();
         });
         Schema::create('ehealth_links', function (Blueprint $table): void {
@@ -249,19 +259,21 @@ class PatientApprovalConfirmationTest extends TestCase
         $approval = $this->createApproval(['status' => 'active', 'is_verified' => true]);
         $attributesBefore = $approval->fresh()->getAttributes();
         $filters = ['granted_resource_type' => 'person', 'granted_resources' => $this->person->uuid];
-        $validator = fn (EHealthResponse $response): array => (new \ReflectionMethod(ApprovalApi::class, 'validateApprovalList'))
+        $validator = fn (EHealthResponse $response): array => (new ReflectionMethod(ApprovalApi::class, 'validateApprovalList'))
             ->invoke($this->api, $response);
         if ($failsOnSecondPage) {
             $this->api->shouldReceive('getMany')->once()->with($filters)->andReturn(new EHealthResponse(
-                new Response(200, [], '{"data":[],"paging":{"page_number":1,"total_pages":2}}'), $validator,
+                new Response(200, [], '{"data":[],"paging":{"page_number":1,"total_pages":2}}'),
+                $validator,
             ));
             $filters['page'] = 2;
         }
         $this->api->shouldReceive('getMany')->once()->with($filters)->andReturn(new EHealthResponse(
-            new Response(200, [], '{}'), $validator,
+            new Response(200, [], '{}'),
+            $validator,
         ));
 
-        Repository::approval()->syncApprovals($this->person, 'person');
+        MedicalEventsRepository::approval()->syncApprovals($this->person, 'person');
 
         $this->assertSame($attributesBefore, $approval->fresh()->getAttributes());
     }
@@ -287,7 +299,7 @@ class PatientApprovalConfirmationTest extends TestCase
             $query = $page === 1 ? $filters : $filters + ['page' => $page];
             $response = new EHealthResponse(new Response(200, [], json_encode([
                 'data' => [], 'paging' => [$pageField => $page, 'total_pages' => 2],
-            ], JSON_THROW_ON_ERROR)), fn (EHealthResponse $response): array => (new \ReflectionMethod(ApprovalApi::class, 'validateApprovalList'))
+            ], JSON_THROW_ON_ERROR)), fn (EHealthResponse $response): array => (new ReflectionMethod(ApprovalApi::class, 'validateApprovalList'))
                 ->invoke($this->api, $response));
             $this->api->shouldReceive('getMany')->once()->with($query)->andReturnUsing(function () use ($approval, $response): EHealthResponse {
                 $this->assertSame('active', $approval->fresh()->status);
@@ -296,7 +308,7 @@ class PatientApprovalConfirmationTest extends TestCase
             });
         }
 
-        Repository::approval()->syncApprovals($this->person, 'person');
+        MedicalEventsRepository::approval()->syncApprovals($this->person, 'person');
 
         $this->assertSame('inactive', $approval->fresh()->status);
     }
@@ -308,7 +320,8 @@ class PatientApprovalConfirmationTest extends TestCase
 
     public function test_representative_leaflet_can_override_a_care_plan_form_without_person_data(): void
     {
-        $form = new CarePlanForm(new class extends Component {}, 'form');
+        $form = new CarePlanForm(new class extends Component
+        {}, 'form');
         $html = view('livewire.person.parts.patient-leaflet', ['form' => $form, 'isThirdPerson' => true])->render();
 
         $this->assertStringContainsString(__('patients.leaflet.informed_representative'), $html);
@@ -356,11 +369,11 @@ class PatientApprovalConfirmationTest extends TestCase
         $previous = Model::preventsSilentlyDiscardingAttributes();
         Model::preventSilentlyDiscardingAttributes();
         try {
-            GeneralRepository::authenticationMethod()->sync($this->person, [$method]);
+            Repository::authenticationMethod()->sync($this->person, [$method]);
             $stored = $this->person->authenticationMethods()->sole();
             $this->assertSame($method['phone_number'], $stored->phoneNumber);
             $this->assertSame($method['url'], $stored->url);
-            GeneralRepository::authenticationMethod()->sync($this->person, [$updated]);
+            Repository::authenticationMethod()->sync($this->person, [$updated]);
         } finally {
             Model::preventSilentlyDiscardingAttributes($previous);
         }
@@ -380,18 +393,18 @@ class PatientApprovalConfirmationTest extends TestCase
     public function test_person_approval_can_be_verified(string $status, int $responseStatus): void
     {
         $approval = $this->createApproval(['status' => $status]);
-        $result = Repository::approval()->findApprovalForVerification($this->person);
+        $result = MedicalEventsRepository::approval()->findApprovalForVerification($this->person);
 
         $this->assertTrue($result->is($approval));
         $this->assertFalse(Session::has('error'));
 
-        $details = ['id' => $approval->uuid, 'status' => 'active', 'is_verified' => true];
+        $details = $this->nativeApprovalDetails($approval);
         $this->api->shouldReceive('verify')->once()
             ->with($this->person->uuid, $approval->uuid, ['code' => 1234])
-            ->andReturn(new EHealthResponse(new Response($responseStatus)));
+            ->andReturn($this->approvalResponse([], $responseStatus, 'validateVerification'));
         $this->api->shouldReceive('getApprovalDetails')->once()
             ->with($this->person->uuid, $approval->uuid)
-            ->andReturn(new EHealthResponse(new Response(200, [], json_encode(['data' => $details]))));
+            ->andReturn($this->approvalResponse($details, 200, 'validateApproval'));
         $this->mock(ApprovalRepository::class)->makePartial()->shouldReceive('sync')->once()->with(
             $details,
             $this->person,
@@ -410,7 +423,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $this->createApproval(['granted_to_id' => $otherEmployee->id]);
         $this->api->shouldReceive('resendSms')->once()
             ->with($this->person->uuid, $latest->uuid)
-            ->andReturn(new EHealthResponse(new Response(202)));
+            ->andReturn($this->approvalResponse($this->pendingApprovalReceipt(), 202, 'validateCreate'));
 
         $this->actions->resendApprovalSms($this->person);
 
@@ -422,7 +435,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $pending = $this->createApproval();
         $this->createApproval(['status' => 'active', 'is_verified' => true]);
 
-        $result = Repository::approval()->findApprovalForVerification($this->person);
+        $result = MedicalEventsRepository::approval()->findApprovalForVerification($this->person);
 
         $this->assertTrue($result->is($pending));
     }
@@ -485,7 +498,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $approvalsBefore = Approval::all()->map->getAttributes()->all();
 
         try {
-            Repository::approval()->findApprovalForVerification($this->person);
+            MedicalEventsRepository::approval()->findApprovalForVerification($this->person);
             $this->fail('An unavailable approval must throw a verification exception.');
         } catch (ApprovalVerificationException $exception) {
             $this->assertSame($expectedError, $exception->getMessage());
@@ -717,7 +730,7 @@ class PatientApprovalConfirmationTest extends TestCase
             $this->api->shouldNotReceive('resendSms');
         } else {
             $this->api->shouldReceive('resendSms')->once()->with($this->person->uuid, $approval->uuid)
-                ->andReturn(new EHealthResponse(new Response(202)));
+                ->andReturn($this->approvalResponse($this->pendingApprovalReceipt(), 202, 'validateCreate'));
         }
 
         $component->syncPersonDataFromEHealth();
@@ -744,16 +757,16 @@ class PatientApprovalConfirmationTest extends TestCase
         $component->form = Mockery::mock(PersonForm::class);
         $component->form->shouldReceive('rulesForApprove')->once()->andReturn([]);
         $component->form->shouldReceive('validate')->once()->with([])->andReturn(['verificationCode' => '1234']);
-        $details = ['id' => $approval->uuid, 'status' => 'active', 'is_verified' => true];
+        $details = $this->nativeApprovalDetails($approval);
         $this->api->shouldReceive('resendSms')->once()
             ->with($this->person->uuid, $approval->uuid)
-            ->andReturn(new EHealthResponse(new Response(202)));
+            ->andReturn($this->approvalResponse($this->pendingApprovalReceipt(), 202, 'validateCreate'));
         $this->api->shouldReceive('verify')->once()
             ->with($this->person->uuid, $approval->uuid, ['code' => 1234])
-            ->andReturn(new EHealthResponse(new Response(204)));
+            ->andReturn($this->approvalResponse([], 204, 'validateVerification'));
         $this->api->shouldReceive('getApprovalDetails')->once()
             ->with($this->person->uuid, $approval->uuid)
-            ->andReturn(new EHealthResponse(new Response(200, [], json_encode(['data' => $details]))));
+            ->andReturn($this->approvalResponse($details, 200, 'validateApproval'));
         $this->mock(ApprovalRepository::class)->makePartial()->shouldReceive('sync')->once()->with(
             $details,
             Mockery::on(fn (Person $person): bool => $person->is($this->person)),
@@ -924,7 +937,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $employee = $this->createEmployee(['employee_type' => $type]);
         $this->configureApprovalRoles(['OWNER' => false, $type => true]);
 
-        $selected = GeneralRepository::employee()->forApproval(Auth::user(), legalEntity());
+        $selected = Repository::employee()->forApproval(Auth::user(), legalEntity());
 
         $this->assertTrue($selected->is($employee));
     }
@@ -934,7 +947,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $assistant = $this->createEmployee(['employee_type' => 'ASSISTANT']);
         $this->configureApprovalRoles(['DOCTOR' => true, 'ASSISTANT' => true], ['ASSISTANT']);
 
-        $selected = GeneralRepository::employee()->forApproval(Auth::user(), legalEntity());
+        $selected = Repository::employee()->forApproval(Auth::user(), legalEntity());
 
         $this->assertTrue($selected->is($assistant));
     }
@@ -960,7 +973,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $this->expectException(ApprovalVerificationException::class);
         $this->expectExceptionMessage(__('patients.errors.approval_employee_unavailable'));
 
-        GeneralRepository::employee()->forApproval(Auth::user(), legalEntity());
+        Repository::employee()->forApproval(Auth::user(), legalEntity());
     }
 
     public function test_creation_and_confirmation_use_the_same_eligible_employee(): void
@@ -973,10 +986,120 @@ class PatientApprovalConfirmationTest extends TestCase
         $component->shouldNotReceive('createApproval');
 
         $component->syncPersonDataFromEHealth();
-        $selected = Repository::approval()->findApprovalForVerification($this->person);
+        $selected = MedicalEventsRepository::approval()->findApprovalForVerification($this->person);
 
         $this->assertTrue($component->showConfirmationUpdateModal);
         $this->assertTrue($selected->is($approval));
+    }
+
+    public function test_malformed_verification_acknowledgement_preserves_pending_approval(): void
+    {
+        $approval = $this->createApproval();
+        $before = $approval->fresh()->getAttributes();
+        $this->api->shouldReceive('verify')->once()->andReturn($this->approvalResponse(['is_verified' => 'true'], 200, 'validateVerification'));
+        $this->api->shouldNotReceive('getApprovalDetails');
+
+        $this->assertFalse($this->actions->verifyApproval($this->person, 1234));
+        $this->assertSame($before, $approval->fresh()->getAttributes());
+        $this->assertSame(__('errors.ehealth.messages.response_contract_invalid'), Session::get('error'));
+        $this->assertSame(0, DB::table('ehealth_links')->count());
+    }
+
+    public function test_valid_pending_details_do_not_report_confirmed_consent(): void
+    {
+        $approval = $this->createApproval();
+        $before = $approval->fresh()->getAttributes();
+        $details = array_replace($this->nativeApprovalDetails($approval), ['status' => 'pending', 'is_verified' => false]);
+        $this->api->shouldReceive('verify')->once()->andReturn($this->approvalResponse([], 204, 'validateVerification'));
+        $this->api->shouldReceive('getApprovalDetails')->once()->andReturn($this->approvalResponse($details, 200, 'validateApproval'));
+        $this->mock(ApprovalRepository::class)->makePartial()->shouldNotReceive('sync');
+
+        $this->assertFalse($this->actions->verifyApproval($this->person, 1234));
+        $this->assertSame($before, $approval->fresh()->getAttributes());
+        $this->assertSame(__('patients.errors.approval_creation_pending'), Session::get('info'));
+    }
+
+    #[DataProvider('invalidApprovalDetails')]
+    public function test_invalid_details_are_not_synchronized_after_valid_verification(string $case): void
+    {
+        $approval = $this->createApproval();
+        $before = $approval->fresh()->getAttributes();
+        $details = $this->nativeApprovalDetails($approval);
+        if ($case === 'missing authentication method') {
+            unset($details['authentication_method_current']);
+        } else {
+            $details['id'] = (string) Str::uuid();
+        }
+        $this->api->shouldReceive('verify')->once()->andReturn($this->approvalResponse([], 204, 'validateVerification'));
+        $this->api->shouldReceive('getApprovalDetails')->once()->andReturn($this->approvalResponse($details, 200, 'validateApproval'));
+        $this->mock(ApprovalRepository::class)->makePartial()->shouldNotReceive('sync');
+
+        $this->assertFalse($this->actions->verifyApproval($this->person, 1234));
+        $this->assertSame($before, $approval->fresh()->getAttributes());
+        $this->assertSame(__('errors.ehealth.messages.response_contract_invalid'), Session::get('error'));
+    }
+
+    public static function invalidApprovalDetails(): array
+    {
+        return [['missing authentication method'], ['another approval']];
+    }
+
+    public function test_malformed_sms_receipt_does_not_restart_the_resend_window(): void
+    {
+        $approval = $this->createApproval();
+        $approval->update(['updated_at' => now()->subMinutes(10)]);
+        $before = $approval->fresh()->getAttributes();
+        $this->api->shouldReceive('resendSms')->once()->andReturn($this->approvalResponse([], 202, 'validateCreate'));
+
+        $this->actions->resendApprovalSms($this->person);
+
+        $this->assertSame($before, $approval->fresh()->getAttributes());
+        $this->assertSame(__('errors.ehealth.messages.response_contract_invalid'), Session::get('error'));
+        $this->assertSame(0, DB::table('ehealth_links')->count());
+    }
+
+    public function test_malformed_creation_receipt_does_not_create_jobs_or_update_the_draft(): void
+    {
+        Bus::fake();
+        $approval = $this->createApproval(['status' => 'NEW']);
+        $before = $approval->fresh()->getAttributes();
+        $this->api->shouldReceive('createApproval')->once()->andReturn($this->approvalResponse(['status' => 'pending'], 202, 'validateCreate'));
+
+        try {
+            $this->actions->createApproval($this->person, ['authorize_with' => ['type' => 'OTP', 'uuid' => (string) Str::uuid()]]);
+            $this->fail('The malformed native creation response must be rejected.');
+        } catch (ValidationException) {
+            $this->assertSame($before, $approval->fresh()->getAttributes());
+            $this->assertSame(__('errors.ehealth.messages.response_contract_invalid'), Session::get('error'));
+            $this->assertSame(0, DB::table('ehealth_links')->count());
+            Bus::assertNothingBatched();
+        }
+    }
+
+    private function nativeApprovalDetails(Approval $approval): array
+    {
+        return [
+            'id' => $approval->uuid, 'status' => 'active', 'is_verified' => true,
+            'expires_at' => now()->addHour()->toIso8601String(), 'access_level' => 'write',
+            'granted_to' => NativeClinicalFixtures::reference('employee', $this->employeeUuid),
+            'created_by' => NativeClinicalFixtures::reference('employee', $this->employeeUuid),
+            'granted_resources' => [], 'granted_resource_types' => [],
+            'authentication_method_current' => ['type' => 'OTP', 'id' => (string) Str::uuid(), 'phone_number' => '+380501234567'],
+        ];
+    }
+
+    private function pendingApprovalReceipt(): array
+    {
+        return ['status' => 'pending', 'eta' => now()->addSecond()->toIso8601String(), 'links' => [['entity' => 'approval', 'href' => '/api/jobs/'.Str::uuid()]]];
+    }
+
+    private function approvalResponse(array $data, int $status, string $method): EHealthResponse
+    {
+        $body = $status === 204 ? '' : json_encode(['data' => $data], JSON_THROW_ON_ERROR);
+        $api = new ApprovalApi();
+        $validator = new ReflectionMethod(ApprovalApi::class, $method);
+
+        return new EHealthResponse(new Response($status, [], $body), static fn (EHealthResponse $response): array => $validator->invoke($api, $response));
     }
 
     private function configureApprovalRoles(array $roles, ?array $availableRoles = null): void
@@ -1018,7 +1141,7 @@ class PatientApprovalConfirmationTest extends TestCase
         $user = Auth::user();
         $user->shouldReceive('getAllowedRolesAttribute')->andReturn(collect($availableRoles));
         $user->shouldReceive('hasAllowedRole')->andReturnUsing(static fn ($roles): bool => collect(is_array($roles) ? $roles : [$roles])
-            ->contains(static fn ($role): bool => in_array($role instanceof \BackedEnum ? $role->value : $role, $availableRoles, true)));
+            ->contains(static fn ($role): bool => in_array($role instanceof BackedEnum ? $role->value : $role, $availableRoles, true)));
         $user->shouldReceive('can')->with('create', Approval::class)
             ->andReturnUsing(fn (): bool => (new ApprovalPolicy())->create($user)->allowed());
         $user->shouldReceive('cannot')->with('create', Approval::class)

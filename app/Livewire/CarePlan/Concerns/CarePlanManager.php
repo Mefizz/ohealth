@@ -4,42 +4,44 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
-use App\Traits\SynchronizesCarePlans;
+use App\Classes\eHealth\Api\Approval as ApprovalApi;
 
-use App\Livewire\CarePlan\Forms\CarePlanActivityForm;
-use App\Livewire\CarePlan\Forms\CarePlanForm;
+use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
 use App\Classes\eHealth\EHealth;
-use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthJobTimeoutException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Repositories\CarePlanActivityRepository;
-use App\Repositories\Repository;
-use App\Repositories\CarePlanRepository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
-use App\Services\MedicalEvents\PatientApprovalService;
-use App\Services\MedicalEvents\MedicalRequestOwnership;
+use App\Jobs\CarePlanFullSync;
+use App\Livewire\CarePlan\Forms\CarePlanActivityForm;
+use App\Livewire\CarePlan\Forms\CarePlanForm;
+use App\Livewire\Concerns\ReadsClinicalSnapshots;
+use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Models\CarePlan;
-use App\Classes\eHealth\Api\Approval as ApprovalApi;
+use App\Models\LegalEntity;
+use App\Repositories\CarePlanActivityRepository;
+use App\Repositories\CarePlanRepository;
+use App\Repositories\Repository;
+use App\Services\MedicalEvents\CarePlanActivityValidationService;
+use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Services\MedicalEvents\CarePlanLifecycleGateService;
-use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
+use App\Services\MedicalEvents\FhirResource;
+use App\Services\MedicalEvents\MedicalRequestOwnership;
+use App\Services\MedicalEvents\PatientApprovalService;
+use App\Traits\SynchronizesCarePlans;
 use Exception;
-use RuntimeException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
-use Throwable;
-use App\Livewire\Concerns\ReadsClinicalSnapshots;
 use Livewire\Attributes\Locked;
-use App\Services\MedicalEvents\FhirResource;
-use Illuminate\Support\Facades\Bus;
-use App\Jobs\CarePlanFullSync;
-use App\Models\LegalEntity;
-use Illuminate\Support\Facades\Crypt;
+use RuntimeException;
+use Throwable;
 
 trait CarePlanManager
 {
@@ -47,8 +49,8 @@ trait CarePlanManager
 
     use ReadsClinicalSnapshots;
 
-    use SynchronizesCarePlans;
     use SubmitsClinicalOperations;
+    use SynchronizesCarePlans;
 
     #[Locked]
     public bool $activateAfterSubmission = false;
@@ -103,9 +105,29 @@ trait CarePlanManager
         }
     }
 
-    public function sign(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
+    public function sign(): void
     {
-        $this->authorizeCarePlanWrite();
+        $repository = Repository::carePlan();
+        $activityRepository = Repository::carePlanActivity();
+        if (in_array($this->actionType, ['recall_referral', 'cancel_referral'], true)) {
+            // Recheck the registered referral's own permission when signing, including after its care plan closes.
+            try {
+                $request = app(MedicalRequestOwnership::class)
+                    ->serviceForPerson((string) $this->referralRequestIdToSign, $this->carePlan->personId);
+            } catch (ModelNotFoundException) {
+                Session::flash('error', __('care-plan.document_context_unavailable'));
+
+                return;
+            }
+            $operation = $this->actionType === 'recall_referral' ? 'recall' : 'cancel';
+            if (Auth::user()->cannot($operation, $request)) {
+                Session::flash('error', __('referrals.messages.action_unavailable'));
+
+                return;
+            }
+        } else {
+            $this->authorizeCarePlanWrite();
+        }
         if (in_array($this->actionType, ['cancel', 'complete'], true) && $this->guardPlanLifecycleAccess($this->actionType)) {
             return;
         }
@@ -125,7 +147,7 @@ trait CarePlanManager
         }
 
         if ($this->actionType === 'complete') {
-            $this->completePlan($repository);
+            $this->completePlan();
 
             return;
         }
@@ -354,12 +376,17 @@ trait CarePlanManager
                 default => __('care-plan.unexpected_error'),
             });
             $this->planSubmission = $repository->submissionState($this->carePlan);
-            $this->showSignatureModal = false;
+            if ($exception instanceof ValidationException) {
+                $this->setErrorBag($exception->validator->getMessageBag());
+            } else {
+                $this->showSignatureModal = false;
+            }
         }
     }
 
-    public function completePlan(CarePlanRepository $repository): void
+    public function completePlan(): void
     {
+        $repository = Repository::carePlan();
         $this->authorizeCarePlanWrite();
         if ($this->guardPlanLifecycleAccess('complete')) {
             return;
@@ -438,7 +465,10 @@ trait CarePlanManager
 
     protected function signActivity(CarePlanRepository $repository, CarePlanActivityRepository $activityRepository): void
     {
-        $this->authorizeCarePlanActivityWrite();
+        if (!$this->authorizeCarePlanActivityWrite()) {
+            return;
+        }
+        $keepModalOpen = false;
         try {
             $activity = $this->ownedActivity((int) $this->activityToSign);
             if ($activity->status !== CarePlanStatus::DRAFT->value) {
@@ -451,6 +481,13 @@ trait CarePlanManager
                 }
             }
             $resource = $activityRepository->getResource($activity->id);
+            if (data_get($resource, 'detail.kind') === 'service_request') {
+                $validation = app(CarePlanActivityValidationService::class);
+                $validation->assertServiceUnit($this->carePlan, (string) data_get($resource, 'detail.quantity.code', ''));
+                $validation->assertServicePeriod($this->carePlan, $resource['detail']);
+            }
+            $this->assertMedicationActivityProgramForSigning($resource);
+            $this->assertDeviceActivityQuantityForSigning($resource);
             $payload = CarePlanActivityForm::buildCreateContent($resource);
             $signedContent = signatureService()->signData($payload, $this->form['password'], $this->form['knedp'], $this->form['keyContainerUpload'], Auth::user()->party->taxId);
             $result = $this->submitClinicalOperation($activity, ['status' => 'scheduled'], fn () => EHealth::carePlanActivity()->create($this->carePlan->person->uuid, $this->carePlan->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
@@ -463,16 +500,24 @@ trait CarePlanManager
             $this->refreshCarePlan();
             Session::flash('success', __('care-plan.activity_signed'));
         } catch (Throwable $exception) {
+            if ($exception instanceof ValidationException) {
+                $keepModalOpen = true;
+                $this->setErrorBag($exception->validator->errors());
+            }
             report($exception);
             Session::flash('error', $exception instanceof EHealthValidationException ? $exception->getFormattedMessage() : ($exception instanceof ValidationException ? $exception->validator->errors()->first() : __('care-plan.unexpected_error')));
         } finally {
-            $this->showSignatureModal = false;
+            if (!$keepModalOpen) {
+                $this->showSignatureModal = false;
+            }
         }
     }
 
     protected function signStatusActivity(CarePlanActivityRepository $activityRepository): void
     {
-        $this->authorizeCarePlanActivityWrite();
+        if (!$this->authorizeCarePlanActivityWrite()) {
+            return;
+        }
         if (!$this->activityToSign) {
             Session::flash('error', __('care-plan.no_activity_selected'));
 

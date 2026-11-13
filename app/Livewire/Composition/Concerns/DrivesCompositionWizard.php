@@ -11,23 +11,28 @@ use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthResponseException;
+use App\Exceptions\MedicalEvents\ClinicalStorageException;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
+use App\Livewire\Composition\Concerns\InteractsWithCompositions;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\MedicalEvents\Sql\CompositionOperation;
-use App\Repositories\MedicalEvents\CompositionOperationRepository;
-use App\Repositories\MedicalEvents\CompositionRepository;
+use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Enums\Composition\CompositionJobStatus;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\SignatureService;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
+use Livewire\Attributes\Url;
 use Throwable;
 
 /**
@@ -70,7 +75,7 @@ trait DrivesCompositionWizard
     public bool $acknowledgedMissingAuthMethod = false;
 
     #[Locked]
-    #[\Livewire\Attributes\Url(as: 'job')]
+    #[Url(as: 'job')]
     public ?string $asyncJobId = null;
 
     #[Locked]
@@ -224,12 +229,12 @@ trait DrivesCompositionWizard
 
         $encounterRef = trim($encounterRef);
 
-        if (\Illuminate\Support\Str::isUuid($encounterRef)) {
+        if (Str::isUuid($encounterRef)) {
             return $encounterRef;
         }
 
         if (ctype_digit($encounterRef)) {
-            return \App\Models\MedicalEvents\Sql\Encounter::query()
+            return Encounter::query()
                 ->whereKey((int) $encounterRef)
                 ->value('uuid');
         }
@@ -358,7 +363,7 @@ trait DrivesCompositionWizard
 
         try {
             $this->form->validate($this->detailsRules());
-            app(CompositionRepository::class)->assertFhirStorageReady();
+            Repository::composition()->assertFhirStorageReady();
             $this->assertSubmissionAllowed();
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->getMessageBag());
@@ -380,15 +385,15 @@ trait DrivesCompositionWizard
 
         try {
             // Do not log the payload: it is the patient's medical record.
-            $job = EHealth::composition()->create($this->form->toPayload($authorUuid))->validate();
+            $job = EHealth::composition()->create($this->buildCompositionPayload($authorUuid))->validate();
 
-            app(CompositionOperationRepository::class)->store($job, CompositionAsyncOperation::CREATE, $this->storagePatient(), [
+            Repository::compositionOperation()->store($job, CompositionAsyncOperation::CREATE, $this->storagePatient(), [
                 'composition_type' => $this->conclusionType(),
                 'encounter_uuid' => $this->form->encounterUuid,
                 'episode_uuid' => $this->episodeUuid,
                 'author_uuid' => $authorUuid,
                 'requestData' => [
-                    'form' => \Illuminate\Support\Arr::except($this->form->toArray(), ['password', 'knedp', 'keyContainerUpload']),
+                    'form' => Arr::except($this->form->toArray(), ['password', 'knedp', 'keyContainerUpload']),
                     'selectedEncounter' => $this->selectedEncounter,
                 ],
             ]);
@@ -400,9 +405,8 @@ trait DrivesCompositionWizard
         } catch (EHealthResponseException $exception) {
             $details = $exception->getDetails();
             $errText = data_get($details, 'error.message')
-                ?? data_get($details, 'details.errorMessage')
-                ?? data_get($details, 'description')
-                ?? $exception->getMessage();
+                ?? (data_get($details, 'details.errorMessage')
+                    ?? (data_get($details, 'description') ?? $exception->getMessage()));
 
             $exception->handle(
                 'Failed to submit a medical conclusion',
@@ -410,7 +414,7 @@ trait DrivesCompositionWizard
             );
         } catch (EHealthConnectionException | EHealthException $exception) {
             $exception->handle('Failed to submit a medical conclusion');
-        } catch (\App\Exceptions\MedicalEvents\ClinicalStorageException $exception) {
+        } catch (ClinicalStorageException $exception) {
             Session::flash('error', __('clinical-storage.remote_import_pending'));
         } catch (Throwable $exception) {
             Session::flash('error', __('clinical-storage.write_failed'));
@@ -427,6 +431,12 @@ trait DrivesCompositionWizard
     protected function assertSubmissionAllowed(): void
     {
         // Overridden by the conclusion types that have extra rules.
+    }
+
+    /** The disability form keeps its existing payload until its separate DTO refactor. */
+    protected function buildCompositionPayload(string $authorEmployeeUuid): array
+    {
+        return $this->form->toPayload($authorEmployeeUuid);
     }
 
     /**
@@ -449,7 +459,7 @@ trait DrivesCompositionWizard
      * also returns a job. After a sign, the conclusion already exists locally so the
      * details are refreshed rather than resolved from scratch.
      */
-    #[\Livewire\Attributes\On('composition-submission-updated')]
+    #[On('composition-submission-updated')]
     public function pollAsyncJob(bool $notify = true): void
     {
         $operation = $this->currentOperation();
@@ -494,10 +504,10 @@ trait DrivesCompositionWizard
         if ($this->asyncJobId === null) {
             return false;
         }
-        $operation = app(CompositionOperationRepository::class)->findForWizard($this->patient(), $this->asyncJobId, $this->conclusionType(), Auth::user());
+        $operation = Repository::compositionOperation()->findForWizard($this->patient(), $this->asyncJobId, $this->conclusionType(), Auth::user());
         abort_unless($operation !== null, 404);
         $formData = $operation->job->request_data['form'] ?? [];
-        $this->form->fill(\Illuminate\Support\Arr::except($formData, ['password', 'knedp', 'keyContainerUpload']));
+        $this->form->fill(Arr::except($formData, ['password', 'knedp', 'keyContainerUpload']));
         $this->form->encounterUuid = $operation->encounterUuid;
         $this->selectedEncounter = $operation->job->request_data['selectedEncounter'] ?? null;
         $this->episodeUuid = $operation->episodeUuid;
@@ -612,7 +622,7 @@ trait DrivesCompositionWizard
 
         $this->authorize('sign', $composition);
 
-        if (app(CompositionOperationRepository::class)->hasPendingForComposition($composition)) {
+        if (Repository::compositionOperation()->hasPendingForComposition($composition)) {
             $this->showSignatureModal = false;
             Session::flash('info', __('compositions.messages.signature_submitted'));
 
@@ -644,14 +654,14 @@ trait DrivesCompositionWizard
 
             $job = EHealth::composition()->sign($composition->uuid, ['data' => $signedContent])->validate();
 
-            app(CompositionOperationRepository::class)->store($job, CompositionAsyncOperation::SIGN, $this->storagePatient(), [
+            Repository::compositionOperation()->store($job, CompositionAsyncOperation::SIGN, $this->storagePatient(), [
                 'composition_id' => $composition->id,
                 'composition_type' => $composition->type,
                 'encounter_uuid' => $composition->encounterUuid,
                 'episode_uuid' => $composition->episodeOfCareUuid,
                 'author_uuid' => $composition->authorUuid,
                 'requestData' => [
-                    'form' => \Illuminate\Support\Arr::except($this->form->toArray(), ['password', 'knedp', 'keyContainerUpload']),
+                    'form' => Arr::except($this->form->toArray(), ['password', 'knedp', 'keyContainerUpload']),
                     'selectedEncounter' => $this->selectedEncounter,
                 ],
             ]);
@@ -719,7 +729,7 @@ trait DrivesCompositionWizard
 
     private function currentOperation(): ?CompositionOperation
     {
-        return app(CompositionOperationRepository::class)->findForWizard($this->patient(), $this->asyncJobId ?? '', $this->conclusionType(), Auth::user());
+        return Repository::compositionOperation()->findForWizard($this->patient(), $this->asyncJobId ?? '', $this->conclusionType(), Auth::user());
     }
 
     protected function resolveCreatedComposition(
@@ -734,7 +744,7 @@ trait DrivesCompositionWizard
                 'type' => $type->value,
                 'limit' => 2,
             ])->validate();
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::warning('Could not locate the created composition by encounter', [
                 'encounter' => $encounterUuid,
                 'error' => $exception->getMessage(),

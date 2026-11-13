@@ -7,6 +7,7 @@ namespace App\Livewire\Composition;
 use App\Enums\Composition\CompositionType;
 use App\Enums\Composition\CompositionStatus;
 use App\Classes\eHealth\EHealth;
+use App\Dto\Composition\Ehealth as EhealthData;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\MedicalEvents\CompositionGuardException;
@@ -16,6 +17,7 @@ use App\Livewire\Person\Records\BasePatientComponent;
 use App\Models\MedicalEvents\Sql\Composition;
 use App\Models\Person\Person;
 use App\Models\Preperson;
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
@@ -23,6 +25,8 @@ use Illuminate\View\View;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 use Livewire\WithFileUploads;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 
 /**
  * Creating a birth conclusion (МВН) — TV 3.8.1.
@@ -68,7 +72,7 @@ class CompositionCreate extends BasePatientComponent
             $this->form->prepersonUuid = $this->uuid;
             $this->newbornFullName = $this->patientFullName;
             $this->form->newbornBirthDate = convertToAppDateFormat(
-                $this->patient()->birthDate instanceof \DateTimeInterface
+                $this->patient()->birthDate instanceof DateTimeInterface
                     ? $this->patient()->birthDate->format('Y-m-d')
                     : (string) $this->patient()->birthDate
             );
@@ -230,7 +234,7 @@ class CompositionCreate extends BasePatientComponent
         $this->form->prepersonUuid = $preperson->uuid;
         $this->newbornFullName = $preperson->fullName;
         $this->form->newbornBirthDate = convertToAppDateFormat(
-            $preperson->birthDate instanceof \DateTimeInterface
+            $preperson->birthDate instanceof DateTimeInterface
                 ? $preperson->birthDate->format('Y-m-d')
                 : (string) $preperson->birthDate
         );
@@ -339,6 +343,14 @@ class CompositionCreate extends BasePatientComponent
     protected function detailsRules(): array
     {
         return $this->form->compositionRules($this->sexOptions);
+    }
+
+    /** Map only the validated birth form; workflow and author selection stay in the component. */
+    protected function buildCompositionPayload(string $authorEmployeeUuid): array
+    {
+        return new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())
+            ->map($this->form, new EhealthData($authorEmployeeUuid))
+            ->toArray();
     }
 
     /**

@@ -48,11 +48,32 @@ class ServiceRequestFhirPersistenceTest extends TestCase
         $repo->storeResource($resource, $person->id);
         $this->assertSame($counts, [DB::table('identifiers')->count(), DB::table('codings')->count(), DB::table('quantities')->count()]);
         $actual = $repo->getResource($record->id);
-        $this->assertSame($resource['occurrencePeriod'], $actual['occurrencePeriod']);
-        $this->assertSame($resource['basedOn'], $actual['basedOn']);
+        $this->assertEquals($resource['occurrencePeriod'], $actual['occurrencePeriod']);
+        $this->assertEquals($resource['basedOn'], $actual['basedOn']);
         $this->assertSame(1.23456789, $actual['quantity']['value']);
         $this->assertSame(0.0, $actual['remainingQuantity']['value']);
         $this->assertNull($record->employeeId, 'An unknown external author must not become the current employee.');
+    }
+
+    public function test_import_keeps_a_readable_service_label_without_inventing_a_service_id(): void
+    {
+        $resource = $this->resource();
+        $resource['code'] = ['displayValue' => 'Consultation'];
+        $resource['subject'] = ['displayValue' => 'Synthetic patient'];
+        $resource['program'] = ['displayValue' => 'Synthetic program'];
+        $resource['quantity']['value'] = 0.004;
+        $api = app(PatientServiceRequestApi::class);
+        $validated = $api->validateResource(Arr::toSnakeCase($resource));
+        $repo = app(ServiceRequestRequestRepository::class);
+        $record = $repo->importResource($validated, $this->person()->id);
+
+        $this->assertSame('', $record->serviceId);
+        $this->assertNull($record->codeIdentifierId);
+        $this->assertSame($resource['code'], $repo->getResource($record)['code']);
+        $row = $repo->toPatientRegistryRow($record);
+        $this->assertSame('Consultation', $row['itemName']);
+        $this->assertSame('Synthetic program', $row['programName']);
+        $this->assertSame('0.004', $row['quantity']);
     }
 
     public function test_editing_a_form_preserves_unrepresented_metadata_and_reference_types(): void
@@ -65,10 +86,10 @@ class ServiceRequestFhirPersistenceTest extends TestCase
         $repo->store((new \App\Services\MedicalEvents\Mappers\ServiceRequestMapper())->toFhir($form, ['resource' => $repo->getResource($record)]), $person->id);
         $actual = $repo->getResource($record->id);
         $this->assertSame('Updated synthetic note', $actual['note']);
-        $this->assertSame($this->resource()['code'], $actual['code']);
-        $this->assertSame($this->resource()['category'], $actual['category']);
-        $this->assertSame($this->resource()['basedOn'], $actual['basedOn']);
-        $this->assertSame($this->resource()['occurrencePeriod'], $actual['occurrencePeriod']);
+        $this->assertEquals($this->resource()['code'], $actual['code']);
+        $this->assertEquals($this->resource()['category'], $actual['category']);
+        $this->assertEquals($this->resource()['basedOn'], $actual['basedOn']);
+        $this->assertEquals($this->resource()['occurrencePeriod'], $actual['occurrencePeriod']);
     }
 
     public function test_clearing_an_ordered_collection_does_not_delete_other_collections(): void
@@ -83,6 +104,23 @@ class ServiceRequestFhirPersistenceTest extends TestCase
         $this->assertSame([], $actual['supportingInfo']);
         $this->assertCount(2, $actual['reasonReference']);
         $this->assertCount(2, $actual['basedOn']);
+    }
+
+    public function test_blank_local_occurrence_does_not_create_a_timestamp(): void
+    {
+        $resource = $this->resource();
+        unset($resource['occurrencePeriod']);
+        $resource['occurrenceDateTime'] = ' ';
+        $record = app(ServiceRequestRequestRepository::class)->storeResource($resource, $this->person()->id);
+        $this->assertNull($record->fresh()->occurrenceDateTime);
+    }
+
+    public function test_an_integer_database_key_cannot_be_imported_as_a_referral_uuid(): void
+    {
+        $resource = $this->resource();
+        $resource['id'] = 42;
+        $this->expectException(InvalidArgumentException::class);
+        app(ServiceRequestRequestRepository::class)->storeResource($resource, $this->person()->id);
     }
 
     public function test_cross_patient_uuid_cannot_overwrite_a_resource(): void
@@ -178,7 +216,7 @@ class ServiceRequestFhirPersistenceTest extends TestCase
         $resource['occurrencePeriod'] = ['end' => '2026-11-01T23:59:59.123456Z'];
         $repo->storeResource($resource, $record->personId);
         $record->refresh();
-        $this->assertSame($resource['occurrencePeriod'], $repo->getResource($record)['occurrencePeriod']);
+        $this->assertEquals($resource['occurrencePeriod'], $repo->getResource($record)['occurrencePeriod']);
         $this->assertNull($record->occurrencePeriod->getRawOriginal('start'));
     }
 

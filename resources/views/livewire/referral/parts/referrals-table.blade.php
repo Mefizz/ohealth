@@ -84,7 +84,7 @@
                     ?? data_get($referral, 'requesterLegalEntity.identifier.value');
                 $isIssuedReferral = in_array($status, ['active', 'new'], true)
                     && filled($requesterUuid)
-                    && $requesterUuid === $legalEntity->uuid
+                    && $requesterUuid === $legalEntityUuid
                     && auth()->user()?->can('service_request:read');
                 $hasActions = $hasActions || $isDraft || $isIssuedReferral;
             @endphp

@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace App\Livewire\EncounterPackage;
 
 use App\Enums\Person\EncounterStatus;
+use App\Livewire\EncounterPackage\EncounterPackageEdit;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
+use App\Repositories\MedicalEvents\Repository;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 
@@ -83,12 +88,43 @@ class EncounterPackageView extends EncounterPackageEdit
     }
 
     /**
+     * Include issued referrals, the incoming referral and referrals referenced by the encounter's EMRs.
+     * context_id is a FHIR Identifier FK, so match its UUID value rather than the local encounter ID.
+     */
+    #[Computed]
+    public function electronicReferrals(): array
+    {
+        $user = Auth::user();
+        $legalEntity = legalEntity();
+        if ($this->personId === null || $user === null || $legalEntity === null || $user->cannot('search', ServiceRequestRequest::class)
+            || $user->cannot('view', Person::class)) {
+            return [];
+        }
+
+        $patient = $this->patient();
+        $encounter = Encounter::forPatient($patient)->whereKey($this->encounterId)
+            ->with('incomingReferral')->firstOrFail();
+        if ($user->cannot('view', [$encounter, $patient])) {
+            return [];
+        }
+
+        return ServiceRequestRequest::readableBy($user, $patient, $legalEntity)
+            ->relatedToEncounter($encounter, $patient, $user, $legalEntity)->forRegistry()
+            ->latest('id')->get()
+            ->unique('uuid')
+            ->map(fn (ServiceRequestRequest $request): array => Repository::serviceRequest()->toPatientRegistryRow($request))
+            ->values()->all();
+    }
+
+    /**
      * Render the encounter package form, which is readonly here.
      *
      * @return View
      */
     public function render(): View
     {
-        return view('livewire.encounter-package.encounter-package-view');
+        return view('livewire.encounter-package.encounter-package-view', [
+            'electronicReferrals' => $this->electronicReferrals,
+        ]);
     }
 }

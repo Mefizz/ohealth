@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api\Patient;
 
+use App\Classes\eHealth\Api\Patient\PatientApiBase;
 use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\ServiceRequestErrorTranslator;
 use App\Contracts\ApiErrorTranslator;
+use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class ServiceRequest extends PatientApiBase
@@ -30,7 +32,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function createSigned(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateOperation($response, [202]));
 
         return $this->post(self::URL . "/{$patientId}/service_requests", $payload);
     }
@@ -40,9 +42,9 @@ class ServiceRequest extends PatientApiBase
      */
     public function cancel(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateOperation($response, requireStatusReason: true, patientId: $patientId, id: $id));
 
-        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/cancel", $payload);
+        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/cancel", Arr::only($payload, ['signed_data', 'signed_data_encoding']));
     }
 
     /**
@@ -52,9 +54,9 @@ class ServiceRequest extends PatientApiBase
      */
     public function recall(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateOperation($response, [202]));
 
-        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/recall", $payload);
+        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/recall", Arr::only($payload, ['signed_data', 'signed_data_encoding']));
     }
 
     /**
@@ -62,7 +64,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function searchForServiceRequestsByParams(array $params): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateMany(...));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateMany($response, withIdentity: true));
 
         return $this->get('/api/service_requests', $params);
     }
@@ -88,9 +90,38 @@ class ServiceRequest extends PatientApiBase
      */
     public function getById(string $patientId, string $id, array $query = [], bool $preserveApiKeys = false): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, $preserveApiKeys));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, $preserveApiKeys, $patientId, $id));
 
         return $this->get(self::URL . "/{$patientId}/service_requests/{$id}", $query);
+    }
+
+    public function getByEpisode(string $patientId, string $episodeId, array $query = []): PromiseInterface|EHealthResponse
+    {
+        $this->setValidator($this->validateMany(...));
+
+        return $this->get(self::URL . "/{$patientId}/episodes/{$episodeId}/service_requests", $query);
+    }
+
+    public function getByEpisodeId(string $patientId, string $episodeId, string $id): PromiseInterface|EHealthResponse
+    {
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, true, $patientId, $id));
+
+        return $this->get(self::URL . "/{$patientId}/episodes/{$episodeId}/service_requests/{$id}");
+    }
+
+    public function getByComposition(string $patientId, string $compositionId, string $id): PromiseInterface|EHealthResponse
+    {
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, true, $patientId, $id));
+
+        return $this->get(self::URL . "/{$patientId}/compositions/{$compositionId}/service_requests/{$id}");
+    }
+
+    public function getBySpecimen(string $specimenId, array $query = []): PromiseInterface|EHealthResponse
+    {
+        $this->setDefaultPageSize();
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateMany($response, withIdentity: true));
+
+        return $this->get("/api/specimens/{$specimenId}/service_requests", array_merge($this->options['query'], $query));
     }
 
     /**
@@ -100,6 +131,9 @@ class ServiceRequest extends PatientApiBase
      */
     public function prequalify(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
+        $programIds = array_column(array_column($payload['programs'] ?? [], 'identifier'), 'value');
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validatePrequalify($response, $programIds));
+
         return $this->post(self::URL . "/{$patientId}/service_requests/prequalify", $payload);
     }
 
@@ -110,7 +144,9 @@ class ServiceRequest extends PatientApiBase
      */
     public function resendSms(string $patientId, string $id): PromiseInterface|EHealthResponse
     {
-        return $this->post(self::URL . "/{$patientId}/service_requests/{$id}/actions/resend", []);
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateResend($response, $patientId, $id));
+
+        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/resend", []);
     }
 
     /**
@@ -140,61 +176,282 @@ class ServiceRequest extends PatientApiBase
 
     private function executorApi(): ServiceRequestExecutorApi
     {
-        return app(ServiceRequestExecutorApi::class);
+        return app(ServiceRequestExecutorApi::class)->withHeaders($this->options['headers'] ?? []);
     }
 
-    protected function validateDetails(EHealthResponse $response, bool $preserveApiKeys = false): array
+    protected function validateResend(EHealthResponse $response, string $patientId, string $id): array
     {
-        $native = $response->getData();
-        $data = $this->replaceEHealthPropNames($native);
-        $toValidate = isset($data[0]) && is_array($data[0]) ? $data[0] : $data;
-
-        $validator = Validator::make($toValidate, [
-            'uuid' => 'required|string',
-            'status' => 'required|string',
-            'requisition' => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'ServiceRequest details validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new ValidationException($validator);
+        // The documented 200 response has no body. A 202 receipt is accepted, never proof of SMS delivery.
+        if ($response->status() === 200 && trim($response->body()) === '') {
+            return ['status' => 'processed'];
         }
-
-        // Signed snapshots retain the API's keys; both forms pass the same validator.
-        return $preserveApiKeys ? $native : $data;
+        return $this->validateOperation($response, patientId: $patientId, id: $id);
     }
 
-    protected function validateMany(EHealthResponse $response): array
-    {
-        $transformedData = [];
-        $items = $response->getData();
-        if (isset($items['data']) && is_array($items['data'])) {
-            $items = $items['data'];
+    /** A write either returns a complete synchronous resource or the documented pending receipt. */
+    public function validateOperation(
+        EHealthResponse $response,
+        array $allowedStatuses = [201, 202],
+        bool $requireStatusReason = false,
+        ?string $patientId = null,
+        ?string $id = null
+    ): array {
+        if (!in_array($response->status(), $allowedStatuses, true)) {
+            throw ValidationException::withMessages(['response' => __('referrals.messages.operation_failed')]);
         }
-        if (is_array($items)) {
-            foreach ($items as $item) {
-                if (is_array($item)) {
-                    $transformedData[] = $this->replaceEHealthPropNames($item);
-                }
+        if ($response->status() === 201) {
+            $resource = $this->validateDetails($response, true, $patientId, $id);
+            if ($requireStatusReason) {
+                Validator::make($resource, ['status_reason' => ['required', 'array']])->validate();
+            }
+
+            return $resource;
+        }
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['required', 'array'],
+            'data.status' => ['required', Rule::in(['pending'])],
+            'data.eta' => ['sometimes', 'string'],
+            'data.links' => ['sometimes', 'array', 'list'],
+            'data.links.*.entity' => ['required', 'string'],
+            'data.links.*.href' => ['required', 'string'],
+        ])->validate();
+        if ($response->status() !== 202) {
+            throw ValidationException::withMessages(['response' => __('referrals.messages.operation_failed')]);
+        }
+
+        return $body['data'];
+    }
+
+    /** Reuse the API contract for embedded job resources before any persistence or completion decision. */
+    public function validateResource(array $resource): array
+    {
+        Validator::make($resource, $this->resourceRules('', details: true))->validate();
+
+        return $resource;
+    }
+
+    public function validateJobResult(array $result): array
+    {
+        Validator::make($result, [
+            'status' => ['required', Rule::in(['pending', 'processing', 'accepted', 'queued', 'processed', 'failed'])],
+            'response_data' => ['nullable', 'array'],
+            'result' => ['nullable', 'array'],
+            'data' => ['nullable', 'array'],
+        ])->validate();
+        if ($result['status'] !== 'processed') {
+            return $result;
+        }
+        $resource = $this->jobResourceFromEnvelope($result);
+        // Empty envelopes confirm the job only. Fetch the referral before applying a clinical change.
+        if ($resource === []) {
+            unset($result['response_data']);
+        } else {
+            $result['response_data'] = $this->validateResource($resource);
+        }
+
+        return $result;
+    }
+
+    protected function jobResourceFromEnvelope(array $envelope): array
+    {
+        foreach (['response_data', 'result', 'data'] as $field) {
+            $candidate = $this->singleJobResource($envelope[$field] ?? []);
+            if (!isset($candidate['id']) && array_intersect_key($candidate, array_flip(['response_data', 'result', 'data']))) {
+                $candidate = $this->jobResourceFromEnvelope($candidate);
+            }
+            if ($candidate !== []) {
+                return $candidate;
             }
         }
 
-        $validator = Validator::make($transformedData, [
-            '*' => 'array',
-            '*.uuid' => 'required|string',
-            '*.status' => 'required|string',
-            '*.requisition' => 'nullable|string',
-        ]);
+        return [];
+    }
 
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'ServiceRequest many validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new ValidationException($validator);
+    protected function singleJobResource(mixed $value): array
+    {
+        if (is_array($value) && array_is_list($value) && count($value) === 1) {
+            $value = $value[0];
+        }
+        if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+            throw ValidationException::withMessages(['response_data' => __('referrals.messages.operation_failed')]);
         }
 
-        return $response->getData();
+        return $value;
+    }
+
+    /** Validate native FHIR before renaming any identifier or handing a snapshot to signing/persistence. */
+    protected function validateDetails(EHealthResponse $response, bool $preserveApiKeys = false, ?string $patientId = null, ?string $id = null): array
+    {
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['required', 'array'],
+            ...$this->resourceRules('data.', details: true),
+        ])->validate();
+        $native = $body['data'];
+        if ($id !== null && $native['id'] !== $id) {
+            throw ValidationException::withMessages(['data.id' => __('referrals.errors.submission_mismatch')]);
+        }
+        foreach (['subject', 'patient'] as $field) {
+            $subject = data_get($native, $field.'.identifier.value');
+            if ($patientId !== null && $subject !== null && $subject !== $patientId) {
+                throw ValidationException::withMessages(['data.'.$field => __('referrals.errors.import_patient_mismatch')]);
+            }
+        }
+
+        return $preserveApiKeys ? $native : $this->replaceEHealthPropNames($native);
+    }
+
+    /** A malformed item must reject the page, never disappear into a seemingly successful empty registry. */
+    protected function validateMany(EHealthResponse $response, bool $withIdentity = false): array
+    {
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['present', 'array', 'list'],
+            'data.*' => ['required', 'array'],
+            'paging' => ['sometimes', 'array'],
+            'paging.page' => ['required_with:paging', 'integer', 'min:1'],
+            'paging.page_size' => ['required_with:paging', 'integer', 'between:1,100'],
+            'paging.total_entries' => ['required_with:paging', 'integer', 'min:0'],
+            'paging.total_pages' => ['required_with:paging', 'integer', 'min:0'],
+            ...$this->resourceRules('data.*.'),
+            ...($withIdentity ? $this->identityRules('data.*.identity') : []),
+        ])->validate();
+
+        return $body['data'];
+    }
+
+    protected function validatePrequalify(EHealthResponse $response, array $programIds): array
+    {
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['present', 'array', 'list', ...($programIds ? ['size:'.count($programIds)] : [])],
+            'data.*' => ['required', 'array'],
+            'data.*.program_id' => ['required', 'uuid', 'distinct', ...($programIds ? [Rule::in($programIds)] : [])],
+            'data.*.program_name' => ['required', 'string'],
+            'data.*.status' => ['required', Rule::in(['VALID', 'INVALID'])],
+            'data.*.rejection_reason' => ['sometimes', 'string'],
+            'urgent.authentication_method_current.type' => ['required', Rule::in(['OTP', 'OFFLINE', 'THIRD_PERSON'])],
+            'urgent.authentication_method_current.number' => ['sometimes', 'string'],
+        ])->validate();
+
+        return $body['data'];
+    }
+
+    protected function identityRules(string $prefix): array
+    {
+        return [
+            $prefix => ['required', 'array'],
+            $prefix.'.last_name' => ['present', 'nullable', 'string'],
+            $prefix.'.first_name' => ['present', 'nullable', 'string'],
+            $prefix.'.second_name' => ['present', 'nullable', 'string'],
+            $prefix.'.gender' => ['required', Rule::in(['MALE', 'FEMALE'])],
+            $prefix.'.age' => ['present', 'numeric'],
+        ];
+    }
+
+    /** Medical Events 9.15.6: patient details and registry share the core resource contract. */
+    protected function resourceRules(string $prefix, bool $details = false): array
+    {
+        $rules = [
+            'id' => ['required', 'uuid'],
+            'status' => ['required', 'string'],
+            'requisition' => ['present', 'string'],
+            'intent' => ['required', 'string'],
+            'status_history' => ['present', 'array', 'list'],
+            'category' => ['required', 'array'],
+            'category.coding' => ['required', 'array', 'list'],
+            'category.coding.*.system' => ['required', 'string'],
+            'category.coding.*.code' => ['required', 'string'],
+            'reason_reference' => ['present', 'array', 'list'],
+            'note' => ['present', 'string'],
+            'patient_instruction' => ['present', 'string'],
+            'expiration_date' => ['present', 'string'],
+            'occurrence_period' => ['sometimes', 'missing_with:'.$prefix.'occurrence_date_time', 'array'],
+            'occurrence_period.start' => ['required_with:'.$prefix.'occurrence_period', 'date'],
+            'occurrence_period.end' => ['sometimes', 'date'],
+            'occurrence_date_time' => ['sometimes', 'date'],
+        ];
+        foreach (['code', 'subject', 'requester_employee', 'requester_legal_entity', 'used_by_employee', 'used_by_legal_entity'] as $field) {
+            $rules[$field] = ['present', 'array', 'required_array_keys:display_value'];
+            $rules[$field.'.display_value'] = ['present', 'string'];
+        }
+        foreach (['code', 'subject', 'requester_employee', 'requester_legal_entity', 'used_by_employee', 'used_by_legal_entity', 'program', 'program_service', 'context', 'completed_with', 'performer', 'location_reference'] as $field) {
+            if (!isset($rules[$field])) {
+                $rules[$field] = ['sometimes', 'array', 'required_array_keys:display_value'];
+            }
+            if (in_array($field, ['program_service', 'completed_with', 'performer', 'location_reference'], true)) {
+                $rules[$field][] = 'required_array_keys:identifier';
+            }
+            $rules[$field.'.identifier'] = ['sometimes', 'array', 'required_array_keys:type,value'];
+            $rules[$field.'.display_value'] = ['present_with:'.$prefix.$field, 'string'];
+            $rules[$field.'.identifier.value'] = ['required_with:'.$prefix.$field.'.identifier', 'string'];
+            $rules[$field.'.identifier.type.coding'] = ['required_with:'.$prefix.$field.'.identifier', 'array', 'list'];
+            $rules[$field.'.identifier.type.coding.*.system'] = ['required', 'string'];
+            $rules[$field.'.identifier.type.coding.*.code'] = ['required', 'string'];
+        }
+        foreach (['based_on', 'supporting_info', 'reason_reference', 'permitted_resources', 'specimens', 'focus'] as $field) {
+            $rules[$field] ??= ['sometimes', 'array', 'list'];
+            $rules[$field.'.*'] = ['array'];
+            $rules[$field.'.*.identifier'] = ['sometimes', 'array', in_array($field, ['reason_reference', 'permitted_resources'], true) ? 'required_array_keys:value' : 'required_array_keys:type,value'];
+            $rules[$field.'.*.identifier.value'] = ['required_with:'.$prefix.$field.'.*.identifier', 'string'];
+            $rules[$field.'.*.identifier.type'] = [in_array($field, ['reason_reference', 'permitted_resources'], true)
+                ? 'sometimes' : 'required_with:'.$prefix.$field.'.*.identifier', 'array'];
+            $rules[$field.'.*.identifier.type.coding'] = ['required_with:'.$prefix.$field.'.*.identifier.type', 'array', 'list'];
+            $rules[$field.'.*.identifier.type.coding.*.system'] = ['required', 'string'];
+            $rules[$field.'.*.identifier.type.coding.*.code'] = [in_array($field, ['reason_reference', 'permitted_resources'], true) ? 'sometimes' : 'required', 'string'];
+            if ($field !== 'based_on') {
+                $rules[$field.'.*.display_value'] = ['present', 'string'];
+            }
+        }
+        foreach (['status_history' => 'status', 'program_processing_status_history' => 'program_processing_status'] as $field => $statusField) {
+            $rules[$field] ??= ['sometimes', 'array', 'list'];
+            $rules[$field.'.*'] = ['array'];
+            $rules[$field.'.*.'.$statusField] = ['required', 'string'];
+            $rules[$field.'.*.inserted_at'] = ['required', 'string'];
+            if ($field !== 'status_history') {
+                $rules[$field.'.*.inserted_by'] = ['required', 'string'];
+            }
+        }
+        foreach (['used_by_employee_history' => 'used_by_employee', 'used_by_legal_entity_history' => 'used_by_legal_entity'] as $field => $referenceField) {
+            $rules[$field] = ['sometimes', 'array', 'list'];
+            $rules[$field.'.*.inserted_at'] = ['required', 'string'];
+            $rules[$field.'.*.inserted_by'] = ['required', 'string'];
+            $rules[$field.'.*.'.$referenceField] = ['present', 'array', 'required_array_keys:display_value'];
+            $rules[$field.'.*.'.$referenceField.'.display_value'] = ['present', 'string'];
+            $rules[$field.'.*.'.$referenceField.'.identifier'] = ['sometimes', 'array'];
+            $rules[$field.'.*.'.$referenceField.'.identifier.value'] = ['required_with:'.$prefix.$field.'.*.'.$referenceField.'.identifier', 'string'];
+            $rules[$field.'.*.'.$referenceField.'.identifier.type.coding'] = ['required_with:'.$prefix.$field.'.*.'.$referenceField.'.identifier', 'array', 'list'];
+            $rules[$field.'.*.'.$referenceField.'.identifier.type.coding.*.system'] = ['required', 'string'];
+            $rules[$field.'.*.'.$referenceField.'.identifier.type.coding.*.code'] = ['required', 'string'];
+        }
+        foreach (['performer_type', 'status_reason', 'status_history.*.status_reason'] as $field) {
+            $rules[$field] = ['sometimes', 'array'];
+            $rules[$field][] = 'required_array_keys:coding';
+            $rules[$field.'.coding'] = ['required_with:'.$prefix.$field, 'array', 'list'];
+            $rules[$field.'.coding.*.system'] = ['required', 'string'];
+            $rules[$field.'.coding.*.code'] = ['required', 'string'];
+            $rules[$field.'.text'] = ['sometimes', 'string'];
+        }
+        $rules['inform_with'] = ['sometimes', 'array'];
+        $rules['inform_with.auth_method_id'] = ['sometimes', 'uuid'];
+        foreach (['priority', 'program_processing_status', 'explanatory_letter', 'inserted_at', 'updated_at'] as $field) {
+            $rules[$field] = ['sometimes', 'string'];
+        }
+        foreach (['quantity', 'remaining_quantity'] as $field) {
+            $rules[$field] = [$details ? 'required' : 'sometimes', 'array'];
+            $rules[$field.'.value'] = ['required_with:'.$prefix.$field, 'numeric'];
+            $rules[$field.'.system'] = ['required_with:'.$prefix.$field, 'string'];
+            $rules[$field.'.code'] = ['required_with:'.$prefix.$field, 'string'];
+            $rules[$field.'.unit'] = ['sometimes', 'string'];
+            $rules[$field.'.comparator'] = ['sometimes', 'string'];
+        }
+
+        $prefixed = [];
+        foreach ($rules as $field => $constraints) {
+            $prefixed[$prefix.$field] = $constraints;
+        }
+
+        return $prefixed;
     }
 }

@@ -40,16 +40,26 @@ class PatientReferralRegistryUatTest extends TestCase
 
     public function test_referral_encounter_links_use_the_required_route_parameter(): void
     {
-        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture();
+        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture(scopes: ['patient_summary:read', 'service_request:read']);
         $encounterId = 987654;
         $this->mock(ServiceRequestRequestRepository::class)->shouldReceive('completionStates')->andReturn([])->getMock()->shouldReceive('searchByPersonId')->once()->andReturn([
             ['uuid' => (string) Str::uuid(), 'id' => 123, 'kind' => 'service_request', 'encounterId' => $encounterId, 'basisLabel' => 'Test encounter', 'canSign' => true],
         ]);
-        $this->mock(DeviceRequestRequestRepository::class)->shouldReceive('searchByPersonId')->once()->andReturn([]);
+        $this->mock(DeviceRequestRequestRepository::class)->shouldNotReceive('searchByPersonId');
 
         Livewire::test(PatientReferrals::class, ['legalEntity' => $legalEntity, 'personId' => $person->id])
             ->assertOk()
             ->assertSee(route('persons.encounters.edit', ['legalEntity' => $legalEntity, 'person' => $person->id, 'encounter' => $encounterId]), false);
+    }
+
+    public function test_device_read_permission_does_not_query_service_referrals(): void
+    {
+        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture(scopes: ['patient_summary:read', 'device_request:read']);
+        $this->mock(ServiceRequestRequestRepository::class)->shouldNotReceive('searchByPersonId', 'completionStates');
+        $this->mock(DeviceRequestRequestRepository::class)->shouldReceive('searchByPersonId')->once()->andReturn([]);
+
+        Livewire::test(PatientReferrals::class, ['legalEntity' => $legalEntity, 'personId' => $person->id])
+            ->assertOk()->assertSet('referrals', []);
     }
 
     public function test_device_cancel_uses_the_device_module_even_with_a_service_kind_argument(): void

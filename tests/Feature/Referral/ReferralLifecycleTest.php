@@ -27,6 +27,7 @@ use Mockery;
 use Tests\Concerns\CreatesFhirRequestIdentifiers;
 use Tests\Concerns\MocksBasicDictionaries;
 use Tests\Concerns\CreatesFhirCarePlans;
+use App\Core\Arr;
 use Tests\TestCase;
 use Livewire\Livewire;
 use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
@@ -50,13 +51,15 @@ class ReferralLifecycleTest extends TestCase
         $destination = (string) Str::uuid();
         $division = (string) Str::uuid();
         $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('validate')->once()->andReturn([]);
         $api->shouldReceive('prequalify')->once()->with($this->person->uuid, Mockery::on(function (array $payload) use ($destination, $division) {
             $this->assertSame([], $payload['programs']);
             $this->assertSame($destination, data_get($payload, 'service_request.performer.identifier.value'));
             $this->assertSame($division, data_get($payload, 'service_request.location_reference.identifier.value'));
 
             return true;
-        }))->andReturn(new EHealthResponse(new Response(200, [], json_encode(['data' => []]))));
+        }))->andReturn($response);
         $this->instance(ServiceRequestApi::class, $api);
 
         $uuid = app(ReferralRequestLifecycleService::class)->prepareEncounterDraftForSigning($this->encounter, [
@@ -193,7 +196,7 @@ class ReferralLifecycleTest extends TestCase
             setPermissionsTeamId($legalEntity->id);
         }
 
-        $this->grantMedicalEventAbilities($this->user);
+        $this->grantMedicalEventAbilities($this->user, ['patient_summary:read', 'service_request:cancel']);
 
         // 5. Create Care Plan & Referral Care Plan Activities
         $carePlan = $this->createFhirCarePlan([
@@ -244,7 +247,7 @@ class ReferralLifecycleTest extends TestCase
         $missingResponse = Mockery::mock(EHealthResponse::class);
         $missingResponse->shouldReceive('getData', 'validate')->andReturn([]);
         $mockServiceApi->shouldReceive('getById')
-            ->with($personUuid, $requestUuid)
+            ->with($personUuid, $requestUuid, [], true)
             ->andReturn($missingResponse);
     }
 
@@ -790,8 +793,8 @@ class ReferralLifecycleTest extends TestCase
             ->whereHas('basedOn', fn ($query) => $query->whereValue($this->serviceActivity->uuid))->get();
         $this->assertCount(1, $drafts);
         $resource = Repository::serviceRequest()->getResource($drafts->sole());
-        $this->assertSame('2026-10-23T09:30:00Z', $resource['occurrencePeriod']['start']);
-        $this->assertSame('2026-11-02T21:59:00Z', $resource['occurrencePeriod']['end']);
+        $this->assertSame('2026-10-23T09:30:00.000000Z', $resource['occurrencePeriod']['start']);
+        $this->assertSame('2026-11-02T21:59:00.000000Z', $resource['occurrencePeriod']['end']);
         $this->assertSame('Keep this draft note', $resource['note']);
     }
 
@@ -987,8 +990,8 @@ class ReferralLifecycleTest extends TestCase
 
         $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $resendResponse = Mockery::mock(EHealthResponse::class);
-        $resendResponse->shouldReceive('successful')->andReturn(true);
-        $resendResponse->shouldReceive('getData', 'validate')->andReturn(['status' => 'ok']);
+        $resendResponse->shouldReceive('getStatusCode')->andReturn(200);
+        $resendResponse->shouldReceive('validate')->andReturn(['status' => 'processed']);
         $mockServiceApi->shouldReceive('resendSms')->once()->with($this->person->uuid, $uuid)->andReturn($resendResponse);
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
@@ -1026,15 +1029,14 @@ class ReferralLifecycleTest extends TestCase
 
         // Mock eHealth ServiceRequest cancel API
         $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
-        $snapshot = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
-        $snapshot['id'] = $uuid;
+        $snapshot = $this->remoteServiceRequest($uuid, 'SR-999999');
         $snapshotResponse = Mockery::mock(EHealthResponse::class);
-        $snapshotResponse->shouldReceive('getData', 'validate')->andReturn(\App\Core\Arr::toSnakeCase($snapshot));
+        $snapshotResponse->shouldReceive('validate')->andReturn($snapshot);
         $mockServiceApi->shouldReceive('getById')->once()->with($this->person->uuid, $uuid, [], true)->andReturn($snapshotResponse);
         $cancelResponse = Mockery::mock(EHealthResponse::class);
-        $cancelResponse->shouldReceive('getStatusCode')->andReturn(200);
+        $cancelResponse->shouldReceive('getStatusCode')->andReturn(201);
         $cancelResponse->shouldReceive('successful')->andReturn(true);
-        $cancelResponse->shouldReceive('getData', 'validate')->andReturn(['status' => 'entered-in-error']);
+        $cancelResponse->shouldReceive('validate')->andReturn(array_replace($snapshot, ['status' => 'entered-in-error', 'status_reason' => ['coding' => [['system' => 'eHealth/service_request_cancel_reasons', 'code' => 'entered-in-error']]]]));
         $mockServiceApi->shouldReceive('cancel')->once()->andReturn($cancelResponse);
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
@@ -1096,11 +1098,7 @@ class ReferralLifecycleTest extends TestCase
         $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $createResponse = Mockery::mock(EHealthResponse::class);
         $createResponse->shouldReceive('getStatusCode')->andReturn(201);
-        $createResponse->shouldReceive('getData', 'validate')->andReturn([
-            'id' => $signedUuid,
-            'status' => 'active',
-            'request_number' => 'SR-12345678',
-        ]);
+        $createResponse->shouldReceive('validate')->andReturn($this->remoteServiceRequest($signedUuid, 'SR-12345678'));
         $this->mockReferralMissingInEHealth($mockServiceApi, $this->person->uuid, $draftUuid);
         $mockServiceApi->shouldReceive('createSigned')->once()->andReturn($createResponse);
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
@@ -1169,21 +1167,9 @@ class ReferralLifecycleTest extends TestCase
         $missingResponse = Mockery::mock(EHealthResponse::class);
         $missingResponse->shouldReceive('getData', 'validate')->andReturn([]);
         $getResponse = Mockery::mock(EHealthResponse::class);
-        $getResponse->shouldReceive('getData', 'validate')->andReturn([
-            'id' => $draftUuid,
-            'status' => 'active',
-            'request_number' => 'SR-EXISTING-99',
-            'code' => [
-                'identifier' => ['value' => '59300-00'],
-            ],
-            'quantity' => ['value' => 1.0],
-            'occurrence_period' => [
-                'start' => '2026-06-01T00:00:00Z',
-                'end' => '2026-09-01T00:00:00Z',
-            ],
-        ]);
+        $getResponse->shouldReceive('validate')->andReturn($this->remoteServiceRequest($draftUuid, 'SR-EXISTING-99'));
         $mockServiceApi->shouldReceive('getById')
-            ->with($this->person->uuid, $draftUuid)
+            ->with($this->person->uuid, $draftUuid, [], true)
             ->andReturn($missingResponse, $getResponse);
 
         $mockServiceApi->shouldReceive('createSigned')->once()->andThrow(new EHealthValidationException([
@@ -1261,7 +1247,7 @@ class ReferralLifecycleTest extends TestCase
         $remote['basedOn'][1]['identifier']['value'] = $this->serviceActivity->uuid;
         $getResponse->shouldReceive('getData', 'validate')->andReturn(\App\Core\Arr::toSnakeCase($remote));
         $mockServiceApi->shouldReceive('getById')
-            ->with($this->person->uuid, $draftUuid)
+            ->with($this->person->uuid, $draftUuid, [], true)
             ->andReturn($getResponse);
         $mockServiceApi->shouldNotReceive('createSigned');
 
@@ -1450,6 +1436,24 @@ class ReferralLifecycleTest extends TestCase
         ]);
     }
 
+    private function remoteServiceRequest(string $uuid, string $number): array
+    {
+        $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
+        $resource['id'] = $uuid;
+        $resource['requisition'] = $number;
+        $resource['subject'] = ['displayValue' => 'Synthetic patient', 'identifier' => ['value' => $this->person->uuid, 'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'patient']]]]];
+        $resource['requesterEmployee']['identifier']['value'] = $this->employee->uuid;
+        $resource['requesterLegalEntity']['identifier']['value'] = legalEntity()->uuid;
+        $resource['context']['identifier']['value'] = $this->encounter->uuid;
+        $resource['context']['identifier']['type']['coding'][0]['code'] = 'encounter';
+        $resource['context']['identifier']['type']['text'] = 'encounter';
+        $resource['context']['displayValue'] = 'Synthetic encounter';
+        $resource['basedOn'][0]['identifier']['value'] = $this->serviceActivity->carePlan->uuid;
+        $resource['basedOn'][1]['identifier']['value'] = $this->serviceActivity->uuid;
+
+        return Arr::toSnakeCase($resource);
+    }
+
     private function createCanonicalReferral(array $data): ServiceRequestRequest
     {
         foreach (['based_on_id' => 'based_on_uuid', 'context_id' => 'context_uuid'] as $column => $field) {
@@ -1458,7 +1462,9 @@ class ReferralLifecycleTest extends TestCase
             }
         }
         $data += ['quantity_system' => 'SERVICE_UNIT', 'quantity_code' => 'PIECE', 'context_type' => 'encounter'];
-        $id = app(ReferralRequestLifecycleService::class)->saveServiceRequest($data, $data['person_id'])->id;
+        $id = app(ReferralRequestLifecycleService::class)->saveServiceRequest($data, $data['person_id'], [
+            'employee_uuid' => $this->employee->uuid, 'legal_entity_uuid' => legalEntity()->uuid,
+        ])->id;
 
         return ServiceRequestRequest::findOrFail($id);
     }

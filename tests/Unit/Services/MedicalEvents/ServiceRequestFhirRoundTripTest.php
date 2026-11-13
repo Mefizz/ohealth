@@ -7,7 +7,7 @@ namespace Tests\Unit\Services\MedicalEvents;
 use App\Core\Arr;
 use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use InvalidArgumentException;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class ServiceRequestFhirRoundTripTest extends TestCase
 {
@@ -24,6 +24,15 @@ class ServiceRequestFhirRoundTripTest extends TestCase
         $this->assertEquals($resource, $actual);
         $this->assertSame($resource['occurrencePeriod'], $actual['occurrencePeriod']);
         $this->assertSame($resource['basedOn'], $actual['basedOn']);
+        $this->assertSame($resource['code'], $actual['code']);
+    }
+
+    public function test_a_read_only_service_label_survives_form_projection(): void
+    {
+        $mapper = new ServiceRequestMapper();
+        $resource = $this->resource();
+        $resource['code'] = ['displayValue' => 'Consultation'];
+        $actual = $mapper->toFhir($mapper->fromFhir($resource), ['resource' => $resource]);
         $this->assertSame($resource['code'], $actual['code']);
     }
 
@@ -77,6 +86,21 @@ class ServiceRequestFhirRoundTripTest extends TestCase
         $this->assertArrayNotHasKey('authored_on', $first);
     }
 
+    public function test_exact_occurrence_survives_projection_without_becoming_a_period(): void
+    {
+        $mapper = new ServiceRequestMapper();
+        $resource = $this->resource();
+        unset($resource['occurrencePeriod']);
+        $resource['occurrenceDateTime'] = '2026-11-19T12:13:14.123456Z';
+        $fields = $mapper->fromFhir($resource);
+        $this->assertSame($resource['occurrenceDateTime'], $fields['occurrence_date_time']);
+        $this->assertNull($fields['started_at']);
+        $this->assertNull($fields['ended_at']);
+        $content = $mapper->toCreateSignedContent($fields, ['resource' => $resource]);
+        $this->assertSame($resource['occurrenceDateTime'], $content['occurrence_date_time']);
+        $this->assertArrayNotHasKey('occurrence_period', $content);
+    }
+
     public function test_explicit_empty_collections_clear_only_that_collection(): void
     {
         $mapper = new ServiceRequestMapper();
@@ -87,6 +111,28 @@ class ServiceRequestFhirRoundTripTest extends TestCase
         $this->assertCount(2, $actual['reasonReference']);
         $this->assertCount(2, $actual['basedOn']);
         $this->assertSame(0, $actual['remainingQuantity']['value']);
+    }
+
+    public function test_selected_reference_keeps_its_identifier_and_display_name(): void
+    {
+        $mapper = new ServiceRequestMapper();
+        $data = $mapper->fromFhir($this->resource());
+        $uuid = '10050000-0000-4000-8000-000000000999';
+        $data['reason_reference'] = [['uuid' => $uuid, 'type' => 'condition', 'displayValue' => 'Synthetic label']];
+        $ref = $mapper->toFhir($data, ['resource' => $this->resource()])['reasonReference'][0];
+
+        $this->assertSame($uuid, $ref['identifier']['value']);
+        $this->assertSame('condition', data_get($ref, 'identifier.type.coding.0.code'));
+        $this->assertSame('Synthetic label', $ref['displayValue']);
+    }
+
+    public function test_a_blank_label_cannot_replace_a_missing_reference_identifier(): void
+    {
+        $mapper = new ServiceRequestMapper();
+        $data = $mapper->fromFhir($this->resource());
+        $data['reason_reference'] = [['uuid' => null, 'displayValue' => '  ']];
+        $this->expectException(InvalidArgumentException::class);
+        $mapper->toFhir($data, ['resource' => $this->resource()]);
     }
 
     public function test_unknown_reference_type_is_not_guessed(): void

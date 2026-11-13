@@ -208,7 +208,7 @@ class PatientApprovalService
                 ['page' => $page]
             );
 
-            foreach ($response->getData() as $referral) {
+            foreach ($response->validate() as $referral) {
                 $uuid = $referral['id'];
 
                 $referrals[$uuid] = [
@@ -224,7 +224,7 @@ class PatientApprovalService
             }
 
             $page++;
-        } while ($response->isNotLast());
+        } while ($page <= (int) ($response->getPaging()['total_pages'] ?? 1));
 
         return $referrals;
     }
@@ -380,8 +380,8 @@ class PatientApprovalService
     public function referralDetails(Person $person, string $uuid): array
     {
         return EHealth::serviceRequest()
-            ->getById($person->uuid, $uuid)
-            ->getData();
+            ->getById($person->uuid, $uuid, preserveApiKeys: true)
+            ->validate();
     }
 
     /** @return array{approval_id: ?string, link_id: ?int} */

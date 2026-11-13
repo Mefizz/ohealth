@@ -6,16 +6,18 @@ namespace App\Services\MedicalEvents\Mappers;
 
 use App\Contracts\FhirMapperContract;
 use App\Core\Arr;
-use App\Services\MedicalEvents\InformWith;
+use App\Dto\ServiceRequest\Resource;
 use App\Services\MedicalEvents\FhirResource;
+use App\Services\MedicalEvents\InformWith;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
+/** Compatibility for legacy encounter and care-plan draft input; snapshot projections use entity DTOs. */
 class ServiceRequestMapper implements FhirMapperContract
 {
     private const CATEGORY_SYSTEM = 'eHealth/SNOMED/service_request_categories';
-
-    public const CREATE_FIELDS = ['id', 'status', 'intent', 'priority', 'basedOn', 'category', 'code', 'program', 'context', 'requesterEmployee', 'requesterLegalEntity', 'reasonReference', 'supportingInfo', 'note', 'patientInstruction', 'permittedResources', 'performer', 'locationReference', 'performerType', 'quantity', 'specimens', 'focus', 'informWith', 'occurrencePeriod', 'occurrenceDateTime'];
 
     /** Pure form projection over the original ESOZ resource; no generated identity or clock. */
     public function toFhir(array $data, mixed ...$context): array
@@ -60,7 +62,7 @@ class ServiceRequestMapper implements FhirMapperContract
                 ->toIdentifier($options['personUuid']);
         }
         if (empty($resource['id']) && !($options['allowMissingId'] ?? false)) {
-            throw new InvalidArgumentException('A Service Request UUID must be allocated before mapping.');
+            throw new InvalidArgumentException(__('referrals.errors.identity_required'));
         }
         $resource['status'] ??= 'draft';
         $resource['intent'] ??= 'order';
@@ -72,6 +74,10 @@ class ServiceRequestMapper implements FhirMapperContract
             if (is_array($value)) {
                 $resource[$field] = $value;
             } elseif ($value === null || $value === '') {
+                // A read-only service label has no selectable identifier in the legacy form.
+                if ($field === 'code' && isset($resource['code']['displayValue']) && !isset($resource['code']['identifier'])) {
+                    continue;
+                }
                 unset($resource[$field]);
             } else {
                 $existing = $resource[$field] ?? null;
@@ -94,7 +100,7 @@ class ServiceRequestMapper implements FhirMapperContract
             }
         }
         if (array_key_exists('contextUuid', $input) || isset($options['encounterUuid']) || isset($options['episodeUuid'])) {
-            $value = $input['contextUuid'] ?? $options['encounterUuid'] ?? $options['episodeUuid'] ?? null;
+            $value = $input['contextUuid'] ?? ($options['encounterUuid'] ?? ($options['episodeUuid'] ?? null));
             $type = $input['contextType'] ?? (isset($options['encounterUuid']) ? 'encounter' : (isset($options['episodeUuid']) ? 'episode_of_care' : data_get($resource, 'context.identifier.type.coding.0.code')));
             $this->set($resource, 'context', $value ? $this->reference($value, $type, $resource['context'] ?? null) : null);
         }
@@ -123,10 +129,10 @@ class ServiceRequestMapper implements FhirMapperContract
                 $resource['quantity'] = $input['quantity'];
             } else {
                 if (!is_numeric($input['quantity']) || !is_finite((float) $input['quantity'])) {
-                    throw new InvalidArgumentException('Quantity must be a finite number.');
+                    throw new InvalidArgumentException(__('referrals.errors.quantity_invalid'));
                 }
-                if (!\Brick\Math\BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
-                    throw new InvalidArgumentException('Quantity cannot be represented without loss in the JSON numeric contract.');
+                if (!BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
+                    throw new InvalidArgumentException(__('referrals.errors.quantity_precision'));
                 }
                 $resource['quantity'] = array_replace($resource['quantity'] ?? [], ['value' => (float) $input['quantity']]);
                 $resource['quantity']['system'] ??= 'SERVICE_UNIT';
@@ -162,9 +168,17 @@ class ServiceRequestMapper implements FhirMapperContract
                     if (isset($item['identifier'])) {
                         return $item;
                     }
+                    if (empty($item['uuid']) && is_string($item['displayValue'] ?? null) && trim($item['displayValue']) !== '') {
+                        return ['displayValue' => $item['displayValue']];
+                    }
                     $old = collect($resource[$field] ?? [])->first(fn (array $ref): bool => data_get($ref, 'identifier.value') === ($item['uuid'] ?? null));
 
-                    return $this->reference($item['uuid'] ?? '', isset($item['type']) ? (strtoupper($item['type']) === $item['type'] ? strtolower($item['type']) : \Illuminate\Support\Str::snake($item['type'])) : null, $old);
+                    $reference = $this->reference($item['uuid'] ?? '', isset($item['type']) ? (strtoupper($item['type']) === $item['type'] ? strtolower($item['type']) : Str::snake($item['type'])) : null, $old);
+                    if (array_key_exists('displayValue', $item)) {
+                        $reference['displayValue'] = $item['displayValue'];
+                    }
+
+                    return $reference;
                 }, $items);
             }
         }
@@ -178,7 +192,7 @@ class ServiceRequestMapper implements FhirMapperContract
             }
         }
         if (!empty($resource['occurrencePeriod']) && !empty($resource['occurrenceDateTime'])) {
-            throw new InvalidArgumentException('Only one occurrence variant is allowed.');
+            throw new InvalidArgumentException(__('referrals.errors.occurrence_conflict'));
         }
 
         return $resource;
@@ -186,31 +200,17 @@ class ServiceRequestMapper implements FhirMapperContract
 
     public function normalize(array $resource): array
     {
-        $resource = Arr::toCamelCase($resource);
-        if (isset($resource['category']) && array_is_list($resource['category']) && count($resource['category']) === 1) {
-            $resource['category'] = $resource['category'][0];
-        }
-        if (isset($resource['quantityInteger']) && !isset($resource['quantity'])) {
-            $resource['quantity'] = ['value' => $resource['quantityInteger'], 'system' => 'SERVICE_UNIT', 'code' => 'PIECE'];
-            unset($resource['quantityInteger']);
-        }
-        if (isset($resource['code']['coding'][0]['code']) && !isset($resource['code']['identifier'])) {
-            $resource['code'] = $this->reference((string) $resource['code']['coding'][0]['code'], 'service');
-        }
-        if (isset($resource['note']) && is_array($resource['note'])) {
-            $resource['note'] = implode("\n", array_column($resource['note'], 'text'));
-        }
-        if (isset($resource['uuid']) && !isset($resource['id'])) {
-            $resource['id'] = $resource['uuid'];
-            unset($resource['uuid']);
-        }
+        return (new Resource($resource))->normalized();
+    }
 
-        if (isset($resource['requestNumber']) && !isset($resource['requisition'])) {
-            $resource['requisition'] = $resource['requestNumber'];
-            unset($resource['requestNumber']);
-        }
+    public function fromFhir(array $data, mixed ...$context): array
+    {
+        return (new Resource($data))->formFields();
+    }
 
-        return $resource;
+    public function createContent(array $resource): array
+    {
+        return (new Resource($resource))->createContent();
     }
 
     public function toPrequalifyPayload(array $data, array $uuids, ?string $carePlanUuid = null, ?string $activityUuid = null): array
@@ -230,7 +230,7 @@ class ServiceRequestMapper implements FhirMapperContract
     {
         $payload = $this->toPrequalifyPayload($data, $uuids, $carePlanUuid, $activityUuid);
         if (empty($data['uuid'])) {
-            throw new InvalidArgumentException('A Service Request UUID must be allocated before signing.');
+            throw new InvalidArgumentException(__('referrals.errors.identity_required'));
         }
         $payload['service_request']['id'] = $data['uuid'];
 
@@ -246,39 +246,10 @@ class ServiceRequestMapper implements FhirMapperContract
         return $this->createContent($this->toFhir($data, $uuids + ['carePlanUuid' => $carePlanUuid]));
     }
 
-    public function createContent(array $resource): array
-    {
-        $content = array_intersect_key($resource, array_flip(self::CREATE_FIELDS));
-        $content['status'] = 'active';
-        $content['intent'] ??= 'order';
-        $content['priority'] ??= 'routine';
-        if (data_get($content, 'category.coding.0.code') !== 'transfer_of_care') {
-            unset($content['performer'], $content['locationReference'], $content['performerType']);
-        }
-
-        return Arr::toSnakeCase(array_filter($content, static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []));
-    }
-
-    public function fromFhir(array $data, mixed ...$context): array
-    {
-        $resource = $this->normalize($data);
-        $activity = collect($resource['basedOn'] ?? [])->first(fn (array $ref): bool => in_array(data_get($ref, 'identifier.type.coding.0.code'), ['activity', 'care_plan_activity'], true));
-        $result = [];
-        foreach (['uuid' => 'id', 'status' => 'status', 'request_number' => 'requisition', 'started_at' => 'occurrencePeriod.start', 'ended_at' => 'occurrencePeriod.end', 'service_id' => 'code.identifier.value', 'service_type' => 'code.identifier.type.coding.0.code', 'quantity' => 'quantity.value', 'quantity_system' => 'quantity.system', 'quantity_code' => 'quantity.code', 'quantity_unit' => 'quantity.unit', 'quantity_comparator' => 'quantity.comparator', 'program_id' => 'program.identifier.value', 'intent' => 'intent', 'category' => 'category.coding.0.code', 'context_uuid' => 'context.identifier.value', 'context_type' => 'context.identifier.type.coding.0.code', 'priority' => 'priority', 'note' => 'note', 'patient_instruction' => 'patientInstruction', 'inform_with' => 'informWith', 'performer' => 'performer.identifier.value', 'location_reference' => 'locationReference.identifier.value', 'performer_type' => 'performerType.coding.0.code'] as $key => $path) {
-            $result[$key] = data_get($resource, $path);
-        }
-        $result['based_on_uuid'] = data_get($activity, 'identifier.value');
-        foreach (['supportingInfo' => 'supporting_info', 'reasonReference' => 'reason_reference'] as $field => $key) {
-            $result[$key] = array_map(static fn (array $ref): array => ['uuid' => data_get($ref, 'identifier.value'), 'type' => data_get($ref, 'identifier.type.coding.0.code')], $resource[$field] ?? []);
-        }
-
-        return $result;
-    }
-
     private function reference(string $value, ?string $type, ?array $original = null): array
     {
         if ($value === '' || $type === null || $type === '') {
-            throw new InvalidArgumentException('A reference requires an explicit resource type and value.');
+            throw new InvalidArgumentException(__('referrals.errors.reference_incomplete'));
         }
         if (data_get($original, 'identifier.value') === $value && data_get($original, 'identifier.type.coding.0.code') === $type) {
             return $original;

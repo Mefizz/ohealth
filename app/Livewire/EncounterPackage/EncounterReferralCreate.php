@@ -13,7 +13,7 @@ use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\InformWith;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Dto\ServiceRequest\Resource as ReferralResource;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
@@ -65,7 +65,7 @@ class EncounterReferralCreate extends EncounterDocumentCreate
             : $submissionId;
         $record = app(MedicalRequestOwnership::class)->serviceForEncounter($submissionUuid, $encounter);
         $resource = Repository::serviceRequest()->getResource($record);
-        $fields = (new ServiceRequestMapper())->fromFhir($resource);
+        $fields = (new ReferralResource($resource))->formFields();
         foreach (array_keys($this->encounterReferralForm) as $field) {
             if (array_key_exists($field, $fields)) {
                 $this->encounterReferralForm[$field] = $fields[$field] ?? $this->encounterReferralForm[$field];

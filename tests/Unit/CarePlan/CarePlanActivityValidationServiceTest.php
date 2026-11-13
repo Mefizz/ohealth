@@ -8,8 +8,9 @@ use App\Models\CarePlan;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
-use App\Services\MedicalEvents\CarePlanActivityValidationService;
+use App\Models\Relations\Party;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -17,18 +18,14 @@ class CarePlanActivityValidationServiceTest extends TestCase
 {
     use DatabaseTransactions;
 
-    private CarePlanActivityValidationService $service;
-
     private CarePlan $carePlan;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->service = new CarePlanActivityValidationService();
-
-        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
-            ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
+        $typeId = DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+            ?? DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
 
         $legalEntity = LegalEntity::create([
             'uuid' => (string) Str::uuid(),
@@ -38,7 +35,7 @@ class CarePlanActivityValidationServiceTest extends TestCase
             'is_active' => true,
         ]);
 
-        $party = \App\Models\Relations\Party::create([
+        $party = Party::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Val',
             'last_name' => 'Doctor',
@@ -84,16 +81,16 @@ class CarePlanActivityValidationServiceTest extends TestCase
 
     public function test_providing_conditions_allows_when_list_empty(): void
     {
-        $this->assertNull($this->service->providingConditionsBlockReason($this->carePlan, [
+        $this->assertNull($this->carePlan->providingConditionsBlockReason([
             'medical_program_settings' => [],
         ]));
 
-        $this->assertNull($this->service->providingConditionsBlockReason($this->carePlan, null));
+        $this->assertNull($this->carePlan->providingConditionsBlockReason(null));
     }
 
     public function test_providing_conditions_blocks_mismatched_terms_of_service(): void
     {
-        $message = $this->service->providingConditionsBlockReason($this->carePlan, [
+        $message = $this->carePlan->providingConditionsBlockReason([
             'medical_program_settings' => [
                 'providing_conditions_allowed' => ['INPATIENT'],
             ],
@@ -106,7 +103,7 @@ class CarePlanActivityValidationServiceTest extends TestCase
 
     public function test_providing_conditions_allows_matching_terms_of_service(): void
     {
-        $this->assertNull($this->service->providingConditionsBlockReason($this->carePlan, [
+        $this->assertNull($this->carePlan->providingConditionsBlockReason([
             'medical_program_settings' => [
                 'providing_conditions_allowed' => ['OUTPATIENT', 'FIELD'],
             ],
@@ -117,8 +114,8 @@ class CarePlanActivityValidationServiceTest extends TestCase
     {
         $this->carePlan->update(['category' => 'CLASS 23']);
 
-        $this->assertNotNull($this->service->rehabReasonReferenceBlockReason($this->carePlan, []));
-        $this->assertNotNull($this->service->rehabReasonReferenceBlockReason($this->carePlan, [
+        $this->assertNotNull($this->carePlan->rehabReasonReferenceBlockReason([]));
+        $this->assertNotNull($this->carePlan->rehabReasonReferenceBlockReason([
             'Observation/' . (string) Str::uuid(),
         ]));
     }
@@ -127,13 +124,13 @@ class CarePlanActivityValidationServiceTest extends TestCase
     {
         $this->carePlan->update(['category' => 'TREATMENT']);
 
-        $this->assertNull($this->service->rehabReasonReferenceBlockReason($this->carePlan, []));
+        $this->assertNull($this->carePlan->rehabReasonReferenceBlockReason([]));
     }
 
     public function test_is_rehab_category_normalizes_underscores(): void
     {
         $this->carePlan->update(['category' => 'CLASS_24']);
 
-        $this->assertTrue($this->service->isRehabCategory($this->carePlan));
+        $this->assertTrue($this->carePlan->isRehabCategory());
     }
 }

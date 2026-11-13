@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api\Patient;
 
+use App\Classes\eHealth\Api\Patient\PatientApiBase;
 use App\Classes\eHealth\EHealthResponse;
+use App\Classes\eHealth\MedicationResponseContract;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 
 class MedicationRequest extends PatientApiBase
 {
@@ -22,8 +22,18 @@ class MedicationRequest extends PatientApiBase
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
+    /** Official General MIS 9.15.12 prescription-specific price catalogue link. */
+    public function getPriceCatalogLink(string $personId, string $prescriptionId): EHealthResponse
+    {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'price_catalog'));
+
+        return $this->get("/api/persons/{$personId}/medication_requests/{$prescriptionId}/price_catalog_link");
+    }
+
     public function createRequest(array $payload): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'request_create'));
+
         return $this->post('/api/medication_request_requests', $payload);
     }
 
@@ -38,6 +48,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function signRequest(string $requestId, array $payload): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'request_sign'));
+
         if (isset($payload['signed_content']) && !isset($payload['signed_medication_request_request'])) {
             $payload['signed_medication_request_request'] = $payload['signed_content'];
             unset($payload['signed_content']);
@@ -60,6 +72,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function cancel(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'detail'));
+
         return $this->patch("/api/persons/{$patientId}/medication_requests/{$id}/actions/cancel", $payload);
     }
 
@@ -74,7 +88,7 @@ class MedicationRequest extends PatientApiBase
      */
     public function getById(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateDetails(...));
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'detail'));
 
         return $this->get("/api/persons/{$patientId}/medication_requests/{$id}", $query);
     }
@@ -89,9 +103,10 @@ class MedicationRequest extends PatientApiBase
      */
     public function getBySearchParams(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'list'));
+
         $this->setDefaultPageSize();
         $mergedQuery = array_merge($this->options['query'], $query);
-        $this->setValidator($this->validateMany(...));
 
         return $this->get("/api/persons/{$patientId}/medication_requests", $mergedQuery);
     }
@@ -106,9 +121,10 @@ class MedicationRequest extends PatientApiBase
      */
     public function getRequestsBySearchParams(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'request_list'));
+
         $this->setDefaultPageSize();
         $mergedQuery = array_merge($this->options['query'], $query);
-        $this->setValidator($this->validateMany(...));
 
         return $this->get("/api/persons/{$patientId}/medication_request_requests", $mergedQuery);
     }
@@ -134,7 +150,9 @@ class MedicationRequest extends PatientApiBase
      */
     public function resendSms(string $patientId, string $id): PromiseInterface|EHealthResponse
     {
-        return $this->post("/api/medication_requests/{$id}/actions/resend", []);
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'resend'));
+
+        return $this->patch("/api/medication_requests/{$id}/actions/resend", []);
     }
 
     /**
@@ -145,6 +163,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function prequalify(array $payload): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'prequalify'));
+
         return $this->post('/api/medication_request_requests/prequalify', $payload);
     }
 
@@ -156,6 +176,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function rejectRequest(string $requestId): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'request_reject'));
+
         return $this->patch("/api/medication_request_requests/{$requestId}/actions/reject", []);
     }
 
@@ -173,6 +195,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function reject(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'reject'));
+
         $signed = $payload['signed_medication_reject'] ?? ($payload['signed_content'] ?? ($payload['signed_data'] ?? null));
 
         return $this->patch("/api/medication_requests/{$id}/actions/reject", [
@@ -190,6 +214,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function qualify(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'qualify'));
+
         return $this->post("/api/medication_requests/{$id}/actions/qualify", $payload);
     }
 
@@ -202,7 +228,7 @@ class MedicationRequest extends PatientApiBase
      */
     public function getByCarePlan(string $carePlanId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateMany(...));
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'care_plan_list'));
 
         return $this->get("/api/care_plans/{$carePlanId}/medication_requests", $query);
     }
@@ -217,6 +243,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function getDetails(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'dispenses'));
+
         return $this->get("/api/persons/{$patientId}/medication_requests/{$id}/medication_dispenses", $query);
     }
 
@@ -229,6 +257,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function getPrintoutForm(string $patientId, string $id): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'printout'));
+
         return $this->get("/api/persons/{$patientId}/medication_requests/{$id}/printout_form", []);
     }
 
@@ -242,6 +272,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function block(string $patientId, string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'block'));
+
         return $this->patch("/api/medication_requests/{$id}/actions/block", $payload);
     }
 
@@ -255,6 +287,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function unblock(string $patientId, string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'unblock'));
+
         return $this->patch("/api/medication_requests/{$id}/actions/unblock", $payload);
     }
 
@@ -269,6 +303,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function getInCompositionContext(string $patientId, string $compositionId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'composition_detail'));
+
         return $this->get("/api/persons/{$patientId}/compositions/{$compositionId}/medication_requests/{$id}", $query);
     }
 
@@ -281,6 +317,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function getByIdByPharmacy(string $id, array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'pharmacy_detail'));
+
         return $this->get("/api/pharmacy/medication_requests/{$id}", $query);
     }
 
@@ -293,6 +331,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function blockByPharmacy(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'pharmacy_block'));
+
         return $this->patch("/api/pharmacy/medication_requests/{$id}/actions/block", $payload);
     }
 
@@ -305,6 +345,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function unblockByPharmacy(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'pharmacy_unblock'));
+
         return $this->patch("/api/pharmacy/medication_requests/{$id}/actions/unblock", $payload);
     }
 
@@ -317,6 +359,8 @@ class MedicationRequest extends PatientApiBase
      */
     public function rejectByPharmacy(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'pharmacy_reject'));
+
         return $this->patch("/api/pharmacy/medication_requests/{$id}/actions/reject", $payload);
     }
 
@@ -327,59 +371,17 @@ class MedicationRequest extends PatientApiBase
      */
     public function searchByPharmacy(array $query = []): PromiseInterface|EHealthResponse
     {
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'pharmacy_list'));
+
         return $this->get('/api/pharmacy/medication_requests', $query);
     }
 
-    protected function validateDetails(EHealthResponse $response): array
+    /** Read unsigned requests from any MIS in the care-plan context. */
+    public function getRequestsByCarePlan(string $carePlanId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $data = $this->replaceEHealthPropNames($response->getData());
-        $toValidate = isset($data[0]) && is_array($data[0]) ? $data[0] : $data;
+        $this->setDefaultPageSize();
+        $this->setValidator(static fn (EHealthResponse $response): array => (new MedicationResponseContract())->validate($response, 'request_care_plan_list'));
 
-        $validator = Validator::make($toValidate, [
-            'uuid' => 'required|string',
-            'status' => 'required|string',
-            'request_number' => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'MedicationRequest details validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new \Illuminate\Validation\ValidationException($validator);
-        }
-
-        return $data;
-    }
-
-    protected function validateMany(EHealthResponse $response): array
-    {
-        $transformedData = [];
-        $items = $response->getData();
-        if (isset($items['data']) && is_array($items['data'])) {
-            $items = $items['data'];
-        }
-        if (is_array($items)) {
-            foreach ($items as $item) {
-                if (is_array($item)) {
-                    $transformedData[] = $this->replaceEHealthPropNames($item);
-                }
-            }
-        }
-
-        $validator = Validator::make($transformedData, [
-            '*' => 'array',
-            '*.uuid' => 'required|string',
-            '*.status' => 'required|string',
-            '*.request_number' => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'MedicationRequest many validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new \Illuminate\Validation\ValidationException($validator);
-        }
-
-        return $response->getData();
+        return $this->get("/api/care_plans/{$carePlanId}/medication_request_requests", array_merge($this->options['query'], $query));
     }
 }

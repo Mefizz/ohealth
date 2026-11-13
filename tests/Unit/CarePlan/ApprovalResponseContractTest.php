@@ -5,20 +5,22 @@ declare(strict_types=1);
 namespace Tests\Unit\CarePlan;
 
 use App\Classes\eHealth\Api\Approval;
+use App\Classes\eHealth\Api\Person;
 use App\Classes\eHealth\EHealthResponse;
+use App\Enums\Person\AuthenticationMethod;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Models\CarePlan;
 use App\Models\MedicalEvents\Sql\Approval as ApprovalModel;
 use App\Models\Person\Person as Patient;
-use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Services\MedicalEvents\PatientApprovalService;
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Validation\ValidationException;
 use Mockery;
-use Tests\TestCase;
-use App\Classes\eHealth\Api\Person;
-use App\Enums\Person\AuthenticationMethod;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
+use RuntimeException;
+use Tests\Support\CarePlanWorkflowHarness;
+use Tests\TestCase;
 
 class ApprovalResponseContractTest extends TestCase
 {
@@ -30,7 +32,7 @@ class ApprovalResponseContractTest extends TestCase
         $this->instance(Approval::class, $api);
 
         $this->expectException(EHealthResponseException::class);
-        app(CarePlanApprovalService::class)->confirmWithoutOtp('patient', 'approval');
+        app(CarePlanWorkflowHarness::class)->confirmCarePlanApprovalWithoutOtp('patient', 'approval');
     }
 
     public function test_cancellation_propagates_an_esoz_error_without_updating_the_approval(): void
@@ -90,11 +92,11 @@ class ApprovalResponseContractTest extends TestCase
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('malformedApprovalLists')]
+    #[DataProvider('malformedApprovalLists')]
     public function test_incomplete_approval_snapshots_are_rejected(string $body): void
     {
-        $this->expectException(\Illuminate\Validation\ValidationException::class);
-        (new \ReflectionMethod(Approval::class, 'validateApprovalList'))->invoke(
+        $this->expectException(ValidationException::class);
+        (new ReflectionMethod(Approval::class, 'validateApprovalList'))->invoke(
             new Approval(),
             new EHealthResponse(new Response(200, [], $body)),
         );
@@ -109,29 +111,29 @@ class ApprovalResponseContractTest extends TestCase
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('completeApprovalPages')]
+    #[DataProvider('completeApprovalPages')]
     public function test_complete_empty_approval_snapshots_are_accepted(array $paging): void
     {
-        $this->assertSame([], (new \ReflectionMethod(Approval::class, 'validateApprovalList'))->invoke(
+        $this->assertSame([], (new ReflectionMethod(Approval::class, 'validateApprovalList'))->invoke(
             new Approval(),
             new EHealthResponse(new Response(200, [], json_encode(['data' => [], 'paging' => $paging], JSON_THROW_ON_ERROR))),
         ));
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('verificationAcknowledgements')]
+    #[DataProvider('verificationAcknowledgements')]
     public function test_verification_accepts_a_success_acknowledgement_without_a_full_resource(int $status, string $body): void
     {
         $api = new Approval();
         $response = new EHealthResponse(new Response($status, [], $body));
-        $method = new \ReflectionMethod(Approval::class, 'validateVerification');
+        $method = new ReflectionMethod(Approval::class, 'validateVerification');
 
         $this->assertSame([], $method->invoke($api, $response));
     }
 
     public function test_verification_rejects_a_malformed_acknowledgement(): void
     {
-        $this->expectException(\Illuminate\Validation\ValidationException::class);
-        (new \ReflectionMethod(Approval::class, 'validateVerification'))->invoke(
+        $this->expectException(ValidationException::class);
+        (new ReflectionMethod(Approval::class, 'validateVerification'))->invoke(
             new Approval(),
             new EHealthResponse(new Response(200, [], '{"data":"untrusted"}')),
         );
@@ -141,14 +143,83 @@ class ApprovalResponseContractTest extends TestCase
     {
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('successful')->once()->andReturnTrue();
-        $response->shouldReceive('validate')->once()->andReturn(['is_verified' => false]);
+        $response->shouldReceive('validate')->once()->andReturn(['expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false]);
         $api = Mockery::mock(Approval::class);
         $api->shouldReceive('verify')->once()->with('patient', 'approval', ['code' => 1234])->andReturn($response);
         $this->instance(Approval::class, $api);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(__('care-plan.approval_verify_error'));
-        app(CarePlanApprovalService::class)->verify('patient', 'approval', 1234);
+        app(CarePlanWorkflowHarness::class)->verifyCarePlanApproval('patient', 'approval', 1234);
+    }
+
+    public static function invalidConsentFields(): array
+    {
+        return [
+            'missing verified flag' => ['is_verified', null, true],
+            'null verified flag' => ['is_verified', null, false],
+            'string verified flag' => ['is_verified', 'true', false],
+            'missing expiry' => ['expires_at', null, true],
+            'null expiry' => ['expires_at', null, false],
+            'invalid expiry' => ['expires_at', 'not-a-date', false],
+        ];
+    }
+
+    #[DataProvider('invalidConsentFields')]
+    public function test_list_rejects_approvals_without_authoritative_consent_fields(string $field, mixed $value, bool $missing): void
+    {
+        $data = [
+            'id' => '11111111-1111-4111-8111-111111111111',
+            'granted_to' => ['identifier' => ['value' => '22222222-2222-4222-8222-222222222222']],
+            'is_verified' => true,
+            'expires_at' => now()->addDay()->toIso8601String(),
+        ];
+        if ($missing) {
+            unset($data[$field]);
+        } else {
+            $data[$field] = $value;
+        }
+        $response = new EHealthResponse(new Response(200, [], json_encode([
+            'data' => [$data], 'paging' => ['page_number' => 1, 'total_pages' => 1],
+        ], JSON_THROW_ON_ERROR)));
+
+        $this->expectException(ValidationException::class);
+        (new ReflectionMethod(Approval::class, 'validateApprovalList'))->invoke(new Approval(), $response);
+    }
+
+    #[DataProvider('invalidConsentFields')]
+    public function test_job_resource_rejects_missing_or_malformed_consent_fields(string $field, mixed $value, bool $missing): void
+    {
+        $data = [
+            'id' => '11111111-1111-4111-8111-111111111111',
+            'is_verified' => false,
+            'expires_at' => now()->addDay()->toIso8601String(),
+        ];
+        if ($missing) {
+            unset($data[$field]);
+        } else {
+            $data[$field] = $value;
+        }
+
+        $this->expectException(ValidationException::class);
+        (new Approval())->validateResourceData($data);
+    }
+
+    public function test_expired_approval_does_not_offer_patient_confirmation(): void
+    {
+        $id = '11111111-1111-4111-8111-111111111111';
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('successful')->once()->andReturnTrue();
+        $response->shouldReceive('validate')->once()->andReturn([
+            'id' => $id, 'is_verified' => false,
+            'expires_at' => now()->subSecond()->toIso8601String(),
+            'authentication_method_current' => ['type' => 'OTP'],
+        ]);
+        $this->mock(Approval::class)->shouldReceive('getApprovalDetails')->once()->with('patient', $id)->andReturn($response);
+        $this->mock(Person::class)->shouldNotReceive('getAuthMethods');
+
+        $this->expectException(RuntimeException::class);
+        app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', $id);
     }
 
     public static function confirmationMethods(): array
@@ -166,9 +237,9 @@ class ApprovalResponseContractTest extends TestCase
     public function test_pending_approval_uses_the_actual_confirmation_method(array $method, bool $requiresOtp): void
     {
         $id = '11111111-1111-4111-8111-111111111111';
-        $validated = Approval::validateResourceData([
+        $validated = (new Approval())->validateResourceData([
             'id' => $id,
-            'is_verified' => false,
+            'expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false,
             'authentication_method_current' => $method,
         ]);
         $response = Mockery::mock(EHealthResponse::class);
@@ -178,13 +249,13 @@ class ApprovalResponseContractTest extends TestCase
         $api->shouldReceive('getApprovalDetails')->once()->with('patient', $id)->andReturn($response);
         $this->instance(Approval::class, $api);
 
-        $result = app(CarePlanApprovalService::class)->pendingConfirmation('patient', $id);
+        $result = app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', $id);
 
-        $this->assertTrue($result->requiresConfirmation());
-        $this->assertFalse($result->isGranted());
-        $this->assertSame($requiresOtp, $result->requiresOtp());
+        $this->assertTrue(in_array($result['outcome']->value, ['otp_required', 'offline_required'], true));
+        $this->assertFalse(($result['outcome']->value === 'granted'));
+        $this->assertSame($requiresOtp, ($result['outcome']->value === 'otp_required'));
         $this->assertSame($method, $validated['authentication_method_current']);
-        $this->assertSame($requiresOtp ? '+38093*****85' : null, AuthenticationMethod::confirmationPhone($result->authMethod));
+        $this->assertSame($requiresOtp ? '+38093*****85' : null, AuthenticationMethod::confirmationPhone($result['authMethod']));
     }
 
     public function test_care_plan_reuses_the_patient_approval_representative_sms_response(): void
@@ -193,16 +264,16 @@ class ApprovalResponseContractTest extends TestCase
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('successful')->andReturnTrue();
         $response->shouldReceive('validate')->andReturn([
-            'id' => $id, 'is_verified' => false,
+            'id' => $id, 'expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false,
             'authentication_method_current' => ['type' => 'THIRD_PERSON', 'number' => '+38093*****85'],
         ]);
         $this->mock(Approval::class)->shouldReceive('getApprovalDetails')->once()->with('patient', $id)->andReturn($response);
         $this->mock(Person::class)->shouldNotReceive('getAuthMethods');
 
-        $result = app(CarePlanApprovalService::class)->pendingConfirmation('patient', $id);
+        $result = app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', $id);
 
-        $this->assertTrue($result->requiresOtp());
-        $this->assertSame('+38093*****85', AuthenticationMethod::confirmationPhone($result->authMethod));
+        $this->assertTrue(($result['outcome']->value === 'otp_required'));
+        $this->assertSame('+38093*****85', AuthenticationMethod::confirmationPhone($result['authMethod']));
     }
 
     public function test_representative_method_is_resolved_from_the_exact_registered_method(): void
@@ -212,7 +283,7 @@ class ApprovalResponseContractTest extends TestCase
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('successful')->andReturnTrue();
         $response->shouldReceive('validate')->andReturn([
-            'id' => $id, 'is_verified' => false,
+            'id' => $id, 'expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false,
             'authentication_method_current' => ['type' => 'THIRD_PERSON'],
         ]);
         $this->mock(Approval::class)->shouldReceive('getApprovalDetails')->once()->with('patient', $id)->andReturn($response);
@@ -223,10 +294,10 @@ class ApprovalResponseContractTest extends TestCase
         ]);
         $this->mock(Person::class)->shouldReceive('getAuthMethods')->once()->with('patient')->andReturn($registry);
 
-        $result = app(CarePlanApprovalService::class)->pendingConfirmation('patient', $id, $authId);
+        $result = app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', $id, $authId);
 
-        $this->assertTrue($result->requiresOtp());
-        $this->assertSame('+38093*****85', AuthenticationMethod::confirmationPhone($result->authMethod));
+        $this->assertTrue(($result['outcome']->value === 'otp_required'));
+        $this->assertSame('+38093*****85', AuthenticationMethod::confirmationPhone($result['authMethod']));
     }
 
     public function test_representative_without_reference_uses_the_representatives_registered_method(): void
@@ -236,7 +307,7 @@ class ApprovalResponseContractTest extends TestCase
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('successful')->andReturnTrue();
         $response->shouldReceive('validate')->andReturn([
-            'id' => $id, 'is_verified' => false,
+            'id' => $id, 'expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false,
             'authentication_method_current' => ['type' => 'THIRD_PERSON'],
         ]);
         $this->mock(Approval::class)->shouldReceive('getApprovalDetails')->once()->with('patient', $id)->andReturn($response);
@@ -248,10 +319,10 @@ class ApprovalResponseContractTest extends TestCase
         $api->shouldReceive('getAuthMethods')->once()->with('patient')->andReturn($registry);
         $api->shouldReceive('getAuthMethods')->once()->with('representative')->andReturn($representative);
 
-        $result = app(CarePlanApprovalService::class)->pendingConfirmation('patient', $id, $authId);
+        $result = app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', $id, $authId);
 
-        $this->assertTrue($result->requiresConfirmation());
-        $this->assertFalse($result->requiresOtp());
+        $this->assertTrue(in_array($result['outcome']->value, ['otp_required', 'offline_required'], true));
+        $this->assertFalse(($result['outcome']->value === 'otp_required'));
     }
 
     public function test_pending_approval_without_current_method_resolves_offline_from_authorize_with(): void
@@ -262,7 +333,7 @@ class ApprovalResponseContractTest extends TestCase
         $response->shouldReceive('successful')->andReturnTrue();
         $response->shouldReceive('validate')->andReturn([
             'id' => $id,
-            'is_verified' => false,
+            'expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false,
         ]);
         $this->mock(Approval::class)->shouldReceive('getApprovalDetails')->once()->with('patient', $id)->andReturn($response);
         $registry = Mockery::mock(EHealthResponse::class);
@@ -271,11 +342,11 @@ class ApprovalResponseContractTest extends TestCase
         ]);
         $this->mock(Person::class)->shouldReceive('getAuthMethods')->once()->with('patient')->andReturn($registry);
 
-        $result = app(CarePlanApprovalService::class)->pendingConfirmation('patient', $id, $authId);
+        $result = app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', $id, $authId);
 
-        $this->assertTrue($result->requiresConfirmation());
-        $this->assertFalse($result->requiresOtp());
-        $this->assertSame(AuthenticationMethod::OFFLINE, AuthenticationMethod::confirmationMethod($result->authMethod));
+        $this->assertTrue(in_array($result['outcome']->value, ['otp_required', 'offline_required'], true));
+        $this->assertFalse(($result['outcome']->value === 'otp_required'));
+        $this->assertSame(AuthenticationMethod::OFFLINE, AuthenticationMethod::confirmationMethod($result['authMethod']));
     }
 
     public function test_unknown_representative_method_cannot_be_treated_as_document_confirmation(): void
@@ -284,13 +355,13 @@ class ApprovalResponseContractTest extends TestCase
         $response->shouldReceive('successful')->andReturnTrue();
         $response->shouldReceive('validate')->andReturn([
             'id' => '11111111-1111-4111-8111-111111111111',
-            'is_verified' => false,
+            'expires_at' => now()->addDay()->toIso8601String(), 'is_verified' => false,
             'authentication_method_current' => ['type' => 'THIRD_PERSON'],
         ]);
         $this->mock(Approval::class)->shouldReceive('getApprovalDetails')->once()->andReturn($response);
 
-        $this->expectException(\RuntimeException::class);
-        app(CarePlanApprovalService::class)->pendingConfirmation('patient', '11111111-1111-4111-8111-111111111111');
+        $this->expectException(RuntimeException::class);
+        app(CarePlanWorkflowHarness::class)->pendingCarePlanApprovalConfirmation('patient', '11111111-1111-4111-8111-111111111111');
     }
 
     public function test_person_validation_and_mapping_preserve_the_representative_confirmation_method(): void
@@ -299,6 +370,8 @@ class ApprovalResponseContractTest extends TestCase
         $response = new EHealthResponse(new Response(200, [], json_encode(['data' => [[
             'id' => '11111111-1111-4111-8111-111111111111',
             'type' => 'THIRD_PERSON',
+            'inserted_at' => '2026-11-11T10:00:00Z',
+            'inserted_by' => '11111111-1111-4111-8111-111111111111',
             'value' => '22222222-2222-4222-8222-222222222222',
             'reference' => ['type' => 'OTP', 'phone_number' => '+38093*****85'],
         ]]], JSON_THROW_ON_ERROR)));

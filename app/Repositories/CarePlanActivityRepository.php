@@ -4,18 +4,26 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
-use Illuminate\Validation\ValidationException;
-use App\Core\Arr;
+use App\Contracts\SubmittedToEHealth;
+use App\Enums\CarePlanActivityKind;
+use App\Enums\CarePlanStatus;
+use App\Enums\Person\ServiceRequestStatus;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
-use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use App\Services\MedicalEvents\Fhir;
 use App\Models\Employee\Employee;
-use App\Enums\CarePlanActivityKind;
+use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
+use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Repositories\MedicalEvents\BaseRepository as MedicalEventsBaseRepository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Collection as SupportCollection;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
-use Illuminate\Support\Str;
 
-class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRepository
+class CarePlanActivityRepository extends MedicalEventsBaseRepository
 {
     public function __construct(CarePlanActivity $model)
     {
@@ -24,147 +32,71 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
 
     public const array FHIR_RELATIONS = ['carePlan', 'carePlanReference.type.coding', 'authorReferences.type.coding', 'productConcept.coding', 'statusReasonConcept.coding', 'productReferenceIdentifier.type.coding', 'locationIdentifier.type.coding', 'performerIdentifier.type.coding', 'programIdentifier.type.coding', 'quantityQuantity', 'dailyAmountQuantity', 'remainingQuantityQuantity', 'scheduledPeriod', 'reasonConcepts.coding', 'goalConcepts.coding', 'outcomeConcepts.coding', 'reasonReferences.type.coding', 'outcomeReferences.type.coding'];
 
-    public function saveForm(array $data, CarePlan $plan, ?int $localId = null): CarePlanActivity
+    public function saveDraft(array $resource, CarePlan $plan, ?int $localId = null): CarePlanActivity
     {
-        return $this->storageTransaction(function () use ($data, $plan, $localId): CarePlanActivity {
+        return $this->storageTransaction(function () use ($resource, $plan, $localId): CarePlanActivity {
+            // Serializing on the plan prevents two drafts from consuming the final service slot.
+            $plan = CarePlan::whereKey($plan->id)->lockForUpdate()->firstOrFail();
             if ($localId !== null) {
-                $record = CarePlanActivity::whereKey($localId)->lockForUpdate()->firstOrFail();
+                $record = CarePlanActivity::whereCarePlanId($plan->id)->whereKey($localId)->lockForUpdate()->firstOrFail();
                 if (Repository::carePlan()->hasPendingSubmission($record)) {
                     throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
                 }
             }
 
-            $data = Arr::toCamelCase($data);
-            if (isset($data['kind'])) {
-                $data['kind'] = CarePlanActivityKind::fromInput($data['kind'])->value;
-            }
-            $original = $localId === null ? [] : $this->getResource($localId);
-            if ((isset($original['detail']['scheduledTiming']) || isset($original['detail']['scheduledString'])) && empty($data['scheduledPeriodStart']) && empty($data['scheduledPeriodEnd'])) {
-                unset($data['scheduledPeriodStart'], $data['scheduledPeriodEnd']);
-            }
-            $data['uuid'] = $data['uuid'] ?? $original['id'] ?? Str::uuid()->toString();
-            if (isset($data['authorId'])) {
-                $data['author'] = Employee::whereKey($data['authorId'])->value('uuid');
-                if ($data['author'] === data_get($original, 'author.0.identifier.value')) {
-                    unset($data['author']);
+            if (data_get($resource, 'detail.kind') === CarePlanActivityKind::SERVICE_REQUEST->value) {
+                // Recheck these persistence invariants while the plan is locked.
+                if (data_get($resource, 'detail.quantity.code') === 'MINUTE' && !$plan->allowsServiceMinutes()) {
+                    throw ValidationException::withMessages(['activityForm.quantity_code' => __('care-plan.service_minutes_unavailable')]);
                 }
-            }
-            foreach (['productReference', 'program'] as $field) {
-                if (is_string($data[$field] ?? null) && $data[$field] === data_get($original, 'detail.'.$field.'.identifier.value')) {
-                    $data[$field] = $original['detail'][$field];
-                }
-            }
-            foreach (['reasonCode', 'goal'] as $field) {
-                $value = $data[$field] ?? null;
-                if (is_array($value) && array_is_list($value)) {
-                    foreach ($value as $index => $item) {
-                        if (is_string($item) && $item === data_get($original, 'detail.'.$field.'.'.$index.'.coding.0.code')) {
-                            $value[$index] = $original['detail'][$field][$index];
+                if ($plan->termsOfServiceCode() === 'OUTPATIENT') {
+                    $errors = [];
+                    foreach (['start', 'end'] as $boundary) {
+                        if (!filled(data_get($resource, 'detail.scheduledPeriod.'.$boundary))) {
+                            $errors['activityForm.scheduled_period_'.$boundary] = __('care-plan.service_activity_period_required');
                         }
                     }
-                    $data[$field] = $value;
-                }
-                $code = is_array($value) && array_is_list($value) ? ($value[0] ?? null) : $value;
-                if (is_string($value) && $code !== '' && $code === data_get($original, 'detail.'.$field.'.0.coding.0.code')) {
-                    unset($data[$field]);
-                } elseif (is_string($value) && $code !== '' && count($original['detail'][$field] ?? []) > 1) {
-                    $system = $field === 'goal' ? 'eHealth/care_plan_activity_goals' : 'eHealth/ICD10_AM/condition_codes';
-                    $concept = \App\Services\MedicalEvents\FhirResource::make()->coding($system, $code)->toCodeableConcept();
-                    $data[$field] = [$concept, ...array_slice($original['detail'][$field], 1)];
-                }
-            }
-            if (is_string($data['productCodeableConcept'] ?? null) && $data['productCodeableConcept'] === data_get($original, 'detail.productCodeableConcept.coding.0.code')) {
-                unset($data['productCodeableConcept']);
-            }
-            if (is_string($data['statusReason'] ?? null)) {
-                if ($data['statusReason'] === data_get($original, 'detail.statusReason.coding.0.code')) {
-                    unset($data['statusReason']);
-                } else {
-                    throw new InvalidArgumentException('A status reason requires a complete CodeableConcept.');
-                }
-            }
-            if (isset($data['scheduledPeriodStart']) || array_key_exists('scheduledPeriodEnd', $data)) {
-                $existingPeriod = data_get($original, 'detail.scheduledPeriod', []);
-                $planPeriod = app(CarePlanRepository::class)->getResource($plan)['period'];
-                foreach (['start', 'end'] as $boundary) {
-                    $field = 'scheduledPeriod'.ucfirst($boundary);
-                    if (!array_key_exists($field, $data)) {
-                        continue;
-                    }
-                    $date = $data[$field];
-                    $existing = $existingPeriod[$boundary] ?? null;
-                    if ($date === null || $date === '') {
-                        $existingPeriod[$boundary] = null;
-                    } elseif ($existing !== null && \Carbon\CarbonImmutable::parse($existing)->setTimezone(config('app.timezone'))->toDateString() === \Carbon\CarbonImmutable::parse($date)->toDateString()) {
-                        $existingPeriod[$boundary] = $existing;
-                    } else {
-                        $parsed = \Carbon\CarbonImmutable::parse($date, config('app.timezone'));
-                        $instant = ($boundary === 'end' ? $parsed->setTime(23, 59, 59) : $parsed->startOfDay())->utc();
-                        $bound = isset($planPeriod[$boundary]) ? \Carbon\CarbonImmutable::parse($planPeriod[$boundary]) : null;
-                        if ($bound && (($boundary === 'start' && $instant->lessThan($bound)) || ($boundary === 'end' && $instant->greaterThan($bound)))) {
-                            if ($parsed->toDateString() !== $bound->setTimezone(config('app.timezone'))->toDateString()) {
-                                throw new InvalidArgumentException('Activity schedule exceeds its Care Plan period.');
-                            }
-                            $instant = $bound;
-                        }
-                        $existingPeriod[$boundary] = $instant->utc()->toIso8601ZuluString();
+                    if ($errors !== []) {
+                        throw ValidationException::withMessages($errors);
                     }
                 }
-                $data['scheduledPeriod'] = $existingPeriod;
-            }
-            foreach (['goal', 'reasonReference'] as $field) {
-                if (array_key_exists($field, $data) && $data[$field] === null) {
-                    $data[$field] = [];
+                $productUuid = data_get($resource, 'detail.productReference.identifier.value');
+                $productType = data_get($resource, 'detail.productReference.identifier.type.coding.0.code', 'service');
+                if (is_string($productUuid) && $productUuid !== '' && $this->serviceCreationCapacity($plan, $productUuid, $productType, $localId)['remaining'] < 1) {
+                    throw ValidationException::withMessages(['activityForm.product_reference' => __('care-plan.service_activity_limit_reached')]);
                 }
             }
-            $options = ['resource' => $original, 'carePlanUuid' => $plan->uuid];
-            if (!empty($data['productReferenceType'])) {
-                if (!in_array($data['productReferenceType'], ['service', 'service_group', 'medication', 'device_definition'], true)) {
-                    throw new InvalidArgumentException('Unsupported product reference type.');
-                }
-                $options['productType'] = $data['productReferenceType'];
-            }
-            $resource = Fhir::carePlanActivity()->toFhir($data, $options);
 
-            return $this->presentForUi($this->storeResource($resource, $plan, $localId));
+            return $this->storeResource($resource, $plan, $localId);
         });
     }
 
-    public function presentForUi(CarePlanActivity $activity): CarePlanActivity
+    /** BA02 counts created activities and distinct issued referrals, independently of service quantity. */
+    public function serviceCreationCapacity(CarePlan $plan, string $productUuid, string $productType = 'service', ?int $exceptId = null): array
     {
-        if ($activity->detailsSyncedAt === null) {
-            return $activity;
-        }
+        $activities = CarePlanActivity::whereCarePlanId($plan->id)->whereKind(CarePlanActivityKind::SERVICE_REQUEST->value)
+            ->whereHas('productReferenceIdentifier', static fn ($query) => $query->whereValue($productUuid)
+                ->whereHas('type.coding', static fn ($coding) => $coding->whereCode($productType)))
+            ->get(['id', 'uuid']);
 
-        $resource = $this->getResource($activity);
-        $detail = $resource['detail'];
-        $projection = [
-            'productReference' => data_get($detail, 'productReference.identifier.value'),
-            'productReferenceType' => data_get($detail, 'productReference.identifier.type.coding.0.code'),
-            'productCodeableConcept' => data_get($detail, 'productCodeableConcept.coding.0.code'),
-            'program' => data_get($detail, 'program.identifier.value'),
-            'reasonCode' => data_get($detail, 'reasonCode.0.coding.0.code'),
-            'goal' => array_map(static fn (array $concept): string => $concept['coding'][0]['code'], $detail['goal'] ?? []),
-            'reasonReference' => array_map(static function (array $reference): string {
-                $type = $reference['identifier']['type']['coding'][0]['code'];
-                $type = match ($type) {
-                    'condition' => 'Condition', 'observation' => 'Observation', 'diagnostic_report' => 'DiagnosticReport', default => $type
-                };
+        // These are clinical states of a full native resource, never async job states.
+        // Recalled/completed referrals retain their credit; duplicate imports of a UUID do not add another.
+        $confirmed = ServiceRequestRequest::wherePersonId($plan->personId)->whereServiceId($productUuid)
+            ->whereHas('codeReference', static fn ($query) => $query->whereValue($productUuid)
+                ->whereHas('type.coding', static fn ($coding) => $coding->whereCode($productType)))
+            ->whereNotNull('details_synced_at')->whereNotNull('request_number')->where('request_number', '<>', '')
+            ->whereIn('clinical_status', [ServiceRequestStatus::ACTIVE->value, ServiceRequestStatus::IN_QUEUE->value,
+                ServiceRequestStatus::IN_PROGRESS->value, ServiceRequestStatus::COMPLETED->value, ServiceRequestStatus::USED->value,
+                ServiceRequestStatus::CANCELLED->value, ServiceRequestStatus::RECALLED->value,
+                ServiceRequestStatus::REVOKED->value, ServiceRequestStatus::ENTERED_IN_ERROR->value])
+            ->whereHas('basedOn', static fn ($query) => $query->whereIn('value', $activities->pluck('uuid'))
+                ->whereHas('type.coding', static fn ($coding) => $coding->whereCode('care_plan_activity')))
+            ->whereHas('requesterLegalEntity', static fn ($query) => $query->whereValue($plan->legalEntity->uuid))
+            ->pluck('uuid')->unique()->count();
+        $created = $activities->when($exceptId !== null, static fn ($records) => $records->where('id', '!=', $exceptId))->count();
+        $limit = 5 + $confirmed;
 
-                return $type.'/'.$reference['identifier']['value'];
-            }, $detail['reasonReference'] ?? []),
-            'scheduledPeriodStart' => data_get($detail, 'scheduledPeriod.start'),
-            'scheduledPeriodEnd' => data_get($detail, 'scheduledPeriod.end'),
-            'statusReason' => data_get($detail, 'statusReason.coding.0.code'),
-        ];
-        foreach (['quantity', 'dailyAmount', 'remainingQuantity'] as $field) {
-            $projection[$field] = data_get($detail, $field.'.value');
-            $projection[$field.'System'] = data_get($detail, $field.'.system');
-            $projection[$field.'Code'] = data_get($detail, $field.'.code');
-        }
-        $activity->forceFill($projection)->syncOriginal();
-
-        return $activity;
+        return ['limit' => $limit, 'created' => $created, 'confirmedReferrals' => $confirmed, 'remaining' => max(0, $limit - $created)];
     }
 
     public function storeResources(array $resources, CarePlan $plan): void
@@ -174,49 +106,6 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
                 $this->storeResource($resource, $plan);
             }
         });
-    }
-
-    /** Only drafts can be reconstructed locally; registered activities require a full remote import. */
-    public function legacyDraftResource(CarePlanActivity $activity, CarePlan $plan): array
-    {
-        $activity->loadMissing(['author', 'kindConcept.coding', 'quantityQuantity', 'dailyAmountQuantity', 'scheduledPeriod', 'productReferenceIdentifier.type.coding', 'productConcept.coding']);
-        $data = Arr::toCamelCase($activity->getAttributes());
-        $data['uuid'] = $activity->uuid ?? Str::uuid()->toString();
-        unset($data['remainingQuantity'], $data['remainingQuantityType'], $data['remainingQuantitySystem'], $data['remainingQuantityCode']);
-        $data['author'] = $activity->author?->uuid;
-        $data['kind'] = CarePlanActivityKind::fromInput($activity->resolvedKind())->value;
-        if (!$data['author']) {
-            throw new InvalidArgumentException('Draft activity author cannot be resolved.');
-        }
-        $data['reasonReference'] = $activity->reasonReference ?? [];
-        $data['goal'] = $activity->goal ?? [];
-        if ($activity->productReferenceIdentifier && $activity->productReferenceIdentifier->type->isNotEmpty()) {
-            $data['productReference'] = MedicalEventsRepository::identifier()->toReference($activity->productReferenceIdentifier);
-        } elseif ($activity->productReference && $data['kind'] === CarePlanActivityKind::SERVICE_REQUEST->value) {
-            throw new InvalidArgumentException('Untyped service product cannot distinguish a service from a service group.');
-        }
-        if ($activity->productConcept) {
-            $data['productCodeableConcept'] = MedicalEventsRepository::codeableConcept()->toResource($activity->productConcept);
-        }
-        foreach (['quantity' => 'quantityQuantity', 'dailyAmount' => 'dailyAmountQuantity'] as $field => $relation) {
-            if ($activity->{$relation}) {
-                $data[$field] = MedicalEventsRepository::quantity()->toResource($activity->{$relation});
-            }
-        }
-        if ($activity->scheduledPeriod) {
-            $data['scheduledPeriod'] = MedicalEventsRepository::period()->toResource($activity->scheduledPeriod);
-        } elseif ($activity->scheduledPeriodStart !== null) {
-            $data['scheduledPeriod'] = ['start' => \Carbon\CarbonImmutable::parse($activity->getRawOriginal('scheduled_period_start'), config('app.timezone'))->startOfDay()->utc()->toIso8601ZuluString()];
-            if ($activity->scheduledPeriodEnd !== null) {
-                $data['scheduledPeriod']['end'] = \Carbon\CarbonImmutable::parse($activity->getRawOriginal('scheduled_period_end'), config('app.timezone'))->setTime(23, 59, 59)->utc()->toIso8601ZuluString();
-            }
-        }
-        if ($activity->outcomeReference || $activity->outcomeCodeableConcept || $activity->statusReason) {
-            throw new InvalidArgumentException('Legacy outcome or status reason requires explicit reconciliation.');
-        }
-        unset($data['outcomeReference'], $data['outcomeCodeableConcept'], $data['statusReason']);
-
-        return Fhir::carePlanActivity()->toFhir($data, ['carePlanUuid' => $plan->uuid ?? 'preflight-plan']);
     }
 
     /** Store a complete activity; remainingQuantity is supplied by the source, never recalculated. */
@@ -316,26 +205,23 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
     {
         $activity = CarePlanActivity::with([...self::FHIR_RELATIONS, 'author.party', 'carePlan.person'])->find($id);
 
-        return $activity ? $this->presentForUi($activity) : null;
+        return $activity;
     }
 
     public function getByCarePlanId(int $carePlanId)
     {
-        return CarePlanActivity::whereCarePlanId($carePlanId)->with(self::FHIR_RELATIONS)->get()->map(fn (CarePlanActivity $activity): CarePlanActivity => $this->presentForUi($activity));
+        return CarePlanActivity::whereCarePlanId($carePlanId)->with(self::FHIR_RELATIONS)->get();
     }
 
-    public function create(array $data): CarePlanActivity
+    public function create(array $resource, CarePlan $plan): CarePlanActivity
     {
-        $input = Arr::toCamelCase($data);
-        $plan = CarePlan::findOrFail($input['carePlanId']);
-
-        return $this->saveForm($input, $plan);
+        return $this->saveDraft($resource, $plan);
     }
 
     public function update(CarePlanActivity $activity, array $data): bool
     {
         $plan = CarePlan::findOrFail($activity->carePlanId);
-        $this->saveForm($data, $plan, $activity->id);
+        $this->saveDraft($data, $plan, $activity->id);
 
         return true;
     }
@@ -354,7 +240,7 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
     {
         return $this->storageTransaction(function () use ($id): bool {
             $activity = CarePlanActivity::whereKey($id)->lockForUpdate()->first();
-            if (!$activity || $activity->status !== \App\Enums\CarePlanStatus::DRAFT->value || Repository::carePlan()->hasPendingSubmission($activity)) {
+            if (!$activity || $activity->status !== CarePlanStatus::DRAFT->value || Repository::carePlan()->hasPendingSubmission($activity)) {
                 return false;
             }
             foreach (CarePlanActivityKind::cases() as $kind) {
@@ -371,16 +257,16 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
 
     public function findOwned(int $carePlanId, int $id): CarePlanActivity
     {
-        return $this->presentForUi(CarePlanActivity::whereCarePlanId($carePlanId)->with([...self::FHIR_RELATIONS, 'author.party', 'carePlan.person'])->findOrFail($id));
+        return CarePlanActivity::whereCarePlanId($carePlanId)->with([...self::FHIR_RELATIONS, 'author.party', 'carePlan.person'])->findOrFail($id);
     }
 
     public function findOwnedByUuid(int $carePlanId, ?string $uuid): CarePlanActivity
     {
         if (!$uuid) {
-            throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel(CarePlanActivity::class);
+            throw (new ModelNotFoundException())->setModel(CarePlanActivity::class);
         }
 
-        return $this->presentForUi(CarePlanActivity::whereCarePlanId($carePlanId)->whereUuid($uuid)->with(self::FHIR_RELATIONS)->firstOrFail());
+        return CarePlanActivity::whereCarePlanId($carePlanId)->whereUuid($uuid)->with(self::FHIR_RELATIONS)->firstOrFail();
     }
 
     public function findForPatient(string $uuid, int $personId, ?int $legalEntityId = null): ?CarePlanActivity
@@ -392,7 +278,7 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
             }
         })->with(self::FHIR_RELATIONS)->first();
 
-        return $activity ? $this->presentForUi($activity) : null;
+        return $activity;
     }
 
     public function loadActivities(CarePlan $plan): void
@@ -405,7 +291,7 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
         $states = [];
         $records = collect([$activity])->concat($this->linkedDocuments([$activity->uuid], $activity->resolvedKind()));
         foreach ($records as $record) {
-            if (!$record instanceof \App\Contracts\SubmittedToEHealth) {
+            if (!$record instanceof SubmittedToEHealth) {
                 continue;
             }
             $state = $this->submissionState($record);
@@ -421,12 +307,12 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
         return $states;
     }
 
-    public function linkedDocuments(array $activityUuids, string $kind, bool $forDisplay = false): \Illuminate\Database\Eloquent\Collection
+    public function linkedDocuments(array $activityUuids, string $kind, bool $forDisplay = false): Collection
     {
         $model = match ($kind) {
-            'medication_request' => \App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest::class,
-            'service_request' => \App\Models\MedicalEvents\Sql\ServiceRequestRequest::class,
-            'device_request' => \App\Models\MedicalEvents\Sql\DeviceRequestRequest::class,
+            'medication_request' => MedicationRequestRequest::class,
+            'service_request' => ServiceRequestRequest::class,
+            'device_request' => DeviceRequestRequest::class,
             default => throw new InvalidArgumentException('Unsupported linked document kind.'),
         };
         $relations = $kind === 'medication_request' ? ['basedOn.type.coding'] : ['employee', 'basedOn.type.coding', 'category', 'priority'];
@@ -434,7 +320,7 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
         $records = $model::with($relations)->whereHas('basedOn', fn ($query) => $query->whereIn('value', $activityUuids))->get();
 
         return $forDisplay && $kind === 'medication_request'
-            ? app(\App\Repositories\MedicalEvents\MedicationRequestRepository::class)->carePlanDocumentsForDisplay($records)
+            ? MedicalEventsRepository::medicationRequest()->carePlanDocumentsForDisplay($records)
             : $records;
     }
 
@@ -449,7 +335,6 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $activity = $this->presentForUi($activity);
             $cap = $activity->quantity;
             if ($cap === null || $cap === '') {
                 return $activity;
@@ -459,7 +344,7 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
             $remaining = max(0.0, (float) $cap - $issued);
 
             if ($qty > $remaining + 0.0001) {
-                throw new \InvalidArgumentException(__('care-plan.activity_issue_exceeds_remaining', [
+                throw new InvalidArgumentException(__('care-plan.activity_issue_exceeds_remaining', [
                     'remaining' => $remaining,
                 ]));
             }
@@ -467,4 +352,137 @@ class CarePlanActivityRepository extends \App\Repositories\MedicalEvents\BaseRep
             return $activity->unsetRelations();
         });
     }
+
+    public const CLOSED_DOCUMENT_STATUSES = [
+        'completed',
+        'cancelled',
+        'canceled',
+        'rejected',
+        'expired',
+        'entered-in-error',
+        'entered_in_error',
+        'recalled',
+        'revoked',
+        'stopped',
+    ];
+
+    public const PLAN_COMPLETE_FINAL_ACTIVITY_STATUSES = [
+        'completed',
+        'cancelled',
+        'canceled',
+        'entered-in-error',
+        'entered_in_error',
+    ];
+    public function findOpenDocumentsForActivity(CarePlanActivity $activity): array
+    {
+        $open = [];
+
+        foreach ($this->openMedicationDocuments($activity) as $row) {
+            $open[] = $row;
+        }
+
+        foreach ($this->openServiceDocuments($activity) as $row) {
+            $open[] = $row;
+        }
+
+        foreach ($this->openDeviceDocuments($activity) as $row) {
+            $open[] = $row;
+        }
+
+        return $open;
+    }
+
+    public function hasOpenDocumentsForActivity(CarePlanActivity $activity): bool
+    {
+        return $this->findOpenDocumentsForActivity($activity) !== [];
+    }
+
+    public function findActivitiesBlockingPlanCancel(CarePlan $carePlan): SupportCollection
+    {
+        Repository::carePlanActivity()->loadActivities($carePlan);
+
+        return $carePlan->activities
+            ->filter(function (CarePlanActivity $activity): bool {
+                $status = strtolower((string) $activity->status);
+
+                return in_array($status, ['scheduled', 'in_progress', 'completed'], true) || !$this->isFinalActivityStatus($status);
+            })
+            ->values();
+    }
+
+    public function isFinalActivityStatus(string $status): bool
+    {
+        return in_array(strtolower(trim($status)), self::PLAN_COMPLETE_FINAL_ACTIVITY_STATUSES, true);
+    }
+
+    private function openMedicationDocuments(CarePlanActivity $activity): array
+    {
+        return Repository::carePlanActivity()->linkedDocuments([$activity->uuid], 'medication_request')
+            ->filter(fn (MedicationRequestRequest $row): bool => $this->isOpenDocumentStatus((string) $row->status))
+            ->map(fn (MedicationRequestRequest $row): array => [
+                'type' => $this->medicationDocumentType((string) $row->status),
+                'status' => strtolower((string) $row->status),
+                'uuid' => $row->uuid,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function openServiceDocuments(CarePlanActivity $activity): array
+    {
+        return Repository::carePlanActivity()->linkedDocuments([$activity->uuid], 'service_request')
+            ->filter(fn (ServiceRequestRequest $row): bool => $this->isOpenDocumentStatus((string) $row->status))
+            ->map(fn (ServiceRequestRequest $row): array => [
+                'type' => 'service_request',
+                'status' => strtolower((string) $row->status),
+                'uuid' => $row->uuid,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function openDeviceDocuments(CarePlanActivity $activity): array
+    {
+        return Repository::carePlanActivity()->linkedDocuments([$activity->uuid], 'device_request')
+            ->filter(fn (DeviceRequestRequest $row): bool => $this->isOpenDocumentStatus((string) $row->status))
+            ->map(fn (DeviceRequestRequest $row): array => [
+                'type' => 'device_request',
+                'status' => strtolower((string) $row->status),
+                'uuid' => $row->uuid,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function isOpenDocumentStatus(string $status): bool
+    {
+        $normalized = strtolower(trim($status));
+        if ($normalized === '') {
+            return true;
+        }
+
+        return !in_array($normalized, self::CLOSED_DOCUMENT_STATUSES, true);
+    }
+
+    private function medicationDocumentType(string $status): string
+    {
+        $normalized = strtolower($status);
+
+        // Local MRR before sign; after sign the same table holds ACTIVE MR.
+        if (in_array($normalized, ['new', 'draft', 'signed'], true)) {
+            return 'medication_request_request';
+        }
+
+        return 'medication_request';
+    }
+
+    public function findActivitiesBlockingPlanComplete(CarePlan $carePlan): SupportCollection
+    {
+        $this->loadActivities($carePlan);
+
+        return $carePlan->activities
+            ->filter(fn (CarePlanActivity $activity): bool => !$this->isFinalActivityStatus((string) $activity->status))
+            ->values();
+    }
+
 }

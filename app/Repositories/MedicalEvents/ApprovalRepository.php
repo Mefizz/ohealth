@@ -4,37 +4,38 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
-use Throwable;
-use Carbon\Carbon;
-use App\Models\User;
-use App\Models\CarePlan;
-use App\Enums\JobStatus;
-use App\Models\EhealthJob;
-use App\Models\LegalEntity;
-use App\Models\EhealthLink;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
-use App\Models\Person\Person;
 use App\Classes\eHealth\EHealth;
-use App\Models\Employee\Employee;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use App\Enums\JobStatus;
 use App\Enums\Person\ApprovalStatus;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
+use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\MedicalEvents\ApprovalVerificationException;
+use App\Models\CarePlan;
+use App\Models\EhealthJob;
+use App\Models\EhealthLink;
+use App\Models\Employee\Employee;
+use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Mongo\Approval as MongoApproval;
 use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\Person\Person;
 use App\Models\Relations\AuthenticationMethod;
-use App\Repositories\Repository;
+use App\Models\User;
+use App\Repositories\MedicalEvents\BaseRepository;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use App\Models\MedicalEvents\Mongo\Approval as MongoApproval;
-use App\Exceptions\MedicalEvents\ApprovalVerificationException;
-use RuntimeException;
-use App\Exceptions\EHealth\EHealthValidationException;
+use App\Repositories\Repository;
+use Carbon\Carbon;
 use Exception;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
+use Throwable;
 
 /**
  * @property Approval $model
@@ -46,11 +47,14 @@ class ApprovalRepository extends BaseRepository
         return $plan->approvals()->with(['grantedTo', 'ehealthLinks.job'])
             ->whereHas('grantedTo', fn ($query) => $query->whereValue($employeeUuid))
             ->whereAccessLevel($accessLevel)
-            ->where(function ($query): void {
-                $query->whereIn('status', ApprovalStatus::PENDING_OR_GRANTED_VALUES)
-                    ->orWhereHas('ehealthLinks', fn ($links) => $links->whereStatus(JobStatus::PENDING->value));
+            ->where(function (Builder $query): void {
+                $query->whereFuture('expires_at')
+                    ->orWhere(fn (Builder $pending) => $pending->whereNull('expires_at')
+                        ->whereHas('ehealthLinks', fn (Builder $links) => $links
+                            ->whereIn('status', [JobStatus::PENDING->value, JobStatus::PROCESSING->value])
+                            ->whereHas('job', fn (Builder $jobs) => $jobs
+                                ->whereIn('status', [JobStatus::PENDING->value, JobStatus::PROCESSING->value]))));
             })
-            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
             ->orderByDesc('is_verified')->latest('id')->first();
     }
 
@@ -66,7 +70,6 @@ class ApprovalRepository extends BaseRepository
                 'granted_to_type' => 'employee',
                 'access_level' => $payload['access_level'],
                 'authorize_with' => $payload['authorize_with'] ?? null,
-                'status' => ApprovalStatus::PENDING->value,
                 'is_verified' => false,
             ]);
             $link = $this->attachEhealthLink($approval, ['href' => null]);
@@ -128,8 +131,7 @@ class ApprovalRepository extends BaseRepository
             throw new RuntimeException(__('care-plan.sms_resend_error'));
         }
 
-        if ($approval->getAttribute('is_verified') && ApprovalStatus::resolve($approval->status)?->isGranted()
-            && ($approval->expiresAt === null || $approval->expiresAt->isFuture())) {
+        if ($approval->hasVerifiedAccess()) {
             return ['status' => 'GRANTED'];
         }
 
@@ -147,9 +149,9 @@ class ApprovalRepository extends BaseRepository
     public function completeCarePlanRequest(EhealthLink $link, array $data): void
     {
         $this->storageTransaction(function () use ($link, $data): void {
-            $approval = $link->linkable;
+            $approval = Approval::whereKey($link->linkableId)->lockForUpdate()->firstOrFail();
             $authorizeWith = $approval->authorizeWith ?: data_get($link->job?->request_data, 'authorize_with');
-            $resolved = Approval::whereUuid($data['id'])->first();
+            $resolved = Approval::whereUuid($data['id'])->lockForUpdate()->first();
             if ($resolved !== null && $resolved->id !== $approval->id) {
                 if ($resolved->approvableId !== $approval->approvableId || $resolved->approvableType !== $approval->approvableType) {
                     throw ValidationException::withMessages(['approval' => __('care-plan.approval_result_unavailable')]);
@@ -161,15 +163,16 @@ class ApprovalRepository extends BaseRepository
             if ($authorizeWith !== null && empty($data['authorize_with'])) {
                 $data['authorize_with'] = $authorizeWith;
             }
-            $remoteStatus = ApprovalStatus::resolve($data['status'] ?? null);
-            $remoteDeniesAccess = isset($data['status']) && !($remoteStatus?->isGranted() || $remoteStatus?->isAwaitingPatient());
-            if (($data['is_verified'] ?? null) === false && !$remoteDeniesAccess) {
-                $data['status'] = ApprovalStatus::PENDING->value;
+            // A delayed creation result must not undo a later verification or cancellation of the same approval.
+            if ($approval->uuid === $data['id']) {
+                if ($approval->getAttribute('is_verified')) {
+                    $data['is_verified'] = true;
+                }
+                if ($approval->expiresAt !== null && !$approval->expiresAt->isFuture()) {
+                    $data['expires_at'] = $approval->expiresAt->toIso8601String();
+                }
             }
-            if (!$remoteDeniesAccess && $approval->getAttribute('is_verified') && ApprovalStatus::resolve($approval->status)?->isGranted()) {
-                $data['is_verified'] = true;
-                $data['status'] = ApprovalStatus::ACTIVE->value;
-            }
+            // The job result supplies approval fields; it has no approval status.
             $this->sync($data, $approval->approvable, $approval);
             $link->job()->update(['status' => JobStatus::PROCESSED->value, 'response_data' => $data]);
             $link->update(['status' => JobStatus::PROCESSED->value]);
@@ -177,21 +180,16 @@ class ApprovalRepository extends BaseRepository
         });
     }
 
-    public function localForCarePlan(CarePlan $plan): array
+    public function localForCarePlan(CarePlan $plan): Collection
     {
         // Patient-owned requests resume in PatientApproval; the plan's write/OTP flow cannot process their jobs.
         return $this->forCarePlanQuery($plan)
             ->where(static fn (Builder $query): Builder => $query->whereMorphedTo('approvable', $plan)->orWhere('is_verified', true))
-            ->where(static fn (Builder $query): Builder => $query->whereNull('expires_at')->orWhereFuture('expires_at'))
-            ->withAllRelations()->with('ehealthLinks.job')->latest('id')->get()
-            ->map(function (Approval $approval): array {
-                $row = $approval->toArray();
-                $link = $approval->ehealthLinks->sortByDesc('id')->first();
-                $row['sharedCarePlanApproval'] = $approval->approvableType === Person::class;
-                $row['requestPending'] = !$row['sharedCarePlanApproval'] && $link !== null && !in_array($link->status, [JobStatus::PROCESSED->value, JobStatus::FAILED->value], true);
-
-                return $row;
-            })->all();
+            ->where(static fn (Builder $query): Builder => $query->whereFuture('expires_at')
+                ->orWhere(fn (Builder $pending) => $pending->whereNull('expires_at')
+                    ->whereHas('ehealthLinks', fn (Builder $links) => $links
+                        ->whereIn('status', [JobStatus::PENDING->value, JobStatus::PROCESSING->value]))))
+            ->withAllRelations()->with('ehealthLinks.job')->latest('id')->get();
     }
 
     private function forCarePlanQuery(CarePlan $plan): Builder
@@ -208,7 +206,6 @@ class ApprovalRepository extends BaseRepository
     public function verifiedCarePlanReadRequests(Person $person, string $employeeUuid, array $uuids): Collection
     {
         return Approval::getByModel($person)->whereAccessLevel('read')->where('is_verified', true)
-            ->whereIn('status', [ApprovalStatus::ACTIVE->value, ApprovalStatus::APPROVED->value])
             ->whereFuture('expires_at')
             ->whereHas('grantedTo', static fn (Builder $query) => $query->whereValue($employeeUuid))
             ->with(['ehealthLinks.job', 'grantedResourceIdentifiers.type.coding'])->latest('id')->get()
@@ -218,15 +215,19 @@ class ApprovalRepository extends BaseRepository
 
     public function markUnavailable(Approval $approval): void
     {
-        $approval->update(['status' => ApprovalStatus::INACTIVE->value, 'expires_at' => now()]);
+        $approval->update(['expires_at' => now(), ...($approval->isCarePlanConsent() ? ['status' => null] : [])]);
     }
 
     public function markCancelled(string $uuid): void
     {
-        Approval::whereUuid($uuid)->update([
-            'status' => ApprovalStatus::TERMINATED->value,
-            'expires_at' => now(),
-        ]);
+        $approval = Approval::whereUuid($uuid)->with('grantedResourceIdentifiers.type.coding')->firstOrFail();
+        $changes = ['expires_at' => now()];
+        if (!$approval->isCarePlanConsent()) {
+            $changes['status'] = ApprovalStatus::TERMINATED->value;
+        } else {
+            $changes['status'] = null;
+        }
+        $approval->update($changes);
     }
 
     public function recordPatientRequest(EhealthLink $link, array $request): void
@@ -257,8 +258,10 @@ class ApprovalRepository extends BaseRepository
     {
         $requests = Approval::getByModel($person)->whereAccessLevel('read')->where('is_verified', false)
             ->whereHas('grantedTo', static fn ($query) => $query->whereValue($employeeUuid))
-            ->whereIn('status', ApprovalStatus::PENDING_OR_GRANTED_VALUES)
-            ->where(static fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->where(static fn (Builder $query) => $query->whereFuture('expires_at')
+                ->orWhere(fn (Builder $pending) => $pending->whereNull('expires_at')
+                    ->whereHas('ehealthLinks', fn (Builder $links) => $links
+                        ->whereIn('status', [JobStatus::PENDING->value, JobStatus::PROCESSING->value]))))
             ->with(['ehealthLinks.job', 'grantedResourceIdentifiers.type.coding'])->latest('id')->get();
 
         return $requests->first(function (Approval $approval) use ($uuids): bool {
@@ -277,30 +280,20 @@ class ApprovalRepository extends BaseRepository
         $link->job()->update(['response_data' => array_replace($link->job->response_data ?? [], ['confirmationError' => true])]);
     }
 
-    public function storePatientResponse(string $patientUuid, string $approvalUuid, array $data, string $confirmedStatus): void
+    public function storePatientResponse(string $patientUuid, string $approvalUuid, array $data): void
     {
         $approval = Approval::whereUuid($approvalUuid)->whereHasMorph(
             'approvable',
             [CarePlan::class],
             fn ($query) => $query->whereHas('person', fn ($person) => $person->whereUuid($patientUuid))
         )->with('approvable')->firstOrFail();
-        if (isset($data['id']) && $data['id'] !== $approvalUuid) {
-            throw ValidationException::withMessages(['approval' => __('care-plan.approval_result_unavailable')]);
-        }
-        if ($confirmedStatus === ApprovalStatus::ACTIVE->value && array_key_exists('is_verified', $data) && $data['is_verified'] !== true) {
+        if (($data['id'] ?? null) !== $approvalUuid || ($data['is_verified'] ?? null) !== true
+            || empty($data['expires_at']) || !Carbon::parse($data['expires_at'])->isFuture()) {
             throw ValidationException::withMessages(['approval' => __('care-plan.approval_verify_error')]);
         }
-        if (isset($data['id'], $data['is_verified'])) {
-            $this->sync($data, $approval->approvable, $approval);
-        } else {
-            $changes = ['status' => $confirmedStatus];
-            if ($confirmedStatus === ApprovalStatus::ACTIVE->value) {
-                $changes['isVerified'] = true;
-            }
-            // These server-owned fields are explicit; camelCase keys are not in this model's $fillable.
-            $approval->forceFill($changes)->save();
-        }
+        $this->sync($data, $approval->approvable, $approval);
     }
+
     protected const int SMS_CODE_ALIVE_MINUTES = 14;
 
     protected string $employeeUuid;
@@ -354,7 +347,7 @@ class ApprovalRepository extends BaseRepository
             $approval = (clone $approvals)
                 ->whereNotNull('uuid')
                 ->whereFuture('expires_at')
-                ->whereIn('status', ApprovalStatus::PENDING_OR_GRANTED_VALUES)
+                ->when(!($model instanceof CarePlan), static fn (Builder $query): Builder => $query->whereIn('status', ApprovalStatus::PENDING_OR_GRANTED_VALUES))
                 ->where('is_verified', false)
                 ->first() ?? $approvals->first();
         }
@@ -363,7 +356,19 @@ class ApprovalRepository extends BaseRepository
             throw new ApprovalVerificationException(ApprovalVerificationException::NOT_FOUND);
         }
 
-        if ($approval->status === JobStatus::FAILED->value) {
+        $carePlanConsent = $approval->isCarePlanConsent();
+        // Pending creation is a job state; it must not become an approval status or an expired consent.
+        if ($carePlanConsent && $approval->expiresAt === null && !$approval->getAttribute('is_verified')) {
+            $link = $this->creationLinkFor($approval);
+            if ($link?->job?->status === JobStatus::FAILED->value) {
+                throw new ApprovalVerificationException(ApprovalVerificationException::CREATION_FAILED, error: $link->error);
+            }
+            if (in_array($link?->job?->status, [JobStatus::PENDING->value, JobStatus::PROCESSING->value], true)) {
+                throw new ApprovalVerificationException(ApprovalVerificationException::CREATION_PENDING);
+            }
+        }
+
+        if (!$carePlanConsent && $approval->status === JobStatus::FAILED->value) {
             $link = $approval->ehealthLinks()
                 ->where('status', JobStatus::FAILED->value)
                 ->latest('id')
@@ -376,13 +381,11 @@ class ApprovalRepository extends BaseRepository
             throw new ApprovalVerificationException(ApprovalVerificationException::CREATION_PENDING);
         }
 
-        $status = ApprovalStatus::resolve($approval->status);
-
-        if ($status === null || $status === ApprovalStatus::INACTIVE) {
+        if (!$carePlanConsent && (ApprovalStatus::resolve($approval->status) === null || ApprovalStatus::resolve($approval->status) === ApprovalStatus::INACTIVE)) {
             throw new ApprovalVerificationException(ApprovalVerificationException::UNAVAILABLE, status: $approval->status);
         }
 
-        if ($approval->expiresAt?->isPast() === true) {
+        if (($carePlanConsent && $approval->expiresAt?->isFuture() !== true) || $approval->expiresAt?->isPast() === true) {
             throw new ApprovalVerificationException(ApprovalVerificationException::EXPIRED);
         }
 
@@ -444,7 +447,7 @@ class ApprovalRepository extends BaseRepository
                     : $api->getMany($query);
                 $pageData = $response->validate();
                 $paging = $response->getPaging();
-                if ((int) ($paging['page_number'] ?? $paging['page'] ?? 0) !== $page) {
+                if ((int) ($paging['page_number'] ?? ($paging['page'] ?? 0)) !== $page) {
                     throw ValidationException::withMessages(['paging' => 'Unexpected approval response page.']);
                 }
                 foreach ($pageData as $approvalData) {
@@ -488,6 +491,12 @@ class ApprovalRepository extends BaseRepository
                         continue;
                     }
 
+                    if ($entity instanceof CarePlan) {
+                        $this->sync($approvalData, $entity, $existing);
+
+                        continue;
+                    }
+
                     // Resolve granted_to → Identifier FK
                     $grantedToValue = $approvalData['granted_to']['identifier']['value'] ?? null;
                     $grantedToCode = $approvalData['granted_to']['identifier']['type']['coding'][0]['code'] ?? 'legal_entity';
@@ -507,7 +516,9 @@ class ApprovalRepository extends BaseRepository
                             'granted_to_type' => $grantedToCode,
                             'reason_id' => $this->resolveIdentifier($reasonValue)?->id,
                             'created_by_id' => $this->resolveIdentifier($createdByValue)?->id,
-                            'status' => ApprovalStatus::forStorage($approvalData['status'] ?? (!empty($approvalData['is_verified']) ? ApprovalStatus::ACTIVE->value : ApprovalStatus::PENDING->value)),
+                            'status' => $this->containsOnlyCarePlans($approvalData['granted_resources'] ?? [], $approvalData['granted_resource_types'] ?? [])
+                                ? null
+                                : ApprovalStatus::forStorage($approvalData['status'] ?? (!empty($approvalData['is_verified']) ? ApprovalStatus::ACTIVE->value : ApprovalStatus::PENDING->value)),
                             'access_level' => $approvalData['access_level'] ?? 'read',
                             'is_verified' => (bool) ($approvalData['is_verified'] ?? false),
                             'expires_at' => $approvalData['expires_at'] ?? null,
@@ -525,7 +536,19 @@ class ApprovalRepository extends BaseRepository
                         ->whereValue($additionalFilters['granted_to.identifier.value']));
                 }
 
-                $inactiveQuery->update(['status' => ApprovalStatus::INACTIVE->value]);
+                // Patient-owned care-plan consent uses expiry too; other patient resources retain their status rules.
+                if ($entity instanceof Person) {
+                    foreach ($inactiveQuery->with(['ehealthLinks.job', 'grantedResourceIdentifiers.type.coding'])->get() as $approval) {
+                        $approval->update($approval->isCarePlanConsent()
+                            ? ['expires_at' => now(), 'status' => null]
+                            : ['status' => ApprovalStatus::INACTIVE->value]);
+                    }
+                } else {
+                    // A complete snapshot can withdraw access even when the approval is still verified.
+                    $inactiveQuery->update($entity instanceof CarePlan
+                        ? ['expires_at' => now(), 'status' => null]
+                        : ['status' => ApprovalStatus::INACTIVE->value]);
+                }
             });
             $entity->unsetRelation('approvals');
         } catch (EHealthValidationException $e) {
@@ -589,7 +612,7 @@ class ApprovalRepository extends BaseRepository
 
         // If 'authorize_with' is present but empty, remove it from the payload
         // eHealth will use the default authentication method in this case, so we don't need to send an empty value.
-        if (\array_key_exists('authorize_with', $payloadData) && empty($payloadData['authorize_with'])) {
+        if (array_key_exists('authorize_with', $payloadData) && empty($payloadData['authorize_with'])) {
             unset($payloadData['authorize_with']);
         }
 
@@ -637,7 +660,8 @@ class ApprovalRepository extends BaseRepository
                 'granted_to_id' => $grantedTo->id,
                 'granted_to_type' => $recipientType,
                 'authorize_with' => $payload['authorize_with'],
-                'status' => ApprovalStatus::PENDING->value,
+                // Care-plan read consent belongs to the patient but follows the same flag/expiry contract.
+                'status' => $this->containsOnlyCarePlans($payload['resources'] ?? []) ? null : ApprovalStatus::PENDING->value,
                 'access_level' => $payload['access_level'],
                 'is_verified' => false,
             ]);
@@ -694,7 +718,7 @@ class ApprovalRepository extends BaseRepository
                 'authorize_with' => $data['authorize_with'] ?? null,
                 'authentication_method_id' => $authMethod?->id,
                 'reason_id' => $reason?->id,
-                'status' => ApprovalStatus::forStorage($data['status'] ?? null),
+                'status' => ($approvableModel instanceof CarePlan || $this->containsOnlyCarePlans($data['granted_resources'] ?? [], $data['granted_resource_types'] ?? [])) ? null : ApprovalStatus::forStorage($data['status'] ?? null),
                 'access_level' => $data['access_level'] ?? 'read',
                 'is_verified' => $data['is_verified'] ?? false,
                 'expires_at' => $data['expires_at'] ?? null,
@@ -755,8 +779,7 @@ class ApprovalRepository extends BaseRepository
             $reason = $this->syncIdentifier($existing, $modelData['reason'] ?? null, 'reason');
 
             $grantedToType = Arr::get($modelData, 'granted_to.identifier.type.coding.0.code')
-                ?? $existing?->grantedToType
-                ?? 'legal_entity';
+                ?? ($existing?->grantedToType ?? 'legal_entity');
 
             $grantedToId = $grantedTo?->id
                 ?? $existing?->grantedToId;
@@ -774,13 +797,21 @@ class ApprovalRepository extends BaseRepository
                 'authorize_with' => $modelData['authorize_with'] ?? $existing?->authorizeWith,
                 'authentication_method_id' => $authMethod?->id,
                 'reason_id' => $reason?->id,
-                'status' => isset($modelData['status'])
-                    ? ApprovalStatus::forStorage($modelData['status'])
-                    : (($modelData['is_verified'] ?? false) === true ? ApprovalStatus::ACTIVE->value : ($existing?->status ?? ApprovalStatus::PENDING->value)),
-                'access_level' => $modelData['access_level'] ?? $existing?->accessLevel ?? 'read',
+                'access_level' => $modelData['access_level'] ?? ($existing?->accessLevel ?? 'read'),
                 'is_verified' => $modelData['is_verified'] ?? false,
                 'expires_at' => isset($modelData['expires_at']) ? convertToLocalTimezone($modelData['expires_at']) : $existing?->expiresAt,
             ];
+
+            $carePlanConsent = $approvableModel instanceof CarePlan
+                || $this->containsOnlyCarePlans($modelData['granted_resources'] ?? [], $modelData['granted_resource_types'] ?? [])
+                || (!array_key_exists('granted_resources', $modelData) && !array_key_exists('granted_resource_types', $modelData) && $existing?->isCarePlanConsent() === true);
+            if ($carePlanConsent) {
+                $approvalData['status'] = null;
+            } else {
+                $approvalData['status'] = isset($modelData['status'])
+                    ? ApprovalStatus::forStorage($modelData['status'])
+                    : (($modelData['is_verified'] ?? false) === true ? ApprovalStatus::ACTIVE->value : ($existing?->status ?? ApprovalStatus::PENDING->value));
+            }
 
             if ($existing) {
                 $existing->update($approvalData);
@@ -809,6 +840,13 @@ class ApprovalRepository extends BaseRepository
 
             $approval->refresh();
         });
+    }
+
+    private function containsOnlyCarePlans(array $resources, array $types = []): bool
+    {
+        return ($resources !== [] || $types !== []) && collect($resources)->every(
+            static fn (array $resource): bool => data_get($resource, 'identifier.type.coding.0.code') === CarePlan::RESOURCE_TYPE
+        ) && collect($types)->every(static fn (array $type): bool => data_get($type, 'coding.0.code') === CarePlan::RESOURCE_TYPE);
     }
 
     /**

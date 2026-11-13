@@ -19,7 +19,6 @@ use App\Models\Person\Person;
 use App\Models\Role;
 use App\Policies\ApprovalPolicy;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\PatientApprovalService;
 use GuzzleHttp\Psr7\Response;
@@ -97,7 +96,6 @@ class CarePlanReadAccessRecoveryTest extends TestCase
         return array_replace([
             'id' => $approval->uuid,
             'is_verified' => true,
-            'status' => 'active',
             'access_level' => 'read',
             'expires_at' => now()->addHour()->toIso8601String(),
             'created_by' => $payload['created_by'],
@@ -178,8 +176,8 @@ class CarePlanReadAccessRecoveryTest extends TestCase
     public static function unavailableGrants(): array
     {
         return [
-            'revoked' => [['status' => 'terminated']],
-            'expired' => [['expires_at' => '2000-01-01T00:00:00Z']],
+            'unverified' => [['is_verified' => false]],
+            'revoked or expired' => [['expires_at' => '2000-01-01T00:00:00Z']],
             'resources removed' => [['granted_resources' => []]],
         ];
     }
@@ -191,6 +189,7 @@ class CarePlanReadAccessRecoveryTest extends TestCase
         $plan = $this->plan($context);
         ['approval' => $approval, 'payload' => $payload] = $this->request($context, [$plan]);
         Repository::approval()->sync($this->remote($approval, $payload), $context['person'], $approval);
+        $before = $approval->fresh()->getAttributes();
         $service = $this->mock(PatientApprovalService::class)->makePartial();
         $service->shouldReceive('details')->once()->andThrow(new EHealthResponseException(new HttpResponse(new Response($status, [], '{"error":{"message":"Synthetic failure"}}'))));
         $service->shouldNotReceive('create');
@@ -199,11 +198,14 @@ class CarePlanReadAccessRecoveryTest extends TestCase
             ->assertNotDispatched('care-plan-read-access-granted');
         if ($status === 404) {
             $component->assertSet('open', true)->assertSet('approvalId', null);
-            $this->assertSame('inactive', $approval->fresh()->status);
+            $this->assertFalse($approval->fresh()->expiresAt->isFuture());
+            $this->assertCount(0, Repository::approval()->verifiedCarePlanReadRequests($context['person'], $context['employee']->uuid, [$plan->uuid]));
         } else {
             $component->assertSee(__('approval.create.confirmation_failed'));
-            $this->assertSame('active', $approval->fresh()->status);
+            $this->assertSame($before, $approval->fresh()->getAttributes());
         }
+        $this->assertTrue($approval->fresh()->getAttribute('is_verified'));
+        $this->assertNull($approval->fresh()->status);
     }
 
     public static function readFailures(): array
@@ -242,7 +244,7 @@ class CarePlanReadAccessRecoveryTest extends TestCase
 
         foreach ($plans as $plan) {
             $this->assertSame($approval->id, Repository::approval()->carePlanApprovalForCancellation($plan, $approval->uuid)->id);
-            $this->assertSame([], Repository::approval()->localForCarePlan($plan));
+            $this->assertTrue(Repository::approval()->localForCarePlan($plan)->isEmpty());
         }
         $unrelated = $this->plan($context);
         try {
@@ -329,7 +331,7 @@ class CarePlanReadAccessRecoveryTest extends TestCase
         ['approval' => $approval, 'payload' => $payload] = $this->request($context, [$this->plan($context)]);
         Repository::approval()->sync($this->remote($approval, $payload), $context['person'], $approval);
         $plan = CarePlan::whereUuid($payload['resources'][0]['identifier']['value'])->firstOrFail();
-        $this->assertSame([$approval->uuid], array_column(Repository::approval()->localForCarePlan($plan), 'uuid'));
+        $this->assertSame([$approval->uuid], Repository::approval()->localForCarePlan($plan)->pluck('uuid')->all());
         try {
             app(MedicalRequestOwnership::class)->approvalForCarePlan($plan, $approval->uuid);
             $this->fail('Patient-owned consent must use PatientApproval for verification, not the plan write/OTP workflow.');
@@ -352,8 +354,9 @@ class CarePlanReadAccessRecoveryTest extends TestCase
         $context['user']->givePermissionToParent('approval:cancel');
         $plan = $this->plan($context);
         ['approval' => $approval, 'payload' => $payload] = $this->request($context, [$plan, $this->plan($context)]);
+        $plan->update(['terms_of_service' => 'INPATIENT']);
         Repository::approval()->sync($this->remote($approval, $payload), $context['person'], $approval);
-        $this->mock(CarePlanApprovalService::class)->makePartial()->shouldReceive('skipsPatientOtp')->andReturn(true);
+
         $service = $this->mock(PatientApprovalService::class)->makePartial();
         $service->shouldReceive('cancel')->once()->withArgs(fn (Approval $candidate): bool => $candidate->id === $approval->id && $candidate->approvable->is($context['person']));
 

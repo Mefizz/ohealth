@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Core\Arr;
-
+use App\Classes\eHealth\Api\Job;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
+use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class CarePlanActivity extends Request
 {
@@ -30,7 +32,7 @@ class CarePlanActivity extends Request
      */
     public function create(string $patientId, string $carePlanId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->post("/api/patients/{$patientId}/care_plans/{$carePlanId}/activities", $payload);
     }
@@ -49,7 +51,7 @@ class CarePlanActivity extends Request
      */
     public function cancel(string $personId, string $carePlanId, string $activityId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch("/api/patients/$personId/care_plans/$carePlanId/activities/$activityId/actions/cancel", $payload);
     }
@@ -68,7 +70,7 @@ class CarePlanActivity extends Request
      */
     public function complete(string $personId, string $carePlanId, string $activityId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch("/api/patients/$personId/care_plans/$carePlanId/activities/$activityId/actions/complete", $payload);
     }
@@ -109,61 +111,72 @@ class CarePlanActivity extends Request
         if (array_is_list($native) && count($native) === 1) {
             $native = $native[0];
         }
-        $data = Arr::toCamelCase($native);
-        if (isset($data['author']['identifier'])) {
-            $data['author'] = [$data['author']];
-        }
-        if (isset($data['status']) && !isset($data['detail']['status'])) {
-            $data['detail']['status'] = $data['status'];
-        }
+        $this->validateResource($native);
 
-        $validator = Validator::make($data, [
-            'id' => 'required|uuid',
-            'detail.status' => 'required|string',
-            'detail.kind' => 'required|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'CarePlanActivity details validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new \Illuminate\Validation\ValidationException($validator);
-        }
-
-        // Signed snapshots retain the API's keys; both forms pass the same validator.
-        return $preserveApiKeys ? $native : $data;
+        // Validate the native snapshot before any signing or presentation projection.
+        return $preserveApiKeys ? $native : Arr::toCamelCase($native);
     }
 
     protected function validateMany(EHealthResponse $response): array
     {
-        $transformedData = [];
-        $items = $response->getData();
-        if (isset($items['data']) && is_array($items['data'])) {
-            $items = $items['data'];
-        }
-        if (is_array($items)) {
-            foreach ($items as $item) {
-                if (is_array($item)) {
-                    $transformedData[] = Arr::toCamelCase($item);
-                }
-            }
+        $native = $response->getData();
+        Validator::make(['data' => $native], ['data' => ['present', 'array', 'list'], 'data.*' => ['required', 'array']])->validate();
+        foreach ($native as $item) {
+            $this->validateResource($item);
         }
 
-        $validator = Validator::make($transformedData, [
-            '*' => 'array',
-            '*.id' => 'required|uuid',
-            '*.status' => 'nullable|string',
-            '*.kind' => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'CarePlanActivity many validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new \Illuminate\Validation\ValidationException($validator);
-        }
-
-        return $transformedData;
+        return Arr::toCamelCase($native);
     }
 
+    private function validateResource(array $native): void
+    {
+        $rules = require resource_path('ehealth/care-plan-activity-response-rules.php');
+        $validator = Validator::make(['resource' => $native], $rules);
+        $validator->after(static function ($validator) use ($native): void {
+            $detail = $native['detail'] ?? [];
+            if (!is_array($detail)) {
+                return;
+            }
+            if (isset($detail['product_reference']) === isset($detail['product_codeable_concept'])) {
+                $validator->errors()->add('resource.detail.product_reference', 'Exactly one product variant is required.');
+            }
+            $timing = array_intersect(['scheduled_period', 'scheduled_timing', 'scheduled_string'], array_keys($detail));
+            if (count($timing) > 1) {
+                $validator->errors()->add('resource.detail.scheduled_period', 'Schedule alternatives are mutually exclusive.');
+            }
+        });
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error('Care Plan Activity response validation failed', ['fields' => $validator->errors()->keys()]);
+            throw new ValidationException($validator);
+        }
+    }
+    public function assertRegisteredInEHealth(?string $personUuid, ?string $carePlanUuid, ?string $activityUuid): void
+    {
+
+        if (!$personUuid || !$carePlanUuid || !$activityUuid) {
+            throw new RuntimeException(__('care-plan.activity_ehealth_missing_identifiers'));
+        }
+
+        try {
+            $response = $this->getDetails($personUuid, $carePlanUuid, $activityUuid);
+            if (!$response->successful()) {
+                throw new RuntimeException(__('care-plan.activity_not_in_ehealth'));
+            }
+
+            // An HTTP 200 alone cannot confirm registration of the requested activity.
+            $activityData = $response->validate();
+            if (($activityData['id'] ?? null) !== $activityUuid
+                || data_get($activityData, 'carePlan.identifier.value') !== $carePlanUuid) {
+                throw new RuntimeException(__('care-plan.activity_not_in_ehealth'));
+            }
+        } catch (EHealthResponseException $exception) {
+            Log::warning('Care plan activity registration could not be confirmed', [
+                'activity_uuid' => $activityUuid,
+                'care_plan_uuid' => $carePlanUuid,
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw new RuntimeException(__('care-plan.activity_not_in_ehealth'));
+        }
+    }
 }

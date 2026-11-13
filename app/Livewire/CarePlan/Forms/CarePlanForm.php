@@ -4,11 +4,6 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Forms;
 
-use Illuminate\Support\Facades\Validator;
-
-use App\Core\Arr;
-
-use Carbon\CarbonImmutable;
 use Livewire\Form;
 
 class CarePlanForm extends Form
@@ -32,8 +27,8 @@ class CarePlanForm extends Form
     public string $termsOfService = '';
     public array $episodes = [];
     public array $medicalRecords = [];
-    public ?string $based_on = null;
-    public ?string $part_of = null;
+    public ?string $basedOn = null;
+    public ?string $partOf = null;
     public string $knedp = '';
     public mixed $keyContainerUpload = null;
     public string $keyContainerFileName = '';
@@ -58,6 +53,8 @@ class CarePlanForm extends Form
             'termsOfService' => 'required|in:INPATIENT,OUTPATIENT',
             'episodes' => 'nullable|array',
             'medicalRecords' => 'nullable|array',
+            'basedOn' => 'nullable|uuid',
+            'partOf' => 'nullable|uuid',
         ];
     }
 
@@ -66,23 +63,16 @@ class CarePlanForm extends Form
      */
     public function rulesForSigning(): array
     {
-        return array_merge($this->rules(), [
+        return array_merge($this->rules(), $this->signatureRules());
+    }
+
+    public function signatureRules(): array
+    {
+        return [
             'knedp' => 'required|string',
             'keyContainerUpload' => 'required|file|max:1024',
             'password' => 'required|string',
-        ]);
-    }
-
-    public function periodStartIsoDate(): string
-    {
-        return CarbonImmutable::createFromFormat('!'.config('app.date_format'), $this->periodStart)->format('Y-m-d');
-    }
-
-    public function periodEndIsoDate(): ?string
-    {
-        return $this->periodEnd !== ''
-            ? CarbonImmutable::createFromFormat('!'.config('app.date_format'), $this->periodEnd)->format('Y-m-d')
-            : null;
+        ];
     }
 
     /**
@@ -102,6 +92,8 @@ class CarePlanForm extends Form
             'note' => __('care-plan.notes'),
             'informWith' => __('care-plan.inform_with'),
             'termsOfService' => __('forms.providing_condition'),
+            'basedOn' => __('care-plan.based_care_plan'),
+            'partOf' => __('care-plan.part_care_plan'),
             'knedp' => __('forms.knedp') ?? 'КНЕДП',
             'keyContainerUpload' => __('forms.key_container') ?? 'Ключ-контейнер',
             'password' => __('forms.password'),
@@ -118,45 +110,4 @@ class CarePlanForm extends Form
         ];
     }
 
-    public static function buildCreateContent(array $resource): array
-    {
-        Validator::make($resource, [
-            'id' => ['required', 'uuid'], 'title' => ['required', 'string'],
-            'category.coding' => ['required', 'array', 'min:1'],
-            'period.start' => ['required', 'date'],
-            'encounter.identifier.value' => ['required', 'uuid'],
-            'author.identifier.value' => ['required', 'uuid'],
-            'addresses' => ['required', 'array', 'min:1'],
-            'termsOfService.coding' => ['required', 'array', 'min:1'],
-        ])->validate();
-        $content = array_intersect_key($resource, array_flip(['id', 'category', 'title', 'description', 'period', 'supportingInfo', 'note', 'encounter', 'addresses', 'author', 'contributor', 'termsOfService', 'informWith']));
-        $content['intent'] = 'order';
-        $content['status'] = 'new';
-
-        return self::resourcePayload($content);
-    }
-
-    public static function buildCancelContent(array $snapshot, array $statusReason): array
-    {
-        Validator::make($snapshot, ['id' => ['required', 'uuid']])->validate();
-        unset($snapshot['activities']);
-        $snapshot['status_reason'] = $statusReason;
-
-        return $snapshot;
-    }
-
-    private static function resourcePayload(array $data): array
-    {
-        $result = [];
-        foreach (Arr::toSnakeCase($data) as $key => $value) {
-            if (is_array($value)) {
-                $value = self::resourcePayload($value);
-            }
-            if ($value !== null && $value !== '' && $value !== []) {
-                $result[$key] = $value;
-            }
-        }
-
-        return array_is_list($data) ? array_values($result) : $result;
-    }
 }

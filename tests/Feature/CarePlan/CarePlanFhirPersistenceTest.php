@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CarePlan;
 
-use Tests\TestCase;
-use App\Repositories\CarePlanRepository;
-use App\Repositories\CarePlanActivityRepository;
+use App\Console\Commands\BackfillCarePlanFhir;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
+use Tests\Support\CarePlanWorkflowHarness;
+use Tests\TestCase;
 
 class CarePlanFhirPersistenceTest extends TestCase
 {
@@ -76,8 +80,8 @@ class CarePlanFhirPersistenceTest extends TestCase
         $activityResource['carePlan']['identifier']['type']['coding'][] = ['system' => 'synthetic/parent', 'code' => 'SECOND'];
         $activityResource['detail']['reasonCode'][0]['coding'][] = ['system' => 'synthetic/second', 'code' => 'SECOND'];
         $planResource['subject'] = $planResource['author'];
-        $plans = app(CarePlanRepository::class);
-        $activities = app(CarePlanActivityRepository::class);
+        $plans = Repository::carePlan();
+        $activities = Repository::carePlanActivity();
         $plan = $plans->storeResource($planResource, 1, 1);
         $activity = $activities->storeResource($activityResource, $plan);
         $counts = $this->primitiveCounts();
@@ -107,7 +111,7 @@ class CarePlanFhirPersistenceTest extends TestCase
     public function test_clearing_a_collection_removes_its_links(): void
     {
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
-        $repository = app(CarePlanRepository::class);
+        $repository = Repository::carePlan();
         $plan = $repository->storeResource($resource, 1, 1);
         $resource['supportingInfo'] = [];
         $repository->storeResource($resource, 1, 1);
@@ -121,12 +125,12 @@ class CarePlanFhirPersistenceTest extends TestCase
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource['detail']['productReference']['identifier']['type']['coding'][0]['code'] = 'service_group';
         $resource['detail']['productReference']['displayValue'] = 'Synthetic group';
-        $plan = app(CarePlanRepository::class)->storeResource($planResource, 1, 1);
-        $repository = app(CarePlanActivityRepository::class);
+        $plan = Repository::carePlan()->storeResource($planResource, 1, 1);
+        $repository = Repository::carePlanActivity();
         $activity = $repository->storeResource($resource, $plan);
-        $projected = $repository->presentForUi($activity);
+        $projected = $activity;
 
-        $repository->saveForm([
+        (new CarePlanWorkflowHarness())->saveActivityDraft([
             'quantity' => (string) $projected->quantity,
             'product_reference' => $projected->productReference,
             'program' => $projected->program,
@@ -152,9 +156,9 @@ class CarePlanFhirPersistenceTest extends TestCase
         config(['app.timezone' => 'Europe/Kyiv']);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource['period'] = ['start' => '2026-10-19T10:30:12Z', 'end' => '2026-10-20T11:30:13Z'];
-        $plan = app(CarePlanRepository::class)->storeResource($resource, 1, 1);
-        $repository = app(CarePlanActivityRepository::class);
-        $activity = $repository->saveForm(['kind' => 'service_request', 'status' => 'draft', 'scheduled_period_start' => '2026-10-19', 'scheduled_period_end' => '2026-10-20'], $plan);
+        $plan = Repository::carePlan()->storeResource($resource, 1, 1);
+        $repository = Repository::carePlanActivity();
+        $activity = (new CarePlanWorkflowHarness())->saveActivityDraft(['kind' => 'service_request', 'status' => 'draft', 'scheduled_period_start' => '2026-10-19', 'scheduled_period_end' => '2026-10-20'], $plan);
 
         $this->assertSame($resource['period'], $repository->getResource($activity->id)['detail']['scheduledPeriod']);
         $this->assertArrayNotHasKey('remainingQuantity', $repository->getResource($activity->id)['detail']);
@@ -163,16 +167,16 @@ class CarePlanFhirPersistenceTest extends TestCase
     public function test_activity_identity_cannot_be_updated_through_another_plan(): void
     {
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
-        $plans = app(CarePlanRepository::class);
+        $plans = Repository::carePlan();
         $plan = $plans->storeResource($resource, 1, 1);
         $activityResource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true, flags: JSON_THROW_ON_ERROR);
-        $repository = app(CarePlanActivityRepository::class);
+        $repository = Repository::carePlanActivity();
         $activity = $repository->storeResource($activityResource, $plan);
         $resource['id'] = '095945b0-9e8e-4bd1-9025-09d275c972ee';
         $otherPlan = $plans->storeResource($resource, 1, 1);
         $activityResource['carePlan']['identifier']['value'] = $otherPlan->uuid;
 
-        $this->expectException(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+        $this->expectException(ModelNotFoundException::class);
         $repository->storeResource($activityResource, $otherPlan, $activity->id);
     }
 
@@ -180,7 +184,7 @@ class CarePlanFhirPersistenceTest extends TestCase
     {
         DB::table('legal_entities')->insert(['id' => 2]);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
-        $repository = app(CarePlanRepository::class);
+        $repository = Repository::carePlan();
         $first = $repository->storeResource($resource, 1, 1);
         $second = $repository->storeResource($resource, 1, 2);
 
@@ -196,11 +200,11 @@ class CarePlanFhirPersistenceTest extends TestCase
         unset($resource['detail']['scheduledPeriod']);
         $resource['detail']['scheduledTiming'] = ['repeat' => ['frequency' => 2, 'period' => 1, 'periodUnit' => 'd']];
         $resource['detail']['status'] = 'draft';
-        $plan = app(CarePlanRepository::class)->storeResource($planResource, 1, 1);
-        $repository = app(CarePlanActivityRepository::class);
+        $plan = Repository::carePlan()->storeResource($planResource, 1, 1);
+        $repository = Repository::carePlanActivity();
         $activity = $repository->storeResource($resource, $plan);
 
-        $repository->saveForm(['description' => 'Edited', 'scheduled_period_start' => '', 'scheduled_period_end' => ''], $plan, $activity->id);
+        (new CarePlanWorkflowHarness())->saveActivityDraft(['description' => 'Edited', 'scheduled_period_start' => '', 'scheduled_period_end' => ''], $plan, $activity->id);
 
         $actual = $repository->getResource($activity->id);
         $this->assertSame($resource['detail']['scheduledTiming'], $actual['detail']['scheduledTiming']);
@@ -214,9 +218,9 @@ class CarePlanFhirPersistenceTest extends TestCase
         DB::table('encounters')->insert(['id' => 1, 'uuid' => $encounterUuid]);
         DB::table('employees')->insert(['id' => 1, 'uuid' => '47ee824a-eb47-48ef-8d30-1109e3c89f0c', 'legal_entity_id' => 1]);
         DB::table('care_plans')->insert(['id' => 10, 'person_id' => 1, 'legal_entity_id' => 1, 'author_id' => 1, 'encounter_id' => 1, 'title' => 'Draft', 'status' => 'draft', 'period_start' => '2026-10-19']);
-        $repository = app(CarePlanRepository::class);
+        $repository = Repository::carePlan();
 
-        $report = $repository->backfillResources(1, true);
+        $report = (new BackfillCarePlanFhir())->backfillResources(1, true);
 
         $this->assertSame([], $report['errors']);
         $this->assertSame($encounterUuid, data_get($repository->getResource(10), 'encounter.identifier.value'));
@@ -225,19 +229,19 @@ class CarePlanFhirPersistenceTest extends TestCase
 
     public function test_preflight_reads_codings_without_optional_metadata_columns(): void
     {
-        $concept = \App\Repositories\MedicalEvents\Repository::codeableConcept()->store(['coding' => [['system' => 'synthetic/category', 'code' => 'TEST']]]);
+        $concept = MedicalEventsRepository::codeableConcept()->store(['coding' => [['system' => 'synthetic/category', 'code' => 'TEST']]]);
         DB::table('employees')->insert(['id' => 1, 'uuid' => '47ee824a-eb47-48ef-8d30-1109e3c89f0c', 'legal_entity_id' => 1]);
         DB::table('care_plans')->insert(['id' => 10, 'person_id' => 1, 'legal_entity_id' => 1, 'author_id' => 1, 'category_id' => $concept->id, 'title' => 'Legacy draft', 'status' => 'draft', 'period_start' => '2026-10-19']);
         foreach (['display', 'version', 'user_selected'] as $column) {
             $this->assertFalse(Schema::hasColumn('codings', $column));
         }
-        \Illuminate\Database\Eloquent\Model::preventAccessingMissingAttributes();
+        Model::preventAccessingMissingAttributes();
         try {
-            $report = app(CarePlanRepository::class)->backfillResources(1);
+            $report = (new BackfillCarePlanFhir())->backfillResources(1);
             $this->assertSame([], $report['errors']);
             $this->assertNull(DB::table('care_plans')->where('id', 10)->value('details_synced_at'));
         } finally {
-            \Illuminate\Database\Eloquent\Model::preventAccessingMissingAttributes(false);
+            Model::preventAccessingMissingAttributes(false);
         }
     }
 
@@ -245,11 +249,11 @@ class CarePlanFhirPersistenceTest extends TestCase
     {
         $planResource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true, flags: JSON_THROW_ON_ERROR);
-        $plan = app(CarePlanRepository::class)->storeResource($planResource, 1, 1);
+        $plan = Repository::carePlan()->storeResource($planResource, 1, 1);
         $counts = $this->primitiveCounts();
         $resource['detail']['quantity']['value'] = '1.12345678901';
         try {
-            app(CarePlanActivityRepository::class)->storeResource($resource, $plan);
+            Repository::carePlanActivity()->storeResource($resource, $plan);
             $this->fail('An over-precision quantity must not be rounded by SQL.');
         } catch (InvalidArgumentException) {
             $this->assertSame($counts, $this->primitiveCounts());
@@ -272,7 +276,7 @@ class CarePlanFhirPersistenceTest extends TestCase
         DB::table('care_plans')->insert(['id' => 10, 'person_id' => 1, 'legal_entity_id' => 1, 'uuid' => '8d08ce22-82dd-4ac4-bdb9-432fd5aad5dd', 'title' => 'Legacy', 'status' => 'active', 'period_start' => '2026-10-19']);
         $before = DB::table('care_plans')->find(10);
 
-        $report = app(CarePlanRepository::class)->backfillResources(1, true);
+        $report = (new BackfillCarePlanFhir())->backfillResources(1, true);
 
         $this->assertSame([['type' => 'carePlan', 'localId' => 10]], $report['needsRemoteSync']);
         $this->assertSame(0, $report['converted']);
@@ -283,17 +287,17 @@ class CarePlanFhirPersistenceTest extends TestCase
     {
         DB::table('employees')->insert(['id' => 1, 'uuid' => '47ee824a-eb47-48ef-8d30-1109e3c89f0c', 'legal_entity_id' => 1]);
         DB::table('care_plans')->insert(['id' => 10, 'person_id' => 1, 'legal_entity_id' => 1, 'author_id' => 1, 'title' => 'Draft', 'status' => 'draft', 'period_start' => '2026-10-19', 'category' => 'TEST', 'terms_of_service' => 'OUTPATIENT']);
-        $repository = app(CarePlanRepository::class);
+        $repository = Repository::carePlan();
 
-        $preview = $repository->backfillResources(1);
+        $preview = (new BackfillCarePlanFhir())->backfillResources(1);
 
         $this->assertSame([], $preview['errors']);
         $this->assertNull(DB::table('care_plans')->where('id', 10)->value('details_synced_at'));
         $this->assertNull(DB::table('care_plans')->where('id', 10)->value('uuid'));
-        $written = $repository->backfillResources(1, true);
+        $written = (new BackfillCarePlanFhir())->backfillResources(1, true);
         $resource = $repository->getResource(10);
         $counts = $this->primitiveCounts();
-        $again = $repository->backfillResources(1, true);
+        $again = (new BackfillCarePlanFhir())->backfillResources(1, true);
 
         $this->assertSame(1, $written['converted']);
         $this->assertSame(0, $again['converted']);
@@ -308,16 +312,16 @@ class CarePlanFhirPersistenceTest extends TestCase
         $resource['detail']['goal'][0]['text'] = 'First full goal';
         $resource['detail']['goal'][0]['coding'][] = ['system' => 'synthetic/other', 'code' => 'OTHER'];
         $resource['detail']['reasonCode'][] = ['coding' => [['system' => 'eHealth/ICD10_AM/condition_codes', 'code' => 'B00']]];
-        $plan = app(CarePlanRepository::class)->storeResource($planResource, 1, 1);
-        $repo = app(CarePlanActivityRepository::class);
+        $plan = Repository::carePlan()->storeResource($planResource, 1, 1);
+        $repo = Repository::carePlanActivity();
         $activity = $repo->storeResource($resource, $plan);
-        $repo->saveForm(['goal' => ['SYNTHETIC_A', 'SYNTHETIC_C'], 'reasonCode' => ['A00', 'C00']], $plan, $activity->id);
+        (new CarePlanWorkflowHarness())->saveActivityDraft(['goal' => ['SYNTHETIC_A', 'SYNTHETIC_C'], 'reasonCode' => ['A00', 'C00']], $plan, $activity->id);
         $actual = $repo->getResource($activity->id)['detail'];
         $this->assertSame($resource['detail']['goal'][0], $actual['goal'][0]);
         $this->assertSame('SYNTHETIC_C', $actual['goal'][1]['coding'][0]['code']);
         $this->assertSame($resource['detail']['reasonCode'][0], $actual['reasonCode'][0]);
         $this->assertSame('C00', $actual['reasonCode'][1]['coding'][0]['code']);
-        $repo->saveForm(['goal' => ['SYNTHETIC_A'], 'reasonCode' => []], $plan, $activity->id);
+        (new CarePlanWorkflowHarness())->saveActivityDraft(['goal' => ['SYNTHETIC_A'], 'reasonCode' => []], $plan, $activity->id);
         $actual = $repo->getResource($activity->id)['detail'];
         $this->assertSame([$resource['detail']['goal'][0]], $actual['goal']);
         $this->assertSame([], $actual['reasonCode']);
@@ -328,18 +332,18 @@ class CarePlanFhirPersistenceTest extends TestCase
         $planResource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource['detail']['statusReason'] = ['coding' => [['system' => 'synthetic/reasons', 'code' => 'TEST']], 'text' => 'Full reason'];
-        $plan = app(CarePlanRepository::class)->storeResource($planResource, 1, 1);
-        $repo = app(CarePlanActivityRepository::class);
+        $plan = Repository::carePlan()->storeResource($planResource, 1, 1);
+        $repo = Repository::carePlanActivity();
         $activity = $repo->storeResource($resource, $plan);
-        $repo->saveForm(['description' => 'Updated', 'statusReason' => 'TEST'], $plan, $activity->id);
+        (new CarePlanWorkflowHarness())->saveActivityDraft(['description' => 'Updated', 'statusReason' => 'TEST'], $plan, $activity->id);
         $this->assertSame($resource['detail']['statusReason'], $repo->getResource($activity->id)['detail']['statusReason']);
     }
     public function test_empty_kind_resolves_the_saved_concept_without_prior_eager_loading(): void
     {
-        $plan = app(CarePlanRepository::class)->storeResource(json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true), 1, 1);
+        $plan = Repository::carePlan()->storeResource(json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/plan.json')), true), 1, 1);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/CarePlan/activity.json')), true);
-        $activity = app(CarePlanActivityRepository::class)->storeResource($resource, $plan);
-        $concept = \App\Repositories\MedicalEvents\Repository::codeableConcept()->store(['coding' => [['system' => 'eHealth/care_plan_activity_kind', 'code' => 'ServiceRequest']]]);
+        $activity = Repository::carePlanActivity()->storeResource($resource, $plan);
+        $concept = MedicalEventsRepository::codeableConcept()->store(['coding' => [['system' => 'eHealth/care_plan_activity_kind', 'code' => 'ServiceRequest']]]);
         $activity->forceFill(['kind' => '', 'kindId' => $concept->id])->save();
         $fresh = $activity->fresh();
         $this->assertFalse($fresh->relationLoaded('kindConcept'));

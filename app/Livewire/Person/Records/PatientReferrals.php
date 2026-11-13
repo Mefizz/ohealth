@@ -39,6 +39,7 @@ use Livewire\WithFileUploads;
 use App\Enums\JobStatus;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use RuntimeException;
 use Throwable;
 use App\Livewire\Concerns\ReadsClinicalSnapshots;
@@ -92,6 +93,12 @@ class PatientReferrals extends BasePatientComponent
     public string $filterEndedAtTo = '';
 
     public ?string $expandedUuid = null;
+
+    #[Locked]
+    public ?int $selectedReferralId = null;
+
+    #[Locked]
+    public bool $editingReferral = false;
 
     public ?string $requestIdToSign = null;
 
@@ -441,9 +448,51 @@ class PatientReferrals extends BasePatientComponent
 
                 return;
             }
+
+            $this->selectedReferralId = (int) $record->id;
+            $this->editingReferral = false;
+
+            return;
         }
 
         $this->expandedUuid = $this->expandedUuid === $uuid ? null : $uuid;
+    }
+
+    /** Child events select a page mode; authorization remains in both parent and child actions. */
+    #[On('edit-referral')]
+    public function editReferral(int $referralId): void
+    {
+        if ($this->personId === null) {
+            return;
+        }
+
+        $record = MedicalEventsRepository::serviceRequest()->findForPerson($referralId, $this->personId);
+        if (Auth::user()->cannot('edit', $record)) {
+            $this->selectedReferralId = null;
+            $this->editingReferral = false;
+            Session::flash('error', __('referrals.messages.action_unavailable'));
+
+            return;
+        }
+
+        $this->selectedReferralId = (int) $record->id;
+        $this->editingReferral = true;
+    }
+
+    #[On('close-referral')]
+    public function closeReferral(): void
+    {
+        $this->selectedReferralId = null;
+        $this->editingReferral = false;
+
+        if (Auth::user()->cannot('search', ServiceRequestRequest::class)) {
+            $this->referrals = [];
+            Session::flash('error', __('referrals.messages.action_unavailable'));
+
+            return;
+        }
+
+        $this->loadReferrals();
     }
 
     public function openSign(string $uuid, string $kind): void
@@ -817,6 +866,10 @@ class PatientReferrals extends BasePatientComponent
 
     public function render(): View
     {
+        if ($this->selectedReferralId !== null) {
+            return view('livewire.referral.e-referral-record');
+        }
+
         return view('livewire.person.records.referrals');
     }
 

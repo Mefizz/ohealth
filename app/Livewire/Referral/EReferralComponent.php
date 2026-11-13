@@ -7,6 +7,7 @@ namespace App\Livewire\Referral;
 use App\Livewire\Referral\Forms\EReferralForm;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -88,4 +89,8 @@ abstract class EReferralComponent extends Component
         return Auth::user()->can('edit', $this->referral());
     }
 
+    public function render(): View
+    {
+        return view('livewire.referral.e-referral-details');
+    }
 }

@@ -254,5 +254,14 @@
       },
       "displayValue": "Synthetic episode_of_care"
     }
-  ]
+  ],
+  "requisition": "0000-AAAA-BBBB-CCCC",
+  "statusHistory": [],
+  "expirationDate": "2027-11-01",
+  "usedByEmployee": {
+    "displayValue": ""
+  },
+  "usedByLegalEntity": {
+    "displayValue": ""
+  }
 }

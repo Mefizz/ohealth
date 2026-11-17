@@ -65,6 +65,12 @@ class ServiceRequestRequest extends Model implements SubmittedToEHealth
         'location_reference_id',
         'performer_type_id',
 
+        'resource_metadata',
+        'used_by_employee_id',
+        'used_by_legal_entity_id',
+        'used_by_division_id',
+        'completed_with_id',
+        'program_service_id',
         'details_synced_at',
         'clinical_status',
         'program_processing_status',
@@ -86,6 +92,7 @@ class ServiceRequestRequest extends Model implements SubmittedToEHealth
         'ended_at' => UtcDateTimeCast::class,
         'quantity' => 'decimal:10',
 
+        'resource_metadata' => 'array',
         'details_synced_at' => 'datetime',
         'supporting_info' => 'array',
         'reason_reference' => 'array',
@@ -195,6 +202,31 @@ class ServiceRequestRequest extends Model implements SubmittedToEHealth
     {
         return $this->belongsTo(Identifier::class, 'subject_identifier_id');
     }
+    public function usedByEmployee(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'used_by_employee_id');
+    }
+
+    public function usedByLegalEntity(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'used_by_legal_entity_id');
+    }
+
+    public function usedByDivision(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'used_by_division_id');
+    }
+
+    public function completedWith(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'completed_with_id');
+    }
+
+    public function programService(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'program_service_id');
+    }
+
     public function quantityQuantity(): BelongsTo
     {
         return $this->belongsTo(Quantity::class, 'quantity_id');

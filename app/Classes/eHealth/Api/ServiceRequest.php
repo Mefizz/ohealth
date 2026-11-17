@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Classes\eHealth\Api\Job;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequestApi;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
@@ -23,30 +22,6 @@ class ServiceRequest extends Request
 
     protected const string ENDPOINT_SERVICE_REQUESTS = '/api/service_requests';
     protected const string ENDPOINT_MEDICAL_EVENTS_SERVICE_REQUESTS = '/api/medical_events/service_requests';
-
-    /**
-     * Create Draft Service Request.
-     */
-    public function createDraft(array $payload): PromiseInterface|EHealthResponse
-    {
-        return $this->post(self::ENDPOINT_SERVICE_REQUESTS, $payload);
-    }
-
-    /**
-     * Sign Service Request (KEП).
-     */
-    public function signRequest(string $id, array $payload): PromiseInterface|EHealthResponse
-    {
-        return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/sign", $payload);
-    }
-
-    /**
-     * Reject Service Request.
-     */
-    public function reject(string $id, array $payload = []): PromiseInterface|EHealthResponse
-    {
-        return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/reject", $payload);
-    }
 
     /**
      * Discover service requests by requisition number.
@@ -72,9 +47,17 @@ class ServiceRequest extends Request
      */
     public function process(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => app(PatientServiceRequestApi::class)->validateOperation($response, [202]));
 
         return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/use", $payload);
+    }
+
+    /** Deprecated by ESOZ; retained as an explicit operation for integrations still using process. */
+    public function processLegacy(string $id, array $payload = []): PromiseInterface|EHealthResponse
+    {
+        $this->setValidator(fn (EHealthResponse $response): array => app(PatientServiceRequestApi::class)->validateOperation($response, [202]));
+
+        return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/process", $payload);
     }
 
     /**
@@ -82,7 +65,7 @@ class ServiceRequest extends Request
      */
     public function complete(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => app(PatientServiceRequestApi::class)->validateOperation($response));
 
         return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/complete", $payload);
     }
@@ -92,7 +75,7 @@ class ServiceRequest extends Request
      */
     public function cancelUsage(string $id, string $patientId, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => app(PatientServiceRequestApi::class)->validateOperation($response, [202]));
 
         // PROD Medical Events 9.15.4 documents Release with service_request:use and no request body.
         return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/release");
@@ -103,7 +86,7 @@ class ServiceRequest extends Request
      */
     public function recall(string $patientId, string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(Job::validateSubmissionResponse(...));
+        $this->setValidator(fn (EHealthResponse $response): array => app(PatientServiceRequestApi::class)->validateOperation($response, [202]));
 
         return $this->patch("/api/patients/{$patientId}/service_requests/{$id}/actions/recall", $payload);
     }

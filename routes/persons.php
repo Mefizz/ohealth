@@ -28,10 +28,10 @@ use App\Livewire\DiagnosticReport\DiagnosticReportView;
 use App\Livewire\Encounter\EncounterIndex;
 use App\Livewire\Encounter\EncounterView;
 use App\Livewire\EncounterPackage\EncounterEPrescriptionCreate;
-use App\Livewire\EncounterPackage\EncounterReferralCreate;
 use App\Livewire\EncounterPackage\EncounterPackageCreate;
 use App\Livewire\EncounterPackage\EncounterPackageEdit;
 use App\Livewire\EncounterPackage\EncounterPackageView;
+use App\Livewire\EncounterPackage\EncounterReferralCreate;
 use App\Livewire\Episode\EpisodeCreate;
 use App\Livewire\Episode\EpisodeEdit;
 use App\Livewire\Episode\EpisodeIndex;
@@ -66,6 +66,8 @@ use App\Livewire\Procedure\ProcedureCreate;
 use App\Livewire\Procedure\ProcedureEdit;
 use App\Livewire\Procedure\ProcedureIndex;
 use App\Livewire\Procedure\ProcedureView;
+use App\Livewire\Referral\EReferralEdit;
+use App\Livewire\Referral\EReferralView;
 use App\Livewire\Specimen\SpecimenCreate;
 use App\Livewire\Specimen\SpecimenEdit;
 use App\Models\CarePlan;
@@ -84,6 +86,7 @@ use App\Models\MedicalEvents\Sql\Episode;
 use App\Models\MedicalEvents\Sql\Immunization;
 use App\Models\MedicalEvents\Sql\Observation;
 use App\Models\MedicalEvents\Sql\Procedure;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\MedicalEvents\Sql\Specimen;
 use App\Models\Person\Person;
 use App\Models\Person\PersonRequest;
@@ -165,7 +168,11 @@ Route::prefix('persons')->whereNumber('person')
                     ->name('prescription-requests');
                 Route::get('/prescription-requests/{requestId}', PatientPrescriptionRequestView::class)
                     ->name('prescription-requests.view');
-                Route::get('/referrals', PatientReferrals::class)->name('referrals');
+                Route::get('/referrals', PatientReferrals::class)->can('search', ServiceRequestRequest::class)->name('referrals');
+                Route::get('/referrals/{serviceRequest}', EReferralView::class)
+                    ->whereNumber('serviceRequest')->can('view', 'serviceRequest')->name('referrals.view');
+                Route::get('/referrals/{serviceRequest}/edit', EReferralEdit::class)
+                    ->whereNumber('serviceRequest')->can('edit', 'serviceRequest')->name('referrals.edit');
                 Route::get('/device-requests', PatientDeviceRequests::class)
                     ->can('viewAny', DeviceRequestRequest::class)->name('device-requests');
                 Route::get('/device-requests/create', DeviceRequestForm::class)

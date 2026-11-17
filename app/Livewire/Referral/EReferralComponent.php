@@ -8,6 +8,7 @@ use App\Dto\ServiceRequest\Form as ReferralFormData;
 use App\Livewire\Referral\Forms\EReferralForm;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository;
+use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Symfony\Component\ObjectMapper\ObjectMapper;
@@ -46,5 +47,19 @@ abstract class EReferralComponent extends Component
         abort_unless((int) legalEntity()->id === $this->legalEntityId, 404);
 
         return $this->referralModel ??= Repository::serviceRequest()->findForPerson($this->referralId, $this->personId);
+    }
+
+    protected function referralViewData(): array
+    {
+        $record = $this->referral();
+        // Persistent page middleware and this projection both respect access changes after the initial request.
+        abort_if(Auth::user()->cannot('view', $record), 404);
+
+        return [
+            'referral' => $record,
+            'summary' => Repository::serviceRequest()->toPatientRegistryRow($record),
+            'resource' => $record->detailsSyncedAt !== null ? Repository::serviceRequest()->getResource($record) : [],
+            'patientFullName' => $record->person->fullName,
+        ];
     }
 }

@@ -7,8 +7,10 @@ namespace App\Livewire\Person\Records;
 use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Core\Arr;
 use App\Core\BaseForm as Form;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\Ehealth as ReferralEhealthData;
+use App\Dto\ServiceRequest\Status\Ehealth as ReferralStatusData;
 use App\Enums\JobStatus;
-use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Exceptions\Signature\SignatureException;
@@ -28,7 +30,6 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\User;
 use App\Notifications\RemoteEHealthLinksNotification;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use App\Traits\BatchLegalEntityQueries;
@@ -44,7 +45,8 @@ use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\WithFileUploads;
-use RuntimeException;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 use Throwable;
 
 class PatientReferrals extends BasePatientComponent
@@ -56,6 +58,8 @@ class PatientReferrals extends BasePatientComponent
     use WithFileUploads;
 
     public Form $form;
+
+    public ServiceRequestForm $serviceRequestForm;
 
     #[Locked]
     public ?string $syncBatchId = null;
@@ -246,6 +250,7 @@ class PatientReferrals extends BasePatientComponent
         } catch (EHealthValidationException $exception) {
             Session::flash('error', $exception->getFormattedMessage());
         } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
             Session::flash('error', $exception->validator->errors()->first());
         } catch (Throwable $exception) {
             Session::flash('error', __('referrals.messages.operation_failed'));
@@ -549,6 +554,7 @@ class PatientReferrals extends BasePatientComponent
         try {
             $validated = $this->form->validate($this->form->signingRules());
         } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
             Session::flash('error', $exception->validator->errors()->first());
 
             return;
@@ -571,8 +577,9 @@ class PatientReferrals extends BasePatientComponent
         try {
             $this->validate(['referralStatusReason' => ['required', 'string']]);
             $snapshot = $this->fetchServiceRequestSnapshot($this->uuid, $record->uuid);
-            $record = MedicalEventsRepository::serviceRequest()->storeResource((new ServiceRequestMapper())->normalize($snapshot), (int) $this->personId, $record->employeeId, $record->divisionId);
-            $payload = ServiceRequestForm::buildStatusContent($snapshot, $this->referralStatusReason, $letter, 'eHealth/service_request_recall_reasons');
+            $this->serviceRequestForm->setStatus($snapshot, $this->referralStatusReason, $letter, 'eHealth/service_request_recall_reasons');
+            $payload = new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())
+                ->map($this->serviceRequestForm, ReferralStatusData::class)->toArray();
             $signedContent = signatureService()->signData(
                 Arr::toSnakeCase($payload),
                 $validated['knedp'],
@@ -586,7 +593,8 @@ class PatientReferrals extends BasePatientComponent
                 return;
             }
 
-            $this->persistReferralStatusFromJob($finalResponse, $record, ServiceRequestStatus::RECALLED);
+            // The submission pipeline already persisted the validated clinical resource.
+            $record->refresh();
             $this->showSignatureModal = false;
             $this->actionType = null;
             $this->requestIdToSign = null;
@@ -594,6 +602,9 @@ class PatientReferrals extends BasePatientComponent
             $this->form->resetSigningFields();
             $this->loadReferrals();
             Session::flash('success', __('care-plan.referral_recall_success'));
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
+            Session::flash('error', $exception->validator->errors()->first());
         } catch (EHealthValidationException $exception) {
             Session::flash('error', $exception->getTranslatedMessage());
             $this->showSignatureModal = false;
@@ -619,6 +630,7 @@ class PatientReferrals extends BasePatientComponent
         try {
             $validated = $this->form->validate($this->form->signingRules());
         } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
             Session::flash('error', $exception->validator->errors()->first());
 
             return;
@@ -640,8 +652,9 @@ class PatientReferrals extends BasePatientComponent
         try {
             $this->validate(['referralStatusReason' => ['required', 'string'], 'referralExplanatoryLetter' => ['required', 'string']]);
             $snapshot = $this->fetchServiceRequestSnapshot($this->uuid, $record->uuid);
-            $record = MedicalEventsRepository::serviceRequest()->storeResource((new ServiceRequestMapper())->normalize($snapshot), (int) $this->personId, $record->employeeId, $record->divisionId);
-            $payload = ServiceRequestForm::buildStatusContent($snapshot, $this->referralStatusReason, trim($this->referralExplanatoryLetter), 'eHealth/service_request_cancel_reasons');
+            $this->serviceRequestForm->setStatus($snapshot, $this->referralStatusReason, trim($this->referralExplanatoryLetter), 'eHealth/service_request_cancel_reasons');
+            $payload = new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())
+                ->map($this->serviceRequestForm, ReferralStatusData::class)->toArray();
             $signedContent = signatureService()->signData(
                 Arr::toSnakeCase($payload),
                 $validated['knedp'],
@@ -655,13 +668,17 @@ class PatientReferrals extends BasePatientComponent
                 return;
             }
 
-            $this->persistReferralStatusFromJob($finalResponse, $record, ServiceRequestStatus::ENTERED_IN_ERROR);
+            // The submission pipeline already persisted the validated clinical resource.
+            $record->refresh();
             $this->showSignatureModal = false;
             $this->actionType = null;
             $this->requestIdToSign = null;
             $this->form->resetSigningFields();
             $this->loadReferrals();
             Session::flash('success', __('care-plan.referral_cancel_success'));
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
+            Session::flash('error', $exception->validator->errors()->first());
         } catch (EHealthValidationException $exception) {
             Session::flash('error', $exception->getTranslatedMessage());
             $this->showSignatureModal = false;
@@ -699,46 +716,11 @@ class PatientReferrals extends BasePatientComponent
 
         try {
             $validated = $this->form->validate($this->form->signingRules());
-            $lifecycle = app(ReferralRequestLifecycleService::class);
-
-            $activity = $requestRecord->basedOn?->value
-                ? CarePlanActivity::query()->where('uuid', $requestRecord->basedOn->value)->first()
-                : null;
-            $carePlan = $activity !== null
-                ? CarePlan::query()->with(['encounter.episode', 'person'])->find($activity->carePlanId)
-                : null;
-            $encounter = $requestRecord->context?->value
-                ? Encounter::query()->with('episode')->where('uuid', $requestRecord->context->value)->first()
-                : $carePlan?->encounter;
-
-            if ($carePlan === null && $encounter === null) {
-                throw new RuntimeException('Не знайдено взаємодію або план лікування для направлення');
-            }
-
-            $context = $carePlan ?? $encounter;
-            $actingEmployeeId = $requestRecord->employeeId ?? Auth::user()?->activeDoctorEmployee()?->id;
-            $employeeContext = $context instanceof Encounter
-                ? $lifecycle->resolveEncounterEmployeeContext($context, $actingEmployeeId)
-                : $lifecycle->resolveEmployeeContext($carePlan, $activity, $actingEmployeeId);
-
-            $dbData = $lifecycle->buildSignDbData($requestRecord, $activity, $context, $employeeContext);
-
-            $uuids = [
-                'person_uuid' => $this->uuid,
-                'encounter_uuid' => $encounter?->uuid,
-                'episode_uuid' => $encounter?->episode?->value ?? null,
-                'employee_uuid' => $employeeContext['employee_uuid'],
-                'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
-            ];
-
-            $mapper = new ServiceRequestMapper();
-            $signPayload = $mapper->toCreateSignedContent(
-                $dbData,
-                $uuids,
-                $carePlan !== null ? (string) $carePlan->uuid : null,
-                $activity !== null ? (string) $activity->uuid : null
-            );
-
+            // Signing projects the persisted draft once; it never rebuilds a second clinical graph from display fields.
+            $resource = MedicalEventsRepository::serviceRequest()->getResource($requestRecord);
+            $this->serviceRequestForm->setCreate($resource);
+            $signPayload = new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())
+                ->map(new FormCollection($this->serviceRequestForm->resource), ReferralEhealthData::class)->toArray();
             $signedContent = signatureService()->signData(
                 $signPayload,
                 $validated['knedp'],
@@ -746,25 +728,14 @@ class PatientReferrals extends BasePatientComponent
                 $validated['password'],
                 Auth::user()->party->taxId
             );
-
-            $resource = $mapper->toFhir($dbData, $uuids + ['carePlanUuid' => $carePlan?->uuid]);
-            $requestRecord = MedicalEventsRepository::serviceRequest()->storeResource($resource, (int) $this->personId, $requestRecord->employeeId, $requestRecord->divisionId);
-            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($this->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = $this->submitClinicalOperation(
+                $requestRecord, ['status' => 'active'],
+                fn () => SubmissionApi::serviceRequest()->createSigned($this->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64'])
+            );
             if ($finalResponse === null) {
                 return;
             }
-
-            $dbData = $lifecycle->persistAfterSignedCreate(
-                $dbData,
-                $finalResponse,
-                'service_request',
-                (int) $this->personId
-            );
-
-            if ($activity !== null && $activity->status === 'scheduled') {
-                $activity->update(['status' => 'in-progress']);
-            }
-
+            $requestRecord->refresh();
             $this->showSignatureModal = false;
             $this->actionType = null;
             $this->requestIdToSign = null;
@@ -772,9 +743,10 @@ class PatientReferrals extends BasePatientComponent
             $this->loadReferrals();
             Session::flash(
                 'success',
-                'Електронне направлення успішно підписано (№ '.($dbData['request_number'] ?? $dbData['uuid']).').'
+                __('referrals.signed_successfully', ['number' => $requestRecord->requestNumber ?: $requestRecord->uuid])
             );
         } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
             Session::flash('error', $exception->validator->errors()->first());
 
             return;
@@ -874,23 +846,7 @@ class PatientReferrals extends BasePatientComponent
         return view('livewire.person.records.referrals');
     }
 
-    /**
-     * @param  array<string, mixed>  $finalResponse
-     */
-    private function persistReferralStatusFromJob(
-        array $finalResponse,
-        ServiceRequestRequest|DeviceRequestRequest $record,
-        ServiceRequestStatus $fallback
-    ): void {
-        $result = $finalResponse['result'] ?? null;
-        $entity = is_array($result) ? ($result[0] ?? $result) : $finalResponse;
-        $raw = is_array($entity) ? ($entity['status'] ?? null) : null;
-        $resolved = is_string($raw) ? ServiceRequestStatus::resolve($raw) : null;
 
-        $record->update([
-            'status' => ($resolved ?? $fallback)->value,
-        ]);
-    }
 
     private function ownedReferral(string $uuid): ServiceRequestRequest|DeviceRequestRequest
     {

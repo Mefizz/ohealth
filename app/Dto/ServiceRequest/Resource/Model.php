@@ -117,10 +117,51 @@ class Model implements ModelContract
     #[Map(source: '[focus]')]
     public ?array $focus = null;
 
+    #[Map(source: '[statusHistory]')]
+    public ?array $statusHistory = null;
+
+    #[Map(source: '[programProcessingStatusHistory]')]
+    public ?array $programProcessingStatusHistory = null;
+
+    #[Map(source: '[usedByLegalEntityHistory]')]
+    public ?array $usedByLegalEntityHistory = null;
+
+    #[Map(source: '[usedByEmployeeHistory]')]
+    public ?array $usedByEmployeeHistory = null;
+
+    #[Map(source: '[expirationDate]')]
+    public ?string $expirationDate = null;
+
+    #[Map(source: '[insertedAt]')]
+    public ?string $insertedAt = null;
+
+    #[Map(source: '[updatedAt]')]
+    public ?string $updatedAt = null;
+
+    #[Map(source: '[usedByEmployee]')]
+    public ?array $usedByEmployee = null;
+
+    #[Map(source: '[usedByLegalEntity]')]
+    public ?array $usedByLegalEntity = null;
+
+    #[Map(source: '[usedByDivision]')]
+    public ?array $usedByDivision = null;
+
+    #[Map(source: '[completedWith]')]
+    public ?array $completedWith = null;
+
+    #[Map(source: '[programService]')]
+    public ?array $programService = null;
+
     public function toModel(?ServiceRequestRequest $request = null): ServiceRequestRequest
     {
         $request ??= new ServiceRequestRequest();
         $request->fill([
+            // Preserve documented history and display-only references that cannot be represented by Identifier FKs.
+            'resourceMetadata' => array_filter(array_intersect_key(get_object_vars($this), array_flip([
+                'statusHistory', 'programProcessingStatusHistory', 'usedByLegalEntityHistory', 'usedByEmployeeHistory', 'expirationDate', 'insertedAt', 'updatedAt', 'usedByEmployee', 'usedByLegalEntity', 'usedByDivision', 'completedWith', 'programService',
+                'basedOn', 'supportingInfo', 'reasonReference', 'permittedResources', 'specimens', 'focus', 'code', 'program', 'context', 'requesterEmployee', 'requesterLegalEntity', 'subject', 'performer', 'locationReference'
+            ])), static fn (mixed $value): bool => $value !== null),
             'uuid' => $this->uuid,
             'status' => $this->status,
             'clinicalStatus' => $this->status,

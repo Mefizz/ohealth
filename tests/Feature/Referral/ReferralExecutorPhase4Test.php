@@ -7,35 +7,49 @@ namespace Tests\Feature\Referral;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequestApi;
 use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
-use App\Exceptions\EHealth\EHealthValidationException;
+use App\Core\Arr;
 use App\Enums\JobStatus;
+use App\Exceptions\EHealth\EHealthValidationException;
+use App\Jobs\RemoteEHealthLinksProcessing;
+use App\Livewire\EncounterPackage\EncounterPackageCreate;
+use App\Livewire\EncounterPackage\Forms\EncounterForm;
+use App\Models\CarePlan;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\Coding;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
+use App\Models\Relations\Party;
 use App\Models\User;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Session;
+use App\Policies\EncounterPolicy;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;
+use App\Services\Dictionary\Dictionaries\BasicDictionary;
 use App\Services\Dictionary\Dictionaries\MedicalProgramDictionary;
 use App\Services\Dictionary\Dictionaries\ServiceDictionary;
+use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Illuminate\Auth\Access\Response;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use Livewire\Livewire;
 use Mockery;
+use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 use RuntimeException;
-use Tests\TestCase;
 use Tests\Support\ClinicalEncounterView;
 use Tests\Support\ReferralIndexFixture;
-use App\Policies\EncounterPolicy;
-use App\Services\Dictionary\Dictionaries\BasicDictionary;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Auth\Access\Response;
+use Tests\TestCase;
 
 class ReferralExecutorPhase4Test extends TestCase
 {
@@ -82,7 +96,7 @@ class ReferralExecutorPhase4Test extends TestCase
     {
         parent::setUp();
 
-        $party = \App\Models\Relations\Party::create([
+        $party = Party::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Іван',
             'last_name' => 'Петренко',
@@ -98,8 +112,8 @@ class ReferralExecutorPhase4Test extends TestCase
             'party_id' => $party->id,
         ]);
 
-        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
-            ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
+        $typeId = DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+            ?? DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
 
         $this->legalEntity = LegalEntity::create([
             'uuid' => (string) Str::uuid(),
@@ -161,10 +175,10 @@ class ReferralExecutorPhase4Test extends TestCase
     public function test_care_plan_scope_uses_the_typed_collection_and_keeps_legacy_access(): void
     {
         $organization = Identifier::create(['value' => $this->legalEntity->uuid]);
-        $plan = \App\Models\CarePlan::create(['uuid' => (string) Str::uuid(), 'person_id' => $this->person->id, 'author_id' => $this->employee->id, 'legal_entity_id' => $this->legalEntity->id, 'period_start' => '2026-10-01', 'title' => 'Synthetic scope plan', 'status' => 'active', 'managing_organization_id' => $organization->id]);
+        $plan = CarePlan::create(['uuid' => (string) Str::uuid(), 'person_id' => $this->person->id, 'author_id' => $this->employee->id, 'legal_entity_id' => $this->legalEntity->id, 'period_start' => '2026-10-01', 'title' => 'Synthetic scope plan', 'status' => 'active', 'managing_organization_id' => $organization->id]);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource['basedOn'][0]['identifier']['value'] = $plan->uuid;
-        $repo = app(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class);
+        $repo = app(ServiceRequestRequestRepository::class);
         $record = $repo->storeResource($resource, $this->person->id);
         $this->assertTrue(ServiceRequestRequest::basedOnCarePlanOfLegalEntity($this->person)->whereKey($record->id)->exists());
         $resource['basedOn'][0]['identifier']['type']['coding'][0]['code'] = 'encounter';
@@ -225,7 +239,7 @@ class ReferralExecutorPhase4Test extends TestCase
         ));
         $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('qualify')->once()->andReturn($this->remoteResponse([['status' => 'VALID']]));
-        $api->shouldReceive('process')->once()->andThrow(new \RuntimeException('Reuse is temporarily blocked'));
+        $api->shouldReceive('process')->once()->andThrow(new RuntimeException('Reuse is temporarily blocked'));
         $this->instance(ServiceRequestApi::class, $api);
 
         $this->expectExceptionMessage('Reuse is temporarily blocked');
@@ -256,7 +270,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $api->shouldNotReceive('qualify', 'process');
         $this->instance(ServiceRequestApi::class, $api);
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, $this->person->uuid);
     }
 
@@ -265,7 +279,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $record = $this->createActiveReferral();
         app(PatientServiceRequestApi::class)->shouldNotReceive('getById');
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         app(ReferralRequestLifecycleService::class)->takeIntoWork($record->uuid, $this->employee, (string) Str::uuid());
     }
 
@@ -302,7 +316,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $this->assertSame($record->uuid, $component->confirmedElectronicReferralUuid);
 
         $validated = ['encounter' => ['referralType' => 'electronic', 'referralNumber' => $record->uuid]];
-        $method = new \ReflectionMethod($component, 'resolveAllReferrals');
+        $method = new ReflectionMethod($component, 'resolveAllReferrals');
         $method->invokeArgs($component, [&$validated, true]);
         $this->assertSame($record->uuid, $validated['encounter']['referralNumber']);
     }
@@ -393,7 +407,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $component = $this->encounterCreateComponent($record);
         $component->confirmedElectronicReferralUuid = (string) Str::uuid();
         $lifecycle = Mockery::mock(ReferralRequestLifecycleService::class);
-        $lifecycle->shouldReceive('takeIntoWork')->once()->andThrow(new \RuntimeException('Not allowed'));
+        $lifecycle->shouldReceive('takeIntoWork')->once()->andThrow(new RuntimeException('Not allowed'));
 
         $component->selectElectronicReferral($record->uuid, $lifecycle);
 
@@ -409,9 +423,9 @@ class ReferralExecutorPhase4Test extends TestCase
         $component = $this->encounterCreateComponent($record);
         $component->preparedElectronicReferralUuid = $record->uuid;
         $validated = ['encounter' => ['referralType' => 'electronic', 'referralNumber' => $record->uuid]];
-        $method = new \ReflectionMethod($component, 'resolveAllReferrals');
+        $method = new ReflectionMethod($component, 'resolveAllReferrals');
 
-        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $this->expectException(ValidationException::class);
         $method->invokeArgs($component, [&$validated, true]);
     }
 
@@ -458,7 +472,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $terminal->update(['status' => 'completed']);
         $component = $this->encounterCreateComponent($record);
 
-        (new \ReflectionMethod($component, 'loadAvailableReferrals'))->invoke($component);
+        (new ReflectionMethod($component, 'loadAvailableReferrals'))->invoke($component);
 
         $this->assertSame([$record->uuid], array_column($component->availableReferrals, 'id'));
     }
@@ -643,10 +657,10 @@ class ReferralExecutorPhase4Test extends TestCase
         return $resource;
     }
 
-    private function encounterCreateComponent(ServiceRequestRequest $record): \App\Livewire\EncounterPackage\EncounterPackageCreate
+    private function encounterCreateComponent(ServiceRequestRequest $record): EncounterPackageCreate
     {
-        $component = new \App\Livewire\EncounterPackage\EncounterPackageCreate();
-        $component->form = new \App\Livewire\EncounterPackage\Forms\EncounterForm($component, 'form');
+        $component = new EncounterPackageCreate();
+        $component->form = new EncounterForm($component, 'form');
         $component->personId = $this->person->id;
         $component->patientUuid = $this->person->uuid;
         $component->availableReferrals = [['id' => $record->uuid, 'requisition' => '0000-1111-2222-3333']];
@@ -693,7 +707,7 @@ class ReferralExecutorPhase4Test extends TestCase
 
         $service = app(ReferralRequestLifecycleService::class);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Результати перевірки не дають змоги використати електронне направлення');
 
         $service->takeIntoWork($referralUuid, $this->employee, $this->person->uuid);
@@ -731,7 +745,7 @@ class ReferralExecutorPhase4Test extends TestCase
 
         $service = app(ReferralRequestLifecycleService::class);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Результати перевірки не дають змоги використати електронне направлення');
 
         $service->takeIntoWork($referralUuid, $this->employee, $this->person->uuid);
@@ -752,30 +766,21 @@ class ReferralExecutorPhase4Test extends TestCase
             'priority' => 'routine',
         ]);
 
-        $recallResponse = Mockery::mock(EHealthResponse::class);
-        $recallResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $recallResponse->shouldReceive('validate')->andReturn(['status' => 'recalled']);
-
-        $mockPatientApi = Mockery::mock(PatientServiceRequestApi::class)->makePartial();
+        $record = ServiceRequestRequest::whereUuid($referralUuid)->firstOrFail();
         $detail = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
         $detail['id'] = $referralUuid;
-        unset($detail['subject']);
-        $detailResponse = Mockery::mock(EHealthResponse::class);
-        $detailResponse->shouldReceive('validate')->once()->andReturn($detail);
-        $mockPatientApi->shouldReceive('getById')->once()->with($this->person->uuid, $referralUuid)->andReturn($detailResponse);
-        $mockPatientApi->shouldReceive('recall')
-            ->once()
-            ->with($this->person->uuid, $referralUuid, Mockery::on(static function (array $payload): bool {
-                return ($payload['signed_data'] ?? '') === 'signed-payload' && !isset($payload['explanatory_letter']);
-            }))
-            ->andReturn($recallResponse);
+        $detail['status'] = 'recalled';
+        $recallResponse = Mockery::mock(EHealthResponse::class);
+        $recallResponse->shouldReceive('validate')->once()->andReturn(Arr::toSnakeCase($detail));
+        $mockPatientApi = Mockery::mock(PatientServiceRequestApi::class)->makePartial();
+        $mockPatientApi->shouldReceive('recall')->once()->with($this->person->uuid, $referralUuid, ['signed_data' => 'signed-payload', 'signed_data_encoding' => 'base64'])->andReturn($recallResponse);
         $this->app->instance(PatientServiceRequestApi::class, $mockPatientApi);
-
-        $service = app(ReferralRequestLifecycleService::class);
-        $result = $service->recallReferral($this->person->uuid, $referralUuid, [
-            'signed_data' => 'signed-payload',
-            'explanatory_letter' => 'Пацієнт більше не потребує послуги',
-        ]);
+        $result = RemoteEHealthLinksProcessing::submitOperation(
+            $record,
+            ['status' => 'recalled', 'explanatoryLetter' => 'Пацієнт більше не потребує послуги'],
+            fn () => $mockPatientApi->recall($this->person->uuid, $referralUuid, ['signed_data' => 'signed-payload', 'signed_data_encoding' => 'base64']),
+            'service_request:recall'
+        );
 
         $this->assertSame('recalled', $result['status']);
         $this->assertDatabaseHas('service_request_requests', [
@@ -791,11 +796,11 @@ class ReferralExecutorPhase4Test extends TestCase
         $referralUuid = $record->uuid;
         $encounterUuid = (string) Str::uuid();
 
-        $codingId = \App\Models\MedicalEvents\Sql\Coding::create([
+        $codingId = Coding::create([
             'code' => 'AMB',
             'system' => 'eHealth/encounter_classes',
         ])->id;
-        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+        $ccId = CodeableConcept::create()->id;
         $episodeId = Identifier::create(['value' => (string) Str::uuid()])->id;
 
         Encounter::create([
@@ -851,11 +856,11 @@ class ReferralExecutorPhase4Test extends TestCase
             'intent' => 'order',
         ]);
 
-        $codingId = \App\Models\MedicalEvents\Sql\Coding::create([
+        $codingId = Coding::create([
             'code' => 'AMB',
             'system' => 'eHealth/encounter_classes',
         ])->id;
-        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+        $ccId = CodeableConcept::create()->id;
         $episodeId = Identifier::create(['value' => (string) Str::uuid()])->id;
 
         Encounter::create([
@@ -868,7 +873,7 @@ class ReferralExecutorPhase4Test extends TestCase
             'ehealth_inserted_at' => now(),
         ]);
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage(__('care-plan.referral_complete_emz_mismatch'));
 
         app(ReferralRequestLifecycleService::class)->completeReferral($referralUuid, $encounterUuid, 'encounter');
@@ -883,11 +888,11 @@ class ReferralExecutorPhase4Test extends TestCase
 
         $incoming = Identifier::create(['value' => $referralUuid]);
 
-        $codingId = \App\Models\MedicalEvents\Sql\Coding::create([
+        $codingId = Coding::create([
             'code' => 'AMB',
             'system' => 'eHealth/encounter_classes',
         ])->id;
-        $ccId = \App\Models\MedicalEvents\Sql\CodeableConcept::create()->id;
+        $ccId = CodeableConcept::create()->id;
         $episodeId = Identifier::create(['value' => (string) Str::uuid()])->id;
 
         Encounter::create([
@@ -993,8 +998,8 @@ class ReferralExecutorPhase4Test extends TestCase
 
     private function finishedEncounterForReferral(ServiceRequestRequest $record): Encounter
     {
-        $class = \App\Models\MedicalEvents\Sql\Coding::create(['code' => 'AMB', 'system' => 'eHealth/encounter_classes']);
-        $type = \App\Models\MedicalEvents\Sql\CodeableConcept::create();
+        $class = Coding::create(['code' => 'AMB', 'system' => 'eHealth/encounter_classes']);
+        $type = CodeableConcept::create();
         $episode = Identifier::create(['value' => (string) Str::uuid()]);
         $incoming = Identifier::create(['value' => $record->uuid]);
 
@@ -1016,7 +1021,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $resource['requesterEmployee']['identifier']['value'] = $this->employee->uuid;
         $resource['requesterLegalEntity']['identifier']['value'] = $this->legalEntity->uuid;
 
-        return array_replace(\App\Core\Arr::toSnakeCase($resource), ['program_processing_status' => 'new'], $overrides);
+        return array_replace(Arr::toSnakeCase($resource), ['program_processing_status' => 'new'], $overrides);
     }
 
     public static function incomingReferralValidationPhases(): array
@@ -1024,7 +1029,7 @@ class ReferralExecutorPhase4Test extends TestCase
         return ['selection' => [false], 'asynchronous confirmation' => [true]];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('incomingReferralValidationPhases')]
+    #[DataProvider('incomingReferralValidationPhases')]
     public function test_incoming_referral_validation_failure_preserves_details_and_clears_confirmation(bool $checking): void
     {
         $record = $this->createActiveReferral();
@@ -1041,7 +1046,7 @@ class ReferralExecutorPhase4Test extends TestCase
         } else {
             $lifecycle->shouldReceive('takeIntoWork')->once()->andThrow($exception);
         }
-        \Illuminate\Support\Facades\Log::spy();
+        Log::spy();
 
         $result = $checking
             ? $component->checkElectronicReferralPreparation($lifecycle)
@@ -1054,7 +1059,7 @@ class ReferralExecutorPhase4Test extends TestCase
         $this->assertSame($exception->getFormattedMessage(), $component->getErrorBag()->first('form.encounter.referralNumber'));
         $this->assertSame(__('encounters.messages.referral_use_failed', ['message' => $exception->getFormattedMessage()]), Session::get('error'));
         $this->assertStringContainsString('Synthetic unavailable division', Session::get('error'));
-        \Illuminate\Support\Facades\Log::shouldHaveReceived('error')->once()->with('eHealth API Validation Error Detail', [
+        Log::shouldHaveReceived('error')->once()->with('eHealth API Validation Error Detail', [
             'message' => $exception->getMessage(), 'details' => $exception->getDetails(),
         ]);
     }

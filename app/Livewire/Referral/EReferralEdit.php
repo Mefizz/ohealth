@@ -6,7 +6,11 @@ namespace App\Livewire\Referral;
 
 use App\Dto\ServiceRequest\Model as ReferralData;
 use App\Livewire\Referral\EReferralComponent;
+use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -17,9 +21,9 @@ use Throwable;
 
 class EReferralEdit extends EReferralComponent
 {
-    public function mount(int $legalEntityId, int $personId, int $referralId): void
+    public function mount(LegalEntity $legalEntity, Person $person, ServiceRequestRequest $serviceRequest): void
     {
-        $this->initializeReferral($legalEntityId, $personId, $referralId);
+        $this->initializeReferral($legalEntity->id, $person->id, $serviceRequest->id);
     }
 
     public function save(): void
@@ -70,5 +74,10 @@ class EReferralEdit extends EReferralComponent
 
         // Local fields already equal the saved DTO; refill is reserved for remote sync or server normalization.
         session()->flash('success', __('referrals.draft_saved'));
+    }
+
+    public function render(): View
+    {
+        return view('livewire.referral.e-referral-edit', $this->referralViewData());
     }
 }

@@ -10,6 +10,7 @@ use App\Dto\FormCollection;
 use App\Dto\ServiceRequest\Ehealth as ReferralEhealthData;
 use App\Services\MedicalEvents\FhirResource;
 use App\Services\MedicalEvents\InformWith;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -97,7 +98,7 @@ class ServiceRequestMapper implements FhirMapperContract
             }
         }
         if (array_key_exists('contextUuid', $input) || isset($options['encounterUuid']) || isset($options['episodeUuid'])) {
-            $value = $input['contextUuid'] ?? $options['encounterUuid'] ?? $options['episodeUuid'] ?? null;
+            $value = $input['contextUuid'] ?? ($options['encounterUuid'] ?? ($options['episodeUuid'] ?? null));
             $type = $input['contextType'] ?? (isset($options['encounterUuid']) ? 'encounter' : (isset($options['episodeUuid']) ? 'episode_of_care' : data_get($resource, 'context.identifier.type.coding.0.code')));
             $this->set($resource, 'context', $value ? $this->reference($value, $type, $resource['context'] ?? null) : null);
         }
@@ -128,7 +129,7 @@ class ServiceRequestMapper implements FhirMapperContract
                 if (!is_numeric($input['quantity']) || !is_finite((float) $input['quantity'])) {
                     throw new InvalidArgumentException('Quantity must be a finite number.');
                 }
-                if (!\Brick\Math\BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
+                if (!BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
                     throw new InvalidArgumentException('Quantity cannot be represented without loss in the JSON numeric contract.');
                 }
                 $resource['quantity'] = array_replace($resource['quantity'] ?? [], ['value' => (float) $input['quantity']]);

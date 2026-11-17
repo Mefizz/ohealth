@@ -59,8 +59,10 @@ class ServiceRequestSync extends EHealthJob
                 $jobs[] = new self(resourceUuid: $uuid, status: $this->status);
             }
         }
-        if ($response->isNotLast()) {
-            $jobs[] = new self(page: $this->page + 1, status: $this->status);
+        // Medical Events uses paging.page; the generic response helper expects page_number.
+        $paging = $response->getPaging();
+        if (($paging['page'] ?? $this->page) < ($paging['total_pages'] ?? $this->page)) {
+            $jobs[] = new self(page: (int) $paging['page'] + 1, status: $this->status);
         }
 
         return $jobs;

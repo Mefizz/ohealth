@@ -5,14 +5,25 @@ declare(strict_types=1);
 namespace Tests\Feature\Referral;
 
 use App\Classes\eHealth\Api\Patient\ServiceRequest;
+use App\Classes\eHealth\Api\ServiceRequest as ApiServiceRequest;
 use App\Core\Arr;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\Completion\Ehealth as CompletionData;
+use App\Dto\ServiceRequest\Ehealth as CreateData;
+use App\Dto\ServiceRequest\Status\Ehealth as StatusData;
+use App\Exceptions\EHealth\EHealthResponseException;
+use App\Livewire\Concerns\ReadsClinicalSnapshots;
+use App\Livewire\Referral\Forms\ServiceRequestForm;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
+use Livewire\Component;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 use Tests\TestCase;
 
 class ServiceRequestFhirApiTest extends TestCase
 {
-    use \App\Livewire\Concerns\ReadsClinicalSnapshots {
+    use ReadsClinicalSnapshots {
         fetchServiceRequestSnapshot as private fetchSignedSnapshot;
     }
 
@@ -31,7 +42,9 @@ class ServiceRequestFhirApiTest extends TestCase
         $api = $this->api();
         $this->instance(ServiceRequest::class, $api);
         $snapshot = $this->fetchSignedSnapshot('patient-test', $resource['id']);
-        $actual = \App\Livewire\Referral\Forms\ServiceRequestForm::buildStatusContent($snapshot, ['coding' => [['system' => 'eHealth/service_request_recall_reasons', 'code' => 'synthetic-reason']]], 'Synthetic explanation');
+        $form = new ServiceRequestForm(new class extends Component {}, 'serviceRequestForm');
+        $form->setStatus($snapshot, 'synthetic-reason', 'Synthetic explanation', 'eHealth/service_request_recall_reasons');
+        $actual = (new ObjectMapper())->map($form, StatusData::class)->toArray();
         $this->assertSame(['coding' => [['system' => 'eHealth/service_request_recall_reasons', 'code' => 'synthetic-reason']]], $actual['status_reason']);
         $this->assertSame('Synthetic explanation', $actual['explanatory_letter']);
         unset($actual['status_reason'], $actual['explanatory_letter']);
@@ -52,7 +65,7 @@ class ServiceRequestFhirApiTest extends TestCase
     public function test_remote_failure_blocks_snapshot_signing(): void
     {
         Http::fake(['*' => Http::response(['error' => ['message' => 'Synthetic remote failure']], 503)]);
-        $this->expectException(\App\Exceptions\EHealth\EHealthResponseException::class);
+        $this->expectException(EHealthResponseException::class);
         $this->instance(ServiceRequest::class, $this->api());
         $this->fetchSignedSnapshot('patient-test', $this->resource()['id']);
     }
@@ -61,7 +74,7 @@ class ServiceRequestFhirApiTest extends TestCase
     {
         $resource = Arr::toSnakeCase($this->resource());
         $resource['remote_extension'] = ['flag' => false, 'empty' => []];
-        $resource['subject'] = ['identifier' => ['value' => 'other-patient']];
+        $resource['subject']['identifier']['value'] = 'other-patient';
         Http::fake(['*' => Http::response(['data' => $resource])]);
         $this->expectException(ValidationException::class);
         $this->instance(ServiceRequest::class, $this->api());
@@ -71,12 +84,13 @@ class ServiceRequestFhirApiTest extends TestCase
     public function test_empty_explanation_is_rejected_before_signing(): void
     {
         $this->expectException(ValidationException::class);
-        \App\Livewire\Referral\Forms\ServiceRequestForm::buildStatusContent(Arr::toSnakeCase($this->resource()), ['coding' => [['system' => 'synthetic/reasons', 'code' => 'synthetic-reason']]], '  ');
+        $form = new ServiceRequestForm(new class extends Component {}, 'serviceRequestForm');
+        $form->setStatus(Arr::toSnakeCase($this->resource()), 'synthetic-reason', '  ', 'synthetic/reasons');
     }
 
     public function test_create_content_excludes_server_metadata_and_preserves_quantity(): void
     {
-        $content = \App\Livewire\Referral\Forms\ServiceRequestForm::buildCreateContent($this->resource());
+        $content = (new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor()))->map(new FormCollection($this->resource()), CreateData::class)->toArray();
         $this->assertSame(1.23456789, $content['quantity']['value']);
         $this->assertArrayNotHasKey('remaining_quantity', $content);
         $this->assertArrayNotHasKey('remote_extension', $content);
@@ -88,7 +102,7 @@ class ServiceRequestFhirApiTest extends TestCase
     {
         $uuid = '10050000-0000-4000-8000-000000000002';
         foreach (['encounter', 'procedure', 'diagnostic_report'] as $type) {
-            $actual = \App\Livewire\Referral\Forms\ServiceRequestForm::buildCompleteContent($uuid, $type, ['status_reason' => ['coding' => [['system' => 'synthetic/reason', 'code' => 'TEST']]], 'injected' => 'discard']);
+            $actual = (new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor()))->map(new FormCollection(['resourceUuid' => $uuid, 'resourceType' => $type, 'statusReason' => ['coding' => [['system' => 'synthetic/reason', 'code' => 'TEST']]], 'injected' => 'discard']), CompletionData::class)->toArray();
             $this->assertSame($type, data_get($actual, 'completed_with.identifier.type.coding.0.code'));
             $this->assertSame($uuid, data_get($actual, 'completed_with.identifier.value'));
             $this->assertArrayNotHasKey('based_on', $actual);
@@ -99,27 +113,32 @@ class ServiceRequestFhirApiTest extends TestCase
 
     public function test_signed_status_envelope_does_not_duplicate_fields_outside_the_signature(): void
     {
-        Http::fake(['*' => Http::response(['data' => ['status' => 'recalled']])]);
-        $this->api()->recall('patient-test', $this->resource()['id'], \App\Livewire\Referral\Forms\ServiceRequestForm::buildSignedEnvelope(['signed_data' => 'immutable-signed-content', 'status_reason' => 'outside', 'explanatory_letter' => 'outside']));
+        Http::fake(['*' => Http::response(['data' => ['status' => 'pending']], 202)]);
+        $this->api()->recall('patient-test', $this->resource()['id'], ['signed_data' => 'immutable-signed-content', 'signed_data_encoding' => 'base64']);
         Http::assertSentCount(1);
         Http::assertSent(fn ($request): bool => $request->data() === ['signed_data' => 'immutable-signed-content', 'signed_data_encoding' => 'base64']);
     }
 
-    public function test_endpoint_returns_pending_or_failed_data_without_polling(): void
+    public function test_endpoint_returns_the_validated_pending_receipt_without_polling(): void
     {
-        Http::fakeSequence()->push(['data' => ['status' => 'pending']])->push(['data' => ['status' => 'processing']])->push(['data' => ['status' => 'failed']]);
-        foreach (['pending', 'processing', 'failed'] as $index => $status) {
-            $response = $this->api()->recall('patient-test', $this->resource()['id'], ['signed_data' => 'synthetic-signed-content', 'signed_data_encoding' => 'base64']);
-            $this->assertSame($status, $response->getData()['status']);
-            Http::assertSentCount($index + 1);
-        }
+        Http::fake(['*' => Http::response(['data' => ['status' => 'pending']], 202)]);
+        $response = $this->api()->recall('patient-test', $this->resource()['id'], ['signed_data' => 'synthetic-signed-content', 'signed_data_encoding' => 'base64']);
+        $this->assertSame('pending', $response->validate()['status']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_malformed_pending_receipt_is_rejected(): void
+    {
+        Http::fake(['*' => Http::response(['data' => ['status' => 'active']], 202)]);
+        $this->expectException(ValidationException::class);
+        $this->api()->recall('patient-test', $this->resource()['id'], ['signed_data' => 'synthetic', 'signed_data_encoding' => 'base64'])->validate();
     }
 
     public function test_cancel_usage_calls_documented_release_with_no_clinical_cancel_payload(): void
     {
         Http::fake(['*' => Http::response(['data' => ['status' => 'pending', 'job_id' => 'release-job']], 202)]);
         $factory = Http::getFacadeRoot();
-        $api = new \App\Classes\eHealth\Api\ServiceRequest($factory);
+        $api = new ApiServiceRequest($factory);
         $stubs = (function () {
             return $this->stubCallbacks;
         })->call($factory);
@@ -132,7 +151,10 @@ class ServiceRequestFhirApiTest extends TestCase
 
     private function resource(): array
     {
-        return json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
+        $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
+        $resource['subject'] = ['displayValue' => 'Synthetic patient', 'identifier' => ['value' => 'patient-test', 'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'patient']]]]];
+
+        return $resource;
     }
 
     private function api(): ServiceRequest

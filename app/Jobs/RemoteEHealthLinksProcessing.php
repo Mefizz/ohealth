@@ -147,6 +147,22 @@ class RemoteEHealthLinksProcessing extends EHealthJob
         $status = strtolower((string) $jobData['status']);
         $statusCode = $jobData['status_code'] ?? null;
 
+        if ($record instanceof ServiceRequestRequest) {
+            $api = EHealth::serviceRequest();
+            if (filled($bearerToken)) {
+                $api->withToken($bearerToken);
+            }
+            $isSms = data_get($link->job->request_data, 'operationContext.sms') === true;
+            // SMS acknowledges delivery processing only; it must never replace the clinical snapshot.
+            if (!$isSms) {
+                $jobData = $api->validateJobResult($jobData);
+                if ($status === 'processed' && !isset($jobData['response_data'])) {
+                    // A terminal job without a resource needs a validated detail before clinical state advances.
+                    $jobData['response_data'] = $api->getById($record->person->uuid, $record->uuid, preserveApiKeys: true)->validate();
+                }
+            }
+        }
+
         [$signedStatus, $processedMessage, $rejectedMessage] = self::submissionDetails($link, $record);
 
         if ($record instanceof CarePlan || $record instanceof CarePlanActivity || $record instanceof ServiceRequestRequest) {
@@ -294,7 +310,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
         }
 
         $responseData = $response->validate();
-        $statusCode = $responseData['status_code'] ?? $response->getStatusCode() ?? null;
+        $statusCode = $responseData['status_code'] ?? ($response->getStatusCode() ?? null);
         $status = strtolower((string) ($responseData['status'] ?? ''));
 
         if (in_array($status, ['pending', 'processing', 'accepted', 'queued'], true)) {
@@ -328,7 +344,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                     $responseData['carePlanResource'] = EHealth::carePlan()->withToken($this->token)
                         ->getDetails($plan->person->uuid, $plan->uuid)->validate();
                 }
-                if ($status === 'processed' && $record instanceof ServiceRequestRequest && !$isReferralSms && !isset($responseData['response_data']) && !isset($responseData['result']) && !isset($responseData['data']) && !empty($responseData['links'])) {
+                if ($status === 'processed' && $record instanceof ServiceRequestRequest && !$isReferralSms && !isset($responseData['response_data']) && !isset($responseData['result']) && !isset($responseData['data'])) {
                     $responseData['response_data'] = EHealth::serviceRequest()->withToken($this->token)
                         ->getById($record->person->uuid, $record->uuid, preserveApiKeys: true)->validate();
                 }
@@ -343,6 +359,15 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                 $detailsPending = true;
                 $responseData['detailSyncPending'] = true;
                 Log::warning('Confirmed clinical operation details could not be refreshed', ['eHealthLinkId' => $this->eHealthLink->id, 'exceptionType' => $exception::class]);
+            }
+            if ($detailsPending && $record instanceof ServiceRequestRequest && !$isReferralSms
+                && !isset($responseData['response_data']) && !isset($responseData['result']) && !isset($responseData['data'])) {
+                // Keep polling until a validated detail is available; a processed receipt alone is not a clinical result.
+                $this->eHealthLink->job()->update(['response_data' => $responseData]);
+                $this->stillPending = true;
+                $this->release(self::TIME_TO_RETRY);
+
+                return;
             }
             self::finishSubmission($this->eHealthLink->refresh(), $responseData, $this->user, $this->legalEntity, $this->token);
             if ($detailsPending) {

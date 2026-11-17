@@ -4,11 +4,21 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
-use App\Enums\Person\EncounterStatus;
 use App\Casts\EHealthTimestampCast;
 use App\Contracts\SubmittedToEHealth;
+use App\Enums\Person\EncounterStatus;
+use App\Models\Declaration;
 use App\Models\EhealthLink;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\Approval;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\FocalDevice;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\MedicalEvents\Sql\PaperReferral;
+use App\Models\MedicalEvents\Sql\Period;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Models\User;
@@ -20,9 +30,9 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Procedure extends Model implements SubmittedToEHealth
 {
@@ -251,6 +261,24 @@ class Procedure extends Model implements SubmittedToEHealth
     public function usedCodes(): BelongsToMany
     {
         return $this->belongsToMany(CodeableConcept::class, 'procedure_used_codes')->withTimestamps();
+    }
+
+    /** The same selection serves the Policy and referral subqueries; inaccessible EMRs never supply links. */
+    #[Scope]
+    protected function readableBy(Builder $query, User $user, Person|Preperson $patient, LegalEntity $legalEntity): Builder
+    {
+        $hasPatientAccess = Declaration::accessGrantedTo($user, $patient, $legalEntity)->exists()
+            || Approval::accessGrantedTo($user, $patient, $legalEntity)->exists();
+        $approved = Approval::active()->grantedToEmployees($user, $legalEntity)
+            ->whereHas('grantedResources.grantedTo', static fn (Builder $identifier): Builder => $identifier
+                ->whereColumn('identifiers.value', 'procedures.uuid'));
+
+        return $query->where(static fn (Builder $records): Builder => $records
+            ->where(static fn (Builder $readable): Builder => $readable->readableFor($patient, $hasPatientAccess))
+                ->orWhere(static fn (Builder $approvedRecords): Builder => $approvedRecords
+                    ->forPatient($patient)->whereExists($approved->selectRaw('1')))
+                ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnApprovedCarePlan($patient, $user, $legalEntity))
+                ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnCarePlanOfLegalEntity($patient)));
     }
 
     /**

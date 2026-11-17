@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api\Patient;
 
+use App\Classes\eHealth\Api\Job;
+use App\Classes\eHealth\Api\Patient\PatientApiBase;
 use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\ServiceRequestErrorTranslator;
@@ -12,9 +14,8 @@ use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 
 class ServiceRequest extends PatientApiBase
 {
@@ -30,7 +31,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function createSigned(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->post(self::URL . "/{$patientId}/service_requests", $payload);
     }
@@ -40,7 +41,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function cancel(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/cancel", $payload);
     }
@@ -52,7 +53,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function recall(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/recall", $payload);
     }
@@ -100,6 +101,8 @@ class ServiceRequest extends PatientApiBase
      */
     public function prequalify(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
+        $this->setValidator($this->validatePrequalify(...));
+
         return $this->post(self::URL . "/{$patientId}/service_requests/prequalify", $payload);
     }
 
@@ -110,7 +113,9 @@ class ServiceRequest extends PatientApiBase
      */
     public function resendSms(string $patientId, string $id): PromiseInterface|EHealthResponse
     {
-        return $this->post(self::URL . "/{$patientId}/service_requests/{$id}/actions/resend", []);
+        $this->setValidator($this->validateResend(...));
+
+        return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/resend", []);
     }
 
     /**
@@ -140,61 +145,122 @@ class ServiceRequest extends PatientApiBase
 
     private function executorApi(): ServiceRequestExecutorApi
     {
-        return app(ServiceRequestExecutorApi::class);
+        return app(ServiceRequestExecutorApi::class)->withHeaders($this->options['headers'] ?? []);
     }
 
+    protected function validateResend(EHealthResponse $response): array
+    {
+        // The documented 200 response has no body. A 202 receipt is accepted, never proof of SMS delivery.
+        if ($response->status() === 200 && trim($response->body()) === '') {
+            return ['status' => 'processed'];
+        }
+        if ($response->status() === 201) {
+            return $this->validateDetails($response, preserveApiKeys: true);
+        }
+
+        return Job::validateSubmissionResponse($response);
+    }
+
+    /** Validate native FHIR before renaming any identifier or handing a snapshot to signing/persistence. */
     protected function validateDetails(EHealthResponse $response, bool $preserveApiKeys = false): array
     {
-        $native = $response->getData();
-        $data = $this->replaceEHealthPropNames($native);
-        $toValidate = isset($data[0]) && is_array($data[0]) ? $data[0] : $data;
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['required', 'array'],
+            ...$this->resourceRules('data.', details: true),
+        ])->validate();
+        $native = $body['data'];
 
-        $validator = Validator::make($toValidate, [
-            'uuid' => 'required|string',
-            'status' => 'required|string',
-            'requisition' => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'ServiceRequest details validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new ValidationException($validator);
-        }
-
-        // Signed snapshots retain the API's keys; both forms pass the same validator.
-        return $preserveApiKeys ? $native : $data;
+        return $preserveApiKeys ? $native : $this->replaceEHealthPropNames($native);
     }
 
+    /** A malformed item must reject the page, never disappear into a seemingly successful empty registry. */
     protected function validateMany(EHealthResponse $response): array
     {
-        $transformedData = [];
-        $items = $response->getData();
-        if (isset($items['data']) && is_array($items['data'])) {
-            $items = $items['data'];
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['present', 'array', 'list'],
+            'data.*' => ['required', 'array'],
+            ...$this->resourceRules('data.*.'),
+        ])->validate();
+
+        return $body['data'];
+    }
+
+    protected function validatePrequalify(EHealthResponse $response): array
+    {
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['present', 'array', 'list'],
+            'data.*' => ['required', 'array'],
+            'data.*.program_id' => ['required', 'uuid'],
+            'data.*.program_name' => ['required', 'string'],
+            'data.*.status' => ['required', Rule::in(['VALID', 'INVALID'])],
+            'data.*.rejection_reason' => ['sometimes', 'string'],
+            'urgent.authentication_method_current.type' => ['required', Rule::in(['OTP', 'OFFLINE', 'THIRD_PERSON'])],
+            'urgent.authentication_method_current.number' => ['sometimes', 'string'],
+        ])->validate();
+
+        return $body['data'];
+    }
+
+    /** Medical Events 9.15.6: patient details and registry share the core resource contract. */
+    protected function resourceRules(string $prefix, bool $details = false): array
+    {
+        $rules = [
+            'id' => ['required', 'uuid'],
+            'status' => ['required', 'string'],
+            'requisition' => ['present', 'string'],
+            'intent' => ['required', 'string'],
+            'status_history' => ['present', 'array'],
+            'category' => ['required', 'array'],
+            'category.coding' => ['required', 'array', 'list'],
+            'category.coding.*.system' => ['required', 'string'],
+            'category.coding.*.code' => ['required', 'string'],
+            'reason_reference' => ['present', 'array', 'list'],
+            'note' => ['present', 'string'],
+            'patient_instruction' => ['present', 'string'],
+            'expiration_date' => ['present', 'string'],
+            'occurrence_period' => ['required_without:'.$prefix.'occurrence_date_time', 'prohibited_with:'.$prefix.'occurrence_date_time', 'array'],
+            'occurrence_period.start' => ['required_with:'.$prefix.'occurrence_period', 'date'],
+            'occurrence_period.end' => ['sometimes', 'date'],
+            'occurrence_date_time' => ['required_without:'.$prefix.'occurrence_period', 'date'],
+        ];
+        foreach (['code', 'subject', 'requester_employee', 'requester_legal_entity', 'used_by_employee', 'used_by_legal_entity'] as $field) {
+            $rules[$field] = ['present', 'array'];
+            $rules[$field.'.display_value'] = ['present', 'string'];
         }
-        if (is_array($items)) {
-            foreach ($items as $item) {
-                if (is_array($item)) {
-                    $transformedData[] = $this->replaceEHealthPropNames($item);
-                }
+        foreach (['code', 'subject', 'requester_employee', 'requester_legal_entity', 'used_by_employee', 'used_by_legal_entity', 'program', 'program_service', 'context', 'completed_with', 'performer', 'location_reference'] as $field) {
+            if (!isset($rules[$field])) {
+                $rules[$field] = ['sometimes', 'array'];
             }
+            $rules[$field.'.identifier'] = [in_array($field, ['code', 'subject', 'requester_employee', 'requester_legal_entity'], true) ? 'required' : 'sometimes', 'array'];
+            $rules[$field.'.identifier.value'] = ['required_with:'.$prefix.$field.'.identifier', 'string'];
+            $rules[$field.'.identifier.type.coding'] = ['required_with:'.$prefix.$field.'.identifier', 'array', 'list'];
+            $rules[$field.'.identifier.type.coding.*.system'] = ['required', 'string'];
+            $rules[$field.'.identifier.type.coding.*.code'] = ['required', 'string'];
+        }
+        foreach (['based_on', 'supporting_info', 'reason_reference', 'permitted_resources', 'specimens', 'focus'] as $field) {
+            $rules[$field] ??= ['sometimes', 'array', 'list'];
+            $rules[$field.'.*.identifier.value'] = ['required', 'string'];
+            $rules[$field.'.*.identifier.type.coding'] = ['required', 'array', 'list'];
+            $rules[$field.'.*.identifier.type.coding.*.system'] = ['required', 'string'];
+            $rules[$field.'.*.identifier.type.coding.*.code'] = ['required', 'string'];
+        }
+        foreach (['quantity', 'remaining_quantity'] as $field) {
+            $rules[$field] = [$details ? 'required' : 'sometimes', 'array'];
+            $rules[$field.'.value'] = ['required_with:'.$prefix.$field, 'numeric'];
+            $rules[$field.'.system'] = ['required_with:'.$prefix.$field, 'string'];
+            $rules[$field.'.code'] = ['required_with:'.$prefix.$field, 'string'];
+            $rules[$field.'.unit'] = ['sometimes', 'string'];
+            $rules[$field.'.comparator'] = ['sometimes', 'string'];
         }
 
-        $validator = Validator::make($transformedData, [
-            '*' => 'array',
-            '*.uuid' => 'required|string',
-            '*.status' => 'required|string',
-            '*.requisition' => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error(
-                'ServiceRequest many validation failed: ' . implode(', ', $validator->errors()->all())
-            );
-            throw new ValidationException($validator);
+        $prefixed = [];
+        foreach ($rules as $field => $constraints) {
+            $prefixed[$prefix.$field] = $constraints;
         }
 
-        return $response->getData();
+        return $prefixed;
     }
 }

@@ -7,6 +7,7 @@ namespace App\Services\MedicalEvents;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Core\Arr;
+use App\Enums\JobStatus;
 use App\Enums\Person\DeviceRequestStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -20,21 +21,26 @@ use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository;
+use App\Services\MedicalEvents\ActivityRemainingQuantityGuard;
 use App\Services\MedicalEvents\Concerns\ResolvesEmployeeContext;
+use App\Services\MedicalEvents\DeviceRequestLifecycleService;
+use App\Services\MedicalEvents\EHealthRequestLifecycleService;
+use App\Services\MedicalEvents\Fhir;
+use App\Services\MedicalEvents\FhirResource;
 use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
+use App\Services\MedicalEvents\MedicalRequestOwnership;
 use Carbon\Carbon;
 use DateTimeInterface;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Picqer\Barcode\BarcodeGeneratorPNG;
 use RuntimeException;
 use Throwable;
-use App\Enums\JobStatus;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Session;
 
 class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 {
@@ -151,7 +157,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                     (string) $activity->uuid
                 );
                 $this->runPrequalify(
-                    EHealth::serviceRequest()->prequalify($carePlan->person->uuid, $prequalifyPayload)
+                    EHealth::serviceRequest()->prequalify($carePlan->person->uuid, $prequalifyPayload)->validate()
                 );
             }
 
@@ -310,10 +316,11 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         $mapper = $kind === 'service_request' ? Fhir::serviceRequest() : Fhir::deviceRequest();
         $api = $kind === 'service_request' ? EHealth::serviceRequest() : EHealth::deviceRequest();
-        $this->runPrequalify($api->prequalify(
+        $response = $api->prequalify(
             (string) $personUuid,
             $mapper->toPrequalifyPayload($dbData, $uuids, null, null)
-        ));
+        );
+        $this->runPrequalify($kind === 'service_request' ? $response->validate() : $response);
     }
 
     private function assertDraftEditable(ServiceRequestRequest $draft): void
@@ -325,13 +332,6 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         if (Repository::serviceRequest()->hasPendingSubmission($draft)) {
             throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
         }
-    }
-
-    public function resendSms(string $personUuid, string $requestId, string $kind): EHealthResponse
-    {
-        return $kind === 'service_request'
-            ? EHealth::serviceRequest()->resendSms($personUuid, $requestId)
-            : EHealth::deviceRequest()->resendSms($personUuid, $requestId);
     }
 
     public function buildPrintoutHtml(CarePlan|Encounter $contextModel, string $requestId): string
@@ -538,9 +538,9 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
 
         try {
             $response = $kind === 'service_request'
-                ? EHealth::serviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid)
+                ? EHealth::serviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid, preserveApiKeys: true)
                 : EHealth::deviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid);
-            $remote = $response->getData();
+            $remote = $kind === 'service_request' ? $response->validate() : $response->getData();
         } catch (EHealthResponseException|EHealthValidationException) {
             return false;
         }
@@ -566,10 +566,10 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
     public function fetchRemoteReferral(string $personUuid, string $requestUuid, string $kind): array
     {
         $response = $kind === 'service_request'
-            ? EHealth::serviceRequest()->getById($personUuid, $requestUuid)
+            ? EHealth::serviceRequest()->getById($personUuid, $requestUuid, preserveApiKeys: true)
             : EHealth::deviceRequest()->getById($personUuid, $requestUuid);
 
-        $remote = $response->getData();
+        $remote = $kind === 'service_request' ? $response->validate() : $response->getData();
         if ($remote === []) {
             throw new EHealthResponseException($response);
         }
@@ -1009,7 +1009,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             try {
                 $qualifyResponse = EHealth::serviceRequest()->qualify($referralUuid, [
                     'programs' => [$payload['program']],
-                ])->getData();
+                ])->validate();
                 $resolvedQualify = $this->jobResolver->resolve(
                     is_array($qualifyResponse) ? $qualifyResponse : []
                 );
@@ -1215,7 +1215,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         }
         // A remote-only API consumer receives the native receipt; there is no local resource to advance.
         $response = $send();
-        $data = $response->getData();
+        $data = $response->validate();
         if (!empty($data['error']) || in_array(strtolower((string) ($data['status'] ?? '')), ['failed', 'rejected', 'error'], true)) {
             return $this->resolveMutation($data);
         }

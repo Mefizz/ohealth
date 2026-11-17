@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
+use App\Classes\eHealth\Api\Job;
+use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequestApi;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\ServiceRequestErrorTranslator;
 use App\Contracts\ApiErrorTranslator;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class ServiceRequest extends Request
 {
@@ -49,7 +53,8 @@ class ServiceRequest extends Request
      */
     public function searchForServiceRequestsByParams(array $params): PromiseInterface|EHealthResponse
     {
-        return $this->get(self::ENDPOINT_SERVICE_REQUESTS, $params);
+        return app(PatientServiceRequestApi::class)->withHeaders($this->options['headers'] ?? [])
+            ->searchForServiceRequestsByParams($params);
     }
 
     /**
@@ -57,7 +62,7 @@ class ServiceRequest extends Request
      */
     public function qualify(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator($this->validateQualification(...));
 
         return $this->post(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/qualify", $payload);
     }
@@ -67,7 +72,7 @@ class ServiceRequest extends Request
      */
     public function process(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/use", $payload);
     }
@@ -77,7 +82,7 @@ class ServiceRequest extends Request
      */
     public function complete(string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/complete", $payload);
     }
@@ -87,7 +92,7 @@ class ServiceRequest extends Request
      */
     public function cancelUsage(string $id, string $patientId, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         // PROD Medical Events 9.15.4 documents Release with service_request:use and no request body.
         return $this->patch(self::ENDPOINT_SERVICE_REQUESTS . "/{$id}/actions/release");
@@ -98,8 +103,23 @@ class ServiceRequest extends Request
      */
     public function recall(string $patientId, string $id, array $payload = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch("/api/patients/{$patientId}/service_requests/{$id}/actions/recall", $payload);
+    }
+
+    protected function validateQualification(EHealthResponse $response): array
+    {
+        $body = $response->json();
+        Validator::make(is_array($body) ? $body : [], [
+            'data' => ['present', 'array', 'list'],
+            'data.*' => ['required', 'array'],
+            'data.*.program_id' => ['required', 'uuid'],
+            'data.*.program_name' => ['required', 'string'],
+            'data.*.status' => ['required', Rule::in(['VALID', 'INVALID'])],
+            'data.*.rejection_reason' => ['sometimes', 'string'],
+        ])->validate();
+
+        return $body['data'];
     }
 }

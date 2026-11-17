@@ -7,8 +7,6 @@ namespace App\Policies;
 use App\Enums\JobStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\Status;
-use App\Models\Declaration;
-use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\User;
@@ -25,14 +23,8 @@ class ServiceRequestRequestPolicy
             return Response::denyWithStatus(404);
         }
 
-        $legalEntity = legalEntity();
-        $patient = $request->person;
-        $isReadable = (int) $request->employee?->legalEntityId === (int) $legalEntity->id
-            || $request->requesterLegalEntity?->value === $legalEntity->uuid
-            || Declaration::accessGrantedTo($user, $patient, $legalEntity)->exists()
-            || Approval::accessGrantedTo($user, $patient, $legalEntity)->exists()
-            || ServiceRequestRequest::basedOnApprovedCarePlan($patient, $user, $legalEntity)->whereKey($request->id)->exists()
-            || ServiceRequestRequest::basedOnCarePlanOfLegalEntity($patient)->whereKey($request->id)->exists();
+        $isReadable = ServiceRequestRequest::readableBy($user, $request->person, legalEntity())
+            ->whereKey($request->id)->exists();
 
         return $isReadable ? Response::allow() : Response::denyWithStatus(404);
     }
@@ -57,6 +49,36 @@ class ServiceRequestRequestPolicy
             && $author->status === Status::APPROVED;
 
         return $isAuthor ? Response::allow() : Response::denyWithStatus(404);
+    }
+
+    public function sign(User $user, ServiceRequestRequest $request): Response
+    {
+        return $this->edit($user, $request);
+    }
+
+    public function recall(User $user, ServiceRequestRequest $request): Response
+    {
+        return $this->changeActiveStatus($user, $request, 'service_request:recall');
+    }
+
+    public function cancel(User $user, ServiceRequestRequest $request): Response
+    {
+        return $this->changeActiveStatus($user, $request, 'service_request:cancel');
+    }
+
+    public function resendSms(User $user, ServiceRequestRequest $request): Response
+    {
+        return $this->changeActiveStatus($user, $request, 'service_request:use');
+    }
+
+    protected function changeActiveStatus(User $user, ServiceRequestRequest $request, string $scope): Response
+    {
+        $allowed = $this->view($user, $request)->allowed()
+            && $user->can($scope)
+            && $request->status === ServiceRequestStatus::ACTIVE->value
+            && !$request->ehealthLinks()->whereStatus(JobStatus::PENDING->value)->exists();
+
+        return $allowed ? Response::allow() : Response::denyWithStatus(404);
     }
 
     /**

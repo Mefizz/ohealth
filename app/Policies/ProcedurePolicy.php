@@ -8,7 +8,6 @@ use App\Enums\JobStatus;
 use App\Enums\Person\ProcedureStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
-use App\Models\Declaration;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\MedicalEvents\Sql\Procedure;
@@ -43,14 +42,7 @@ class ProcedurePolicy
             return Response::denyWithStatus(404);
         }
 
-        $hasPatientAccess = Declaration::accessGrantedTo($user, $patient, legalEntity())->exists()
-            || Approval::accessGrantedTo($user, $patient, legalEntity())->exists();
-
-        $isReadable = Procedure::readableFor($patient, $hasPatientAccess)->whereKey($procedure->id)->exists()
-            || (Approval::procedureAccessGrantedTo($user, $procedure, legalEntity())->exists()
-                && Procedure::forPatient($patient)->whereKey($procedure->id)->exists())
-            || Procedure::basedOnApprovedCarePlan($patient, $user, legalEntity())->whereKey($procedure->id)->exists()
-            || Procedure::basedOnCarePlanOfLegalEntity($patient)->whereKey($procedure->id)->exists();
+        $isReadable = Procedure::readableBy($user, $patient, legalEntity())->whereKey($procedure->id)->exists();
 
         return $isReadable ? Response::allow() : Response::denyWithStatus(404);
     }

@@ -10,8 +10,9 @@ use App\Core\Arr;
 use App\Enums\CarePlanStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\Signature\SignatureException;
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\CarePlanActivity;
@@ -452,6 +453,11 @@ trait ManagesCarePlanReferrals
 
     public function resendReferralSms(string $requestId, string $kind): void
     {
+        if (Auth::user()->cannot('use', ServiceRequestRequest::class)) {
+            Session::flash('error', __('service-requests.policy.use'));
+
+            return;
+        }
         $this->authorizeCarePlanActivityWrite();
         if ($kind === 'device_request') {
             $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
@@ -459,7 +465,7 @@ trait ManagesCarePlanReferrals
             return;
         }
         try {
-            app(MedicalRequestOwnership::class)
+            $record = app(MedicalRequestOwnership::class)
                 ->referralForPerson($requestId, (int) $this->carePlan->personId);
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
@@ -470,15 +476,23 @@ trait ManagesCarePlanReferrals
         }
 
         try {
-            $response = app(ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
-
-            if ($response->successful()) {
-                Session::flash('success', __('care-plan.referral_sms_resent'));
+            // Device requests use their own page; the tracked SMS operation never changes referral clinical state.
+            if (!$record instanceof ServiceRequestRequest) {
+                Session::flash('error', __('care-plan.document_context_unavailable'));
 
                 return;
             }
+            if (Auth::user()->cannot('resendSms', $record)) {
+                Session::flash('error', __('referrals.messages.action_unavailable'));
 
-            Session::flash('error', __('Не вдалося повторно надіслати СМС: ') . json_encode($response->getData()));
+                return;
+            }
+            $result = RemoteEHealthLinksProcessing::submitOperation(
+                $record, [], fn () => SubmissionApi::serviceRequest()->resendSms($this->carePlan->person->uuid, $record->uuid),
+                'service_request:use', ['sms' => true]
+            );
+            Session::flash($result === null ? 'info' : 'success', $result === null
+                ? __('care-plan.submission_pending') : __('care-plan.referral_sms_resent'));
         } catch (EHealthValidationException $exception) {
             Log::error('CarePlanShow: failed to resend referral SMS validation: ' . $exception->getTranslatedMessage());
             Session::flash('error', $exception->getTranslatedMessage());
@@ -529,6 +543,12 @@ trait ManagesCarePlanReferrals
 
         if ($kind === 'device_request') {
             $this->redirectRoute('persons.device-requests.create', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person, 'draft' => $requestRecord->uuid]);
+
+            return;
+        }
+
+        if (Auth::user()->cannot('sign', $requestRecord)) {
+            Session::flash('error', __('referrals.messages.action_unavailable'));
 
             return;
         }
@@ -683,6 +703,12 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        if (Auth::user()->cannot('recall', $record)) {
+            Session::flash('error', __('referrals.messages.action_unavailable'));
+
+            return;
+        }
+
         $this->validate(['statusReason' => ['required', 'string']]);
         try {
             $api = EHealth::serviceRequest();
@@ -758,6 +784,12 @@ trait ManagesCarePlanReferrals
 
         if ($kind === 'device_request') {
             $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
+
+            return;
+        }
+
+        if (Auth::user()->cannot('cancel', $record)) {
+            Session::flash('error', __('referrals.messages.action_unavailable'));
 
             return;
         }

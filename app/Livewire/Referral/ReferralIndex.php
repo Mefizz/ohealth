@@ -4,29 +4,27 @@ declare(strict_types=1);
 
 namespace App\Livewire\Referral;
 
-use App\Models\LegalEntity;
-use App\Models\Person\Person;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use App\Exceptions\EHealth\EHealthConnectionException;
-use App\Exceptions\EHealth\EHealthResponseException;
-use Exception;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Session;
-use Livewire\Attributes\Locked;
-use Livewire\Component;
 use App\Classes\eHealth\EHealth;
 use App\Enums\JobStatus;
+use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
+use App\Services\MedicalEvents\ReferralRequestLifecycleService;
+use Exception;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
+use Livewire\Component;
 
 class ReferralIndex extends Component
 {
-    #[Locked]
-    public LegalEntity $legalEntity;
-
     public string $requisition = '';
 
     #[Locked]
@@ -117,7 +115,11 @@ class ReferralIndex extends Component
 
     public function process(string $uuid, string $patientUuid, ReferralRequestLifecycleService $service): void
     {
-        abort_unless(auth()->user()?->can('service_request:makeinprogress'), 403);
+        if (Auth::user()->cannot('use', ServiceRequestRequest::class)) {
+            Session::flash('error', __('service-requests.policy.use'));
+
+            return;
+        }
         $referral = collect($this->searchResults)->firstWhere('id', $uuid);
         if (!$referral || !$this->canTakeIntoWork($referral)) {
             Session::flash('error', __('referrals.messages.action_unavailable'));
@@ -125,7 +127,8 @@ class ReferralIndex extends Component
             return;
         }
         try {
-            $employee = auth()->user()->employees()->whereLegalEntityId($this->legalEntity->id)->first();
+            $employee = Auth::user()->partyId === null
+                ? null : Employee::forUserInLegalEntity(Auth::user(), legalEntity())->first();
 
             if (!$employee) {
                 throw new Exception('Не знайдено співробітника для виконання дії.');
@@ -160,7 +163,11 @@ class ReferralIndex extends Component
 
     public function openCancelModal(string $uuid): void
     {
-        abort_unless(auth()->user()?->can('service_request:use'), 403);
+        if (Auth::user()->cannot('use', ServiceRequestRequest::class)) {
+            Session::flash('error', __('service-requests.policy.use'));
+
+            return;
+        }
         $referral = collect($this->searchResults)->firstWhere('id', $uuid);
         if (!$referral || !$this->canManageUsage($referral)) {
             Session::flash('error', __('referrals.messages.action_unavailable'));
@@ -175,7 +182,11 @@ class ReferralIndex extends Component
 
     public function confirmCancelUsage(ReferralRequestLifecycleService $service): void
     {
-        abort_unless(auth()->user()?->can('service_request:use'), 403);
+        if (Auth::user()->cannot('use', ServiceRequestRequest::class)) {
+            Session::flash('error', __('service-requests.policy.use'));
+
+            return;
+        }
         $uuid = $this->referralToCancel;
 
         if (empty($uuid)) {
@@ -222,7 +233,7 @@ class ReferralIndex extends Component
         }
     }
 
-    public function cancelUsage(string $uuid, ReferralRequestLifecycleService $service)
+    public function cancelUsage(string $uuid, ReferralRequestLifecycleService $service): void
     {
         $this->openCancelModal($uuid);
     }
@@ -345,7 +356,7 @@ class ReferralIndex extends Component
         }
     }
 
-    public function render()
+    public function render(): View
     {
         return view('livewire.referral.referral-index');
     }
@@ -472,7 +483,6 @@ class ReferralIndex extends Component
 
         $this->availableEmzResources = Repository::serviceRequest()->completionResources($person, $referralUuid, $this->selectedEmzType);
     }
-
 
     private function assertEmzLinkedToReferral(string $referralUuid, string $resourceType, string $resourceUuid): bool
     {

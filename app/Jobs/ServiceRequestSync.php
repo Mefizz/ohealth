@@ -12,8 +12,8 @@ use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
-use Illuminate\Foundation\Bus\Dispatchable;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
@@ -33,7 +33,7 @@ class ServiceRequestSync extends EHealthJob
 
     public int $maxExceptions = 3;
 
-    private ?Person $person = null;
+    protected ?Person $person = null;
 
     public function __construct(public int $page = 1, public ?string $resourceUuid = null, public string $status = 'active')
     {
@@ -50,17 +50,19 @@ class ServiceRequestSync extends EHealthJob
         return CarbonImmutable::now()->addHour();
     }
 
-    public static function pageJobs(EHealthResponse $response, int $page, string $status): array
+    public function pageJobs(EHealthResponse $response): array
     {
         $jobs = [];
         foreach ($response->validate() as $resource) {
             $uuid = $resource['id'] ?? ($resource['uuid'] ?? null);
             if ($uuid !== null) {
-                $jobs[] = new self(resourceUuid: $uuid, status: $status);
+                $jobs[] = new self(resourceUuid: $uuid, status: $this->status);
             }
         }
-        if ($response->isNotLast()) {
-            $jobs[] = new self(page: $page + 1, status: $status);
+        // Medical Events uses paging.page; the generic response helper expects page_number.
+        $paging = $response->getPaging();
+        if (($paging['page'] ?? $this->page) < ($paging['total_pages'] ?? $this->page)) {
+            $jobs[] = new self(page: (int) $paging['page'] + 1, status: $this->status);
         }
 
         return $jobs;
@@ -118,7 +120,7 @@ class ServiceRequestSync extends EHealthJob
             return;
         }
         if ($this->resourceUuid === null) {
-            $jobs = self::pageJobs($response, $this->page, $this->status);
+            $jobs = $this->pageJobs($response);
             if ($jobs !== []) {
                 $this->batch()->add($jobs);
             }

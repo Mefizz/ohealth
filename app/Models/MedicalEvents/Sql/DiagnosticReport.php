@@ -4,12 +4,23 @@ declare(strict_types=1);
 
 namespace App\Models\MedicalEvents\Sql;
 
-use App\Enums\Person\EncounterStatus;
 use App\Casts\EHealthTimestampCast;
 use App\Contracts\SubmittedToEHealth;
 use App\Enums\Person\DiagnosticReportStatus;
+use App\Enums\Person\EncounterStatus;
+use App\Models\Declaration;
 use App\Models\EhealthLink;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\Approval;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\DiagnosticReportPerformer;
+use App\Models\MedicalEvents\Sql\DiagnosticReportResultsInterpreter;
+use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\MedicalEvents\Sql\PaperReferral;
+use App\Models\MedicalEvents\Sql\Period;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Models\User;
@@ -19,9 +30,9 @@ use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
@@ -264,6 +275,22 @@ class DiagnosticReport extends Model implements SubmittedToEHealth
             'diagnostic_report_id',
             'identifier_id'
         )->withTimestamps();
+    }
+
+    /** The same selection serves the Policy and referral subqueries; inaccessible EMRs never supply links. */
+    #[Scope]
+    protected function readableBy(Builder $query, User $user, Person|Preperson $patient, LegalEntity $legalEntity): Builder
+    {
+        $hasPatientAccess = Declaration::accessGrantedTo($user, $patient, $legalEntity)->exists()
+            || Approval::accessGrantedTo($user, $patient, $legalEntity)->exists();
+        $approved = Approval::diagnosticReportAccessGrantedTo($user, $legalEntity)->select('approvable_id');
+
+        return $query->where(static fn (Builder $records): Builder => $records
+            ->where(static fn (Builder $readable): Builder => $readable->readableFor($patient, $hasPatientAccess))
+                ->orWhere(static fn (Builder $approvedRecords): Builder => $approvedRecords
+                    ->forPatient($patient)->whereIn('diagnostic_reports.id', $approved))
+                ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnApprovedCarePlan($patient, $user, $legalEntity))
+                ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnCarePlanOfLegalEntity($patient)));
     }
 
     /**

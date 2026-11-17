@@ -5,9 +5,22 @@ declare(strict_types=1);
 namespace App\Models\MedicalEvents\Sql;
 
 use App\Casts\UtcDateTimeCast;
+use App\Contracts\SubmittedToEHealth;
+use App\Enums\JobStatus;
 use App\Models\CarePlan;
+use App\Models\Declaration;
+use App\Models\EhealthLink;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\Approval;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\Coding;
+use App\Models\MedicalEvents\Sql\DiagnosticReport;
+use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\MedicalEvents\Sql\Period;
+use App\Models\MedicalEvents\Sql\Procedure;
+use App\Models\MedicalEvents\Sql\Quantity;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Models\User;
@@ -16,8 +29,11 @@ use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 
-class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToEHealth
+class ServiceRequestRequest extends Model implements SubmittedToEHealth
 {
     use HasCamelCasing;
 
@@ -49,6 +65,12 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
         'location_reference_id',
         'performer_type_id',
 
+        'resource_metadata',
+        'used_by_employee_id',
+        'used_by_legal_entity_id',
+        'used_by_division_id',
+        'completed_with_id',
+        'program_service_id',
         'details_synced_at',
         'clinical_status',
         'program_processing_status',
@@ -70,10 +92,90 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
         'ended_at' => UtcDateTimeCast::class,
         'quantity' => 'decimal:10',
 
+        'resource_metadata' => 'array',
         'details_synced_at' => 'datetime',
         'supporting_info' => 'array',
         'reason_reference' => 'array',
     ];
+
+    /** Record selection only; callers retain the search/view Policy gates. */
+    #[Scope]
+    protected function readableBy(Builder $query, User $user, Person $patient, LegalEntity $legalEntity): Builder
+    {
+        $query->wherePersonId($patient->id);
+        $hasPatientAccess = Declaration::accessGrantedTo($user, $patient, $legalEntity)->exists()
+            || Approval::accessGrantedTo($user, $patient, $legalEntity)->exists();
+        if ($hasPatientAccess) {
+            return $query;
+        }
+
+        return $query->where(static fn (Builder $records): Builder => $records
+            ->whereHas('employee', static fn (Builder $employee): Builder => $employee->whereLegalEntityId($legalEntity->id))
+            ->orWhereHas('requesterLegalEntity', static fn (Builder $identifier): Builder => $identifier->whereValue($legalEntity->uuid))
+            ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnApprovedCarePlan($patient, $user, $legalEntity))
+            ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnCarePlanOfLegalEntity($patient)));
+    }
+
+    #[Scope]
+    protected function forRegistry(Builder $query): Builder
+    {
+        return $query->with(['basedOn', 'context', 'category.coding', 'priority', 'programReference'])
+            ->withExists(['ehealthLinks as submission_pending' => static fn (Builder $link): Builder => $link
+                ->whereStatus(JobStatus::PENDING->value)]);
+    }
+
+    /** Date values are validated by the owning component before selection. */
+    #[Scope]
+    protected function filtered(Builder $query, array $filters): Builder
+    {
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status !== '') {
+            $query->whereRaw('LOWER(status) = ?', [strtolower($status)]);
+        }
+        foreach (['started_at', 'ended_at'] as $column) {
+            foreach (['from' => '>=', 'to' => '<='] as $bound => $operator) {
+                if (!empty($filters[$column.'_'.$bound])) {
+                    $query->whereDate($column, $operator, $filters[$column.'_'.$bound]);
+                }
+            }
+        }
+
+        return $query;
+    }
+
+    /**
+     * Find issued, incoming and EMR-linked referrals without hydrating every EMR.
+     * FHIR context/basedOn contain Identifier keys, never the local encounter primary key.
+     * The caller authorizes the patient/encounter; EMR Policy permissions and readable scopes restrict subqueries.
+     */
+    #[Scope]
+    protected function relatedToEncounter(Builder $query, Encounter $encounter, Person $patient, User $user): Builder
+    {
+        $procedures = Procedure::forPatient($patient)->forEncounter($encounter->uuid)
+            ->readableBy($user, $patient, legalEntity())->select('based_on_id');
+        if ($user->cannot('viewAny', Procedure::class)) {
+            $procedures->whereRaw('1 = 0');
+        }
+        $reports = DiagnosticReport::forPatient($patient)->forEncounter($encounter->uuid)
+            ->readableBy($user, $patient, legalEntity())->select('based_on_id');
+        if ($user->cannot('viewAny', DiagnosticReport::class)) {
+            $reports->whereRaw('1 = 0');
+        }
+        $procedureReferrals = Identifier::select('value')->whereIn('id', $procedures);
+        $reportReferrals = Identifier::select('value')->whereIn('id', $reports);
+
+        return $query->wherePersonId($patient->id)->where(static function (Builder $referrals) use ($encounter, $procedureReferrals, $reportReferrals): void {
+            $referrals->whereHas('context', static fn (Builder $identifier): Builder => $identifier
+                ->whereValue($encounter->uuid)
+                ->where(static fn (Builder $type): Builder => $type->whereDoesntHave('type.coding')
+                    ->orWhereHas('type.coding', static fn (Builder $coding): Builder => $coding->whereCode('encounter'))))
+                ->orWhereIn('uuid', $procedureReferrals)
+                ->orWhereIn('uuid', $reportReferrals);
+            if ($encounter->incomingReferral?->value !== null) {
+                $referrals->orWhere('uuid', $encounter->incomingReferral->value);
+            }
+        });
+    }
 
     public function statusReasonConcept(): BelongsTo
     {
@@ -100,6 +202,31 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
     {
         return $this->belongsTo(Identifier::class, 'subject_identifier_id');
     }
+    public function usedByEmployee(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'used_by_employee_id');
+    }
+
+    public function usedByLegalEntity(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'used_by_legal_entity_id');
+    }
+
+    public function usedByDivision(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'used_by_division_id');
+    }
+
+    public function completedWith(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'completed_with_id');
+    }
+
+    public function programService(): BelongsTo
+    {
+        return $this->belongsTo(Identifier::class, 'program_service_id');
+    }
+
     public function quantityQuantity(): BelongsTo
     {
         return $this->belongsTo(Quantity::class, 'quantity_id');
@@ -108,36 +235,36 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
     {
         return $this->belongsTo(Quantity::class, 'remaining_quantity_id');
     }
-    public function occurrencePeriod(): \Illuminate\Database\Eloquent\Relations\MorphOne
+    public function occurrencePeriod(): MorphOne
     {
         return $this->morphOne(Period::class, 'periodable');
     }
 
-    private function referenceCollection(string $collection): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    private function referenceCollection(string $collection): BelongsToMany
     {
         return $this->belongsToMany(Identifier::class, 'service_request_references', 'service_request_id', 'identifier_id')->withPivotValue('collection', $collection)->withPivot('position')->orderByPivot('position');
     }
-    public function basedOnReferences(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function basedOnReferences(): BelongsToMany
     {
         return $this->referenceCollection('basedOn');
     }
-    public function supportingInfoReferences(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function supportingInfoReferences(): BelongsToMany
     {
         return $this->referenceCollection('supportingInfo');
     }
-    public function reasonReferences(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function reasonReferences(): BelongsToMany
     {
         return $this->referenceCollection('reasonReference');
     }
-    public function permittedReferences(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function permittedReferences(): BelongsToMany
     {
         return $this->referenceCollection('permittedResources');
     }
-    public function specimenReferences(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function specimenReferences(): BelongsToMany
     {
         return $this->referenceCollection('specimens');
     }
-    public function focusReferences(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function focusReferences(): BelongsToMany
     {
         return $this->referenceCollection('focus');
     }
@@ -216,8 +343,8 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
         }
 
         $carePlanIds = CarePlan::wherePersonId($patient->id)
-            ->whereKey(Approval::carePlanAccessGrantedTo($user, $legalEntity)->pluck('approvable_id'))
-            ->pluck('uuid');
+            ->whereIn('id', Approval::carePlanAccessGrantedTo($user, $legalEntity)->select('approvable_id'))
+            ->select('uuid');
 
         return $query->where(static function (Builder $scope) use ($carePlanIds): void {
             $scope->whereHas('basedOnReferences', static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)->whereHas('type.coding', static fn (Builder $coding): Builder => $coding->whereCode('care_plan')))
@@ -246,7 +373,7 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
                 'managingOrganization',
                 static fn (Builder $identifier): Builder => $identifier->whereValue(legalEntity()->uuid)
             )
-            ->pluck('uuid');
+            ->select('uuid');
 
         return $query->where(static function (Builder $scope) use ($carePlanIds): void {
             $scope->whereHas('basedOnReferences', static fn (Builder $identifier): Builder => $identifier->whereIn('value', $carePlanIds)->whereHas('type.coding', static fn (Builder $coding): Builder => $coding->whereCode('care_plan')))
@@ -254,8 +381,8 @@ class ServiceRequestRequest extends Model implements \App\Contracts\SubmittedToE
         });
     }
 
-    public function ehealthLinks(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    public function ehealthLinks(): MorphMany
     {
-        return $this->morphMany(\App\Models\EhealthLink::class, 'linkable');
+        return $this->morphMany(EhealthLink::class, 'linkable');
     }
 }

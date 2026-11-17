@@ -14,7 +14,6 @@ use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use App\Services\MedicalEvents\Mappers\ServiceRequestRegistryMapper;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Facades\Auth;
@@ -66,11 +65,7 @@ trait ManagesIncomingReferralCompletion
         if ($record === null) {
             return null;
         }
-        $row = (new ServiceRequestRegistryMapper())->map(
-            $record,
-            pending: Repository::serviceRequest()->hasPendingSubmission($record),
-            canComplete: Repository::serviceRequest()->canComplete($record)
-        );
+        $row = Repository::serviceRequest()->toPatientRegistryRow($record);
         $submission = Repository::serviceRequest()->latestCompletion($record);
 
         return array_replace($row, [

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\MedicalEvents;
 
+use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\EHealthResponse;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
@@ -14,17 +16,20 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
+use App\Models\Relations\Party;
 use App\Models\User;
-use App\Repositories\MedicalEvents\Repository;
-use App\Repositories\CarePlanRepository;
 use App\Repositories\CarePlanActivityRepository;
-use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Repositories\CarePlanRepository;
+use App\Repositories\MedicalEvents\Repository;
 use App\Services\MedicalEvents\Fhir;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
+use Mockery;
 use Tests\TestCase;
 
 class ReferralSignPayloadTest extends TestCase
@@ -45,7 +50,7 @@ class ReferralSignPayloadTest extends TestCase
 
         Model::preventAccessingMissingAttributes();
 
-        $party = \App\Models\Relations\Party::create([
+        $party = Party::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Іван',
             'last_name' => 'Петренко',
@@ -58,8 +63,8 @@ class ReferralSignPayloadTest extends TestCase
             'uuid' => (string) Str::uuid(),
             'status' => 'ACTIVE',
             'sync_status' => 'COMPLETED',
-            'legal_entity_type_id' => \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
-                ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']),
+            'legal_entity_type_id' => DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+                ?? DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']),
             'is_active' => true,
         ]);
 
@@ -203,7 +208,7 @@ class ReferralSignPayloadTest extends TestCase
         $this->assertSame($groupId, data_get($resource, 'code.identifier.value'));
         $this->assertSame('service_group', data_get($resource, 'code.identifier.type.coding.0.code'));
         $form = $lifecycle->buildSignDbData($record, null, null, $employee);
-        $content = \App\Livewire\Referral\Forms\ServiceRequestForm::buildCreateContent(Fhir::serviceRequest()->toFhir($form, $employee));
+        $content = Fhir::serviceRequest()->createContent(Fhir::serviceRequest()->toFhir($form, $employee));
         $this->assertSame($groupId, data_get($content, 'code.identifier.value'));
         $this->assertSame('service_group', data_get($content, 'code.identifier.type.coding.0.code'));
     }
@@ -234,10 +239,10 @@ class ReferralSignPayloadTest extends TestCase
         unset($resource['detail']['dailyAmount']);
         $programId = '10050000-0000-4000-8000-000000000099';
         $resource['detail']['program'] = ['identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'medical_program']]], 'value' => $programId]];
-        $api = \Mockery::mock(ServiceRequestApi::class)->makePartial();
-        $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
+        $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn([['status' => 'VALID']]);
-        $api->shouldReceive('prequalify')->once()->with($this->person->uuid, \Mockery::on(fn ($payload) => data_get($payload, 'programs.0.identifier.value') === $programId && data_get($payload, 'service_request.code.identifier.type.coding.0.code') === 'service_group'))->andReturn($response);
+        $api->shouldReceive('prequalify')->once()->with($this->person->uuid, Mockery::on(fn ($payload) => data_get($payload, 'programs.0.identifier.value') === $programId && data_get($payload, 'service_request.code.identifier.type.coding.0.code') === 'service_group'))->andReturn($response);
         $this->instance(ServiceRequestApi::class, $api);
         $activity = app(CarePlanActivityRepository::class)->storeResource($resource, $plan);
         $lifecycle = app(ReferralRequestLifecycleService::class);
@@ -253,7 +258,7 @@ class ReferralSignPayloadTest extends TestCase
         $this->assertSame($programId, data_get($actual, 'program.identifier.value'));
         $this->assertSame(['care_plan', 'activity'], array_map(fn ($ref) => data_get($ref, 'identifier.type.coding.0.code'), $actual['basedOn']));
         $form = $lifecycle->buildSignDbData($record, $activity, $plan, $employee);
-        $content = \App\Livewire\Referral\Forms\ServiceRequestForm::buildCreateContent(Fhir::serviceRequest()->toFhir($form, $employee));
+        $content = Fhir::serviceRequest()->createContent(Fhir::serviceRequest()->toFhir($form, $employee));
         $this->assertSame('service_group', data_get($content, 'code.identifier.type.coding.0.code'));
         $this->assertSame($actual['quantity'], $content['quantity']);
         $this->assertSame($actual['occurrencePeriod'], $content['occurrence_period']);
@@ -263,7 +268,7 @@ class ReferralSignPayloadTest extends TestCase
     {
         $record = $this->createDraft();
         $record->forceFill(['detailsSyncedAt' => null])->save();
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         app(ReferralRequestLifecycleService::class)->buildSignDbData($record, null, $this->encounter, ['employee_id' => $this->employee->id]);
     }
 
@@ -347,7 +352,7 @@ class ReferralSignPayloadTest extends TestCase
                 'started_at' => '2026-11-01T10:20:30Z', 'ended_at' => '2026-11-02T10:20:30Z',
             ], ['employee_uuid' => (string) Str::uuid(), 'legal_entity_uuid' => $this->legalEntity->uuid]);
             $this->fail('Application-created referrals must not silently lose their author.');
-        } catch (\InvalidArgumentException $exception) {
+        } catch (InvalidArgumentException $exception) {
             $this->assertSame(__('care-plan.referral_author_unavailable'), $exception->getMessage());
             $this->assertSame($before, ServiceRequestRequest::count());
         }

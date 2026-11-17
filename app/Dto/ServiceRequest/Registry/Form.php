@@ -2,41 +2,90 @@
 
 declare(strict_types=1);
 
-namespace App\Services\MedicalEvents\Mappers;
+namespace App\Dto\ServiceRequest\Registry;
 
 use App\Enums\Person\ServiceRequestStatus;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Lang;
-use Throwable;
+use Symfony\Component\ObjectMapper\Attribute\Map;
 
-/** Project persisted referral data into registry and encounter-card display values. */
-final class ServiceRequestRegistryMapper
+/** Presentation data only; dictionary and relationship selection remain with the repository. */
+#[Map(source: ServiceRequestRequest::class)]
+class Form
 {
-    private ?array $serviceNames = null;
+    #[Map(source: 'id')]
+    public ?int $id = null;
 
-    private ?array $programNames = null;
+    #[Map(source: 'uuid')]
+    public ?string $uuid = null;
+
+    #[Map(source: 'status')]
+    public ?string $status = null;
+
+    #[Map(source: 'startedAt')]
+    public ?Carbon $startedAt = null;
+
+    #[Map(source: 'endedAt')]
+    public ?Carbon $endedAt = null;
+
+    #[Map(source: 'quantity')]
+    public ?string $quantity = null;
+
+    #[Map(source: 'category')]
+    public ?CodeableConcept $category = null;
+
+    #[Map(source: 'priority')]
+    public ?CodeableConcept $priority = null;
+
+    #[Map(source: 'serviceId')]
+    public ?string $serviceId = null;
+
+    #[Map(source: 'basedOn')]
+    public ?Identifier $basedOn = null;
+
+    #[Map(source: 'context')]
+    public ?Identifier $context = null;
+
+    #[Map(source: 'programId')]
+    public ?string $programId = null;
+
+    #[Map(source: 'programReference')]
+    public ?Identifier $programReference = null;
+
+    #[Map(source: 'requestNumber')]
+    public ?string $requestNumber = null;
+
+    #[Map(source: 'note')]
+    public ?string $note = null;
+
+    #[Map(source: 'patientInstruction')]
+    public ?string $patientInstruction = null;
 
     /**
      * @param  array<string, object>  $carePlanIdsByActivityUuid
      * @param  array<string, int>  $encounterIdsByUuid
      * @return array<string, mixed>
      */
-    public function map(
-        ServiceRequestRequest $request,
+    public function toArray(
         array $carePlanIdsByActivityUuid = [],
         array $encounterIdsByUuid = [],
         bool $pending = false,
-        bool $canComplete = false
+        bool $canComplete = false,
+        array $serviceNames = [],
+        array $programNames = []
     ): array {
-        $status = strtolower((string) $request->status);
-        $startedAt = $request->startedAt;
-        $endedAt = $request->endedAt;
-        $qty = $request->quantity;
+        $status = strtolower((string) $this->status);
+        $startedAt = $this->startedAt;
+        $endedAt = $this->endedAt;
+        $qty = $this->quantity;
         $qtyLabel = $qty !== null && $qty !== ''
             ? rtrim(rtrim(number_format((float) $qty, 2, '.', ''), '0'), '.')
             : '';
 
-        $category = strtolower((string) ($request->category?->coding?->first()?->code ?? ($request->category?->text ?? '')));
+        $category = strtolower((string) ($this->category?->coding?->first()?->code ?? ($this->category?->text ?? '')));
         $categoryKey = 'care-plan.referral_category.'.match ($category) {
             'counselling' => 'counseling',
             'laboratory' => 'laboratory_procedure',
@@ -47,19 +96,19 @@ final class ServiceRequestRegistryMapper
             ? __($categoryKey)
             : ($category !== '' ? $category : '—');
 
-        $priority = strtolower((string) ($request->priority?->text ?? ''));
+        $priority = strtolower((string) ($this->priority?->text ?? ''));
         $priorityKey = 'care-plan.referral_priority.'.$priority;
         $priorityLabel = $priority !== '' && Lang::has($priorityKey)
             ? __($priorityKey)
             : ($priority !== '' ? $priority : '—');
 
-        $serviceId = (string) ($request->serviceId ?? '');
+        $serviceId = (string) ($this->serviceId ?? '');
         $itemName = $serviceId !== '' && preg_match('/^[0-9a-f-]{36}$/i', $serviceId) !== 1
             ? $serviceId
-            : ($this->displayServiceName($serviceId) ?: $categoryLabel);
+            : (($serviceNames[$serviceId] ?? null) ?: $categoryLabel);
 
-        $activityUuid = $request->basedOn?->value;
-        $encounterUuid = $request->context?->value;
+        $activityUuid = $this->basedOn?->value;
+        $encounterUuid = $this->context?->value;
         $activityData = $activityUuid ? ($carePlanIdsByActivityUuid[$activityUuid] ?? null) : null;
         $activityId = $activityData ? $activityData->id : null;
         $carePlanId = $activityData ? $activityData->care_plan_id : null;
@@ -84,11 +133,11 @@ final class ServiceRequestRegistryMapper
         ];
 
         return [
-            'id' => $request->id,
-            'uuid' => (string) $request->uuid,
+            'id' => $this->id,
+            'uuid' => (string) $this->uuid,
             'kind' => 'service_request',
-            'requestNumber' => trim((string) ($request->requestNumber ?? '')),
-            'status' => (string) $request->status,
+            'requestNumber' => trim((string) ($this->requestNumber ?? '')),
+            'status' => (string) $this->status,
             'statusLabel' => ServiceRequestStatus::labelFor($status),
             'statusBadge' => ServiceRequestStatus::colorFor($status),
             'itemName' => $itemName !== '' && $itemName !== '—' ? $itemName : 'Послуга',
@@ -96,15 +145,16 @@ final class ServiceRequestRegistryMapper
             'startedAt' => $startedAt?->toDateString(),
             'endedAt' => $endedAt?->toDateString(),
             'periodLabel' => $periodLabel,
-            'programName' => $this->displayProgramName($request),
+            'programName' => $this->displayProgramName($programNames),
             'categoryLabel' => $categoryLabel,
             'priorityLabel' => $priorityLabel,
-            'note' => (string) ($request->note ?? ''),
-            'patientInstruction' => (string) ($request->patientInstruction ?? ''),
+            'note' => (string) ($this->note ?? ''),
+            'patientInstruction' => (string) ($this->patientInstruction ?? ''),
             'basisLabel' => $basisLabel,
             'encounterId' => $encounterId,
             'activityId' => $activityId,
             'carePlanId' => $carePlanId,
+            'submissionPending' => $pending,
             'canSign' => !$pending && in_array($status, $draftStatuses, true),
             'canOperate' => !$pending && $status === ServiceRequestStatus::ACTIVE->value,
             'canRecall' => !$pending && $status === ServiceRequestStatus::ACTIVE->value,
@@ -113,41 +163,14 @@ final class ServiceRequestRegistryMapper
         ];
     }
 
-    private function displayServiceName(string $serviceId): ?string
+    protected function displayProgramName(array $programNames): string
     {
-        if ($serviceId === '') {
-            return null;
-        }
-
-        try {
-            $this->serviceNames ??= dictionary()->services()->flattened()->pluck('name', 'id')->all();
-
-            return $this->serviceNames[$serviceId] ?? null;
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    private function displayProgramName(ServiceRequestRequest $request): string
-    {
-        $value = trim((string) ($request->programId ?? ''));
+        $value = trim((string) ($this->programId ?? ''));
         if ($value === '') {
             return __('referrals.registry.program_not_specified');
         }
-        $display = trim((string) ($request->programReference?->displayValue ?? ''));
-        if ($display !== '' && strtolower($display) !== 'null') {
-            return $display;
-        }
-        if ($this->programNames === null) {
-            $this->programNames = [];
-            try {
-                $this->programNames = dictionary()->medicalPrograms()->pluck('name', 'id')->all();
-            } catch (Throwable) {
-                // Preserve the identifier when the program dictionary is temporarily unavailable.
-            }
-        }
+        $display = trim((string) ($this->programReference?->displayValue ?? ''));
 
-        return $this->programNames[$value] ?? $value;
+        return $display !== '' && strtolower($display) !== 'null' ? $display : ($programNames[$value] ?? $value);
     }
-
 }

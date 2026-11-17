@@ -6,16 +6,20 @@ namespace App\Services\MedicalEvents\Mappers;
 
 use App\Contracts\FhirMapperContract;
 use App\Core\Arr;
-use App\Services\MedicalEvents\InformWith;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\Ehealth as ReferralEhealthData;
 use App\Services\MedicalEvents\FhirResource;
+use App\Services\MedicalEvents\InformWith;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 
 class ServiceRequestMapper implements FhirMapperContract
 {
     private const CATEGORY_SYSTEM = 'eHealth/SNOMED/service_request_categories';
-
-    public const CREATE_FIELDS = ['id', 'status', 'intent', 'priority', 'basedOn', 'category', 'code', 'program', 'context', 'requesterEmployee', 'requesterLegalEntity', 'reasonReference', 'supportingInfo', 'note', 'patientInstruction', 'permittedResources', 'performer', 'locationReference', 'performerType', 'quantity', 'specimens', 'focus', 'informWith', 'occurrencePeriod', 'occurrenceDateTime'];
 
     /** Pure form projection over the original ESOZ resource; no generated identity or clock. */
     public function toFhir(array $data, mixed ...$context): array
@@ -94,7 +98,7 @@ class ServiceRequestMapper implements FhirMapperContract
             }
         }
         if (array_key_exists('contextUuid', $input) || isset($options['encounterUuid']) || isset($options['episodeUuid'])) {
-            $value = $input['contextUuid'] ?? $options['encounterUuid'] ?? $options['episodeUuid'] ?? null;
+            $value = $input['contextUuid'] ?? ($options['encounterUuid'] ?? ($options['episodeUuid'] ?? null));
             $type = $input['contextType'] ?? (isset($options['encounterUuid']) ? 'encounter' : (isset($options['episodeUuid']) ? 'episode_of_care' : data_get($resource, 'context.identifier.type.coding.0.code')));
             $this->set($resource, 'context', $value ? $this->reference($value, $type, $resource['context'] ?? null) : null);
         }
@@ -125,7 +129,7 @@ class ServiceRequestMapper implements FhirMapperContract
                 if (!is_numeric($input['quantity']) || !is_finite((float) $input['quantity'])) {
                     throw new InvalidArgumentException('Quantity must be a finite number.');
                 }
-                if (!\Brick\Math\BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
+                if (!BigDecimal::of((string) $input['quantity'])->isEqualTo((string) (float) $input['quantity'])) {
                     throw new InvalidArgumentException('Quantity cannot be represented without loss in the JSON numeric contract.');
                 }
                 $resource['quantity'] = array_replace($resource['quantity'] ?? [], ['value' => (float) $input['quantity']]);
@@ -164,7 +168,7 @@ class ServiceRequestMapper implements FhirMapperContract
                     }
                     $old = collect($resource[$field] ?? [])->first(fn (array $ref): bool => data_get($ref, 'identifier.value') === ($item['uuid'] ?? null));
 
-                    return $this->reference($item['uuid'] ?? '', isset($item['type']) ? (strtoupper($item['type']) === $item['type'] ? strtolower($item['type']) : \Illuminate\Support\Str::snake($item['type'])) : null, $old);
+                    return $this->reference($item['uuid'] ?? '', isset($item['type']) ? (strtoupper($item['type']) === $item['type'] ? strtolower($item['type']) : Str::snake($item['type'])) : null, $old);
                 }, $items);
             }
         }
@@ -248,15 +252,10 @@ class ServiceRequestMapper implements FhirMapperContract
 
     public function createContent(array $resource): array
     {
-        $content = array_intersect_key($resource, array_flip(self::CREATE_FIELDS));
-        $content['status'] = 'active';
-        $content['intent'] ??= 'order';
-        $content['priority'] ??= 'routine';
-        if (data_get($content, 'category.coding.0.code') !== 'transfer_of_care') {
-            unset($content['performer'], $content['locationReference'], $content['performerType']);
-        }
+        $data = new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor())
+            ->map(new FormCollection($resource), ReferralEhealthData::class);
 
-        return Arr::toSnakeCase(array_filter($content, static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []));
+        return $data->toArray();
     }
 
     public function fromFhir(array $data, mixed ...$context): array

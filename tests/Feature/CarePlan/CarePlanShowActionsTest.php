@@ -28,6 +28,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use App\Livewire\Referral\Forms\ServiceRequestForm;
 use Tests\TestCase;
 use Tests\Concerns\MocksBasicDictionaries;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -155,7 +156,7 @@ class CarePlanShowActionsTest extends TestCase
             setPermissionsTeamId($this->legalEntity->id);
         }
 
-        $this->grantMedicalEventAbilities($this->user);
+        $this->grantMedicalEventAbilities($this->user, ['patient_summary:read']);
     }
 
     public function test_plan_detail_sync_keeps_patient_and_approval_context_in_its_job_payload(): void
@@ -325,10 +326,12 @@ class CarePlanShowActionsTest extends TestCase
     {
         $this->actingAs($this->user);
         $plan = $this->makeSignedNewPlan();
-        $draft = ServiceRequestRequest::create([
-            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id,
-            'person_id' => $this->person->id, 'status' => 'new', 'service_id' => '37003-00',
-        ]);
+        $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
+        unset($resource['basedOn']);
+        $resource['status'] = 'draft';
+        $resource['requesterEmployee']['identifier']['value'] = $this->employee->uuid;
+        $resource['requesterLegalEntity']['identifier']['value'] = $this->legalEntity->uuid;
+        $draft = MedicalEventsRepository::serviceRequest()->storeResource($resource, $this->person->id, $this->employee->id);
 
         Livewire::test(CarePlanShow::class, ['carePlan' => $plan])
             ->call('openSignatureModal', 'sign_servicerequest', null, $draft->uuid)
@@ -336,7 +339,7 @@ class CarePlanShowActionsTest extends TestCase
             ->assertSet('showSignatureModal', false)
             ->assertSee(__('care-plan.document_context_unavailable'))
             ->assertNotDispatched('flashMessage');
-        $this->assertSame('new', $draft->fresh()->status);
+        $this->assertSame('draft', $draft->fresh()->status);
         $this->assertNull($draft->fresh()->basedOnId);
         $this->assertFalse(session()->has('success'));
     }
@@ -368,6 +371,28 @@ class CarePlanShowActionsTest extends TestCase
             ->assertNotDispatched('flashMessage');
         $this->assertSame('new', $device->fresh()->status);
         $this->assertSame($otherPerson->id, $device->fresh()->personId);
+    }
+
+    public function test_referral_sms_redirects_an_owned_device_to_its_registry(): void
+    {
+        $this->actingAs($this->user);
+        $plan = $this->makeSignedNewPlan();
+        $this->grantApproval($plan, $this->employee, ApprovalStatus::ACTIVE->value);
+        $device = DeviceRequestRequest::create([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $this->employee->id,
+            'person_id' => $this->person->id, 'status' => 'active', 'device_id' => (string) Str::uuid(),
+        ]);
+        $api = Mockery::mock(ServiceRequest::class);
+        $api->shouldNotReceive('resendSms');
+        $this->instance(ServiceRequest::class, $api);
+
+        Livewire::test(CarePlanShow::class, ['carePlan' => $plan])
+            ->call('resendReferralSms', $device->uuid, 'service_request')
+            ->assertRedirect(route('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $this->person]));
+
+        Livewire::test(CarePlanShow::class, ['carePlan' => $plan])
+            ->call('resendReferralSms', (string) Str::uuid(), 'device_request')
+            ->assertRedirect(route('persons.device-requests', ['legalEntity' => $this->legalEntity, 'person' => $this->person]));
     }
 
     public function test_empty_new_plan_with_approval_offers_cancel_but_not_complete(): void
@@ -713,48 +738,31 @@ class CarePlanShowActionsTest extends TestCase
         $encounter->setRawAttributes(['id' => 99, 'person_id' => $this->person->id, 'uuid' => (string) Str::uuid()]);
         $encounter->exists = true;
         $encounter->setRelation('episode', null);
-        $context = Identifier::create(['value' => $encounter->uuid]);
-        $request = ServiceRequestRequest::create([
-            'uuid' => (string) Str::uuid(), 'person_id' => $this->person->id,
-            'employee_id' => $this->employee->id, 'context_id' => $context->id, 'status' => 'draft',
-            'service_id' => (string) Str::uuid(),
-        ]);
+        $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
+        $resource['status'] = 'draft';
+        $resource['context']['identifier']['value'] = $encounter->uuid;
+        $resource['requesterEmployee']['identifier']['value'] = $this->employee->uuid;
+        $resource['requesterLegalEntity']['identifier']['value'] = $this->legalEntity->uuid;
+        $resource['occurrencePeriod'] = ['start' => now()->addHour()->toISOString(), 'end' => now()->addDay()->toISOString()];
+        $request = MedicalEventsRepository::serviceRequest()->storeResource($resource, $this->person->id, $this->employee->id);
         $component = new BrowserUatReferralSigningHarness();
         $component->encounter = $encounter;
+        $component->serviceRequestForm = new ServiceRequestForm($component, 'serviceRequestForm');
         $component->encounterReferralRequestIdToSign = $request->uuid;
         $component->form = Mockery::mock(EncounterForm::class);
         $component->form->shouldReceive('signingRules')->andReturn([]);
-        $component->form->shouldReceive('resetSigningFields')->once();
         $component->form->shouldReceive('validate')->andReturn([
             'password' => 'synthetic', 'knedp' => 'synthetic',
             'keyContainerUpload' => Mockery::mock(TemporaryUploadedFile::class),
         ]);
-        $lifecycle = $this->mock(ReferralRequestLifecycleService::class);
-        $lifecycle->shouldReceive('resolveEncounterEmployeeContext')->andReturn([
-            'employee_uuid' => $this->employee->uuid, 'legal_entity_uuid' => $this->legalEntity->uuid,
-        ]);
-        $lifecycle->shouldReceive('buildSignDbData')->andReturn([
-            'uuid' => $request->uuid, 'service_id' => (string) Str::uuid(),
-            'started_at' => now()->addMinutes(30)->toIso8601String(),
-            'ended_at' => now()->addDay()->toIso8601String(),
-        ]);
         $this->mock(SignatureProvider::class)->shouldReceive('signData')->once()->andReturn('synthetic-signature');
-        $repository = $this->mock(ServiceRequestRequestRepository::class);
-        $repository->shouldReceive('hasPendingSubmission')->once()->with(Mockery::on(static fn ($record): bool => $record->id === $request->id && $record->personId === $request->personId))->andReturn(false);
-        $repository->shouldReceive('submissionState')->once()->with(Mockery::on(static fn ($record): bool => $record->id === $request->id && $record->personId === $request->personId))->andReturn([
-            'id' => 1, 'status' => JobStatus::PENDING->value, 'error' => null,
-        ]);
-        $repository->shouldReceive('getResource')->once()
-            ->with(Mockery::on(static fn ($record): bool => $record->id === $request->id && $record->personId === $request->personId))
-            ->andReturn(['id' => $request->uuid]);
-        $repository->shouldReceive('storeResource')->once()
-            ->with(Mockery::type('array'), $this->person->id, $this->employee->id, null)->andReturn($request);
         $previous = Model::preventsAccessingMissingAttributes();
         Model::preventAccessingMissingAttributes();
 
         try {
             $component->signEncounterReferral();
-            $this->assertTrue($component->submitted, (string) session('error'));
+            $this->assertSame(MedicalEventsRepository::serviceRequest()->getResource($request->fresh()), $component->submittedSnapshot, (string) session('error'));
+            $this->assertSame($this->person->id, $request->fresh()->personId);
             Http::assertNothingSent();
         } finally {
             Model::preventAccessingMissingAttributes($previous);
@@ -1112,12 +1120,12 @@ class CarePlanShowActionsTest extends TestCase
 
         $lifecycle->shouldReceive('trySyncDraftFromEHealth')->twice()->andReturnFalse();
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
+        $response->shouldReceive('validate')->andReturn([['program_id' => (string) Str::uuid(), 'program_name' => 'Test program', 'status' => 'VALID']]);
         $api->shouldReceive('prequalify')->once()->andReturn($response);
         $component->call('validateReferral')->assertHasNoErrors()->assertSet('showSignatureModal', true)
             ->assertSet('referralRequestIdToSign', $uuid);
 
-        MedicalEventsRepository::serviceRequest()->beginSubmission($record, ['status' => 'active']);
+        MedicalEventsRepository::serviceRequest()->beginSubmission($record->fresh(), ['status' => 'active']);
         $component->set('showSignatureModal', false)->set('referralForm.note', 'Must not overwrite pending');
         foreach (['saveReferralDraft', 'validateReferral'] as $action) {
             $component->call($action)->assertHasErrors('submission')->assertSet('showSignatureModal', false)
@@ -1257,16 +1265,16 @@ class BrowserUatReferralSigningHarness extends Component
 
     public Encounter $encounter;
     public EncounterForm $form;
-    public bool $submitted = false;
+    public ?array $submittedSnapshot = null;
 
     protected function resolveEncounterModelForStandalone(): ?Encounter
     {
         return $this->encounter;
     }
 
-    protected function submitClinicalOperation(CarePlan|CarePlanActivity|ServiceRequestRequest $record, array $changes, callable $send, ?string $requiredScope = null): ?array
+    protected function submitClinicalOperation(CarePlan|CarePlanActivity|ServiceRequestRequest $record, array $changes, callable $send, ?string $requiredScope = null, ?array $signedReferralSnapshot = null): ?array
     {
-        $this->submitted = true;
+        $this->submittedSnapshot = $signedReferralSnapshot;
 
         return null;
     }

@@ -27,10 +27,13 @@ use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Concerns\GrantsMedicalEventAbilities;
+use App\Core\Arr;
+use App\Repositories\MedicalEvents\Repository;
 use Tests\TestCase;
 use Tests\Support\ReferralIndexFixture;
 use App\Policies\EncounterPolicy;
 use App\Services\Dictionary\Dictionaries\BasicDictionary;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Auth\Access\Response;
 
@@ -91,13 +94,29 @@ class ReferralTest extends TestCase
         ]);
         $this->user->employees()->attach($this->employee->id);
 
-        $this->grantMedicalEventAbilities($this->user);
+        $this->grantMedicalEventAbilities($this->user, ['patient_summary:read']);
         Cache::forever(BasicDictionary::KEY, [
             ['name' => 'eHealth/encounter_classes', 'values' => [['code' => 'AMB', 'description' => 'Ambulatory']]],
             ['name' => 'eHealth/encounter_types', 'values' => [['code' => 'AMB', 'description' => 'Ambulatory']]],
         ]);
         Cache::forever(BasicDictionary::KEY.':fresh', true);
         $this->partialMock(EncounterPolicy::class)->shouldReceive('view')->andReturn(Response::allow());
+    }
+
+    public function test_use_permission_alone_cannot_take_a_referral_into_work(): void
+    {
+        $this->actingAs($this->user);
+        $this->user->revokePermissionTo('service_request:makeinprogress');
+        $this->assertTrue($this->user->can('service_request:use'));
+        $service = $this->mock(ReferralRequestLifecycleService::class);
+        $service->shouldNotReceive('takeIntoWork');
+        [$record, $person] = $this->createInProgressReferral();
+        $row = array_replace($this->searchRow($record, $person), ['status' => 'active', 'program_processing_status' => 'new']);
+
+        Livewire::test(ReferralIndexFixture::class, ['legalEntity' => $this->legalEntity])
+            ->call('seedResults', [$row])
+            ->call('process', $record->uuid, $person->uuid)
+            ->assertSee(__('referrals.messages.action_unavailable'));
     }
 
     public function test_it_can_find_referral_by_requisition(): void
@@ -140,8 +159,8 @@ class ReferralTest extends TestCase
             'type_id' => CodeableConcept::create()->id,
         ]);
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('getStatusCode')->andReturn(200);
-        $response->shouldReceive('validate')->andReturn(['id' => $uuid, 'status' => 'completed']);
+        $response->shouldReceive('getStatusCode')->andReturn(201);
+        $response->shouldReceive('validate')->andReturn(array_replace(Arr::toSnakeCase(Repository::serviceRequest()->getResource($referral)), ['status' => 'completed', 'program_processing_status' => 'completed']));
         $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('complete')->once()->with($uuid, Mockery::on(static function (array $sent) use ($encounterUuid): bool {
             return !array_key_exists('status', $sent) && !array_key_exists('injected', $sent)
@@ -225,14 +244,15 @@ class ReferralTest extends TestCase
 
     public function testQueuedCancelUsageKeepsDatabaseAndSearchStatusUntilConfirmation(): void
     {
+        Bus::fake();
+        session()->put(config('ehealth.api.oauth.bearer_token'), 'synthetic-token');
         $this->actingAs($this->user);
         [$referral, $person] = $this->createInProgressReferral();
         $referral = $this->canonicalizeReferral($referral, $person);
-        \Illuminate\Support\Facades\Bus::fake();
         \Illuminate\Support\Facades\Notification::fake();
-        $api = Mockery::mock(ServiceRequestApi::class);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('cancelUsage')->once()->with($referral->uuid, $person->uuid, [])
-            ->andReturn(new EHealthResponse(new \GuzzleHttp\Psr7\Response(202, [], json_encode(['data' => ['job_id' => 'release-job']], JSON_THROW_ON_ERROR)), \App\Classes\eHealth\Api\Job::validateSubmissionResponse(...)));
+            ->andReturn(new EHealthResponse(new \GuzzleHttp\Psr7\Response(202, [], json_encode(['data' => ['status' => 'pending', 'links' => [['entity' => 'job', 'href' => '/api/jobs/release-job']]]], JSON_THROW_ON_ERROR)), \App\Classes\eHealth\Api\Job::validateSubmissionResponse(...)));
         $this->instance(ServiceRequestApi::class, $api);
         Livewire::test(ReferralIndexFixture::class, ['legalEntity' => $this->legalEntity])
             ->set('hasSearched', true)
@@ -421,7 +441,9 @@ class ReferralTest extends TestCase
         ]);
         $this->actingAs($unauthorizedUser);
         Livewire::test(ReferralIndexFixture::class, ['legalEntity' => $this->legalEntity])
-            ->call('openCancelModal', (string) Str::uuid())->assertForbidden();
+            ->call('openCancelModal', (string) Str::uuid())
+            ->assertSet('showCancelModal', false)
+            ->assertSee(__('service-requests.policy.use'));
         Livewire::test(ReferralIndexFixture::class, ['legalEntity' => $this->legalEntity])
             ->call('openCompleteModal', (string) Str::uuid())->assertSee(__('referrals.messages.complete_forbidden'));
     }
@@ -453,7 +475,7 @@ class ReferralTest extends TestCase
         $resource['id'] = $referral->uuid;
         $resource['requesterEmployee']['identifier']['value'] = $this->employee->uuid;
         $resource['requesterLegalEntity']['identifier']['value'] = $this->legalEntity->uuid;
-        $resource['subject'] = ['identifier' => ['value' => $person->uuid]];
+        $resource['subject'] = ['displayValue' => 'Synthetic patient', 'identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'patient']]], 'value' => $person->uuid]];
         $resource['programProcessingStatus'] = 'in_progress';
         $repository = app(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class);
         $referral = $repository->storeResource($resource, $person->id);

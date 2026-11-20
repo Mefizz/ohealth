@@ -8,8 +8,19 @@ use App\Casts\EHealthTimestampCast;
 use App\Contracts\SubmittedToEHealth;
 use App\Enums\Person\DiagnosticReportStatus;
 use App\Enums\Person\EncounterStatus;
+use App\Models\Declaration;
 use App\Models\EhealthLink;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\Approval;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\DiagnosticReportPerformer;
+use App\Models\MedicalEvents\Sql\DiagnosticReportResultsInterpreter;
+use App\Models\MedicalEvents\Sql\Encounter;
+use App\Models\MedicalEvents\Sql\Episode;
+use App\Models\MedicalEvents\Sql\Identifier;
+use App\Models\MedicalEvents\Sql\PaperReferral;
+use App\Models\MedicalEvents\Sql\Period;
+use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Models\Preperson;
 use App\Models\User;
@@ -266,6 +277,22 @@ class DiagnosticReport extends Model implements SubmittedToEHealth
         )->withTimestamps();
     }
 
+    /** The same selection serves the Policy and referral subqueries; inaccessible EMRs never supply links. */
+    #[Scope]
+    protected function readableBy(Builder $query, User $user, Person|Preperson $patient, LegalEntity $legalEntity): Builder
+    {
+        $hasPatientAccess = Declaration::accessGrantedTo($user, $patient, $legalEntity)->exists()
+            || Approval::accessGrantedTo($user, $patient, $legalEntity)->exists();
+        $approved = Approval::diagnosticReportAccessGrantedTo($user, $legalEntity)->select('approvable_id');
+
+        return $query->where(static fn (Builder $records): Builder => $records
+            ->where(static fn (Builder $readable): Builder => $readable->readableFor($patient, $hasPatientAccess))
+                ->orWhere(static fn (Builder $approvedRecords): Builder => $approvedRecords
+                    ->forPatient($patient)->whereIn('diagnostic_reports.id', $approved))
+                ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnApprovedCarePlan($patient, $user, $legalEntity))
+                ->orWhere(static fn (Builder $carePlan): Builder => $carePlan->basedOnCarePlanOfLegalEntity($patient, $legalEntity)));
+    }
+
     /**
      * Filter diagnostic reports belonging to the given patient (person or preperson).
      *
@@ -451,13 +478,13 @@ class DiagnosticReport extends Model implements SubmittedToEHealth
      * @return Builder
      */
     #[Scope]
-    protected function basedOnCarePlanOfLegalEntity(Builder $query, Person|Preperson $patient): Builder
+    protected function basedOnCarePlanOfLegalEntity(Builder $query, Person|Preperson $patient, ?LegalEntity $legalEntity = null): Builder
     {
         return $query->forPatient($patient)->whereHas(
             'basedOn',
             static fn (Builder $identifier): Builder => $identifier->whereIn(
                 'value',
-                ServiceRequestRequest::basedOnCarePlanOfLegalEntity($patient)->pluck('uuid')
+                ServiceRequestRequest::basedOnCarePlanOfLegalEntity($patient, $legalEntity)->pluck('uuid')
             )
         );
     }

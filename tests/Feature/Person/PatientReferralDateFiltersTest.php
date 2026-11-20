@@ -52,7 +52,7 @@ class PatientReferralDateFiltersTest extends TestCase
     #[DataProvider('ranges')]
     public function testSingleDateRangeClearingAndResetUseIsoRepositoryFilters(string $property, string $prefix): void
     {
-        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture();
+        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture(scopes: ['patient_summary:read', 'service_request:read', 'device_request:read']);
         $this->fakeSignatureService();
         foreach ([ServiceRequestRequestRepository::class, DeviceRequestRequestRepository::class] as $repository) {
             $mock = $this->mock($repository);
@@ -86,7 +86,7 @@ class PatientReferralDateFiltersTest extends TestCase
     #[DataProvider('invalidDates')]
     public function testInvalidDatesShowFieldErrorsBeforeEitherRepositoryQuery(string $property, string $value): void
     {
-        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture();
+        ['person' => $person, 'legalEntity' => $legalEntity] = $this->compositionFixture(scopes: ['patient_summary:read', 'service_request:read', 'device_request:read']);
         $this->fakeSignatureService();
         foreach ([ServiceRequestRequestRepository::class, DeviceRequestRequestRepository::class] as $repository) {
             $mock = $this->mock($repository);

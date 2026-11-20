@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Livewire\EncounterPackage\Concerns;
 
 use App\Classes\eHealth\EHealth;
-use App\Exceptions\EHealth\EHealthValidationException;
+use App\Dto\ServiceRequest\Resource as ReferralResource;
 use App\Enums\JobStatus;
+use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
 use App\Repositories\MedicalEvents\Repository;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
@@ -225,7 +225,7 @@ trait ManagesIncomingReferralSelection
                 }
             }
             $page++;
-        } while ($response->isNotLast());
+        } while ($page <= (int) ($response->getPaging()['total_pages'] ?? 1));
 
         return $results;
     }
@@ -234,13 +234,12 @@ trait ManagesIncomingReferralSelection
     private function importIncomingReferralMatches(array $results, Person $patient): void
     {
         foreach (array_keys($results) as $uuid) {
-            $details = EHealth::serviceRequest()->getById($this->patientUuid, $uuid)->validate();
-            $resource = (new ServiceRequestMapper())->normalize($details);
-            if (($resource['id'] ?? '') !== $uuid
-                || data_get($resource, 'subject.identifier.value') !== $this->patientUuid) {
+            $details = EHealth::serviceRequest()->getById($this->patientUuid, $uuid, preserveApiKeys: true)->validate();
+            $data = (new ReferralResource($details))->modelData();
+            if ($data->uuid !== $uuid || data_get($data->subject, 'identifier.value') !== $this->patientUuid) {
                 throw new RuntimeException(__('encounters.messages.referral_not_found'));
             }
-            Repository::serviceRequest()->importPatientResource($resource, $patient);
+            Repository::serviceRequest()->importPatientResource($data, $patient);
         }
     }
 

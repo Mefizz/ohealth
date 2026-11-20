@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Exceptions;
 
+use App\Classes\eHealth\Api\Job;
 use App\Classes\eHealth\Api\ServiceRequest;
 use App\Classes\eHealth\Errors\BaseErrorTranslator;
 use App\Classes\eHealth\Errors\CompositionErrorTranslator;
@@ -46,7 +47,9 @@ class ClinicalErrorTranslationsTest extends TestCase
             'entry' => '$.completed_with.identifier.type',
             'rules' => [['description' => 'Not allowed for this category']],
         ]]];
-        Http::fake(['*' => Http::response(['data' => ['status' => 'failed', 'error' => $error]])]);
+        Http::fake(['*' => Http::sequence()
+            ->push(['data' => ['status' => 'pending']], 202)
+            ->push(['data' => ['status' => 'failed', 'status_code' => 422, 'error' => $error]])]);
         $factory = Http::getFacadeRoot();
         $api = new ServiceRequest($factory);
         $stubs = (function () {
@@ -56,7 +59,12 @@ class ClinicalErrorTranslationsTest extends TestCase
 
         $response = $api->complete('synthetic-referral');
         $this->assertInstanceOf(ServiceRequestErrorTranslator::class, $response->errorTranslator());
-        $exception = new EHealthValidationException($response->validate(), $response->errorTranslator());
+        $this->assertSame('pending', $response->validate()['status']);
+        $jobs = new Job($factory);
+        $jobs->stub($stubs)->preventStrayRequests();
+        $receipt = $jobs->getDetails('synthetic-job')->validate();
+        $this->assertSame('failed', $receipt['status']);
+        $exception = $jobs->jobError($receipt);
         foreach ([$exception->getFormattedMessage(), $exception->getTranslatedMessage()] as $message) {
             $this->assertStringContainsString(__('referrals.messages.completion_type_not_allowed'), $message);
             $this->assertStringNotContainsString('Not allowed for this category', $message);

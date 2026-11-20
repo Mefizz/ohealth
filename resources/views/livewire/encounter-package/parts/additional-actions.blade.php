@@ -1,4 +1,5 @@
 @use(App\Models\MedicalEvents\Sql\DeviceRequestRequest)
+@use(Illuminate\Support\Facades\Auth)
 
 @php
     $additionalActionLinks = [
@@ -84,6 +85,28 @@
                     x-show="activeSections.includes('{{ $section['id'] }}')"
                     class="px-5 pb-5"
                 >
+                    @if ($section['id'] === 'outgoing-referrals')
+                        @foreach ($electronicReferrals ?? [] as $referral)
+                            <article class="record-inner-card space-y-3 p-4" wire:key="encounter-referral-{{ $referral['uuid'] }}">
+                                <h4 class="font-semibold">
+                                    {{ $referral['itemName'] }}
+                                </h4>
+                                <p class="break-words">
+                                    {{ $referral['requestNumber'] ?: $referral['uuid'] }} · {{ $referral['statusLabel'] }}
+                                </p>
+                                <p>
+                                    {{ $referral['periodLabel'] }}
+                                </p>
+                                <a
+                                    href="{{ route('persons.referrals.view', [legalEntity(), 'person' => $personId, 'serviceRequest' => $referral['id']]) }}"
+                                    class="button-primary-outline"
+                                >
+                                    {{ __('forms.view_details') }}
+                                </a>
+                            </article>
+                        @endforeach
+                    @endif
+
                     @foreach ($additionalActionRecords[$section['id']] ?? [] as $record)
                         <x-encounter.record-card :record="$record" :section-id="$section['id']" />
                     @endforeach

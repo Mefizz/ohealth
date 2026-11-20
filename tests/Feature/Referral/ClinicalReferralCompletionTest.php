@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Referral;
 
 use App\Classes\eHealth\Api\Job;
+use App\Core\Arr;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\Api\ServiceRequest as ExecutorApi;
 use App\Classes\eHealth\EHealthResponse;
@@ -65,12 +66,12 @@ class ClinicalReferralCompletionTest extends TestCase
         $this->partialMock(DiagnosticReportPolicy::class)->shouldReceive('view')->andReturn(Response::allow());
     }
 
-    private function context(array $scopes = ['service_request:read', 'service_request:complete', 'encounter:read']): array
+    private function context(array $scopes = ['patient_summary:read', 'service_request:read', 'service_request:complete', 'encounter:read']): array
     {
         $context = $this->compositionFixture(scopes: $scopes);
         $resource = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
         $resource['id'] = (string) Str::uuid();
-        $resource['subject']['identifier']['value'] = $context['person']->uuid;
+        $resource['subject'] = ['displayValue' => 'Synthetic patient', 'identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'patient']]], 'value' => $context['person']->uuid]];
         $resource['requesterEmployee']['identifier']['value'] = $context['employee']->uuid;
         $resource['requesterLegalEntity']['identifier']['value'] = $context['legalEntity']->uuid;
         $resource['requisition'] = '1234-5678-9012-3456';
@@ -113,7 +114,7 @@ class ClinicalReferralCompletionTest extends TestCase
         $details = $component->instance()->incomingReferral();
         $this->assertSame($context['record']->uuid, $details['uuid']);
         $this->assertSame('1234-5678-9012-3456', $details['requestNumber']);
-        $this->assertSame('1.23', $details['quantity']);
+        $this->assertSame('1.23456789', $details['quantity']);
         $this->assertSame($context['employee']->party->fullName, $details['doctorName']);
         $this->assertStringContainsString('06.11.2026', $details['createdLabel']);
         $this->assertNotSame('—', $details['periodLabel']);
@@ -165,8 +166,8 @@ class ClinicalReferralCompletionTest extends TestCase
     {
         $context = $this->context();
         $context['encounter']->update(['status' => 'draft']);
-        $this->mock(ExecutorApi::class)->shouldReceive('complete')->once()->andReturn($this->response(['status' => 'pending', 'job_id' => 'fresh-encounter-completion']));
-        $this->mock(Job::class)->shouldReceive('getDetailsByHref')->once()->andReturn($this->response(['status' => 'processed', 'result' => ['status' => 'completed']]));
+        $this->partialMock(ExecutorApi::class)->shouldReceive('complete')->once()->andReturn($this->response(['status' => 'pending', 'job_id' => 'fresh-encounter-completion']));
+        $this->mock(Job::class)->shouldReceive('getDetailsByHref')->once()->andReturn($this->response(['status' => 'processed', 'result' => array_replace(Arr::toSnakeCase($context['resource']), ['status' => 'completed', 'program_processing_status' => 'completed'])]));
         $component = Livewire::test(ClinicalEncounterView::class, [
             'legalEntity' => $context['legalEntity'], 'person' => $context['person'], 'encounter' => $context['encounter'],
         ])->assertSet('showReferralRedeemModal', false);
@@ -218,7 +219,7 @@ class ClinicalReferralCompletionTest extends TestCase
         $this->mock(ExecutorApi::class)->shouldNotReceive('complete');
         $this->mock(Job::class)->shouldReceive('getDetailsByHref')->twice()
             ->with('/api/jobs/synthetic-referral-completion')
-            ->andReturn($this->response(['status' => 'pending']), $this->response(['status' => 'processed', 'result' => ['status' => 'completed']]));
+            ->andReturn($this->response(['status' => 'pending']), $this->response(['status' => 'processed', 'result' => array_replace(Arr::toSnakeCase($context['resource']), ['status' => 'completed', 'program_processing_status' => 'completed'])]));
 
         $component = Livewire::test(ClinicalEncounterView::class, [
             'legalEntity' => $context['legalEntity'], 'person' => $context['person'], 'encounter' => $context['encounter'],
@@ -291,10 +292,10 @@ class ClinicalReferralCompletionTest extends TestCase
     public function test_patient_list_completes_once_and_displays_the_confirmed_result(): void
     {
         $context = $this->context();
-        $this->mock(ExecutorApi::class)->shouldReceive('complete')->once()->with($context['record']->uuid, Mockery::on(
+        $this->partialMock(ExecutorApi::class)->shouldReceive('complete')->once()->with($context['record']->uuid, Mockery::on(
             fn (array $payload): bool => data_get($payload, 'completed_with.identifier.value') === $context['encounter']->uuid
         ))->andReturn($this->response(['status' => 'pending', 'job_id' => 'synthetic-completion']));
-        $this->mock(Job::class)->shouldReceive('getDetailsByHref')->once()->andReturn($this->response(['status' => 'processed', 'result' => ['status' => 'completed']]));
+        $this->mock(Job::class)->shouldReceive('getDetailsByHref')->once()->andReturn($this->response(['status' => 'processed', 'result' => array_replace(Arr::toSnakeCase($context['resource']), ['status' => 'completed', 'program_processing_status' => 'completed'])]));
         $component = Livewire::test(PatientReferrals::class, ['legalEntity' => $context['legalEntity'], 'personId' => $context['person']->id])
             ->call('openReferralRedeemModal', $context['record']->uuid)->assertSet('showReferralRedeemModal', true)
             ->call('redeemReferral')->assertSee(__('care-plan.submission_pending'));
@@ -351,13 +352,13 @@ class ClinicalReferralCompletionTest extends TestCase
         $api->shouldReceive('withToken')->with('synthetic-token')->andReturnSelf();
         $query = ['page_size' => 100, 'requester_legal_entity' => $context['legalEntity']->uuid];
         $api->shouldReceive('getBySearchParams')->once()->with($context['person']->uuid, $query + ['status' => 'active', 'page' => 1])
-            ->andReturn($this->response([], ['page_number' => 1, 'total_pages' => 2]));
+            ->andReturn($this->response([], ['page' => 1, 'total_pages' => 2]));
         $api->shouldReceive('getBySearchParams')->once()->with($context['person']->uuid, $query + ['status' => 'active', 'page' => 2])
-            ->andReturn($this->response([['id' => $resource['id']]], ['page_number' => 2, 'total_pages' => 2]));
+            ->andReturn($this->response([['id' => $resource['id']]], ['page' => 2, 'total_pages' => 2]));
         foreach (['completed', 'entered_in_error', 'recalled'] as $status) {
             $api->shouldReceive('getBySearchParams')->once()->with($context['person']->uuid, $query + ['status' => $status, 'page' => 1])->andReturn($this->response([]));
         }
-        $api->shouldReceive('getById')->once()->with($context['person']->uuid, $resource['id'], [], true)->andReturn($this->response($resource));
+        $api->shouldReceive('getById')->once()->with($context['person']->uuid, $resource['id'], [], true)->andReturn($this->response(Arr::toSnakeCase($resource)));
         $this->instance(ServiceRequestApi::class, $api);
         $component = Livewire::test(PatientReferrals::class, ['legalEntity' => $context['legalEntity'], 'personId' => $context['person']->id])
             ->call('sync')->assertSee(__('referrals.messages.sync_started_own'));
@@ -390,12 +391,12 @@ class ClinicalReferralCompletionTest extends TestCase
         $api->shouldReceive('withToken')->with('synthetic-token')->andReturnSelf();
         $api->shouldReceive('getBySearchParams')->once()->with($context['person']->uuid, array_replace($query, [
             'page' => 2, 'status' => 'completed',
-        ]))->andReturn($this->response([['id' => $resource['id']]], ['page_number' => 2, 'total_pages' => 3]));
+        ]))->andReturn($this->response([['id' => $resource['id']]], ['page' => 2, 'total_pages' => 3]));
         $api->shouldReceive('getBySearchParams')->once()->with($context['person']->uuid, array_replace($query, [
             'page' => 3, 'status' => 'completed',
-        ]))->andReturn($this->response([], ['page_number' => 3, 'total_pages' => 3]));
+        ]))->andReturn($this->response([], ['page' => 3, 'total_pages' => 3]));
         $api->shouldReceive('getById')->once()->with($context['person']->uuid, $resource['id'], [], true)
-            ->andReturn($this->response($resource));
+            ->andReturn($this->response(Arr::toSnakeCase($resource)));
         $this->instance(ServiceRequestApi::class, $api);
         $options = ['person_id' => $context['person']->id, 'token' => encrypt('synthetic-token', false), 'query' => $query];
         $jobs = [new ServiceRequestSync(page: 2, status: 'completed')];
@@ -465,11 +466,11 @@ class ClinicalReferralCompletionTest extends TestCase
         $row = ['id' => $record->uuid, 'status' => 'active', 'program_processing_status' => 'in_progress',
             'subject' => ['identifier' => ['value' => $context['person']->uuid]], 'category' => ['coding' => [['code' => 'imaging']]]];
         $this->partialMock(ServiceRequestApi::class)->shouldReceive('searchForServiceRequestsByParams')->times(4)->andReturn($this->response([$row]));
-        $this->mock(ExecutorApi::class)->shouldReceive('complete')->once()->with($record->uuid, Mockery::on(
+        $this->partialMock(ExecutorApi::class)->shouldReceive('complete')->once()->with($record->uuid, Mockery::on(
             fn (array $payload): bool => data_get($payload, 'completed_with.identifier.type.coding.0.code') === 'diagnostic_report'
                 && data_get($payload, 'completed_with.identifier.value') === $report->uuid
         ))->andReturn($this->response(['status' => 'pending', 'job_id' => 'diagnostic-completion']));
-        $this->mock(Job::class)->shouldReceive('getDetailsByHref')->once()->andReturn($this->response(['status' => 'processed', 'result' => ['status' => 'completed']]));
+        $this->mock(Job::class)->shouldReceive('getDetailsByHref')->once()->andReturn($this->response(['status' => 'processed', 'result' => array_replace(Arr::toSnakeCase($context['resource']), ['status' => 'completed', 'program_processing_status' => 'completed'])]));
         Livewire::test(ReferralIndex::class, ['legalEntity' => $context['legalEntity']])
             ->set('requisition', '1234-5678-9012-3456')->call('search')
             ->call('openCompleteModal', $record->uuid)->assertSet('selectedEmzType', 'diagnostic_report')

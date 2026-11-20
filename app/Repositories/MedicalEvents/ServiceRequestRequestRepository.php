@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Repositories\MedicalEvents;
 
+use App\Dto\ServiceRequest\Model as ReferralData;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\JobStatus;
 use App\Enums\Person\ServiceRequestProgramStatus;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Concerns\ResolvesRequestFhirRefs;
@@ -450,8 +452,8 @@ class ServiceRequestRequestRepository extends BaseRepository
     {
         $query = $this->model
             ->newQuery()
-            ->with(['basedOn', 'context', 'category.coding', 'priority', 'programReference'])
-            ->withExists(['ehealthLinks as submission_pending' => static fn ($query) => $query->where('status', \App\Enums\JobStatus::PENDING->value)])
+            ->with(['basedOn', 'context', 'category.coding', 'priority', 'programReference', 'employee'])
+            ->withExists(['ehealthLinks as submission_pending' => static fn ($query) => $query->where('status', JobStatus::PENDING->value)])
             ->where('person_id', $personId);
 
         $status = trim((string) ($filters['status'] ?? ''));
@@ -506,13 +508,15 @@ class ServiceRequestRequestRepository extends BaseRepository
                 ->pluck('id', 'uuid')
                 ->all();
 
-        return $requests
-            ->map(fn (ServiceRequestRequest $request): array => $this->toPatientRegistryRow(
-                $request,
-                $carePlanIdsByActivityUuid,
-                $encounterIdsByUuid
-            ))
-            ->all();
+        $user = Auth::user();
+        $legalEntity = legalEntity();
+
+        return $requests->map(function (ServiceRequestRequest $request) use ($carePlanIdsByActivityUuid, $encounterIdsByUuid, $legalEntity, $user): array {
+            $row = $this->toPatientRegistryRow($request, $carePlanIdsByActivityUuid, $encounterIdsByUuid);
+            $row['canEdit'] = $legalEntity !== null && ($user?->can('edit', [$request, $legalEntity]) ?? false);
+
+            return $row;
+        })->all();
     }
 
     /** Delegate display projection while preserving repository callers and pending-submission checks. */
@@ -546,9 +550,22 @@ class ServiceRequestRequestRepository extends BaseRepository
             ->toArray();
     }
 
-    public function findForPerson(int $id, int $personId): ServiceRequestRequest
+    public function findForPerson(int $id, int $personId, bool $lockForUpdate = false): ServiceRequestRequest
     {
-        return $this->model->newQuery()->whereKey($id)->wherePersonId($personId)->firstOrFail();
+        $query = $this->model->newQuery()->whereKey($id)->wherePersonId($personId);
+
+        return $query->when($lockForUpdate, fn ($query) => $query->lockForUpdate())->firstOrFail();
+    }
+
+    public function saveMapped(ReferralData $data, ServiceRequestRequest $request): ServiceRequestRequest
+    {
+        $data->applyTo($request);
+        if ($request->priority?->text !== $data->priority) {
+            $request->priority()->associate(CodeableConcept::firstOrCreate(['text' => $data->priority]));
+        }
+        $request->saveOrFail();
+
+        return $request;
     }
 
     public function findByUuid(string $uuid): ?ServiceRequestRequest

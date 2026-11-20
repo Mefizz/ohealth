@@ -67,6 +67,7 @@ use App\Livewire\Procedure\ProcedureEdit;
 use App\Livewire\Procedure\ProcedureIndex;
 use App\Livewire\Procedure\ProcedureView;
 use App\Livewire\Referral\EReferralEdit;
+use App\Livewire\Referral\EReferralView;
 use App\Livewire\Specimen\SpecimenCreate;
 use App\Livewire\Specimen\SpecimenEdit;
 use App\Models\CarePlan;
@@ -167,6 +168,10 @@ Route::prefix('persons')->whereNumber('person')
                 Route::get('/prescription-requests/{requestId}', PatientPrescriptionRequestView::class)
                     ->name('prescription-requests.view');
                 Route::get('/referrals', PatientReferrals::class)->name('referrals');
+                Route::get('/referrals/{serviceRequest}', EReferralView::class)
+                    ->whereNumber('serviceRequest')
+                    ->can('view', ['serviceRequest', 'person', 'legalEntity'])
+                    ->name('referrals.view');
                 Route::get('/referrals/{serviceRequest}/edit', EReferralEdit::class)
                     ->whereNumber('serviceRequest')
                     ->can('edit', ['serviceRequest', 'legalEntity'])

@@ -27,6 +27,24 @@ class ServiceRequestRequestPolicy
         return Response::allow();
     }
 
+    public function viewAny(User $user): Response
+    {
+        return $this->search($user)->allowed() && $user->can('view', Person::class)
+            ? Response::allow()
+            : Response::denyWithStatus(404);
+    }
+
+    public function view(User $user, ServiceRequestRequest $request, Person $patient, LegalEntity $legalEntity): Response
+    {
+        if ($request->personId !== $patient->id || !$legalEntity->is(legalEntity()) || $this->viewAny($user)->denied()) {
+            return Response::denyWithStatus(404);
+        }
+
+        return ServiceRequestRequest::readableBy($user, $patient, $legalEntity)->whereKey($request->id)->exists()
+            ? Response::allow()
+            : Response::denyWithStatus(404);
+    }
+
     /**
      * Determine whether the user can take an electronic referral into work.
      */

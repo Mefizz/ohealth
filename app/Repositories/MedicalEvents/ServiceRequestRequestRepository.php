@@ -54,7 +54,7 @@ class ServiceRequestRequestRepository extends BaseRepository
     public function store(array $resource, int $personId, ?int $employeeId = null, ?int $divisionId = null): int
     {
         if (empty($resource['id'])) {
-            throw new \InvalidArgumentException('A mapped Service Request requires its identity.');
+            throw new InvalidArgumentException(__('referrals.errors.identity_required'));
         }
 
         return $this->storageTransaction(function () use ($resource, $personId, $employeeId, $divisionId): int {
@@ -91,12 +91,12 @@ class ServiceRequestRequestRepository extends BaseRepository
     public function storeResource(array $resource, int $personId, ?int $employeeId = null, ?int $divisionId = null): ServiceRequestRequest
     {
         if (empty($resource['id']) || empty(data_get($resource, 'code.identifier.value'))) {
-            throw new \InvalidArgumentException('A complete Service Request requires its identity and service reference.');
+            throw new InvalidArgumentException(__('referrals.errors.identity_and_service_required'));
         }
         $person = \App\Models\Person\Person::findOrFail($personId);
         $subject = data_get($resource, 'subject.identifier.value') ?? data_get($resource, 'patient.identifier.value');
         if ($subject !== null && $subject !== $person->uuid) {
-            throw new \InvalidArgumentException('The Service Request patient does not match its import context.');
+            throw new InvalidArgumentException(__('referrals.errors.import_patient_mismatch'));
         }
         if (isset($resource['requesterEmployee']['identifier']['value'])) {
             $employeeId = Employee::whereUuid($resource['requesterEmployee']['identifier']['value'])->value('id');
@@ -105,7 +105,7 @@ class ServiceRequestRequestRepository extends BaseRepository
         return $this->storageTransaction(function () use ($resource, $personId, $employeeId, $divisionId): ServiceRequestRequest {
             $request = $this->model->newQuery()->whereUuid($resource['id'])->lockForUpdate()->first();
             if ($request !== null && $request->personId !== $personId) {
-                throw new \InvalidArgumentException('The Service Request belongs to another patient.');
+                throw new InvalidArgumentException(__('referrals.errors.different_patient'));
             }
             $request ??= new ServiceRequestRequest();
             if ($request->exists) {
@@ -117,10 +117,11 @@ class ServiceRequestRequestRepository extends BaseRepository
                 'serviceId' => data_get($resource, 'code.identifier.value'), 'quantity' => data_get($resource, 'quantity.value'),
                 'programId' => data_get($resource, 'program.identifier.value'), 'note' => $resource['note'] ?? null,
                 'patientInstruction' => $resource['patientInstruction'] ?? null,
-                'startedAt' => $this->sqlDate(data_get($resource, 'occurrencePeriod.start')), 'endedAt' => $this->sqlDate(data_get($resource, 'occurrencePeriod.end')),
-                'occurrenceDateTime' => $this->sqlDate($resource['occurrenceDateTime'] ?? null),
+                'startedAt' => formatUtcDatabaseTimestamp(data_get($resource, 'occurrencePeriod.start')),
+                'endedAt' => formatUtcDatabaseTimestamp(data_get($resource, 'occurrencePeriod.end')),
+                'occurrenceDateTime' => formatUtcDatabaseTimestamp($resource['occurrenceDateTime'] ?? null),
                 'programProcessingStatus' => $resource['programProcessingStatus'] ?? null,
-                'authoredOn' => $this->sqlDate($resource['authoredOn'] ?? null),
+                'authoredOn' => formatUtcDatabaseTimestamp($resource['authoredOn'] ?? null),
                 'explanatoryLetter' => $resource['explanatoryLetter'] ?? null,
                 'informWith' => data_get($resource, 'informWith.authMethodId'), 'detailsSyncedAt' => now(),
                 'supportingInfo' => (new ServiceRequestMapper())->fromFhir($resource)['supporting_info'],
@@ -167,7 +168,7 @@ class ServiceRequestRequestRepository extends BaseRepository
     {
         $request = is_int($request) ? $this->model->newQuery()->findOrFail($request) : $request;
         if ($request->detailsSyncedAt === null) {
-            throw new \InvalidArgumentException('Service Request requires full import or explicit draft conversion before use.');
+            throw new InvalidArgumentException(__('referrals.errors.full_import_or_conversion_required'));
         }
         $request->load($this->fhirRelations());
         $resource = [];
@@ -256,7 +257,7 @@ class ServiceRequestRequestRepository extends BaseRepository
                     continue;
                 }
                 if (!in_array(strtolower($record->status), ['draft', 'new'], true) || filled($record->requestNumber)) {
-                    throw new \InvalidArgumentException('The draft changed after preflight; repeat reconciliation.');
+                    throw new InvalidArgumentException(__('referrals.errors.draft_changed'));
                 }
                 $resource = $this->legacyDraftResource($record);
                 $this->storeResource($resource, $personId, $record->employeeId, $record->divisionId);
@@ -270,11 +271,11 @@ class ServiceRequestRequestRepository extends BaseRepository
     public function legacyDraftResource(ServiceRequestRequest $record): array
     {
         if (!in_array(strtolower($record->status), ['draft', 'new'], true) || filled($record->requestNumber)) {
-            throw new \InvalidArgumentException('Registered historical resources require a complete remote import.');
+            throw new InvalidArgumentException(__('referrals.errors.historical_import_required'));
         }
         $record->loadMissing(['employee.legalEntity', 'category.coding', 'priority', 'intent', 'basedOn.type.coding', 'context.type.coding']);
         if ($record->employee === null || $record->employee->legalEntity === null) {
-            throw new \InvalidArgumentException('Historical author identity cannot be recovered.');
+            throw new InvalidArgumentException(__('referrals.errors.historical_author_unknown'));
         }
         $data = $record->getAttributes();
         $data['category'] = $record->category?->coding?->first()?->code ?? $record->category?->text;
@@ -287,27 +288,27 @@ class ServiceRequestRequestRepository extends BaseRepository
         $contextType = $record->context?->type?->first()?->coding?->first()?->code;
         if ($data['context_uuid'] !== null && $contextType === null) {
             if (!Encounter::whereUuid($data['context_uuid'])->wherePersonId($record->personId)->exists()) {
-                throw new \InvalidArgumentException('Historical context is untyped and cannot be matched to a patient encounter.');
+                throw new InvalidArgumentException(__('referrals.errors.historical_encounter_unknown'));
             }
             $contextType = 'encounter';
         }
         $data['context_type'] = $contextType;
         $activity = $data['based_on_uuid'] ? CarePlanActivity::whereUuid($data['based_on_uuid'])->whereHas('carePlan', fn ($query) => $query->wherePersonId($record->personId))->first() : null;
         if ($data['based_on_uuid'] && $activity === null) {
-            throw new \InvalidArgumentException('The historical activity reference cannot be matched to this patient.');
+            throw new InvalidArgumentException(__('referrals.errors.historical_activity_mismatch'));
         }
         $options = ['employee_uuid' => $record->employee->uuid, 'legal_entity_uuid' => $record->employee->legalEntity->uuid, 'carePlanUuid' => $activity?->carePlan?->uuid, 'timezone' => config('app.timezone')];
         if ($record->quantity !== null) {
             $data['quantity_system'] = $activity?->quantitySystem;
             $data['quantity_code'] = $activity?->quantityCode;
             if (empty($data['quantity_system']) || empty($data['quantity_code'])) {
-                throw new \InvalidArgumentException('Historical quantity units are missing; reconciliation is required.');
+                throw new InvalidArgumentException(__('referrals.errors.historical_units_missing'));
             }
         }
         if ($activity !== null) {
             $data['service_type'] = $activity->productReferenceIdentifier?->type?->first()?->coding?->first()?->code;
             if (empty($data['service_type'])) {
-                throw new \InvalidArgumentException('Historical service/service_group type cannot be recovered.');
+                throw new InvalidArgumentException(__('referrals.errors.historical_service_type_unknown'));
             }
         }
 
@@ -404,7 +405,7 @@ class ServiceRequestRequestRepository extends BaseRepository
             return [];
         }
         if ($activity->carePlan->personId !== $personId) {
-            throw new \InvalidArgumentException('The activity belongs to another patient.');
+            throw new InvalidArgumentException(__('referrals.errors.activity_patient_mismatch'));
         }
         $type = $activity->productReferenceIdentifier?->type?->first()?->coding?->first()?->code;
         $system = $activity->quantitySystem;
@@ -431,11 +432,6 @@ class ServiceRequestRequestRepository extends BaseRepository
     private function fhirRelations(): array
     {
         return ['statusReasonConcept.coding', 'intent', 'priority', 'category.coding', 'performerType.coding', 'quantityQuantity', 'remainingQuantity', 'occurrencePeriod', ...array_map(static fn (array $entry): string => $entry[0].'.type.coding', array_values(self::FHIR_REFERENCES)), ...array_map(static fn (string $name): string => $name.'.type.coding', array_values(self::FHIR_COLLECTIONS))];
-    }
-
-    private function sqlDate(?string $value): ?string
-    {
-        return $value === null ? null : \Carbon\CarbonImmutable::parse($value, 'UTC')->utc()->format('Y-m-d H:i:s.u');
     }
 
     /**
@@ -511,8 +507,18 @@ class ServiceRequestRequestRepository extends BaseRepository
         $user = Auth::user();
         $legalEntity = legalEntity();
 
-        return $requests->map(function (ServiceRequestRequest $request) use ($carePlanIdsByActivityUuid, $encounterIdsByUuid, $legalEntity, $user): array {
+        $readableIds = [];
+        if ($requests->isNotEmpty() && $legalEntity !== null && $user?->can('viewAny', ServiceRequestRequest::class)) {
+            $patient = Person::find($personId);
+            if ($patient !== null) {
+                $readableIds = $this->model->newQuery()->readableBy($user, $patient, $legalEntity)
+                    ->whereKey($requests->modelKeys())->pluck('id')->flip()->all();
+            }
+        }
+
+        return $requests->map(function (ServiceRequestRequest $request) use ($carePlanIdsByActivityUuid, $encounterIdsByUuid, $legalEntity, $user, $readableIds): array {
             $row = $this->toPatientRegistryRow($request, $carePlanIdsByActivityUuid, $encounterIdsByUuid);
+            $row['canView'] = isset($readableIds[$request->id]);
             $row['canEdit'] = $legalEntity !== null && ($user?->can('edit', [$request, $legalEntity]) ?? false);
 
             return $row;
@@ -552,9 +558,9 @@ class ServiceRequestRequestRepository extends BaseRepository
 
     public function findForPerson(int $id, int $personId, bool $lockForUpdate = false): ServiceRequestRequest
     {
-        $query = $this->model->newQuery()->whereKey($id)->wherePersonId($personId);
-
-        return $query->when($lockForUpdate, fn ($query) => $query->lockForUpdate())->firstOrFail();
+        return $this->model->newQuery()->forPatientWithReferralContext($personId)
+            ->when($lockForUpdate, fn ($query) => $query->lockForUpdate())
+            ->findOrFail($id);
     }
 
     public function saveMapped(ReferralData $data, ServiceRequestRequest $request): ServiceRequestRequest
@@ -704,7 +710,7 @@ class ServiceRequestRequestRepository extends BaseRepository
         $existing = $this->findByUuid($resource['id']);
         if ($existing !== null) {
             if ((int) $existing->personId !== $personId) {
-                throw new \InvalidArgumentException('A Service Request UUID already belongs to another patient.');
+                throw new InvalidArgumentException(__('referrals.errors.uuid_patient_mismatch'));
             }
 
             return;
@@ -997,7 +1003,7 @@ class ServiceRequestRequestRepository extends BaseRepository
                 $data = $data[0] ?? $data;
                 $data = (new ServiceRequestMapper())->normalize($data);
                 if (isset($data['id']) && $data['id'] !== $record->uuid) {
-                    throw new \InvalidArgumentException('The processed Service Request does not match the submitted record.');
+                    throw new InvalidArgumentException(__('referrals.errors.submission_mismatch'));
                 }
                 if (isset($data['status']) && in_array(strtolower($data['status']), ['processed', 'pending', 'processing', 'success', 'failed', 'accepted', 'queued'], true)) {
                     unset($data['status']);

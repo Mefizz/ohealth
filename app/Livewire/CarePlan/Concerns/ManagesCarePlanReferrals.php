@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Concerns;
 
-use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\ServiceRequest\Resource as ReferralResource;
+use App\Dto\ServiceRequest\Status\Ehealth as ReferralStatusData;
 use App\Enums\CarePlanStatus;
-use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\Signature\SignatureException;
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\CarePlanActivity;
@@ -20,9 +21,6 @@ use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
-use App\Services\MedicalEvents\Fhir;
-use App\Services\MedicalEvents\Mappers\DeviceRequestMapper;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\Carbon;
@@ -38,11 +36,15 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use RuntimeException;
+use Symfony\Component\ObjectMapper\ObjectMapper;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 use Throwable;
 
 trait ManagesCarePlanReferrals
 {
     use SubmitsClinicalOperations;
+
+    public ServiceRequestForm $serviceRequestForm;
 
     #[Computed]
     public function referralPriorityOptions(): array
@@ -167,7 +169,7 @@ trait ManagesCarePlanReferrals
             $defaultQuantity = (float) $this->referralDevicePackageQty;
         }
 
-        $code = $activity->productCodeableConcept ?? $activity->productReference ?? 'од.';
+        $code = $activity->productCodeableConcept ?? ($activity->productReference ?? 'од.');
 
         $activityResource = Repository::carePlanActivity()->getResource($activity);
         $this->referralServiceType = data_get($activityResource, 'detail.productReference.identifier.type.coding.0.code', 'service');
@@ -227,7 +229,7 @@ trait ManagesCarePlanReferrals
             $reasonReference[] = [
                 'type' => $typeCode,
                 'uuid' => $identifier->value,
-                'name' => $grounds->get($identifier->value)['name'] ?? $identifier->displayValue ?? __('care-plan.ground_name_unavailable'),
+                'name' => $grounds->get($identifier->value)['name'] ?? ($identifier->displayValue ?? __('care-plan.ground_name_unavailable')),
             ];
         });
 
@@ -237,9 +239,9 @@ trait ManagesCarePlanReferrals
             $authMethods = EHealth::person()->getAuthMethods($this->carePlan->person->uuid)->getData();
             if (is_array($authMethods)) {
                 $this->referralAuthMethods = collect($authMethods)->map(static function (array $method): array {
-                    $uuid = (string) ($method['id'] ?? $method['uuid'] ?? '');
+                    $uuid = (string) ($method['id'] ?? ($method['uuid'] ?? ''));
                     $type = (string) ($method['type'] ?? '');
-                    $value = (string) ($method['phone_number'] ?? $method['value'] ?? '');
+                    $value = (string) ($method['phone_number'] ?? ($method['value'] ?? ''));
 
                     return [
                         'uuid' => $uuid,
@@ -453,13 +455,8 @@ trait ManagesCarePlanReferrals
     public function resendReferralSms(string $requestId, string $kind): void
     {
         $this->authorizeCarePlanActivityWrite();
-        if ($kind === 'device_request') {
-            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
-
-            return;
-        }
         try {
-            app(MedicalRequestOwnership::class)
+            $record = $kind === 'device_request' ? null : app(MedicalRequestOwnership::class)
                 ->referralForPerson($requestId, (int) $this->carePlan->personId);
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
@@ -469,16 +466,30 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        try {
-            $response = app(ReferralRequestLifecycleService::class)->resendSms($this->carePlan->person->uuid, $requestId, $kind);
+        if ($kind === 'device_request' || $record instanceof DeviceRequestRequest) {
+            $this->redirectRoute('persons.device-requests', ['legalEntity' => legalEntity(), 'person' => $this->carePlan->person]);
 
-            if ($response->successful()) {
-                Session::flash('success', __('care-plan.referral_sms_resent'));
+            return;
+        }
+        if (Auth::user()->cannot('use', ServiceRequestRequest::class)) {
+            Session::flash('error', __('service-requests.policy.use'));
+
+            return;
+        }
+
+        try {
+            if (Auth::user()->cannot('resendSms', $record)) {
+                Session::flash('error', __('referrals.messages.action_unavailable'));
 
                 return;
             }
-
-            Session::flash('error', __('Не вдалося повторно надіслати СМС: ') . json_encode($response->getData()));
+            $result = RemoteEHealthLinksProcessing::submitOperation(
+                $record, [], fn () => EHealth::serviceRequest()->resendSms($this->carePlan->person->uuid, $record->uuid),
+                'service_request:use', ['sms' => true]
+            );
+            if ($result !== null) {
+                Session::flash('success', __('care-plan.referral_sms_resent'));
+            }
         } catch (EHealthValidationException $exception) {
             Log::error('CarePlanShow: failed to resend referral SMS validation: ' . $exception->getTranslatedMessage());
             Session::flash('error', $exception->getTranslatedMessage());
@@ -533,28 +544,22 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        if (Auth::user()->cannot('sign', $requestRecord)) {
+            Session::flash('error', __('referrals.messages.action_unavailable'));
+
+            return;
+        }
+
         try {
             $activity = $this->ownedActivityByBasedOnUuid($requestRecord->basedOn?->value);
-
-            $employeeContext = $this->resolveReferralEmployeeContext($requestRecord, $activity);
-
-            $uuids = [
-                'person_uuid' => $this->carePlan->person->uuid,
-                'encounter_uuid' => $this->carePlan->encounter?->uuid ?? null,
-                'episode_uuid' => $this->carePlan->episodeUuid(),
-                'employee_uuid' => $employeeContext['employee_uuid'],
-                'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
-            ];
 
             $dbData = $this->buildReferralSignDbData($requestRecord, $activity);
             $this->assertReferralOccurrencePeriod($dbData);
 
-            if ($kind === 'service_request') {
-                $resource = Fhir::serviceRequest()->toFhir($dbData, $uuids + ['carePlanUuid' => $this->carePlan->uuid, 'resource' => MedicalEventsRepository::serviceRequest()->getResource($requestRecord)]);
-                $signPayload = ServiceRequestForm::buildCreateContent($resource);
-            } else {
-                $signPayload = (new DeviceRequestMapper())->toCreateSignedContent($dbData, $uuids, (string) $this->carePlan->uuid, (string) $activity->uuid);
-            }
+            // Sign the persisted draft, so reopening the KEP form cannot rebuild a different FHIR graph.
+            $resource = MedicalEventsRepository::serviceRequest()->getResource($requestRecord);
+            $this->serviceRequestForm->setCreate($resource);
+            $signPayload = (new ReferralResource($this->serviceRequestForm->resource))->createContent();
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -565,20 +570,16 @@ trait ManagesCarePlanReferrals
             );
 
             $this->assertReferralOccurrencePeriod($dbData);
-            $requestRecord = MedicalEventsRepository::serviceRequest()->storeResource($resource, $this->carePlan->personId, $requestRecord->employeeId, $requestRecord->divisionId);
-            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($this->carePlan->person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => EHealth::serviceRequest()->createSigned($this->carePlan->person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), signedReferralSnapshot: $resource);
             if ($finalResponse === null) {
                 $this->redirectRoute('care-plans.activities.show', [legalEntity(), $this->carePlan->id, $activity->id], navigate: true);
 
                 return;
             }
 
-            $dbData = app(ReferralRequestLifecycleService::class)->persistAfterSignedCreate(
-                $dbData,
-                $finalResponse,
-                $kind,
-                (int) $this->carePlan->personId
-            );
+            // The submission pipeline already persisted the validated terminal resource.
+            $requestRecord->refresh();
+            $dbData = ['status' => $requestRecord->status, 'request_number' => $requestRecord->requestNumber];
 
             $this->finalizeSignedReferral($dbData, $kind, $activity, alreadyPersisted: true);
 
@@ -588,8 +589,10 @@ trait ManagesCarePlanReferrals
             $this->actionType = '';
 
         } catch (ValidationException $exception) {
-            $this->showSignatureModal = false;
-            $this->initReferralForm($activity->id);
+            if (isset($activity) && $exception->validator->errors()->has('referralForm.*')) {
+                $this->showSignatureModal = false;
+                $this->initReferralForm($activity->id);
+            }
             $this->setErrorBag($exception->validator->errors());
             $this->flashUserError($exception->validator->errors()->first());
         } catch (EHealthValidationException $e) {
@@ -683,12 +686,19 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        if (Auth::user()->cannot('recall', $record)) {
+            Session::flash('error', __('referrals.messages.action_unavailable'));
+
+            return;
+        }
+
         $this->validate(['statusReason' => ['required', 'string']]);
         try {
             $api = EHealth::serviceRequest();
             $snapshot = $this->fetchServiceRequestSnapshot($this->carePlan->person->uuid, $record->uuid);
-            $record = MedicalEventsRepository::serviceRequest()->storeResource((new ServiceRequestMapper())->normalize($snapshot), (int) $this->carePlan->personId, $record->employeeId, $record->divisionId);
-            $payload = ServiceRequestForm::buildStatusContent($snapshot, $this->statusReason, $letter, 'eHealth/service_request_recall_reasons');
+            $this->serviceRequestForm->setStatus($snapshot, $this->statusReason, $letter, 'eHealth/service_request_recall_reasons');
+            $payload = (new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor()))
+                ->map($this->serviceRequestForm, ReferralStatusData::class)->toArray();
 
             $signedContent = signatureService()->signData(
                 $payload,
@@ -698,20 +708,20 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'recalled', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => $letter], fn () => SubmissionApi::serviceRequest()->recall($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:recall');
+            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'recalled', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => $letter], fn () => EHealth::serviceRequest()->recall($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:recall');
             if ($finalResponse === null) {
                 return;
             }
 
-            $this->persistReferralStatusFromJob(
-                $finalResponse,
-                $record,
-                ServiceRequestStatus::RECALLED
-            );
+            // The submission pipeline already persisted the validated clinical resource.
+            $record->refresh();
             $this->showSignatureModal = false;
             $this->referralExplanatoryLetter = '';
             $this->refreshCarePlan();
             Session::flash('success', __('care-plan.referral_recall_success'));
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
+            $this->flashUserError($exception->validator->errors()->first());
         } catch (EHealthValidationException $e) {
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to recall referral validation: '.$translatedMsg);
@@ -762,6 +772,12 @@ trait ManagesCarePlanReferrals
             return;
         }
 
+        if (Auth::user()->cannot('cancel', $record)) {
+            Session::flash('error', __('referrals.messages.action_unavailable'));
+
+            return;
+        }
+
         try {
             $payload = [
                 'status_reason' => $this->statusReason ?: 'entered-in-error'
@@ -770,8 +786,9 @@ trait ManagesCarePlanReferrals
             if ($kind === 'service_request') {
                 $api = EHealth::serviceRequest();
                 $snapshot = $this->fetchServiceRequestSnapshot($this->carePlan->person->uuid, $record->uuid);
-                $record = MedicalEventsRepository::serviceRequest()->storeResource((new ServiceRequestMapper())->normalize($snapshot), (int) $this->carePlan->personId, $record->employeeId, $record->divisionId);
-                $payload = ServiceRequestForm::buildStatusContent($snapshot, $this->statusReason, trim($this->referralExplanatoryLetter), 'eHealth/service_request_cancel_reasons');
+                    $this->serviceRequestForm->setStatus($snapshot, $this->statusReason, trim($this->referralExplanatoryLetter), 'eHealth/service_request_cancel_reasons');
+                $payload = (new ObjectMapper(propertyAccessor: PropertyAccess::createPropertyAccessor()))
+                    ->map($this->serviceRequestForm, ReferralStatusData::class)->toArray();
             }
 
             $signedContent = signatureService()->signData(
@@ -782,19 +799,19 @@ trait ManagesCarePlanReferrals
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'entered-in-error', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => trim($this->referralExplanatoryLetter)], fn () => SubmissionApi::serviceRequest()->cancel($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:cancel');
+            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'entered-in-error', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => trim($this->referralExplanatoryLetter)], fn () => EHealth::serviceRequest()->cancel($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:cancel');
             if ($finalResponse === null) {
                 return;
             }
 
-            $this->persistReferralStatusFromJob(
-                $finalResponse,
-                $record,
-                ServiceRequestStatus::ENTERED_IN_ERROR
-            );
+            // The submission pipeline already persisted the validated clinical resource.
+            $record->refresh();
             $this->showSignatureModal = false;
             $this->refreshCarePlan();
             Session::flash('success', __('care-plan.referral_cancel_success'));
+        } catch (ValidationException $exception) {
+            $this->setErrorBag($exception->validator->errors());
+            $this->flashUserError($exception->validator->errors()->first());
         } catch (EHealthValidationException $e) {
             $translatedMsg = $e->getTranslatedMessage();
             Log::error('CarePlanShow: failed to cancel referral validation: ' . $translatedMsg);
@@ -1083,7 +1100,7 @@ trait ManagesCarePlanReferrals
 
             $packaging = $device['packaging'] ?? null;
             $count = is_array($packaging)
-                ? (int) ($packaging['packaging_count'] ?? $packaging['packagingCount'] ?? 0)
+                ? (int) ($packaging['packaging_count'] ?? ($packaging['packagingCount'] ?? 0))
                 : 0;
 
             return max(0, $count);
@@ -1125,7 +1142,7 @@ trait ManagesCarePlanReferrals
             $filters['page'] = $page;
             $response = EHealth::deviceDefinition()->getMany($filters);
             $device = collect($response->getData())->first(
-                static fn (array $item): bool => (string) ($item['id'] ?? $item['uuid'] ?? '') === $reference
+                static fn (array $item): bool => (string) ($item['id'] ?? ($item['uuid'] ?? '')) === $reference
             );
 
             if (is_array($device)) {
@@ -1150,25 +1167,7 @@ trait ManagesCarePlanReferrals
         Session::flash('success', $message);
     }
 
-    /**
-     * @param  array<string, mixed>  $finalResponse
-     */
-    protected function persistReferralStatusFromJob(
-        array $finalResponse,
-        ServiceRequestRequest|DeviceRequestRequest $record,
-        ServiceRequestStatus $fallback
-    ): void {
-        $result = $finalResponse['result'] ?? null;
-        $entity = is_array($result) ? ($result[0] ?? $result) : $finalResponse;
-        $raw = is_array($entity) ? ($entity['status'] ?? null) : null;
-        $resolved = is_string($raw) ? ServiceRequestStatus::resolve($raw) : null;
 
-        if ($record instanceof ServiceRequestRequest) {
-            MedicalEventsRepository::serviceRequest()->updateClinicalStatus($record, ($resolved ?? $fallback)->value);
-        } else {
-            MedicalEventsRepository::deviceRequest()->saveStatus($record, ($resolved ?? $fallback)->value);
-        }
-    }
 
     /**
      * @return array{

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Livewire\EncounterPackage\Concerns;
 
-use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Classes\eHealth\EHealth;
+use App\Dto\ServiceRequest\Resource as ReferralResource;
 use App\Enums\JobStatus;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
-use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\Signature\SignatureException;
 use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\MedicalEvents\Sql\Encounter;
@@ -20,7 +20,6 @@ use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
 use App\Services\Dictionary\ServiceSearch;
 use App\Services\MedicalEvents\InformWith;
-use App\Services\MedicalEvents\Mappers\ServiceRequestMapper;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\CarbonImmutable;
@@ -41,6 +40,8 @@ use Throwable;
 trait ManagesEncounterReferrals
 {
     use SubmitsClinicalOperations;
+
+    public ServiceRequestForm $serviceRequestForm;
 
     // Uses ResolvesEncounterStandaloneContext via EncounterEdit.
 
@@ -506,32 +507,26 @@ trait ManagesEncounterReferrals
 
                 return;
             }
+            if (Auth::user()->cannot('sign', $requestRecord)) {
+                Session::flash('error', __('referrals.messages.action_unavailable'));
+
+                return;
+            }
             $person = Person::find($encounter->person_id);
             if ($person === null || empty($person->uuid)) {
                 throw new RuntimeException(__('Пацієнта не знайдено'));
             }
 
-            $lifecycle = app(ReferralRequestLifecycleService::class);
-            $employeeContext = $lifecycle->resolveEncounterEmployeeContext(
-                $encounter,
-                $requestRecord->employeeId ?? Auth::user()?->activeDoctorEmployee()?->id
-            );
-
-            $dbData = $lifecycle->buildSignDbData($requestRecord, null, $encounter, $employeeContext);
-
+            $resource = MedicalEventsRepository::serviceRequest()->getResource($requestRecord);
+            $dbData = [
+                'started_at' => data_get($resource, 'occurrencePeriod.start'),
+                'ended_at' => data_get($resource, 'occurrencePeriod.end'),
+                'priority' => $resource['priority'] ?? 'routine',
+            ];
             $this->assertEncounterReferralPeriod($dbData);
             $validated = $this->form->validate($this->form->signingRules());
-
-            $uuids = [
-                'person_uuid' => $person->uuid,
-                'encounter_uuid' => $encounter->uuid,
-                'episode_uuid' => $encounter->episode?->value ?? null,
-                'employee_uuid' => $employeeContext['employee_uuid'],
-                'legal_entity_uuid' => $employeeContext['legal_entity_uuid'],
-            ];
-
-            $resource = (new ServiceRequestMapper())->toFhir($dbData, $uuids + ['resource' => MedicalEventsRepository::serviceRequest()->getResource($requestRecord)]);
-            $signPayload = ServiceRequestForm::buildCreateContent($resource);
+            $this->serviceRequestForm->setCreate($resource);
+            $signPayload = (new ReferralResource($this->serviceRequestForm->resource))->createContent();
 
             $signedContent = signatureService()->signData(
                 $signPayload,
@@ -542,20 +537,12 @@ trait ManagesEncounterReferrals
             );
 
             $this->assertEncounterReferralPeriod($dbData);
-            $requestRecord = MedicalEventsRepository::serviceRequest()->storeResource($resource, (int) $encounter->person_id, $requestRecord->employeeId, $requestRecord->divisionId);
-            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => EHealth::serviceRequest()->createSigned($person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), signedReferralSnapshot: $resource);
             if ($finalResponse === null) {
                 return;
             }
 
-            $dbData = $lifecycle->persistAfterSignedCreate(
-                $dbData,
-                $finalResponse,
-                'service_request',
-                (int) $encounter->person_id
-            );
-
-            $requestRecord->requestNumber = $dbData['request_number'] ?? null;
+            $requestRecord->refresh();
             $this->completeEncounterReferralSubmission($requestRecord);
         } catch (ValidationException $exception) {
             if (array_intersect(array_keys($exception->errors()), ['form.knedp', 'form.password', 'form.keyContainerUpload']) === []) {
@@ -623,7 +610,7 @@ trait ManagesEncounterReferrals
             try {
                 $person = $repository->person((int) $encounter->person_id);
                 $remote = app(ReferralRequestLifecycleService::class)->fetchRemoteReferral($person->uuid, $record->uuid, 'service_request');
-                $record = $repository->importResource((new ServiceRequestMapper())->normalize($remote), $record->personId, $record->employeeId, $record->divisionId);
+                $record = $repository->importMappedResource((new ReferralResource($remote))->modelData(), $record->personId, $record->employeeId, $record->divisionId);
             } catch (Throwable $exception) {
                 report($exception);
                 Session::flash('warning', __('referrals.submission_refresh_failed'));
@@ -646,7 +633,7 @@ trait ManagesEncounterReferrals
                 $repository = MedicalEventsRepository::serviceRequest();
                 $person = $repository->person((int) $record->personId);
                 $remote = app(ReferralRequestLifecycleService::class)->fetchRemoteReferral($person->uuid, $record->uuid, 'service_request');
-                $number = $remote['requisition'] ?? $remote['request_number'] ?? null;
+                $number = $remote['requisition'] ?? ($remote['request_number'] ?? null);
                 if (is_string($number) && $number !== '') {
                     $repository->updateRequestNumber($record->uuid, $number);
                     $record->requestNumber = $number;
@@ -815,7 +802,7 @@ trait ManagesEncounterReferrals
                     throw new RuntimeException(__('encounters.referral_divisions_invalid_response'));
                 }
                 $rows = [...$rows, ...$entries];
-                $totalPages = (int) ($data['total_pages'] ?? $response->getPaging()['total_pages'] ?? $page);
+                $totalPages = (int) ($data['total_pages'] ?? ($response->getPaging()['total_pages'] ?? $page));
                 $page++;
             } while ($page <= $totalPages);
         } catch (Throwable $exception) {
@@ -831,12 +818,12 @@ trait ManagesEncounterReferrals
                 continue;
             }
 
-            $id = (string) ($row['id'] ?? $row['uuid'] ?? '');
+            $id = (string) ($row['id'] ?? ($row['uuid'] ?? ''));
             // The public registry filters by destination LE; some rows only expose its name.
-            $owner = (string) ($row['legal_entity_id'] ?? $row['legal_entity_uuid'] ?? data_get($row, 'legal_entity.id') ?? $legalEntityUuid);
+            $owner = (string) ($row['legal_entity_id'] ?? ($row['legal_entity_uuid'] ?? (data_get($row, 'legal_entity.id') ?? $legalEntityUuid)));
             $type = (string) ($row['type'] ?? '');
             $status = strtoupper((string) ($row['status'] ?? ''));
-            $active = $row['is_active'] ?? $row['isActive'] ?? true;
+            $active = $row['is_active'] ?? ($row['isActive'] ?? true);
 
             // Registry rows may omit status. eHealth prequalify validates the chosen division before persistence.
             if (!Str::isUuid($id) || $owner !== $legalEntityUuid || ($status !== '' && $status !== 'ACTIVE') || $active === false) {
@@ -898,9 +885,9 @@ trait ManagesEncounterReferrals
             }
 
             $this->encounterReferralAuthMethods = collect($authMethods)->map(static function (array $method): array {
-                $uuid = (string) ($method['id'] ?? $method['uuid'] ?? '');
+                $uuid = (string) ($method['id'] ?? ($method['uuid'] ?? ''));
                 $type = (string) ($method['type'] ?? '');
-                $phone = (string) ($method['phone_number'] ?? $method['value'] ?? '');
+                $phone = (string) ($method['phone_number'] ?? ($method['value'] ?? ''));
 
                 return [
                     'uuid' => $uuid,

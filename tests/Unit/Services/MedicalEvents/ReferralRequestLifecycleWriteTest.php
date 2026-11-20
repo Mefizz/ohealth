@@ -4,151 +4,74 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\MedicalEvents;
 
-use App\Classes\eHealth\Api\Patient\DeviceRequest as DeviceRequestApi;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
-use App\Services\MedicalEvents\EHealthJobResolver;
-use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use Mockery;
+use App\Core\Arr;
+use GuzzleHttp\Psr7\Response;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ReferralRequestLifecycleWriteTest extends TestCase
 {
-    public function test_submit_signed_create_routes_service_and_device_requests(): void
+    public function test_pending_receipt_is_validated_without_polling(): void
     {
-        $payload = [
-            'signed_data' => 'signed',
-            'signed_data_encoding' => 'base64',
-        ];
+        $receipt = ['status' => 'pending', 'links' => [['entity' => 'job', 'href' => '/api/jobs/synthetic-job']]];
+        $response = new EHealthResponse(new Response(202, [], json_encode(['data' => $receipt], JSON_THROW_ON_ERROR)));
 
-        $serviceResponse = Mockery::mock(EHealthResponse::class);
-        $serviceResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $serviceResponse->shouldReceive('getData')->once()->andReturn(['id' => 'sr-uuid', 'status' => 'active']);
-        $serviceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
-        $serviceApi->shouldReceive('createSigned')->once()->with('person-uuid', $payload)->andReturn($serviceResponse);
-        $this->instance(ServiceRequestApi::class, $serviceApi);
-
-        $deviceResponse = Mockery::mock(EHealthResponse::class);
-        $deviceResponse->shouldReceive('getData')->once()->andReturn(['job_id' => 'job-dr']);
-        $deviceApi = Mockery::mock(DeviceRequestApi::class);
-        $deviceApi->shouldReceive('createSigned')->once()->with('person-uuid', $payload)->andReturn($deviceResponse);
-        $this->instance(DeviceRequestApi::class, $deviceApi);
-
-        $resolver = Mockery::mock(EHealthJobResolver::class);
-        $resolver->shouldReceive('resolve')
-            ->once()
-            ->andReturn(['id' => 'dr-uuid']);
-        $this->app->instance(EHealthJobResolver::class, $resolver);
-
-        $service = app(ReferralRequestLifecycleService::class);
-
-        $this->assertSame('sr-uuid', $service->submitSignedCreate('service_request', 'person-uuid', 'signed')['id']);
-        $this->assertSame('dr-uuid', $service->submitSignedCreate('device_request', 'person-uuid', 'signed')['id']);
+        $this->assertSame($receipt, app(ServiceRequestApi::class)->validateOperation($response));
     }
 
-    public function test_confirmed_signed_cancel_and_recall_do_not_poll_jobs(): void
+    public function test_incomplete_synchronous_response_is_rejected(): void
     {
-        $this->mock(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class)
-            ->shouldReceive('findByUuid')->with('sr-uuid')->twice()->andReturnNull();
-        $cancelPayload = [
-            'signed_data' => 'signed',
-            'signed_data_encoding' => 'base64',
-            'status_reason' => 'entered-in-error',
-        ];
-        $recallPayload = [
-            'signed_data' => 'signed',
-            'signed_data_encoding' => 'base64',
-            'explanatory_letter' => 'Не потрібно',
-        ];
+        $response = new EHealthResponse(new Response(201, [], json_encode(['data' => ['status' => 'recalled']], JSON_THROW_ON_ERROR)));
+        $this->expectException(ValidationException::class);
 
-        $cancelResponse = Mockery::mock(EHealthResponse::class);
-        $cancelResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $cancelResponse->shouldReceive('getData')->once()->andReturn(['status' => 'entered-in-error']);
-        $recallResponse = Mockery::mock(EHealthResponse::class);
-        $recallResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $recallResponse->shouldReceive('getData')->once()->andReturn(['status' => 'recalled']);
-
-        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
-        $api->shouldReceive('cancel')->once()->with('person-uuid', 'sr-uuid', array_intersect_key($cancelPayload, array_flip(['signed_data', 'signed_data_encoding'])))->andReturn($cancelResponse);
-        $api->shouldReceive('recall')->once()->with('person-uuid', 'sr-uuid', array_intersect_key($recallPayload, array_flip(['signed_data', 'signed_data_encoding'])))->andReturn($recallResponse);
-        $this->instance(ServiceRequestApi::class, $api);
-
-        $resolver = Mockery::mock(EHealthJobResolver::class);
-        $resolver->shouldNotReceive('resolve');
-        $this->app->instance(EHealthJobResolver::class, $resolver);
-
-        $service = app(ReferralRequestLifecycleService::class);
-
-        $this->assertSame('entered-in-error', $service->submitSignedCancel(
-            'service_request',
-            'person-uuid',
-            'sr-uuid',
-            $cancelPayload
-        )['status']);
-        $this->assertSame('recalled', $service->submitSignedRecall('person-uuid', 'sr-uuid', $recallPayload)['status']);
+        app(ServiceRequestApi::class)->validateOperation($response);
     }
 
-    public function test_remote_only_signed_mutations_return_pending_receipts_without_polling(): void
+    public function test_pending_receipt_cannot_claim_a_clinical_status(): void
     {
-        $this->mock(\App\Repositories\MedicalEvents\ServiceRequestRequestRepository::class)
-            ->shouldReceive('findByUuid')->with('sr-uuid')->andReturnNull();
-        $resolver = Mockery::mock(EHealthJobResolver::class);
-        $resolver->shouldNotReceive('resolve');
-        $this->instance(EHealthJobResolver::class, $resolver);
-        $api = Mockery::mock(ServiceRequestApi::class);
-        $pending = [
-            [],
-            ['id' => 'sr-uuid', 'status' => 'active'],
-            ['job_id' => 'synthetic-job'],
-            ['links' => [['href' => '/service_requests/sr-uuid'], ['href' => '/jobs/synthetic-job']]],
-            ['status' => 'pending'],
-            ['status' => 'accepted'],
-            ['status' => 'queued'],
-        ];
-        foreach ($pending as $index => $data) {
-            $response = new EHealthResponse(new \GuzzleHttp\Psr7\Response($index < 2 ? 202 : 200, [], json_encode(['data' => $data], JSON_THROW_ON_ERROR)));
-            $api->shouldReceive('createSigned')->once()->andReturn($response);
-            $api->shouldReceive('cancel')->once()->andReturn($response);
-            $api->shouldReceive('recall')->once()->andReturn($response);
+        $response = new EHealthResponse(new Response(202, [], json_encode(['data' => ['status' => 'active']], JSON_THROW_ON_ERROR)));
+        $this->expectException(ValidationException::class);
+
+        app(ServiceRequestApi::class)->validateOperation($response);
+    }
+
+    public function test_incomplete_embedded_job_resource_is_rejected(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        app(ServiceRequestApi::class)->validateJobResult(['status' => 'processed', 'result' => ['id' => 'synthetic', 'status' => 'active']]);
+    }
+
+    public function test_empty_job_envelope_requires_a_separate_detail_read(): void
+    {
+        $result = app(ServiceRequestApi::class)->validateJobResult(['status' => 'processed', 'response_data' => ['data' => []]]);
+
+        $this->assertArrayNotHasKey('response_data', $result);
+    }
+
+    public function test_multiple_job_resources_are_rejected(): void
+    {
+        $first = Arr::toSnakeCase(json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR));
+        $first['subject'] = ['display_value' => 'Synthetic patient'];
+        $second = array_replace($first, ['id' => '10050000-0000-4000-8000-000000000999']);
+        $api = app(ServiceRequestApi::class);
+        foreach ([$first, $second] as $resource) {
+            $this->assertSame($resource, $api->validateResource($resource));
         }
-        $this->instance(ServiceRequestApi::class, $api);
-        $service = app(ReferralRequestLifecycleService::class);
-        foreach ($pending as $data) {
-            $payload = ['signed_data' => 'synthetic-signature', 'explanatory_letter' => 'Synthetic explanation'];
-            $this->assertSame(['submissionPending' => true] + $data, $service->submitSignedCreate('service_request', 'person-uuid', 'synthetic-signature'));
-            $this->assertSame(['submissionPending' => true] + $data, $service->submitSignedCancel('service_request', 'person-uuid', 'sr-uuid', $payload));
-            $this->assertSame(['submissionPending' => true] + $data, $service->submitSignedRecall('person-uuid', 'sr-uuid', $payload));
-        }
+        $this->expectException(ValidationException::class);
+        $api->validateJobResult(['status' => 'processed', 'result' => [$first, $second]]);
     }
 
-    public function test_recall_requires_an_explanatory_letter(): void
+    public function test_complete_embedded_resource_keeps_zero_and_unknown_extensions(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $resource = Arr::toSnakeCase(json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR));
+        $resource['subject'] = ['display_value' => 'Synthetic patient'];
+        $resource['remote_extension'] = ['flag' => false, 'empty' => []];
+        $actual = app(ServiceRequestApi::class)->validateJobResult(['status' => 'processed', 'result' => ['data' => $resource]]);
 
-        app(ReferralRequestLifecycleService::class)->submitSignedRecall('person-uuid', 'sr-uuid', [
-            'signed_data' => 'signed',
-            'explanatory_letter' => '   ',
-        ]);
-    }
-
-    public function test_extract_signed_create_entity_unwraps_job_result_data(): void
-    {
-        $service = app(ReferralRequestLifecycleService::class);
-        $method = new \ReflectionMethod(ReferralRequestLifecycleService::class, 'extractSignedCreateEntity');
-
-        $entity = $method->invoke($service, [
-            'status' => 'processed',
-            'result' => [
-                'data' => [
-                    'id' => 'sr-uuid',
-                    'status' => 'active',
-                    'requisition' => '0000-AAAA-BBBB-CCCC',
-                ],
-            ],
-        ]);
-
-        $this->assertSame('sr-uuid', $entity['id']);
-        $this->assertSame('active', $entity['status']);
-        $this->assertSame('0000-AAAA-BBBB-CCCC', $entity['requisition']);
+        $this->assertSame($resource, $actual['response_data']);
+        $this->assertSame(0, $actual['response_data']['remaining_quantity']['value']);
     }
 }

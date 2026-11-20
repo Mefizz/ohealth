@@ -8,9 +8,7 @@ use App\Enums\JobStatus;
 use App\Enums\Person\DiagnosticReportStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
-use App\Models\Declaration;
 use App\Models\Employee\Employee;
-use App\Models\MedicalEvents\Sql\Approval;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\Person\Person;
 use App\Models\Preperson;
@@ -42,14 +40,7 @@ class DiagnosticReportPolicy
             return Response::denyWithStatus(404);
         }
 
-        $hasPatientAccess = Declaration::accessGrantedTo($user, $patient, legalEntity())->exists()
-            || Approval::accessGrantedTo($user, $patient, legalEntity())->exists();
-
-        $isReadable = DiagnosticReport::readableFor($patient, $hasPatientAccess)->whereKey($diagnosticReport->id)->exists()
-            || (Approval::resourceAccessGrantedTo($user, $diagnosticReport, legalEntity())->exists()
-                && DiagnosticReport::forPatient($patient)->whereKey($diagnosticReport->id)->exists())
-            || DiagnosticReport::basedOnApprovedCarePlan($patient, $user, legalEntity())->whereKey($diagnosticReport->id)->exists()
-            || DiagnosticReport::basedOnCarePlanOfLegalEntity($patient)->whereKey($diagnosticReport->id)->exists();
+        $isReadable = DiagnosticReport::readableBy($user, $patient, legalEntity())->whereKey($diagnosticReport->id)->exists();
 
         return $isReadable ? Response::allow() : Response::denyWithStatus(404);
     }

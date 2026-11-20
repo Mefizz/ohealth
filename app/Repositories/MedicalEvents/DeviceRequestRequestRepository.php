@@ -18,7 +18,9 @@ use App\Models\LegalEntity;
 use App\Models\User;
 use App\Enums\Person\EncounterStatus;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use App\Repositories\MedicalEvents\Concerns\ResolvesRequestFhirRefs;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
@@ -168,8 +170,16 @@ class DeviceRequestRequestRepository extends BaseRepository
      */
     public function searchByPersonId(int $personId, array $filters = []): array
     {
+        $user = Auth::user();
+        $legalEntity = legalEntity();
+        if ($legalEntity === null || $user === null || $user->cannot('viewAny', DeviceRequestRequest::class)) {
+            return [];
+        }
+        $person = Person::findOrFail($personId);
         $query = $this->model
             ->newQuery()
+            ->when($user->cannot('viewAllForPatient', [DeviceRequestRequest::class, $person]),
+                fn (Builder $query) => $query->whereHas('employee', fn (Builder $employee) => $employee->where('legal_entity_id', $legalEntity->id)))
             ->with(['basedOn', 'context', 'category', 'priority'])
             ->where('person_id', $personId);
 

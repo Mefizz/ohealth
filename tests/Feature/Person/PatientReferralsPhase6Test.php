@@ -13,6 +13,7 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Models\Permission;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;
@@ -237,6 +238,8 @@ class PatientReferralsPhase6Test extends TestCase
 
     public function test_repository_filters_by_status_and_period(): void
     {
+        $this->grantRegistryReadPermissions();
+
         ServiceRequestRequest::create([
             'uuid' => (string) Str::uuid(),
             'employee_id' => $this->employee->id,
@@ -286,6 +289,8 @@ class PatientReferralsPhase6Test extends TestCase
 
     public function test_registry_row_marks_draft_as_signable_and_maps_category(): void
     {
+        $this->grantRegistryReadPermissions();
+
         $uuid = (string) Str::uuid();
         ServiceRequestRequest::create([
             'uuid' => $uuid,
@@ -320,6 +325,8 @@ class PatientReferralsPhase6Test extends TestCase
 
     public function test_registry_row_keeps_requisition_separate_from_uuid(): void
     {
+        $this->grantRegistryReadPermissions();
+
         $uuid = (string) Str::uuid();
         ServiceRequestRequest::create([
             'uuid' => $uuid,
@@ -342,5 +349,12 @@ class PatientReferralsPhase6Test extends TestCase
         $this->assertSame('0000-SMS1-NUMB-ER01', $rows[0]['requestNumber']);
         $this->assertSame($uuid, $rows[0]['uuid']);
         $this->assertNotSame($rows[0]['requestNumber'], $rows[0]['uuid']);
+    }
+
+    private function grantRegistryReadPermissions(): void
+    {
+        setPermissionsTeamId($this->legalEntity->id);
+        $this->user->givePermissionToParent(Permission::findOrCreate('patient_summary:read', 'web'));
+        $this->user->givePermissionToParent(Permission::findOrCreate('service_request:read', 'web'));
     }
 }

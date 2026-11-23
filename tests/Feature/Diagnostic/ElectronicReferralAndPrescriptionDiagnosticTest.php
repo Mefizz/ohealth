@@ -308,12 +308,13 @@ class ElectronicReferralAndPrescriptionDiagnosticTest extends TestCase
     private function mockRemoteReferral(string $uuid, string $programId): void
     {
         $api = Mockery::mock(PatientServiceRequest::class)->makePartial();
-        $api->shouldReceive('getById')->once()->with($this->person->uuid, $uuid)
-            ->andReturn($this->responseWithData([
-                'id' => $uuid, 'status' => 'active', 'program_processing_status' => 'new',
-                'subject' => ['identifier' => ['value' => $this->person->uuid]],
-                'program' => ['identifier' => ['value' => $programId]],
-            ]));
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('validate')->once()->andReturn([
+            'id' => $uuid, 'status' => 'active', 'program_processing_status' => 'new',
+            'subject' => ['identifier' => ['value' => $this->person->uuid]],
+            'program' => ['identifier' => ['value' => $programId]],
+        ]);
+        $api->shouldReceive('getById')->once()->with($this->person->uuid, $uuid, [], true)->andReturn($response);
         $this->instance(PatientServiceRequest::class, $api);
     }
 

@@ -351,7 +351,7 @@ class ReferralExecutorPhase4Test extends TestCase
         ])->andReturn($this->remoteResponse(['status' => 'completed']));
         $this->instance(ServiceRequestApi::class, $api);
         app(PatientServiceRequestApi::class)->shouldReceive('getById')->once()
-            ->with($this->person->uuid, $record->uuid)
+            ->with($this->person->uuid, $record->uuid, [], true)
             ->andReturn($this->remoteResponse($this->remoteReferral($record)));
         $lifecycle = app(ReferralRequestLifecycleService::class);
 

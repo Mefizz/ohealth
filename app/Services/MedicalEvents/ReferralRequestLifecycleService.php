@@ -537,10 +537,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
         }
 
         try {
-            $response = $kind === 'service_request'
-                ? EHealth::serviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid)
-                : EHealth::deviceRequest()->getById((string) $personUuid, (string) $requestRecord->uuid);
-            $remote = $response->getData();
+            $remote = $this->fetchRemoteReferral((string) $personUuid, (string) $requestRecord->uuid, $kind);
         } catch (EHealthResponseException|EHealthValidationException) {
             return false;
         }
@@ -565,10 +562,11 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
      */
     public function fetchRemoteReferral(string $personUuid, string $requestUuid, string $kind): array
     {
-        $response = $kind === 'service_request'
-            ? EHealth::serviceRequest()->getById($personUuid, $requestUuid)
-            : EHealth::deviceRequest()->getById($personUuid, $requestUuid);
+        if ($kind === 'service_request') {
+            return EHealth::serviceRequest()->getById($personUuid, $requestUuid, preserveApiKeys: true)->validate();
+        }
 
+        $response = EHealth::deviceRequest()->getById($personUuid, $requestUuid);
         $remote = $response->getData();
         if ($remote === []) {
             throw new EHealthResponseException($response);

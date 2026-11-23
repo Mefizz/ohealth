@@ -244,7 +244,7 @@ class ReferralLifecycleTest extends TestCase
         $missingResponse = Mockery::mock(EHealthResponse::class);
         $missingResponse->shouldReceive('getData', 'validate')->andReturn([]);
         $mockServiceApi->shouldReceive('getById')
-            ->with($personUuid, $requestUuid)
+            ->with($personUuid, $requestUuid, [], true)
             ->andReturn($missingResponse);
     }
 
@@ -1183,7 +1183,7 @@ class ReferralLifecycleTest extends TestCase
             ],
         ]);
         $mockServiceApi->shouldReceive('getById')
-            ->with($this->person->uuid, $draftUuid)
+            ->with($this->person->uuid, $draftUuid, [], true)
             ->andReturn($missingResponse, $getResponse);
 
         $mockServiceApi->shouldReceive('createSigned')->once()->andThrow(new EHealthValidationException([
@@ -1261,7 +1261,7 @@ class ReferralLifecycleTest extends TestCase
         $remote['basedOn'][1]['identifier']['value'] = $this->serviceActivity->uuid;
         $getResponse->shouldReceive('getData', 'validate')->andReturn(\App\Core\Arr::toSnakeCase($remote));
         $mockServiceApi->shouldReceive('getById')
-            ->with($this->person->uuid, $draftUuid)
+            ->with($this->person->uuid, $draftUuid, [], true)
             ->andReturn($getResponse);
         $mockServiceApi->shouldNotReceive('createSigned');
 

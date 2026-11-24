@@ -66,7 +66,7 @@ use App\Livewire\Dictionary\ServiceCatalog;
 use App\Models\CarePlanActivity;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
 use App\Services\MedicalEvents\EHealthJobResolver;
-use App\Classes\eHealth\Api\Patient\ServiceRequest;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Enums\CarePlanStatus;
 use Livewire\Component;

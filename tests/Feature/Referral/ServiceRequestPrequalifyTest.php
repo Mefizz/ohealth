@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Referral;
 
-use App\Classes\eHealth\Api\Patient\ServiceRequest;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest;
 use App\Classes\eHealth\EHealthResponse;
-use App\Dto\FormCollection;
 use App\Dto\ServiceRequest\EhealthPrequalify;
 use App\Exceptions\EHealth\EHealthValidationException;
 use Illuminate\Support\Facades\Http;
@@ -33,8 +32,11 @@ class ServiceRequestPrequalifyTest extends TestCase
 
         foreach ([[], [$program]] as $programs) {
             $source = $programs === [] ? $content : $content + ['program' => $program];
-            $payload = objectMapper()->map(new FormCollection($source), EhealthPrequalify::class);
-            $this->assertSame(['service_request' => $service, 'programs' => $programs], $payload->toArray());
+            $payload = objectMapper()->map(new EhealthPrequalify($source));
+            $this->assertSame([
+                'service_request' => $service + ['status' => 'active', 'intent' => 'order', 'priority' => 'routine'],
+                'programs' => $programs,
+            ], $payload->all());
         }
     }
 
@@ -48,12 +50,9 @@ class ServiceRequestPrequalifyTest extends TestCase
 
         $result = $response->validate();
         $this->assertSame($verdicts, $result->all());
-        try {
-            $result->assertEligible();
-            $this->fail('An invalid verdict must block signing.');
-        } catch (EHealthValidationException $exception) {
-            $this->assertSame('Service excluded', $exception->getDetails()['error']['message']);
-        }
+        $this->assertSame('Service excluded', $result->rejectionReason());
+        $eligible = $this->prequalify([self::PROGRAM], self::URGENT + ['data' => [self::VERDICT]])->validate();
+        $this->assertNull($eligible->rejectionReason());
     }
 
     public function test_no_program_accepts_absent_or_empty_verdict_list(): void
@@ -79,6 +78,7 @@ class ServiceRequestPrequalifyTest extends TestCase
             'duplicate instead of second program' => [[self::PROGRAM, self::SECOND_PROGRAM], self::URGENT + ['data' => [self::VERDICT, self::VERDICT]]],
             'unexpected verdict for empty request' => [[], self::URGENT + $verdicts],
             'empty object instead of list' => [[], self::URGENT + ['data' => new stdClass()]],
+            'blank string instead of list' => [[], self::URGENT + ['data' => ' ']],
             'unknown verdict' => [[self::PROGRAM], self::URGENT + ['data' => [array_replace(self::VERDICT, ['status' => 'PENDING'])]]],
             'missing program name' => [[self::PROGRAM], self::URGENT + ['data' => [['status' => 'VALID', 'program_id' => self::PROGRAM]]]],
             'non-string rejection reason' => [[self::PROGRAM], self::URGENT + ['data' => [self::VERDICT + ['rejection_reason' => 1]]]],
@@ -103,7 +103,11 @@ class ServiceRequestPrequalifyTest extends TestCase
         $api->stub([fn () => Http::response($body, $status)])->preventStrayRequests();
 
         return $api->prequalify('patient-test', [
-            'service_request' => ['category' => 'transfer_of_care'],
+            'service_request' => [
+                'code' => ['identifier' => ['value' => 'a1b2c3d4-0000-4000-8000-000000000003']],
+                'requester_employee' => ['identifier' => ['value' => 'a1b2c3d4-0000-4000-8000-000000000004']],
+                'requester_legal_entity' => ['identifier' => ['value' => 'a1b2c3d4-0000-4000-8000-000000000005']],
+            ],
             'programs' => array_map(fn (string $id): array => ['identifier' => ['value' => $id]], $programIds),
         ]);
     }

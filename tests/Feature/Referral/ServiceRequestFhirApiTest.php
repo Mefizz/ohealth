@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Referral;
 
-use App\Classes\eHealth\Api\Patient\ServiceRequest;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest;
 use App\Core\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;

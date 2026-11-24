@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Referral;
 
 use App\Classes\eHealth\Api\Job;
-use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\Api\ServiceRequest as ExecutorApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\JobStatus;

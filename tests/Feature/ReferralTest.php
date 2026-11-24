@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestApi;
-use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequestApi;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as PatientServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Livewire\Referral\ReferralIndex;
 use App\Models\Employee\Employee;

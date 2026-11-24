@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Services\MedicalEvents;
 
 use App\Classes\eHealth\Api\Patient\DeviceRequest as DeviceRequestApi;
-use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Services\MedicalEvents\EHealthJobResolver;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;

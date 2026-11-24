@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Encounter;
 
-use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestPrequalification;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\Person\EncounterStatus;
@@ -479,7 +479,7 @@ class EncounterDocumentPagesTest extends TestCase
         $draft = \App\Models\MedicalEvents\Sql\ServiceRequestRequest::whereUuid($uuid)->sole();
         $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
-        $this->mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class)
+        $this->mock(ServiceRequestApi::class)
             ->shouldReceive('prequalify')->once()->andReturnUsing(function () use ($draft, $response) {
                 $draft->update(['status' => 'active']);
 
@@ -701,14 +701,14 @@ class EncounterDocumentPagesTest extends TestCase
         $this->assertSame($period, $repository->getResource($record)['occurrencePeriod']);
 
         Bus::fake();
-        $api = \Mockery::mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class);
+        $api = \Mockery::mock(ServiceRequestApi::class);
         $api->shouldReceive('createSigned')->once()
             ->with($person->uuid, ['signed_data' => 'base64-signed-payload', 'signed_data_encoding' => 'base64'])
             ->andReturn(new \App\Classes\eHealth\EHealthResponse(
                 new \GuzzleHttp\Psr7\Response(202, [], json_encode(['data' => ['job_id' => 'referral-timezone-job']], JSON_THROW_ON_ERROR)),
                 \App\Classes\eHealth\Api\Job::validateSubmissionResponse(...)
             ));
-        $this->instance(\App\Classes\eHealth\Api\Patient\ServiceRequest::class, $api);
+        $this->instance(ServiceRequestApi::class, $api);
 
         $editedStart = $startDate->setTimezone('Europe/Kyiv')->addDays(2)->setTime(10, 0);
         $editedEnd = $endDate->setTimezone('Europe/Kyiv')->addDays(2)->setTime(11, 0);
@@ -841,7 +841,7 @@ class EncounterDocumentPagesTest extends TestCase
             return 'signed-but-expired';
         });
         $this->instance(SignatureProvider::class, $signer);
-        $api = $this->mock(\App\Classes\eHealth\Api\Patient\ServiceRequest::class);
+        $api = $this->mock(ServiceRequestApi::class);
         $api->shouldNotReceive('createSigned');
         $component = Livewire::test(EncounterReferralCreate::class, compact('legalEntity', 'person', 'encounter') + ['preperson' => null])
             ->set('encounterReferralForm.service_id', (string) Str::uuid())

@@ -29,6 +29,7 @@ use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\Person\Person;
+use App\Repositories\CarePlanRepository;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
@@ -735,7 +736,7 @@ class CarePlanCreate extends BasePatientComponent
     /**
      * Save as a local draft (without sending to eHealth).
      */
-    public function save(): void
+    public function save(CarePlanRepository $repository): void
     {
         if (Auth::user()->cannot('create', CarePlan::class)) {
             Session::flash('error', __('care-plan.no_permission_create'));
@@ -747,7 +748,7 @@ class CarePlanCreate extends BasePatientComponent
         try {
             $this->synchronizeSystemFields();
             $this->form->validate();
-            $request = $this->saveLocalRequest();
+            $request = $this->saveLocalRequest($repository);
         } catch (ValidationException $exception) {
             $this->handleValidationFailed($exception);
 
@@ -762,9 +763,8 @@ class CarePlanCreate extends BasePatientComponent
         $this->redirectRoute('care-plan-requests.edit', [legalEntity(), $request->id], navigate: true);
     }
 
-    protected function saveLocalRequest(): CarePlanRequest
+    protected function saveLocalRequest(CarePlanRepository $repository): CarePlanRequest
     {
-        $repository = Repository::carePlan();
         $patient = $repository->findPatient((int) $this->personId);
         $encounter = $patient ? $repository->findEncounter($this->form->encounter, $patient->id) : null;
         if ($encounter === null || Auth::user()->cannot('view', [$encounter, $patient])) {
@@ -1041,7 +1041,7 @@ class CarePlanCreate extends BasePatientComponent
     /**
      * Sign with KEP and send to eHealth.
      */
-    public function sign(): void
+    public function sign(CarePlanRepository $repository): void
     {
         if (Auth::user()->cannot('create', CarePlan::class)) {
             $msg = __('care-plan.no_permission_create');
@@ -1061,8 +1061,8 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         try {
-            Repository::carePlan()->assertFhirStorageReady(beforeSubmission: true);
-            $request = $this->saveLocalRequest();
+            $repository->assertFhirStorageReady(beforeSubmission: true);
+            $request = $this->saveLocalRequest($repository);
             $carePlanPayload = CarePlanForm::buildCreateContent($request);
 
             $signedContent = signatureService()->signData(

@@ -24,7 +24,6 @@ use App\Services\MedicalEvents\PatientApprovalService;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Models\CarePlan;
 use App\Classes\eHealth\Api\Approval as ApprovalApi;
-use App\Services\MedicalEvents\CarePlanLifecycleGateService;
 use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
 use Exception;
 use RuntimeException;
@@ -228,8 +227,7 @@ trait CarePlanManager
         }
 
         if ($this->actionType === 'cancel') {
-            $planCancelBlock = app(CarePlanLifecycleGateService::class)
-                ->planCancelBlockReason($this->carePlan);
+            $planCancelBlock = $this->planLifecycleBlockReason($this->carePlan, 'cancel');
 
             if ($planCancelBlock !== null) {
                 Session::flash('error', $planCancelBlock);
@@ -383,8 +381,7 @@ trait CarePlanManager
             return;
         }
 
-        $blockReason = app(CarePlanLifecycleGateService::class)
-            ->planCompleteBlockReason($this->carePlan);
+        $blockReason = $this->planLifecycleBlockReason($this->carePlan, 'complete');
 
         if ($blockReason !== null) {
             Session::flash('error', $blockReason);
@@ -489,7 +486,7 @@ trait CarePlanManager
             return;
         }
         $activity = $this->ownedActivity((int) $this->activityToSign);
-        $blockReason = app(CarePlanLifecycleGateService::class)->activityStatusChangeBlockReason($activity, $this->actionType);
+        $blockReason = $this->activityStatusChangeBlockReason($activity, $this->actionType);
         if ($blockReason !== null) {
             Session::flash('error', $blockReason);
 

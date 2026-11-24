@@ -4,24 +4,30 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Relations\MorphMany;
 use App\Contracts\SubmittedToEHealth;
 use App\Models\Employee\Employee;
 use App\Models\MedicalEvents\Sql\CodeableConcept;
 use App\Models\MedicalEvents\Sql\Identifier;
-use App\Models\MedicalEvents\Sql\Quantity;
 use App\Models\MedicalEvents\Sql\Period;
+use App\Models\MedicalEvents\Sql\Quantity;
+use App\Repositories\Repository;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class CarePlanActivity extends Model implements SubmittedToEHealth
 {
     use HasFactory;
     use HasCamelCasing;
+
+    protected const array CLOSED_DOCUMENT_STATUSES = [
+        'completed', 'cancelled', 'canceled', 'rejected', 'expired', 'entered-in-error',
+        'entered_in_error', 'recalled', 'revoked', 'stopped',
+    ];
 
     protected $fillable = [
         'uuid',
@@ -84,6 +90,39 @@ class CarePlanActivity extends Model implements SubmittedToEHealth
 
         'details_synced_at' => 'datetime',
     ];
+
+    public function isFinalForPlan(): bool
+    {
+        // A processed job still needs the activity status confirmed by eHealth.
+        return in_array(strtolower(trim((string) $this->status)), [
+            'completed', 'cancelled', 'canceled', 'entered-in-error', 'entered_in_error',
+        ], true);
+    }
+
+    /** @return list<array{type: string, status: string, uuid: string|null}> */
+    public function openLinkedDocuments(): array
+    {
+        $open = [];
+        $repository = Repository::carePlanActivity();
+        foreach (['medication_request', 'service_request', 'device_request'] as $kind) {
+            foreach ($repository->linkedDocuments([$this->uuid], $kind) as $document) {
+                $status = strtolower((string) $document->status);
+                if (in_array(trim($status), self::CLOSED_DOCUMENT_STATUSES, true)) {
+                    continue;
+                }
+
+                // Before signing, the medication row represents a request for a prescription.
+                $isMedicationDraft = $kind === 'medication_request' && in_array($status, ['new', 'draft', 'signed'], true);
+                $open[] = [
+                    'type' => $isMedicationDraft ? 'medication_request_request' : $kind,
+                    'status' => $status,
+                    'uuid' => $document->uuid,
+                ];
+            }
+        }
+
+        return $open;
+    }
 
     public function quantityQuantity(): BelongsTo
     {

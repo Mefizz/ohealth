@@ -4,22 +4,35 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CarePlan;
 
+use App\Enums\Status;
+use App\Enums\User\Role;
+use App\Livewire\CarePlan\CarePlanShow;
+use App\Livewire\CarePlan\CarePlanUpdate;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\CodeableConcept;
+use App\Models\MedicalEvents\Sql\Coding;
+use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\Medications\MedicationRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\Person\Person;
+use App\Models\Relations\Party;
 use App\Models\User;
-use App\Services\MedicalEvents\CarePlanLifecycleGateService;
+use App\Services\Dictionary\Collections\BasicDictionaryCollection;
+use App\Services\Dictionary\DictionaryManager;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Concerns\CreatesFhirCarePlans;
 use Tests\TestCase;
 
 class CarePlanLifecycleGatesTest extends TestCase
 {
-    use \Tests\Concerns\CreatesFhirCarePlans;
+    use CreatesFhirCarePlans;
 
     use DatabaseTransactions;
 
@@ -36,7 +49,7 @@ class CarePlanLifecycleGatesTest extends TestCase
         parent::setUp();
 
         config(['cipher.api.domain' => 'https://cipher.invalid']);
-        \Illuminate\Support\Facades\Cache::put('knedp_certificate_authority', [], 60);
+        Cache::put('knedp_certificate_authority', [], 60);
 
         $this->person = Person::create([
             'uuid' => (string) Str::uuid(),
@@ -48,8 +61,8 @@ class CarePlanLifecycleGatesTest extends TestCase
             'process_disclosure_data_consent' => true,
         ]);
 
-        $typeId = \Illuminate\Support\Facades\DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
-            ?? \Illuminate\Support\Facades\DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
+        $typeId = DB::table('legal_entity_types')->where('name', 'PRIMARY_CARE')->value('id')
+            ?? DB::table('legal_entity_types')->insertGetId(['name' => 'PRIMARY_CARE']);
 
         $this->legalEntity = LegalEntity::create([
             'uuid' => (string) Str::uuid(),
@@ -60,7 +73,7 @@ class CarePlanLifecycleGatesTest extends TestCase
         ]);
         $this->instance('legalEntity', $this->legalEntity);
 
-        $party = \App\Models\Relations\Party::create([
+        $party = Party::create([
             'uuid' => (string) Str::uuid(),
             'first_name' => 'Gate',
             'last_name' => 'Doctor',
@@ -79,8 +92,8 @@ class CarePlanLifecycleGatesTest extends TestCase
         $this->employee = Employee::create([
             'uuid' => (string) Str::uuid(),
             'full_name' => 'Dr Gate',
-            'employee_type' => \App\Enums\User\Role::DOCTOR->value,
-            'status' => \App\Enums\Status::APPROVED->value,
+            'employee_type' => Role::DOCTOR->value,
+            'status' => Status::APPROVED->value,
             'legal_entity_id' => $this->legalEntity->id,
             'is_active' => true,
             'position' => 'Doctor',
@@ -96,6 +109,57 @@ class CarePlanLifecycleGatesTest extends TestCase
         }
 
         $this->grantMedicalEventAbilities($this->user);
+    }
+
+    public function test_reopening_a_draft_restores_its_contributors_and_clinical_references(): void
+    {
+        Http::preventStrayRequests();
+        $this->actingAs($this->user);
+        $this->mock(DictionaryManager::class)->shouldReceive('basics')->andReturn(new BasicDictionaryCollection([
+            ['name' => 'eHealth/care_plan_categories', 'values' => []],
+            ['name' => 'eHealth/encounter_classes', 'values' => []],
+            ['name' => 'PROVIDING_CONDITION', 'values' => []],
+            ['name' => 'AUTHENTICATION_METHOD', 'values' => [
+                ['code' => 'OTP', 'description' => 'Одноразовий пароль'],
+                ['code' => 'OFFLINE', 'description' => 'Без SMS'],
+                ['code' => 'THIRD_PERSON', 'description' => 'Через іншу особу'],
+            ]],
+        ]));
+
+        $contributors = [(string) Str::uuid(), (string) Str::uuid()];
+        $episodeUuid = (string) Str::uuid();
+        $authMethod = (string) Str::uuid();
+        $record = [
+            'identifier' => [
+                'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'diagnostic_report']]],
+                'value' => (string) Str::uuid(),
+            ],
+            'displayValue' => 'Діагностичний звіт',
+        ];
+        $draft = $this->createFhirCarePlan([
+            'person_id' => $this->person->id,
+            'legal_entity_id' => $this->legalEntity->id,
+            'author_id' => $this->employee->id,
+            'description' => 'Опис чернетки',
+            'inform_with' => $authMethod,
+            'co_authors' => $contributors,
+            'supporting_info' => ['episodes' => [['uuid' => $episodeUuid]], 'medical_records' => [$record]],
+        ]);
+
+        $editor = Livewire::test(CarePlanUpdate::class, ['legalEntity' => $this->legalEntity, 'carePlan' => $draft])
+            ->call('$refresh')
+            ->assertSnapshotSet('carePlanId', $draft->id)
+            ->assertViewHas('carePlan', fn ($plan): bool => $draft->is($plan))
+            ->assertSet('carePlanUuid', $draft->uuid)
+            ->assertSet('form.description', 'Опис чернетки')
+            ->assertSet('form.note', '')
+            ->assertSet('form.informWith', $authMethod)
+            ->assertSet('form.coAuthors', $contributors)
+            ->assertSet('form.episodes.0.uuid', $episodeUuid)
+            ->assertCount('form.episodes', 1)
+            ->assertSet('form.medicalRecords', [$record]);
+
+        $this->assertArrayNotHasKey('carePlan', $editor->snapshot['data']);
     }
 
     public function test_blocks_activity_cancel_when_open_medication_request_exists(): void
@@ -121,8 +185,8 @@ class CarePlanLifecycleGatesTest extends TestCase
             'author_id' => $this->employee->id,
         ]);
 
-        $basedOnId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $activity->uuid])->id;
-        $intentId = \App\Models\MedicalEvents\Sql\Coding::firstOrCreate([
+        $basedOnId = Identifier::create(['value' => $activity->uuid])->id;
+        $intentId = Coding::firstOrCreate([
             'code' => 'order',
             'system' => 'http://hl7.org/fhir/request-intent',
         ])->id;
@@ -139,16 +203,12 @@ class CarePlanLifecycleGatesTest extends TestCase
             'source' => MedicationRequestRequest::SOURCE_LOCAL,
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
+        Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('openSignatureModal', 'cancel_activity', $activity->id)
-            ->assertSet('showSignatureModal', false);
-
-        // The block is flashed to the user; Livewire ages flash data at the end of its request,
-        // so the reason itself is asserted at its source.
-        $this->assertNotNull(
-            app(CarePlanLifecycleGateService::class)
-                ->activityStatusChangeBlockReason($activity->fresh(), 'cancel_activity')
-        );
+            ->assertSet('showSignatureModal', false)
+            ->assertSee(__('care-plan.cannot_cancel_activity_open_docs', [
+                'reasons' => __('care-plan.open_doc_type.medication_request').' ('.__('care-plan.status.active').')',
+            ]));
     }
 
     public function test_blocks_activity_complete_when_open_service_request_exists(): void
@@ -174,12 +234,12 @@ class CarePlanLifecycleGatesTest extends TestCase
             'author_id' => $this->employee->id,
         ]);
 
-        $basedOnId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $activity->uuid])->id;
-        $intentId = \App\Models\MedicalEvents\Sql\Coding::firstOrCreate([
+        $basedOnId = Identifier::create(['value' => $activity->uuid])->id;
+        $intentId = Coding::firstOrCreate([
             'code' => 'order',
             'system' => 'http://hl7.org/fhir/request-intent',
         ])->id;
-        $priorityId = \App\Models\MedicalEvents\Sql\CodeableConcept::firstOrCreate(['text' => 'routine'])->id;
+        $priorityId = CodeableConcept::firstOrCreate(['text' => 'routine'])->id;
 
         ServiceRequestRequest::create([
             'uuid' => (string) Str::uuid(),
@@ -193,14 +253,12 @@ class CarePlanLifecycleGatesTest extends TestCase
             'priority_id' => $priorityId,
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
+        Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('openSignatureModal', 'complete_activity', $activity->id)
-            ->assertSet('showSignatureModal', false);
-
-        $this->assertNotNull(
-            app(CarePlanLifecycleGateService::class)
-                ->activityStatusChangeBlockReason($activity->fresh(), 'complete_activity')
-        );
+            ->assertSet('showSignatureModal', false)
+            ->assertSee(__('care-plan.cannot_complete_activity_open_docs', [
+                'reasons' => __('care-plan.open_doc_type.service_request').' ('.__('care-plan.status.in_progress').')',
+            ]));
     }
 
     public function test_blocks_plan_cancel_when_activity_is_scheduled(): void
@@ -226,15 +284,12 @@ class CarePlanLifecycleGatesTest extends TestCase
             'author_id' => $this->employee->id,
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
+        Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
             ->call('openSignatureModal', 'cancel')
             ->assertSet('showSignatureModal', false)
+            ->assertSee(__('care-plan.cannot_cancel_plan_blocking_activities', ['statuses' => __('care-plan.status.scheduled')]))
             ->assertSeeHtml('role="alert"')
             ->assertNotDispatched('flashMessage');
-
-        $this->assertNotNull(
-            app(CarePlanLifecycleGateService::class)->planCancelBlockReason($carePlan->fresh('activities'))
-        );
     }
 
     public function test_allows_activity_cancel_modal_when_no_open_documents(): void
@@ -260,8 +315,8 @@ class CarePlanLifecycleGatesTest extends TestCase
             'author_id' => $this->employee->id,
         ]);
 
-        $basedOnId = \App\Models\MedicalEvents\Sql\Identifier::create(['value' => $activity->uuid])->id;
-        $intentId = \App\Models\MedicalEvents\Sql\Coding::firstOrCreate([
+        $basedOnId = Identifier::create(['value' => $activity->uuid])->id;
+        $intentId = Coding::firstOrCreate([
             'code' => 'order',
             'system' => 'http://hl7.org/fhir/request-intent',
         ])->id;
@@ -278,7 +333,7 @@ class CarePlanLifecycleGatesTest extends TestCase
             'source' => MedicationRequestRequest::SOURCE_LOCAL,
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan])
+        Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan])
             ->call('openSignatureModal', 'cancel_activity', $activity->id)
             ->assertSet('showSignatureModal', true)
             ->assertSet('actionType', 'cancel_activity');
@@ -307,7 +362,7 @@ class CarePlanLifecycleGatesTest extends TestCase
             'author_id' => $this->employee->id,
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
+        Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
             ->assertSee(__('forms.synchronise_with_eHealth'))
             ->call('openSignatureModal', 'complete')
             ->assertSet('showSignatureModal', false)
@@ -338,7 +393,7 @@ class CarePlanLifecycleGatesTest extends TestCase
             'author_id' => $this->employee->id,
         ]);
 
-        Livewire::test(\App\Livewire\CarePlan\CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
+        Livewire::test(CarePlanShow::class, ['carePlan' => $carePlan->fresh('activities')])
             ->call('openSignatureModal', 'complete')
             ->assertSet('showSignatureModal', true)
             ->assertSet('actionType', 'complete');

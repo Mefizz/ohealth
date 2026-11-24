@@ -4,43 +4,49 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Livewire\CarePlan\Forms\CarePlanForm;
-use App\Enums\CarePlanStatus;
 use App\Classes\eHealth\EHealth;
+use App\Dto\CarePlan\Form as FormData;
+use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\MedicalEvents\ClinicalStorageException;
+use App\Exceptions\Signature\SignatureException;
+use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\Repository;
+use App\Services\MedicalEvents\Fhir;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 use Livewire\WithFileUploads;
+use Throwable;
 
 class CarePlanUpdate extends CarePlanCreate
 {
     use WithFileUploads;
 
-    #[\Livewire\Attributes\Locked]
-    public CarePlan $carePlan;
+    #[Locked]
+    public int $carePlanId;
+
+    protected CarePlan $carePlan;
 
     public function hydrate(): void
     {
+        $this->carePlan = $this->findDraftForEdit($this->carePlanId);
         abort_unless(Auth::user()->can('view', $this->carePlan), 404);
-        $this->carePlan = Repository::carePlan()->findById($this->carePlan->id);
     }
 
     public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null, $carePlan = null): void
     {
         $bound = $carePlan ?? request()->route('carePlan');
         $repository = Repository::carePlan();
-        $carePlan = $repository->findById($bound instanceof CarePlan ? $bound->id : (int) $bound);
-        abort_if($carePlan === null, 404);
-        $this->carePlan = $carePlan;
+        $this->carePlanId = $bound instanceof CarePlan ? $bound->id : (int) $bound;
+        $this->carePlan = $this->findDraftForEdit($this->carePlanId);
         $this->authorize('view', $this->carePlan);
         $this->authorize('manage', $this->carePlan);
         if ($repository->hasPendingSubmission($this->carePlan) || CarePlanStatus::fromStored($this->carePlan->status) !== CarePlanStatus::DRAFT) {
@@ -60,15 +66,12 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         parent::mount($legalEntity, $this->carePlan->personId);
-        $resource = $repository->getResource($this->carePlan->id);
-        $fields = \App\Services\MedicalEvents\Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]);
-        foreach ($fields as $field => $value) {
-            if (property_exists($this->form, $field)) {
-                $this->form->{$field} = $value ?? '';
-            }
-        }
+        $mapper = objectMapper();
+        $data = $mapper->map($this->carePlan, FormData::class);
+        $mapper->map($data, $this->form);
+
         $this->form->episodes = $repository->resolveEpisodeLabels($this->form->episodes, $this->personId);
-        $this->carePlanUuid = $resource['id'];
+        $this->carePlanUuid = $this->carePlan->uuid;
         $this->patientUuid = $this->carePlan->person->uuid;
         $this->form->patient = $this->carePlan->person->fullName ?? '';
         $this->form->medical_number = (string) ($this->carePlan->encounterId ?? '');
@@ -77,6 +80,18 @@ class CarePlanUpdate extends CarePlanCreate
             $this->diagnoses = $this->buildDiagnosesForUi($this->carePlan->encounter);
         }
         $this->refreshCategoryOptions();
+    }
+
+    protected function findDraftForEdit(int $id): CarePlan
+    {
+        return CarePlan::with([
+            'person.names', 'encounter.episode', 'encounter.diagnoses.condition.type.coding',
+            'categoryConcept.coding' => fn ($query) => $query->orderBy('id'),
+            'termsOfServiceConcept.coding' => fn ($query) => $query->orderBy('id'),
+            'authorReference', 'encounterIdentifier',
+            'contributors', 'supportingInfoReferences.type.coding', 'effectivePeriod',
+            'activities:id,care_plan_id,details_synced_at',
+        ])->findOrFail($id);
     }
 
     /**
@@ -128,7 +143,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'note' => $this->form->note ?: null,
                 'inform_with' => $this->form->informWith ?: null,
             ]);
-        } catch (\App\Exceptions\MedicalEvents\ClinicalStorageException $exception) {
+        } catch (ClinicalStorageException $exception) {
             Session::flash('error', $exception->getMessage());
 
             return;
@@ -195,7 +210,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'author' => $author?->uuid,
                 'addresses' => $encounterData['addresses'],
             ]), $this->carePlan->id);
-            $carePlanResource = \App\Services\MedicalEvents\Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
+            $carePlanResource = Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
             $carePlanPayload = CarePlanForm::buildCreateContent($carePlanResource);
 
             $signedContent = signatureService()->signData(
@@ -233,13 +248,13 @@ class CarePlanUpdate extends CarePlanCreate
                 : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
             Session::flash('error', $msg);
             $this->showSignatureModal = false;
-        } catch (\App\Exceptions\MedicalEvents\ClinicalStorageException $exception) {
+        } catch (ClinicalStorageException $exception) {
             Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (SignatureException $exception) {
             $exception->handle('Error when signing care plan');
             $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
@@ -252,7 +267,6 @@ class CarePlanUpdate extends CarePlanCreate
 
     public function render()
     {
-        // Reuse the same view as Create
-        return view('livewire.care-plan.care-plan-create');
+        return view('livewire.care-plan.care-plan-create', ['carePlan' => $this->carePlan]);
     }
 }

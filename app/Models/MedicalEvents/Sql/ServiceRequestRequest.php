@@ -19,6 +19,7 @@ use App\Models\User;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -122,6 +123,16 @@ class ServiceRequestRequest extends Model implements SubmittedToEHealth
         }
 
         return !$this->ehealthLinks()->whereStatus(JobStatus::PENDING->value)->exists();
+    }
+
+    /** Prequalification can also complete an unnumbered legacy draft. */
+    protected function canPrepareForSubmission(): Attribute
+    {
+        return Attribute::get(fn (): bool =>
+            in_array(ServiceRequestStatus::resolve($this->status), [ServiceRequestStatus::DRAFT, ServiceRequestStatus::NEW], true)
+            && blank($this->requestNumber)
+            && !$this->ehealthLinks()->whereStatus(JobStatus::PENDING->value)->exists()
+        );
     }
 
     /** Detect another editor changing a field this form would overwrite. */

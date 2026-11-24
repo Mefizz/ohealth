@@ -7,7 +7,6 @@ namespace App\Livewire\CarePlan\Concerns;
 use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
-use App\Dto\FormCollection;
 use App\Dto\ServiceRequest\EhealthPrequalify;
 use App\Enums\CarePlanStatus;
 use App\Enums\Person\ServiceRequestStatus;
@@ -464,7 +463,15 @@ trait ManagesCarePlanReferrals
         $repository->assertFhirStorageReady(beforeSubmission: true);
         $person = $this->carePlan->person;
         $existing = $repository->findDraftByActivity($activity->uuid, $person->id);
-        $original = $existing === null ? [] : $repository->editableDraftResource($existing);
+        $original = $existing === null ? [] : $repository->draftSnapshot($existing);
+        if ($original === null) {
+            if ($repository->hasPendingSubmission($existing)) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
+            }
+
+            throw ValidationException::withMessages(['draft' => __('referrals.draft_not_editable')]);
+        }
+
         $author = $repository->authorForDraft($employee['employee_id'], $employee['employee_uuid']);
         if (!$author || blank($author->uuid) || blank($author->legalEntity?->uuid)
             || $author->uuid !== $employee['employee_uuid'] || $author->legalEntity->uuid !== $employee['legal_entity_uuid']) {
@@ -497,11 +504,16 @@ trait ManagesCarePlanReferrals
 
         if ($sign && isset($resource['program'])) {
             $repository->assertActivityDraftQuantity($activity, $quantity, $existing);
-            $payload = objectMapper()->map(new FormCollection(ServiceRequestForm::buildCreateContent($resource)), EhealthPrequalify::class);
-            EHealth::serviceRequest()->prequalify($person->uuid, $payload->toArray())->validate()->assertEligible();
+            $payload = objectMapper()->map(new EhealthPrequalify($resource));
+            $result = EHealth::serviceRequest()->prequalify($person->uuid, $payload->all())->validate();
+            if (($reason = $result->rejectionReason()) !== null) {
+                throw new EHealthValidationException(['error' => ['message' => $reason]]);
+            }
         }
 
-        $repository->storeActivityDraft($activity, $resource, $original, $existing, $employee['employee_id'], $employee['division_id']);
+        if (!$repository->storeActivityDraft($activity, $resource, $original, $existing, $employee['employee_id'], $employee['division_id'])) {
+            throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+        }
 
         return $resource['id'];
     }

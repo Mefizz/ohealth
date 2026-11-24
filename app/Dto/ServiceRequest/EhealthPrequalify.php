@@ -4,25 +4,29 @@ declare(strict_types=1);
 
 namespace App\Dto\ServiceRequest;
 
-use App\Dto\FormCollection;
+use App\Services\MedicalEvents\Fhir;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 
-/** Project the clinical content used for signing into the prequalification envelope. */
-#[Map(source: FormCollection::class)]
+/** Prequalification uses the signing fields with the medical program in a separate list. */
+#[Map(target: Collection::class)]
 class EhealthPrequalify
 {
-    #[Map(source: 'all')]
-    public array $serviceRequest;
+    protected array $content;
 
-    #[Map(source: '[program?]')]
-    public ?array $program = null;
-
-    public function toArray(): array
+    public function __construct(array $resource)
     {
-        return [
-            'service_request' => Arr::except($this->serviceRequest, ['id', 'program']),
-            'programs' => $this->program === null ? [] : [$this->program],
-        ];
+        $this->content = Fhir::serviceRequest()->createContent($resource);
+    }
+
+    #[Map(target: '[service_request]')]
+    public array $serviceRequest {
+        get => Arr::except($this->content, ['id', 'program']);
+    }
+
+    #[Map(target: '[programs]')]
+    public array $programs {
+        get => isset($this->content['program']) ? [$this->content['program']] : [];
     }
 }

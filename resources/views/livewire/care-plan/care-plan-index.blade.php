@@ -1,3 +1,4 @@
+@use('App\Models\CarePlan')
 @use('App\Enums\CarePlanStatusFilter')
 @use('App\Enums\CarePlanCompletenessFilter')
 @use('App\Livewire\CarePlan\CarePlanIndex')
@@ -36,6 +37,23 @@
             </button>
         </div>
     </x-header-navigation>
+
+    @can('create', CarePlan::class)
+        @if ($this->requests->isNotEmpty())
+            <section class="mb-4">
+                <h2 class="font-semibold">{{ __('care-plan.my_drafts') }}</h2>
+                <ul>
+                    @foreach ($this->requests as $request)
+                        <li wire:key="care-plan-request-{{ $request->id }}">
+                            <a href="{{ route('care-plan-requests.edit', [legalEntity(), $request->id]) }}" wire:navigate class="underline">
+                                {{ $request->title }}
+                            </a>
+                        </li>
+                    @endforeach
+                </ul>
+            </section>
+        @endif
+    @endcan
 
     <section class="section-form mt-4">
         <div class="shift-content w-full max-w-7xl px-4 py-6 lg:py-10">
@@ -175,7 +193,7 @@
             <div class="space-y-4">
                 @forelse ($this->carePlans as $plan)
                     @php
-                        /** @var \App\Models\CarePlan $plan */
+                        /** @var CarePlan $plan */
                         $statusEnum = CarePlanStatus::fromStored($plan->status);
                         $displayTitle = $plan->displayTitle();
 

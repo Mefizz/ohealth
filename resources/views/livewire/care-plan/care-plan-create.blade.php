@@ -26,26 +26,32 @@
             @endif
 
             <div class="mt-8 flex items-center gap-4 pt-4">
-                <button
-                    type="button"
-                    wire:click.prevent="{{ (isset($carePlan) && $carePlan->exists) ? 'delete' : 'cancel' }}"
-                    class="button-primary-outline-red px-6 py-2.5"
-                >
-                    {{ __('forms.delete') }}
-                </button>
+                @if ($submissionPending)
+                    <button type="button" wire:click="refreshSubmission" class="button-primary-outline px-6 py-2.5">
+                        {{ __('care-plan.check_status_manually') }}
+                    </button>
+                @else
+                    <button
+                        type="button"
+                        wire:click.prevent="{{ $carePlanRequestId ? 'deleteRequest' : ((isset($carePlan) && $carePlan->exists) ? 'delete' : 'cancel') }}"
+                        class="button-primary-outline-red px-6 py-2.5"
+                    >
+                        {{ __($carePlanRequestId || isset($carePlan) ? 'forms.delete' : 'forms.cancel') }}
+                    </button>
 
-                <button
-                    type="button"
-                    class="button-primary-outline flex items-center gap-2 px-6 py-2.5"
-                    wire:click="save"
-                >
-                    @icon('archive', 'w-4 h-4')
-                    <span>{{ __('forms.save') }}</span>
-                </button>
+                    <button
+                        type="button"
+                        class="button-primary-outline flex items-center gap-2 px-6 py-2.5"
+                        wire:click="save"
+                    >
+                        @icon('archive', 'w-4 h-4')
+                        <span>{{ __('forms.save') }}</span>
+                    </button>
 
-                <button type="button" wire:click="startSigningProcess" class="button-primary px-8 py-2.5">
-                    {{ __('care-plan.create_care_plan') }}
-                </button>
+                    <button type="button" wire:click="startSigningProcess" class="button-primary px-8 py-2.5">
+                        {{ __('care-plan.create_care_plan') }}
+                    </button>
+                @endif
             </div>
         </div>
     </div>

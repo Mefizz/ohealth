@@ -6,6 +6,7 @@ namespace App\Livewire\CarePlan\Forms;
 
 use App\Dto\CarePlan\Ehealth as EhealthData;
 use App\Dto\Input\FormCollection;
+use App\Models\CarePlanRequest;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Form;
@@ -48,6 +49,8 @@ class CarePlanForm extends Form
             'context' => 'nullable|string',
             'title' => 'required|string',
             'intent' => 'required|in:order',
+            'periodStartTime' => ['nullable', 'date_format:H:i,H:i:s'],
+            'periodEndTime' => ['nullable', 'date_format:H:i,H:i:s'],
             'periodStart' => 'required|date_format:'.config('app.date_format'),
             'periodEnd' => 'nullable|date_format:'.config('app.date_format').'|after_or_equal:periodStart',
             'encounter' => 'required|uuid',
@@ -117,8 +120,12 @@ class CarePlanForm extends Form
         ];
     }
 
-    public static function buildCreateContent(array $resource): array
+    public static function buildCreateContent(array|CarePlanRequest $resource): array
     {
+        if ($resource instanceof CarePlanRequest) {
+            $dto = objectMapper()->map($resource, EhealthData::class);
+            $resource = get_object_vars($dto);
+        }
         Validator::make($resource, [
             'id' => ['required', 'uuid'], 'title' => ['required', 'string'],
             'category.coding' => ['required', 'array', 'min:1'],
@@ -129,7 +136,7 @@ class CarePlanForm extends Form
             'termsOfService.coding' => ['required', 'array', 'min:1'],
         ])->validate();
 
-        return objectMapper()->map(new FormCollection($resource), EhealthData::class)->toArray();
+        return ($dto ?? objectMapper()->map(new FormCollection($resource), EhealthData::class))->toArray();
     }
 
     public static function buildCancelContent(array $snapshot, array $statusReason): array

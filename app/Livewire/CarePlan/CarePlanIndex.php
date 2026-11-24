@@ -4,21 +4,21 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Enums\CarePlanStatusFilter;
 use App\Enums\CarePlanCompletenessFilter;
-use App\Traits\SynchronizesCarePlans;
-use Livewire\Attributes\Computed;
-use Illuminate\Database\Eloquent\Collection;
-
+use App\Enums\CarePlanStatusFilter;
+use App\Jobs\CarePlanFullSync;
 use App\Models\CarePlan;
+use App\Models\CarePlanRequest;
 use App\Repositories\Repository;
+use App\Traits\HandlesCarePlanSync;
+use App\Traits\SynchronizesCarePlans;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Livewire\Component;
-use App\Traits\HandlesCarePlanSync;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Component;
 use Throwable;
-use App\Jobs\CarePlanFullSync;
 
 class CarePlanIndex extends Component
 {
@@ -140,6 +140,13 @@ class CarePlanIndex extends Component
         $outcome['success'] = $outcome['success'] && !$this->syncInitiationFailed;
         $this->syncBatchIds = [];
         $this->flashCarePlanSyncOutcome($outcome);
+    }
+
+    #[Computed]
+    public function requests(): Collection
+    {
+        return CarePlanRequest::forEditor(legalEntity()->id, Auth::id())->whereNull('care_plan_id')
+            ->latest('updated_at')->get(['id', 'title', 'updated_at']);
     }
 
     #[Computed]

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Encounter;
 
 use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestPrequalification;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\EHealth\EHealthValidationException;
@@ -135,22 +136,23 @@ class EncounterDocumentPagesTest extends TestCase
         Cache::forever(ServiceDictionary::KEY.':fresh', true);
         $this->fakeEHealth(['*' => Http::response($this->eHealthBody([]))]);
         $rejection = new EHealthValidationException(['error' => ['message' => 'Rejected by medical program']]);
+        $programId = (string) Str::uuid();
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
-        $attempt = 0;
+        $program = ['program_id' => $programId, 'program_name' => 'Test program'];
+        $response->shouldReceive('validate')->twice()->andReturn(
+            new ServiceRequestPrequalification([$program + ['status' => 'INVALID', 'rejection_reason' => 'Rejected by medical program']]),
+            new ServiceRequestPrequalification([$program + ['status' => 'VALID']]),
+        );
         $prequalificationPayloads = [];
         $api = $this->mock(ServiceRequestApi::class);
-        $api->shouldReceive('prequalify')->andReturnUsing(function (string $personUuid, array $payload) use (&$attempt, &$prequalificationPayloads, $rejection, $response) {
+        $api->shouldReceive('prequalify')->andReturnUsing(function (string $personUuid, array $payload) use (&$prequalificationPayloads, $response) {
             $prequalificationPayloads[] = $payload;
-            if (++$attempt === 1) {
-                throw $rejection;
-            }
 
             return $response;
         });
         $component = Livewire::test(EncounterReferralCreate::class, $parameters)
             ->call('selectEncounterReferralServiceFromCatalog', $service)
-            ->set('encounterReferralForm.program_id', (string) Str::uuid())
+            ->set('encounterReferralForm.program_id', $programId)
             ->set('encounterReferralForm.started_at', '05.11.2026')
             ->set('encounterReferralForm.ended_at', '05.11.2026')
             ->set('encounterReferralForm.start_time', '10:10')
@@ -190,7 +192,7 @@ class EncounterDocumentPagesTest extends TestCase
             ->assertSet('encounterReferralForm.start_time', '15:30')
             ->assertSet('encounterReferralForm.end_time', '16:30');
         $edit->call('prepareSavedReferralForSigning')->assertSet('showSignatureModal', false);
-        $this->assertSame(1, $attempt);
+        $this->assertCount(1, $prequalificationPayloads);
         $edit->set('encounterReferralForm.start_time', '15:45')
             ->set('encounterReferralForm.end_time', '16:45')
             ->call('validateEncounterReferral')->assertHasNoErrors()->assertSet('showSignatureModal', true)
@@ -288,8 +290,11 @@ class EncounterDocumentPagesTest extends TestCase
         $encounter = $this->encounter($person);
         $parameters = compact('legalEntity', 'person', 'encounter') + ['preperson' => null];
         $this->fakeEHealth(['*' => Http::response($this->eHealthBody([]))]);
+        $programId = (string) Str::uuid();
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
+        $response->shouldReceive('validate')->once()->andReturn(new ServiceRequestPrequalification([
+            ['program_id' => $programId, 'program_name' => 'Test program', 'status' => 'VALID'],
+        ]));
         $api = $this->mock(ServiceRequestApi::class);
         $api->shouldNotReceive('createSigned');
         $api->shouldReceive('prequalify')->once()->andReturnUsing(function () use ($response) {
@@ -300,7 +305,7 @@ class EncounterDocumentPagesTest extends TestCase
 
         $component = Livewire::test(EncounterReferralCreate::class, $parameters)
             ->set('encounterReferralForm.service_id', (string) Str::uuid())
-            ->set('encounterReferralForm.program_id', (string) Str::uuid())
+            ->set('encounterReferralForm.program_id', $programId)
             ->call('validateEncounterReferral')->assertHasNoErrors();
         $record = ServiceRequestRequest::whereUuid($component->get('encounterReferralRequestIdToSign'))->sole();
         $start = $record->startedAt->toIso8601String();

@@ -6,6 +6,7 @@ namespace Tests\Feature\Referral;
 
 use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
 use App\Classes\eHealth\Api\Patient\DeviceRequest as DeviceRequestApi;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestPrequalification;
 use App\Classes\eHealth\EHealthResponse;
 use App\Contracts\SignatureProvider;
 use App\Exceptions\EHealth\EHealthValidationException;
@@ -637,13 +638,22 @@ class ReferralLifecycleTest extends TestCase
         $mockServiceApi = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
+        $program = ['program_id' => $this->serviceActivity->program, 'program_name' => 'Test program'];
         $prequalifyResponse = Mockery::mock(EHealthResponse::class);
-        $prequalifyResponse->shouldReceive('getData', 'validate')->andReturn([
-            'data' => [
-                ['status' => 'VALID'],
-            ],
-        ]);
-        $mockServiceApi->shouldReceive('prequalify')->once()->andReturn($prequalifyResponse);
+        $prequalifyResponse->shouldReceive('validate')->twice()->andReturn(
+            new ServiceRequestPrequalification([$program + ['status' => 'INVALID', 'rejection_reason' => 'Service excluded']]),
+            new ServiceRequestPrequalification([$program + ['status' => 'VALID']]),
+        );
+        $mockServiceApi->shouldReceive('prequalify')->twice()->withArgs(function (string $patientId, array $payload) use ($carePlan): bool {
+            $this->assertSame($this->person->uuid, $patientId);
+            $this->assertSame($this->serviceActivity->program, data_get($payload, 'programs.0.identifier.value'));
+            $this->assertEqualsCanonicalizing(
+                [$carePlan->uuid, $this->serviceActivity->uuid],
+                data_get($payload, 'service_request.based_on.*.identifier.value')
+            );
+
+            return true;
+        })->andReturn($prequalifyResponse);
 
         $component = Livewire::test(CarePlanActivityShow::class, [
             'carePlan' => $carePlan,
@@ -656,6 +666,13 @@ class ReferralLifecycleTest extends TestCase
             ->assertSet('referralForm.quantity', 1.0)
             ->set('referralForm.quantity', 3.0)
             ->set('referralForm.category', 'procedure')
+            ->call('validateReferral')
+            ->assertSet('showSignatureModal', false)
+            ->assertSet('showReferralDrawer', true)
+            ->assertSee('Service excluded');
+        $this->assertSame(0, ServiceRequestRequest::wherePersonId($this->person->id)->count());
+
+        $component
             ->call('validateReferral')
             ->assertSet('showReferralDrawer', false)
             ->assertSet('showSignatureModal', true);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\CarePlan;
 
 use App\Classes\eHealth\Api\Patient\MedicationRequest as MedicationRequestApi;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestPrequalification;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Api\Approval as ApprovalApi;
 use App\Classes\eHealth\Api\Person as PersonApi;
@@ -1112,7 +1113,9 @@ class CarePlanShowActionsTest extends TestCase
 
         $lifecycle->shouldReceive('trySyncDraftFromEHealth')->twice()->andReturnFalse();
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
+        $response->shouldReceive('validate')->once()->andReturn(new ServiceRequestPrequalification([
+            ['program_id' => $activity->program, 'program_name' => 'Test program', 'status' => 'VALID'],
+        ]));
         $api->shouldReceive('prequalify')->once()->andReturn($response);
         $component->call('validateReferral')->assertHasNoErrors()->assertSet('showSignatureModal', true)
             ->assertSet('referralRequestIdToSign', $uuid);

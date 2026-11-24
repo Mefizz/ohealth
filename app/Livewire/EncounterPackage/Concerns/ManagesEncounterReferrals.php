@@ -26,6 +26,7 @@ use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
@@ -379,17 +380,24 @@ trait ManagesEncounterReferrals
             // A refusal leaves the saved draft editable. Only the same confirmed content may proceed to signing.
             $draft = app(MedicalRequestOwnership::class)->serviceForEncounter($this->encounterReferralRequestIdToSign, $encounter);
             $repository = MedicalEventsRepository::serviceRequest();
-            $resource = $repository->draftSnapshot($draft);
-            if ($resource === null || $resource === []) {
+            if (!$draft->isEditableRequest()) {
                 throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
             }
+            $resource = $repository->getResource($draft);
             if (isset($resource['program']) || data_get($resource, 'category.coding.0.code') === 'transfer_of_care') {
                 $payload = objectMapper()->map(new EhealthPrequalify($resource));
-                $result = EHealth::serviceRequest()->prequalify($person->uuid, $payload->all())->validate();
+                $result = EHealth::serviceRequest()->prequalify($person->uuid, $payload->all())
+                    ->throwUnlessStatus(200)
+                    ->validate();
                 if (($reason = $result->rejectionReason()) !== null) {
                     throw new EHealthValidationException(['error' => ['message' => $reason]]);
                 }
-                if ($repository->draftSnapshot($draft) !== $resource) {
+                $unchanged = $repository->withLockedRequest(
+                    $person->id,
+                    $draft->id,
+                    fn (ServiceRequestRequest $current) => $current->isEditableRequest() && $repository->getResource($current) === $resource ? $current : null
+                );
+                if ($unchanged === null) {
                     throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
                 }
             }
@@ -417,7 +425,8 @@ trait ManagesEncounterReferrals
             Log::error('EncounterEdit: failed to create encounter referral: '.$exception->getMessage());
             $this->showSignatureModal = false;
             $this->actionType = null;
-            $this->failEncounterReferral(__('Не вдалося створити направлення: ').$exception->getMessage());
+            $message = $exception instanceof RequestException ? __('care-plan.referral_prequalify_failed') : $exception->getMessage();
+            $this->failEncounterReferral(__('Не вдалося створити направлення: ').$message);
         }
     }
 

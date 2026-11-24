@@ -1113,6 +1113,7 @@ class CarePlanShowActionsTest extends TestCase
 
         $lifecycle->shouldReceive('trySyncDraftFromEHealth')->twice()->andReturnFalse();
         $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('throwUnlessStatus')->once()->with(200)->andReturnSelf();
         $response->shouldReceive('validate')->once()->andReturn(new ServiceRequestPrequalification([
             ['program_id' => $activity->program, 'program_name' => 'Test program', 'status' => 'VALID'],
         ]));

@@ -91,6 +91,21 @@ class EncounterDocumentPagesTest extends TestCase
             ->assertDontSee("entangle('showEncounterEPrescriptionDrawer')", false);
     }
 
+    public function test_new_referral_form_renders_the_quantity_unit_on_its_first_request(): void
+    {
+        ['legalEntity' => $legalEntity, 'person' => $person] = $this->fixture();
+        $encounter = $this->encounter($person);
+        $this->fakeEHealth(['*' => Http::response($this->eHealthBody([]))]);
+
+        $page = $this->get(route('persons.encounters.referrals.create', [$legalEntity, $person, $encounter]))
+            ->assertOk()->assertSeeLivewire(EncounterReferralCreate::class);
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$page->getContent());
+        $this->assertCount(1, (new \DOMXPath($document))->query('//select[@id="encounterReferralQuantityUnit"]/option[@value="PIECE"]'));
+        $page->assertDontSee('wire:click="loadReferralReferenceOptions', false)
+            ->assertDontSee('wire:model.live="encounterReferralForm.quantity_code"', false);
+    }
+
     #[DataProvider('allDocumentRoutes')]
     public function test_an_encounter_of_another_patient_is_rejected_before_remote_calls(string $routeName): void
     {
@@ -139,6 +154,7 @@ class EncounterDocumentPagesTest extends TestCase
         $programId = (string) Str::uuid();
         $response = Mockery::mock(EHealthResponse::class);
         $program = ['program_id' => $programId, 'program_name' => 'Test program'];
+        $response->shouldReceive('throwUnlessStatus')->twice()->with(200)->andReturnSelf();
         $response->shouldReceive('validate')->twice()->andReturn(
             new ServiceRequestPrequalification([$program + ['status' => 'INVALID', 'rejection_reason' => 'Rejected by medical program']]),
             new ServiceRequestPrequalification([$program + ['status' => 'VALID']]),
@@ -292,6 +308,7 @@ class EncounterDocumentPagesTest extends TestCase
         $this->fakeEHealth(['*' => Http::response($this->eHealthBody([]))]);
         $programId = (string) Str::uuid();
         $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('throwUnlessStatus')->once()->with(200)->andReturnSelf();
         $response->shouldReceive('validate')->once()->andReturn(new ServiceRequestPrequalification([
             ['program_id' => $programId, 'program_name' => 'Test program', 'status' => 'VALID'],
         ]));
@@ -521,13 +538,15 @@ class EncounterDocumentPagesTest extends TestCase
         ['legalEntity' => $legalEntity, 'person' => $person] = $this->fixture();
         $encounter = $this->encounter($person);
         $this->fakeEHealth(['*' => Http::response($this->eHealthBody([]))]);
-        $component = Livewire::test(EncounterReferralCreate::class, compact('legalEntity', 'person', 'encounter') + ['preperson' => null])
-            ->assertSeeHtml('<option value="routine">Планове</option>')
-            ->assertSeeHtml('<option value="urgent">Ургентне</option>')
-            ->assertDontSeeHtml('<option value="stat">')
-            ->assertDontSeeHtml('<option value="asap">')
-            ->assertDontSeeHtml('<option value="retired">')
-            ->set('encounterReferralForm.service_id', (string) Str::uuid())
+        $component = Livewire::test(EncounterReferralCreate::class, compact('legalEntity', 'person', 'encounter') + ['preperson' => null]);
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$component->html());
+        $options = [];
+        foreach ((new \DOMXPath($document))->query('//select[@id="encounterReferralPriority"]/option') as $option) {
+            $options[$option->getAttribute('value')] = trim($option->textContent);
+        }
+        $this->assertSame(['routine' => 'Планове', 'urgent' => 'Ургентне'], $options);
+        $component->set('encounterReferralForm.service_id', (string) Str::uuid())
             ->set('encounterReferralForm.program_id', '')
             ->set('encounterReferralForm.priority', $priority)
             ->call('validateEncounterReferral');

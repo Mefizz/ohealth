@@ -18,6 +18,7 @@ use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use App\Repositories\MedicalEvents\MedicalEventsRequestStatuses;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
@@ -30,7 +31,9 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
@@ -394,6 +397,12 @@ trait ManagesCarePlanReferrals
         }
         if ($sign && $activity) {
             $existingDraft = app(ReferralRequestLifecycleService::class)->findDraftByActivity($activity);
+            if ($kind === 'service_request' && $existingDraft && (int) $existingDraft->personId !== (int) $this->carePlan->personId) {
+                $this->showReferralDrawer = true;
+                Session::flash('error', __('care-plan.document_context_unavailable'));
+
+                return;
+            }
             if ($existingDraft && app(ReferralRequestLifecycleService::class)->trySyncDraftFromEHealth(
                 $this->carePlan,
                 $activity,
@@ -453,7 +462,8 @@ trait ManagesCarePlanReferrals
             $kindLabel = ($this->referralForm['kind'] ?? '') === 'device_request'
                 ? __('електронний рецепт на медичні вироби')
                 : __('заявку на направлення');
-            $this->flashUserError(__('Не вдалося створити ').$kindLabel.': '.$exception->getMessage());
+            $message = $exception instanceof RequestException ? __('care-plan.referral_prequalify_failed') : $exception->getMessage();
+            $this->flashUserError(__('Не вдалося створити ').$kindLabel.': '.$message);
         }
     }
 
@@ -462,16 +472,11 @@ trait ManagesCarePlanReferrals
         $repository = MedicalEventsRepository::serviceRequest();
         $repository->assertFhirStorageReady(beforeSubmission: true);
         $person = $this->carePlan->person;
-        $existing = $repository->findDraftByActivity($activity->uuid, $person->id);
-        $original = $existing === null ? [] : $repository->draftSnapshot($existing);
-        if ($original === null) {
-            if ($repository->hasPendingSubmission($existing)) {
-                throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
-            }
-
-            throw ValidationException::withMessages(['draft' => __('referrals.draft_not_editable')]);
+        $existing = $repository->findDraftByActivity($activity->uuid);
+        if ($existing && (int) $existing->personId !== (int) $person->id) {
+            throw ValidationException::withMessages(['draft' => __('care-plan.document_context_unavailable')]);
         }
-
+        $original = $existing === null ? [] : $this->carePlanDraftResource($existing);
         $author = $repository->authorForDraft($employee['employee_id'], $employee['employee_uuid']);
         if (!$author || blank($author->uuid) || blank($author->legalEntity?->uuid)
             || $author->uuid !== $employee['employee_uuid'] || $author->legalEntity->uuid !== $employee['legal_entity_uuid']) {
@@ -502,20 +507,57 @@ trait ManagesCarePlanReferrals
             'carePlanUuid' => $this->carePlan->uuid,
         ]);
 
+        // Other drafts reserve quantity until cancelled or rejected.
+        $excludedStatuses = array_diff(MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM, ['draft', 'DRAFT', 'new', 'NEW']);
+        $checkQuantity = fn () => Repository::carePlanActivity()->assertCanIssue(
+            $activity->id,
+            $quantity,
+            fn () => $repository->sumIssuedQuantityByActivity($activity->uuid, $excludedStatuses, $existing?->uuid)
+        );
         if ($sign && isset($resource['program'])) {
-            $repository->assertActivityDraftQuantity($activity, $quantity, $existing);
+            $checkQuantity();
             $payload = objectMapper()->map(new EhealthPrequalify($resource));
-            $result = EHealth::serviceRequest()->prequalify($person->uuid, $payload->all())->validate();
+            $result = EHealth::serviceRequest()->prequalify($person->uuid, $payload->all())
+                ->throwUnlessStatus(200)
+                ->validate();
             if (($reason = $result->rejectionReason()) !== null) {
                 throw new EHealthValidationException(['error' => ['message' => $reason]]);
             }
         }
 
-        if (!$repository->storeActivityDraft($activity, $resource, $original, $existing, $employee['employee_id'], $employee['division_id'])) {
-            throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
-        }
+        // Recheck the reservation and the approved content under lock after the external request.
+        DB::transaction(function () use ($checkQuantity, $activity, $repository, $existing, $original, $person, $resource, $employee): void {
+            $checkQuantity();
+            if ($repository->findDraftByActivity($activity->uuid)?->id !== $existing?->id) {
+                throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+            }
+            if ($existing !== null) {
+                $repository->withLockedRequest($person->id, $existing->id, function (ServiceRequestRequest $draft) use ($original): ServiceRequestRequest {
+                    if ($this->carePlanDraftResource($draft) !== $original) {
+                        throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+                    }
+
+                    return $draft;
+                });
+            }
+            $repository->store($resource, $person->id, $employee['employee_id'], $employee['division_id']);
+        });
 
         return $resource['id'];
+    }
+
+    protected function carePlanDraftResource(ServiceRequestRequest $draft): array
+    {
+        $repository = MedicalEventsRepository::serviceRequest();
+        if ($repository->hasPendingSubmission($draft)) {
+            throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
+        }
+        if (filled($draft->requestNumber) || !in_array(ServiceRequestStatus::resolve($draft->status), [ServiceRequestStatus::DRAFT, ServiceRequestStatus::NEW], true)) {
+            throw ValidationException::withMessages(['draft' => __('referrals.draft_not_editable')]);
+        }
+
+        // Older local drafts acquire their FHIR representation on the first complete save.
+        return $draft->detailsSyncedAt === null ? [] : $repository->getResource($draft);
     }
 
     public function resendReferralSms(string $requestId, string $kind): void

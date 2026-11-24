@@ -62,10 +62,10 @@ class ServiceRequestPrequalifyTest extends TestCase
     }
 
     #[DataProvider('invalidResponses')]
-    public function test_rejects_unconfirmed_prequalification(array $programIds, array $body, int $status = 200): void
+    public function test_rejects_unconfirmed_prequalification(array $programIds, array $body): void
     {
         $this->expectException(ValidationException::class);
-        $this->prequalify($programIds, $body, $status)->validate();
+        $this->prequalify($programIds, $body)->validate();
     }
 
     public static function invalidResponses(): array
@@ -86,7 +86,6 @@ class ServiceRequestPrequalifyTest extends TestCase
             'missing authentication method' => [[self::PROGRAM], $verdicts],
             'invalid authentication type' => [[], ['urgent' => ['authentication_method_current' => ['type' => 'OTHER']]]],
             'error in success envelope' => [[], self::URGENT + ['error' => ['message' => 'Rejected']]],
-            'accepted is not a final response' => [[self::PROGRAM], self::URGENT + $verdicts, 202],
         ];
     }
 

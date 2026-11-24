@@ -640,11 +640,12 @@ class ReferralLifecycleTest extends TestCase
 
         $program = ['program_id' => $this->serviceActivity->program, 'program_name' => 'Test program'];
         $prequalifyResponse = Mockery::mock(EHealthResponse::class);
+        $prequalifyResponse->shouldReceive('throwUnlessStatus')->twice()->with(200)->andReturnSelf();
         $prequalifyResponse->shouldReceive('validate')->twice()->andReturn(
             new ServiceRequestPrequalification([$program + ['status' => 'INVALID', 'rejection_reason' => 'Service excluded']]),
             new ServiceRequestPrequalification([$program + ['status' => 'VALID']]),
         );
-        $mockServiceApi->shouldReceive('prequalify')->twice()->withArgs(function (string $patientId, array $payload) use ($carePlan): bool {
+        $mockServiceApi->shouldReceive('prequalify')->times(3)->withArgs(function (string $patientId, array $payload) use ($carePlan): bool {
             $this->assertSame($this->person->uuid, $patientId);
             $this->assertSame($this->serviceActivity->program, data_get($payload, 'programs.0.identifier.value'));
             $this->assertEqualsCanonicalizing(
@@ -653,7 +654,7 @@ class ReferralLifecycleTest extends TestCase
             );
 
             return true;
-        })->andReturn($prequalifyResponse);
+        })->andReturn(new EHealthResponse(new Response(202, [], '{}')), $prequalifyResponse, $prequalifyResponse);
 
         $component = Livewire::test(CarePlanActivityShow::class, [
             'carePlan' => $carePlan,
@@ -666,6 +667,13 @@ class ReferralLifecycleTest extends TestCase
             ->assertSet('referralForm.quantity', 1.0)
             ->set('referralForm.quantity', 3.0)
             ->set('referralForm.category', 'procedure')
+            ->call('validateReferral')
+            ->assertSet('showSignatureModal', false)
+            ->assertSet('showReferralDrawer', true)
+            ->assertSee(__('care-plan.referral_prequalify_failed'));
+        $this->assertSame(0, ServiceRequestRequest::wherePersonId($this->person->id)->count());
+
+        $component
             ->call('validateReferral')
             ->assertSet('showSignatureModal', false)
             ->assertSet('showReferralDrawer', true)

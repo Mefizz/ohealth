@@ -586,49 +586,6 @@ class ServiceRequestRequestRepository extends BaseRepository
         });
     }
 
-    /** Read a consistent FHIR snapshot. An incomplete legacy draft has no resource yet. */
-    public function draftSnapshot(ServiceRequestRequest $request): ?array
-    {
-        return $this->storageTransaction(function () use ($request): ?array {
-            $draft = $this->model->newQuery()->forPerson($request->personId)->whereKey($request->id)->lockForUpdate()->first();
-            if ($draft === null || !$draft->canPrepareForSubmission) {
-                return null;
-            }
-
-            return $draft->detailsSyncedAt === null ? [] : $this->getResource($draft);
-        });
-    }
-
-    public function assertActivityDraftQuantity(CarePlanActivity $activity, float $quantity, ?ServiceRequestRequest $existing): void
-    {
-        // Other drafts reserve part of the activity quantity until they are cancelled.
-        $excluded = array_diff(MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM, ['draft', 'DRAFT', 'new', 'NEW']);
-        Repository::carePlanActivity()->assertCanIssue(
-            $activity->id,
-            $quantity,
-            fn (): float => $this->sumIssuedQuantityByActivity($activity->uuid, $excluded, $existing?->uuid)
-        );
-    }
-
-    public function storeActivityDraft(CarePlanActivity $activity, array $resource, array $original, ?ServiceRequestRequest $existing, int $employeeId, ?int $divisionId): bool
-    {
-        // The API call ran outside the transaction. Compare the snapshot while the activity and draft are locked.
-        return $this->storageTransaction(function () use ($activity, $resource, $original, $existing, $employeeId, $divisionId): bool {
-            $this->assertActivityDraftQuantity($activity, $resource['quantity']['value'], $existing);
-            $personId = $activity->carePlan->personId;
-            $draftChanged = $existing === null
-                ? $this->findDraftByActivity($activity->uuid, $personId) !== null
-                : $this->draftSnapshot($existing) !== $original;
-            if ($draftChanged) {
-                return false;
-            }
-
-            $this->store($resource, $personId, $employeeId, $divisionId);
-
-            return true;
-        });
-    }
-
     /** Apply the partial update inside the lock held by withLockedRequest(). */
     public function saveRequest(
         ServiceRequestData $data,
@@ -824,10 +781,9 @@ class ServiceRequestRequestRepository extends BaseRepository
             ->sum('quantity');
     }
 
-    public function findDraftByActivity(string $activityUuid, ?int $personId = null): ?ServiceRequestRequest
+    public function findDraftByActivity(string $activityUuid): ?ServiceRequestRequest
     {
         return $this->model->newQuery()
-            ->when($personId !== null, fn (Builder $query) => $query->forPerson($personId))
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->whereIn('status', ['draft', 'DRAFT'])
             ->latest('id')

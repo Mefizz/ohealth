@@ -6,6 +6,8 @@ namespace App\Livewire\EncounterPackage\Concerns;
 
 use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Classes\eHealth\EHealth;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\EhealthPrequalify;
 use App\Enums\JobStatus;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
@@ -295,6 +297,18 @@ trait ManagesEncounterReferrals
 
     public function validateEncounterReferral(bool $sign = true): void
     {
+        $encounter = $this->resolveEncounterModelForStandalone();
+        if ($encounter === null) {
+            return;
+        }
+        $person = $this->patient();
+        if (!$person instanceof Person || (int) $encounter->person_id !== $person->id
+            || Auth::user()->cannot('createServiceRequest', [$encounter, $person, legalEntity()])) {
+            Session::flash('error', __('referrals.create_denied'));
+
+            return;
+        }
+
         if ($this->encounterReferralRequestIdToSign !== null) {
             $this->checkEncounterReferralSubmission();
             if (($this->encounterReferralSubmission['status'] ?? null) === JobStatus::PENDING->value || $this->encounterReferralRequestIdToSign === null) {
@@ -302,11 +316,6 @@ trait ManagesEncounterReferrals
             }
         }
         $this->encounterReferralWarningMessage = '';
-
-        $encounter = $this->resolveEncounterModelForStandalone();
-        if ($encounter === null) {
-            return;
-        }
 
         if ($this->rejectInvalidEncounterReferralTransfer($encounter)) {
             return;
@@ -368,7 +377,18 @@ trait ManagesEncounterReferrals
                 return;
             }
 
-            $lifecycle->prepareEncounterDraftForSigning($encounter, $formData, $employeeContext, $this->encounterReferralRequestIdToSign);
+            // A refusal leaves the saved draft editable. Only the same confirmed content may proceed to signing.
+            $draft = app(MedicalRequestOwnership::class)->serviceForEncounter($this->encounterReferralRequestIdToSign, $encounter);
+            $repository = MedicalEventsRepository::serviceRequest();
+            $resource = $repository->editableDraftResource($draft);
+            if ($resource === []) {
+                throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+            }
+            if (isset($resource['program']) || data_get($resource, 'category.coding.0.code') === 'transfer_of_care') {
+                $payload = objectMapper()->map(new FormCollection(ServiceRequestForm::buildCreateContent($resource)), EhealthPrequalify::class);
+                EHealth::serviceRequest()->prequalify($person->uuid, $payload->toArray())->validate()->assertEligible();
+                $repository->assertDraftUnchanged($draft, $resource);
+            }
             $this->assertEncounterReferralPeriod($period);
             $this->showEncounterReferralDrawer = false;
             $this->actionType = 'sign_referral';

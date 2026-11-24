@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Classes\eHealth\Api\Patient;
 
 use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestPrequalification;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\ServiceRequestErrorTranslator;
 use App\Contracts\ApiErrorTranslator;
@@ -14,7 +15,9 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use stdClass;
 
 class ServiceRequest extends PatientApiBase
 {
@@ -100,6 +103,15 @@ class ServiceRequest extends PatientApiBase
      */
     public function prequalify(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
+        $validated = Validator::make($payload, [
+            'programs' => ['present', 'array', 'list'],
+            'programs.*.identifier' => ['required', 'array'],
+            'programs.*.identifier.value' => ['required', 'uuid', 'distinct:ignore_case'],
+        ])->validate();
+
+        $programIds = array_map('strtolower', data_get($validated, 'programs.*.identifier.value', []));
+        $this->setValidator(fn (EHealthResponse $response): ServiceRequestPrequalification => $this->validatePrequalify($response, $programIds));
+
         return $this->post(self::URL . "/{$patientId}/service_requests/prequalify", $payload);
     }
 
@@ -196,5 +208,40 @@ class ServiceRequest extends PatientApiBase
         }
 
         return $response->getData();
+    }
+
+    protected function validatePrequalify(EHealthResponse $response, array $programIds): ServiceRequestPrequalification
+    {
+        $envelope = $response->object();
+
+        // Associative decoding would turn an empty JSON object into an empty list.
+        if (
+            !$response->ok()
+            || !$envelope instanceof stdClass
+            || (property_exists($envelope, 'data') && !is_array($envelope->data))
+        ) {
+            throw ValidationException::withMessages(['data' => __('care-plan.referral_prequalify_failed')]);
+        }
+
+        $validated = Validator::make($response->json(), [
+            'data' => [Rule::requiredIf($programIds !== []), 'array', 'size:'.count($programIds)],
+            'error' => ['missing'],
+            'data.*' => ['array'],
+            'data.*.program_id' => ['required', 'uuid'],
+            'data.*.program_name' => ['present', 'string'],
+            'data.*.status' => ['required', Rule::in(['VALID', 'INVALID'])],
+            'data.*.rejection_reason' => ['sometimes', 'string'],
+            'urgent.authentication_method_current.type' => ['required', Rule::in(['OTP', 'OFFLINE', 'THIRD_PERSON'])],
+            'urgent.authentication_method_current.number' => ['sometimes', 'string'],
+        ])->validate();
+
+        $verdicts = $validated['data'] ?? [];
+        $returnedIds = array_column($verdicts, 'program_id');
+
+        if (array_diff($programIds, array_map('strtolower', $returnedIds)) !== []) {
+            throw ValidationException::withMessages(['data' => __('care-plan.referral_prequalify_failed')]);
+        }
+
+        return new ServiceRequestPrequalification($verdicts);
     }
 }

@@ -586,6 +586,57 @@ class ServiceRequestRequestRepository extends BaseRepository
         });
     }
 
+    /** A legacy draft can be completed locally until it is numbered or submitted. */
+    public function editableDraftResource(ServiceRequestRequest $draft): array
+    {
+        if (!in_array(ServiceRequestStatus::resolve($draft->status), [ServiceRequestStatus::DRAFT, ServiceRequestStatus::NEW], true)
+            || filled($draft->requestNumber)) {
+            throw ValidationException::withMessages(['draft' => __('referrals.draft_not_editable')]);
+        }
+        if ($this->hasPendingSubmission($draft)) {
+            throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
+        }
+
+        return $draft->detailsSyncedAt === null ? [] : $this->getResource($draft);
+    }
+
+    public function assertDraftUnchanged(ServiceRequestRequest $draft, array $original): void
+    {
+        $this->withLockedRequest($draft->personId, $draft->id, function (ServiceRequestRequest $locked) use ($original): ServiceRequestRequest {
+            if ($this->editableDraftResource($locked) !== $original) {
+                throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+            }
+
+            return $locked;
+        });
+    }
+
+    public function assertActivityDraftQuantity(CarePlanActivity $activity, float $quantity, ?ServiceRequestRequest $existing): void
+    {
+        // Other drafts reserve part of the activity quantity until they are cancelled.
+        $excluded = array_diff(MedicalEventsRequestStatuses::EXCLUDED_FROM_ISSUED_SUM, ['draft', 'DRAFT', 'new', 'NEW']);
+        Repository::carePlanActivity()->assertCanIssue(
+            $activity->id,
+            $quantity,
+            fn (): float => $this->sumIssuedQuantityByActivity($activity->uuid, $excluded, $existing?->uuid)
+        );
+    }
+
+    public function storeActivityDraft(CarePlanActivity $activity, array $resource, array $original, ?ServiceRequestRequest $existing, int $employeeId, ?int $divisionId): void
+    {
+        // Prequalification runs outside the transaction. Recheck capacity and draft state while the write is locked.
+        $this->storageTransaction(function () use ($activity, $resource, $original, $existing, $employeeId, $divisionId): void {
+            $this->assertActivityDraftQuantity($activity, $resource['quantity']['value'], $existing);
+            $personId = $activity->carePlan->personId;
+            if ($existing !== null) {
+                $this->assertDraftUnchanged($existing, $original);
+            } elseif ($this->findDraftByActivity($activity->uuid, $personId) !== null) {
+                throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+            }
+            $this->store($resource, $personId, $employeeId, $divisionId);
+        });
+    }
+
     /** Apply the partial update inside the lock held by withLockedRequest(). */
     public function saveRequest(
         ServiceRequestData $data,
@@ -781,9 +832,10 @@ class ServiceRequestRequestRepository extends BaseRepository
             ->sum('quantity');
     }
 
-    public function findDraftByActivity(string $activityUuid): ?ServiceRequestRequest
+    public function findDraftByActivity(string $activityUuid, ?int $personId = null): ?ServiceRequestRequest
     {
         return $this->model->newQuery()
+            ->when($personId !== null, fn (Builder $query) => $query->wherePersonId($personId))
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->whereIn('status', ['draft', 'DRAFT'])
             ->latest('id')

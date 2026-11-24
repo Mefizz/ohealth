@@ -7,6 +7,8 @@ namespace App\Livewire\CarePlan\Concerns;
 use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\FormCollection;
+use App\Dto\ServiceRequest\EhealthPrequalify;
 use App\Enums\CarePlanStatus;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -34,6 +36,7 @@ use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
@@ -370,11 +373,19 @@ trait ManagesCarePlanReferrals
             return;
         }
 
-        // Propose to sign
         $this->showReferralDrawer = false;
+        $this->showSignatureModal = false;
+        $this->actionType = '';
 
         try {
             $activity = $this->ownedActivity((int) $this->referralForm['activity_id']);
+            $kind = $activity->resolvedKind();
+            if (!in_array($kind, ['service_request', 'device_request'], true) || $kind !== $this->referralForm['kind']) {
+                $this->showReferralDrawer = true;
+                Session::flash('error', __('care-plan.referral_wrong_activity_kind'));
+
+                return;
+            }
         } catch (ModelNotFoundException) {
             Session::flash('error', __('care-plan.document_context_unavailable'));
             $this->showSignatureModal = false;
@@ -408,13 +419,10 @@ trait ManagesCarePlanReferrals
                 Auth::user()?->activeDoctorEmployee()?->id
             );
 
-            $this->referralRequestIdToSign = app(ReferralRequestLifecycleService::class)->createCarePlanDraft(
-                $this->carePlan,
-                array_replace($this->referralForm, $period),
-                $qty,
-                $employeeContext,
-                prequalify: $sign
-            );
+            $form = array_replace($this->referralForm, $period);
+            $this->referralRequestIdToSign = $kind === 'service_request'
+                ? $this->saveCarePlanServiceRequestDraft($activity, $form, $employeeContext, $qty, $sign)
+                : app(ReferralRequestLifecycleService::class)->createCarePlanDraft($this->carePlan, $form, $qty, $employeeContext, prequalify: $sign);
             if (!$sign) {
                 $this->showReferralDrawer = true;
                 $this->showSignatureModal = false;
@@ -448,6 +456,54 @@ trait ManagesCarePlanReferrals
                 : __('заявку на направлення');
             $this->flashUserError(__('Не вдалося створити ').$kindLabel.': '.$exception->getMessage());
         }
+    }
+
+    protected function saveCarePlanServiceRequestDraft(CarePlanActivity $activity, array $form, array $employee, float $quantity, bool $sign): string
+    {
+        $repository = MedicalEventsRepository::serviceRequest();
+        $repository->assertFhirStorageReady(beforeSubmission: true);
+        $person = $this->carePlan->person;
+        $existing = $repository->findDraftByActivity($activity->uuid, $person->id);
+        $original = $existing === null ? [] : $repository->editableDraftResource($existing);
+        $author = $repository->authorForDraft($employee['employee_id'], $employee['employee_uuid']);
+        if (!$author || blank($author->uuid) || blank($author->legalEntity?->uuid)
+            || $author->uuid !== $employee['employee_uuid'] || $author->legalEntity->uuid !== $employee['legal_entity_uuid']) {
+            throw ValidationException::withMessages(['author' => __('care-plan.referral_author_unavailable')]);
+        }
+
+        // The activity determines the service, program and units even when the browser submits different values.
+        $activityContext = $repository->activityContext($activity->uuid, $person->id);
+        $data = $activityContext + [
+            'uuid' => $existing?->uuid ?? (string) Str::uuid(),
+            'status' => ServiceRequestStatus::DRAFT->value,
+            'intent' => $form['intent'] ?? 'order',
+            'quantity' => $quantity,
+            'quantity_system' => $activity->quantitySystem ?: 'SERVICE_UNIT',
+            'quantity_code' => $activity->quantityCode ?: 'PIECE',
+            'service_id' => $activity->productReference,
+            'program_id' => null,
+            'based_on_uuid' => $activity->uuid,
+        ] + Arr::only($form, ['started_at', 'ended_at', 'category', 'priority', 'note', 'patient_instruction', 'reason_reference', 'inform_with', 'supporting_info']);
+        $resource = Fhir::serviceRequest()->toFhir($data, [
+            'resource' => $original,
+            'timezone' => config('app.timezone'),
+            'personUuid' => $person->uuid,
+            'employeeUuid' => $author->uuid,
+            'legalEntityUuid' => $author->legalEntity->uuid,
+            'encounterUuid' => $this->carePlan->encounter?->uuid,
+            'episodeUuid' => $this->carePlan->episodeUuid(),
+            'carePlanUuid' => $this->carePlan->uuid,
+        ]);
+
+        if ($sign && isset($resource['program'])) {
+            $repository->assertActivityDraftQuantity($activity, $quantity, $existing);
+            $payload = objectMapper()->map(new FormCollection(ServiceRequestForm::buildCreateContent($resource)), EhealthPrequalify::class);
+            EHealth::serviceRequest()->prequalify($person->uuid, $payload->toArray())->validate()->assertEligible();
+        }
+
+        $repository->storeActivityDraft($activity, $resource, $original, $existing, $employee['employee_id'], $employee['division_id']);
+
+        return $resource['id'];
     }
 
     public function resendReferralSms(string $requestId, string $kind): void

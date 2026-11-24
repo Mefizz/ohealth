@@ -64,7 +64,7 @@ use App\Livewire\CarePlan\Activity\Show\CarePlanActivityShow;
 use App\Livewire\Dictionary\ServiceCatalog;
 use App\Models\CarePlanActivity;
 use App\Services\MedicalEvents\CarePlanActivityEHealthGuard;
-use App\Services\MedicalEvents\EHealthJobResolver;
+use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestDetails;
 use App\Classes\eHealth\Api\Patient\ServiceRequest;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Enums\CarePlanStatus;
@@ -1085,10 +1085,6 @@ class CarePlanShowActionsTest extends TestCase
         ]);
         $this->mock(CarePlanActivityEHealthGuard::class)
             ->shouldReceive('assertRegisteredInEHealth')->once()->andReturnNull();
-        $lifecycle = Mockery::mock(ReferralRequestLifecycleService::class, [
-            app(EHealthJobResolver::class),
-        ])->makePartial();
-        $this->instance(ReferralRequestLifecycleService::class, $lifecycle);
         $api = $this->mock(ServiceRequest::class);
         $api->shouldNotReceive('createSigned');
         $parameters = ['carePlan' => $plan];
@@ -1104,13 +1100,15 @@ class CarePlanShowActionsTest extends TestCase
         $component->set('referralForm.note', 'Local edit')->call('saveReferralDraft')->assertHasNoErrors()
             ->assertSet('referralRequestIdToSign', $uuid)->assertSet('showSignatureModal', false);
         $api->shouldNotHaveReceived('prequalify');
-        $lifecycle->shouldNotHaveReceived('trySyncDraftFromEHealth');
+        $api->shouldNotHaveReceived('getDetails');
         $record = ServiceRequestRequest::whereUuid($uuid)->sole();
         $this->assertSame('draft', $record->status);
         $this->assertSame('Local edit', $record->note);
         $this->assertSame(1, ServiceRequestRequest::wherePersonId($this->person->id)->count());
 
-        $lifecycle->shouldReceive('trySyncDraftFromEHealth')->twice()->andReturnFalse();
+        $detailResponse = Mockery::mock(EHealthResponse::class);
+        $detailResponse->shouldReceive('validate')->twice()->andReturn(new ServiceRequestDetails(['id' => $uuid, 'status' => 'draft']));
+        $api->shouldReceive('getDetails')->twice()->with($this->person->uuid, $uuid)->andReturn($detailResponse);
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
         $api->shouldReceive('prequalify')->once()->andReturn($response);

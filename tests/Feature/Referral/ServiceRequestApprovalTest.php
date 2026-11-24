@@ -63,6 +63,7 @@ class ServiceRequestApprovalTest extends TestCase
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('validate')->twice()->andReturn(new ServiceRequestDetails([
             'id' => $uuid,
+            'requisition' => '0000-9999-8888-7777',
             'status' => 'active',
             'permitted_resources' => [[
                 'identifier' => [
@@ -77,6 +78,7 @@ class ServiceRequestApprovalTest extends TestCase
         $this->component->remoteReferrals = [$uuid => ['requisition' => '0000-1111-2222-3333']];
         $this->component->showReferralDetails($uuid);
         $this->assertSame('referral', $this->component->previewSection);
+        $this->assertSame(__('approval.create.referral_prefix').' 0000-9999-8888-7777', $this->component->previewTitle);
         $this->assertSame([['code' => 'episode_of_care', 'name' => $episodeUuid]], $this->component->previewRows);
 
         app(PatientApprovalService::class)->shouldReceive('create')->once()->withArgs(function (Person $person, array $payload) use ($uuid): bool {

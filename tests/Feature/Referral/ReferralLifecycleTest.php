@@ -1074,8 +1074,8 @@ class ReferralLifecycleTest extends TestCase
         $snapshot = json_decode(file_get_contents(base_path('tests/Fixtures/ServiceRequest/resource.json')), true, flags: JSON_THROW_ON_ERROR);
         $snapshot['id'] = $uuid;
         $snapshotResponse = Mockery::mock(EHealthResponse::class);
-        $snapshotResponse->shouldReceive('getData', 'validate')->andReturn(Arr::toSnakeCase($snapshot));
-        $mockServiceApi->shouldReceive('getById')->once()->with($this->person->uuid, $uuid, [], true)->andReturn($snapshotResponse);
+        $snapshotResponse->shouldReceive('validate')->once()->andReturn(new ServiceRequestDetails(Arr::toSnakeCase($snapshot)));
+        $mockServiceApi->shouldReceive('getDetails')->once()->with($this->person->uuid, $uuid)->andReturn($snapshotResponse);
         $cancelResponse = Mockery::mock(EHealthResponse::class);
         $cancelResponse->shouldReceive('getStatusCode')->andReturn(200);
         $cancelResponse->shouldReceive('successful')->andReturn(true);
@@ -1214,10 +1214,9 @@ class ReferralLifecycleTest extends TestCase
         $missingResponse = Mockery::mock(EHealthResponse::class);
         $missingResponse->shouldReceive('validate')->once()->andThrow($this->missingReferralException());
         $getResponse = Mockery::mock(EHealthResponse::class);
-        $getResponse->shouldReceive('validate')->once()->andReturn($this->activeReferralDetails($draftUuid, 'SR-EXISTING-99'));
-        $mockServiceApi->shouldReceive('getDetails')->twice()
-            ->with($this->person->uuid, $draftUuid)
-            ->andReturn($missingResponse, $getResponse);
+        $getResponse->shouldReceive('getData')->once()->andReturn($this->activeReferralDetails($draftUuid, 'SR-EXISTING-99')->all());
+        $mockServiceApi->shouldReceive('getDetails')->once()->with($this->person->uuid, $draftUuid)->andReturn($missingResponse);
+        $mockServiceApi->shouldReceive('getById')->once()->with($this->person->uuid, $draftUuid)->andReturn($getResponse);
 
         $mockServiceApi->shouldReceive('createSigned')->once()->andThrow(new EHealthValidationException([
             'error' => [

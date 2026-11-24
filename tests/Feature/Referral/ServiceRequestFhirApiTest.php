@@ -46,9 +46,9 @@ class ServiceRequestFhirApiTest extends TestCase
         $this->assertSame('Synthetic explanation', $actual['explanatory_letter']);
         unset($actual['status_reason'], $actual['explanatory_letter']);
         $this->assertSame(json_encode($resource, JSON_THROW_ON_ERROR), json_encode($actual, JSON_THROW_ON_ERROR));
-        $this->assertFalse($actual['remote_extension']['flag']);
-        $this->assertSame([], $actual['remote_extension']['empty']);
-        $this->assertSame(0, $actual['remaining_quantity']['value']);
+        $this->assertFalse(data_get($actual, 'remote_extension.flag'));
+        $this->assertSame([], data_get($actual, 'remote_extension.empty'));
+        $this->assertSame(0, data_get($actual, 'remaining_quantity.value'));
     }
 
     public function test_mismatched_snapshot_identity_blocks_signing(): void

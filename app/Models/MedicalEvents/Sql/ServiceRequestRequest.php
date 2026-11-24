@@ -19,12 +19,14 @@ use App\Models\User;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 
+/** @property-read bool $isEditableRequest */
 class ServiceRequestRequest extends Model implements SubmittedToEHealth
 {
     use HasCamelCasing;
@@ -110,18 +112,20 @@ class ServiceRequestRequest extends Model implements SubmittedToEHealth
     }
 
     /** Only complete, unnumbered local drafts may be edited before submission starts. */
-    public function isEditableRequest(): bool
+    protected function isEditableRequest(): Attribute
     {
-        if (ServiceRequestStatus::resolve($this->status) !== ServiceRequestStatus::DRAFT
-            || filled($this->requestNumber) || $this->detailsSyncedAt === null) {
-            return false;
-        }
+        return Attribute::get(function (): bool {
+            if (ServiceRequestStatus::resolve($this->status) !== ServiceRequestStatus::DRAFT
+                || filled($this->requestNumber) || $this->detailsSyncedAt === null) {
+                return false;
+            }
 
-        if (array_key_exists('submission_pending', $this->getAttributes())) {
-            return !$this->submissionPending;
-        }
+            if (array_key_exists('submission_pending', $this->getAttributes())) {
+                return !$this->submissionPending;
+            }
 
-        return !$this->ehealthLinks()->whereStatus(JobStatus::PENDING->value)->exists();
+            return !$this->ehealthLinks()->whereStatus(JobStatus::PENDING->value)->exists();
+        });
     }
 
     /** Detect another editor changing a field this form would overwrite. */

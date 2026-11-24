@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Diagnostic;
 
-use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequest;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as PatientServiceRequest;
 use App\Classes\eHealth\EHealthResponse;
 use App\Enums\Person\EncounterStatus;
 use App\Models\Employee\Employee;

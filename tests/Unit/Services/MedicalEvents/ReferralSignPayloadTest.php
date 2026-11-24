@@ -18,7 +18,7 @@ use App\Models\User;
 use App\Repositories\MedicalEvents\Repository;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\CarePlanActivityRepository;
-use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as ServiceRequestApi;
 use App\Services\MedicalEvents\Fhir;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Database\Eloquent\Model;

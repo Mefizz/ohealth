@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Browser;
 
-use App\Classes\eHealth\Api\Patient\ServiceRequest as PatientServiceRequestApi;
+use App\Classes\eHealth\Api\MedicalEvents\ServiceRequest as PatientServiceRequestApi;
 use App\Classes\eHealth\EHealthResponse;
 use Tests\Support\ReferralIndexFixture;
 use App\Repositories\MedicalEvents\ServiceRequestRequestRepository;

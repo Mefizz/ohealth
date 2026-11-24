@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Forms;
 
-use Illuminate\Support\Facades\Validator;
-
-use App\Core\Arr;
-
+use App\Dto\CarePlan\Ehealth as EhealthData;
+use App\Dto\Input\FormCollection;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Validator;
 use Livewire\Form;
 
 class CarePlanForm extends Form
@@ -129,11 +128,8 @@ class CarePlanForm extends Form
             'addresses' => ['required', 'array', 'min:1'],
             'termsOfService.coding' => ['required', 'array', 'min:1'],
         ])->validate();
-        $content = array_intersect_key($resource, array_flip(['id', 'category', 'title', 'description', 'period', 'supportingInfo', 'note', 'encounter', 'addresses', 'author', 'contributor', 'termsOfService', 'informWith']));
-        $content['intent'] = 'order';
-        $content['status'] = 'new';
 
-        return self::resourcePayload($content);
+        return objectMapper()->map(new FormCollection($resource), EhealthData::class)->toArray();
     }
 
     public static function buildCancelContent(array $snapshot, array $statusReason): array
@@ -143,20 +139,5 @@ class CarePlanForm extends Form
         $snapshot['status_reason'] = $statusReason;
 
         return $snapshot;
-    }
-
-    private static function resourcePayload(array $data): array
-    {
-        $result = [];
-        foreach (Arr::toSnakeCase($data) as $key => $value) {
-            if (is_array($value)) {
-                $value = self::resourcePayload($value);
-            }
-            if ($value !== null && $value !== '' && $value !== []) {
-                $result[$key] = $value;
-            }
-        }
-
-        return array_is_list($data) ? array_values($result) : $result;
     }
 }

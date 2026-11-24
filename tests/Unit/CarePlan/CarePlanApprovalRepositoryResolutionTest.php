@@ -35,25 +35,10 @@ class CarePlanApprovalRepositoryResolutionTest extends TestCase
 
     public function test_care_plan_sync_call_sites_use_medical_events_repository(): void
     {
-        $sources = [
-            'CarePlanShow' => file_get_contents(app_path('Livewire/CarePlan/CarePlanShow.php')),
-            'CarePlanManager' => file_get_contents(app_path('Livewire/CarePlan/Concerns/CarePlanManager.php')),
-        ];
+        $source = file_get_contents(app_path('Livewire/CarePlan/CarePlanComponent.php'));
 
-        foreach ($sources as $name => $source) {
-            $this->assertIsString($source);
-            $this->assertStringNotContainsString(
-                'App\\Repositories\\ApprovalRepository::class',
-                $source,
-                $name.' resolves the non-existent App\\Repositories\\ApprovalRepository'
-            );
-        }
-
-        // The call lives in whichever of the two holds the sync action; CarePlanShow uses the
-        // CarePlanManager trait, so requiring it in both files only pins where the code sits.
-        $this->assertStringContainsString(
-            'app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan)',
-            implode("\n", $sources)
-        );
+        $this->assertIsString($source);
+        $this->assertStringNotContainsString('App\\Repositories\\ApprovalRepository::class', $source);
+        $this->assertStringContainsString('app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan)', $source);
     }
 }

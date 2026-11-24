@@ -2,22 +2,24 @@
 
 declare(strict_types=1);
 
-namespace App\Classes\eHealth\Api\Patient;
+namespace App\Classes\eHealth\Api\MedicalEvents;
 
-use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
+use App\Classes\eHealth\Api\Job;
+use App\Classes\eHealth\Api\Patient\PatientApiBase;
 use App\Classes\eHealth\Api\Responses\Collections\ServiceRequestPrequalification;
+use App\Classes\eHealth\Api\ServiceRequest as ServiceRequestExecutorApi;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\ServiceRequestErrorTranslator;
 use App\Contracts\ApiErrorTranslator;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use Closure;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use stdClass;
 
 class ServiceRequest extends PatientApiBase
 {
@@ -33,7 +35,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function createSigned(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->post(self::URL . "/{$patientId}/service_requests", $payload);
     }
@@ -43,7 +45,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function cancel(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/cancel", $payload);
     }
@@ -55,7 +57,7 @@ class ServiceRequest extends PatientApiBase
      */
     public function recall(string $patientId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch(self::URL . "/{$patientId}/service_requests/{$id}/actions/recall", $payload);
     }
@@ -103,11 +105,15 @@ class ServiceRequest extends PatientApiBase
      */
     public function prequalify(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        $validated = Validator::make($payload, [
-            'programs' => ['present', 'array', 'list'],
+        $rules = [
+            'service_request.code.identifier.value' => ['required'],
+            'service_request.requester_employee.identifier.value' => ['required', 'uuid'],
+            'service_request.requester_legal_entity.identifier.value' => ['required', 'uuid'],
+            'programs' => ['bail', 'present', Rule::requiredIf(($payload['programs'] ?? []) !== []), 'array', 'list'],
             'programs.*.identifier' => ['required', 'array'],
             'programs.*.identifier.value' => ['required', 'uuid', 'distinct:ignore_case'],
-        ])->validate();
+        ];
+        $validated = Validator::make($payload, $rules)->validate();
 
         $programIds = array_map('strtolower', data_get($validated, 'programs.*.identifier.value', []));
         $this->setValidator(fn (EHealthResponse $response): ServiceRequestPrequalification => $this->validatePrequalify($response, $programIds));
@@ -127,7 +133,7 @@ class ServiceRequest extends PatientApiBase
 
     /**
      * Executor actions live on the facility-scoped Service Request API.
-     * EHealth::serviceRequest() is bound to this Patient client for create/search,
+     * EHealth::serviceRequest() uses this client for patient-scoped create/search,
      * so these methods delegate to Api\ServiceRequest for use / complete / qualify.
      */
     public function qualify(string $id, array $payload = []): PromiseInterface|EHealthResponse
@@ -212,36 +218,35 @@ class ServiceRequest extends PatientApiBase
 
     protected function validatePrequalify(EHealthResponse $response, array $programIds): ServiceRequestPrequalification
     {
-        $envelope = $response->object();
-
-        // Associative decoding would turn an empty JSON object into an empty list.
-        if (
-            !$response->ok()
-            || !$envelope instanceof stdClass
-            || (property_exists($envelope, 'data') && !is_array($envelope->data))
-        ) {
-            throw ValidationException::withMessages(['data' => __('care-plan.referral_prequalify_failed')]);
+        $body = (array) $response->json();
+        $body['http_status'] = $response->status();
+        // Laravel decodes both {} and [] as an empty array. Only a JSON list can contain verdicts.
+        $verdicts = $response->object()->data ?? null;
+        if (is_object($verdicts)) {
+            $body['data'] = $verdicts;
         }
 
-        $validated = Validator::make($response->json(), [
-            'data' => [Rule::requiredIf($programIds !== []), 'array', 'size:'.count($programIds)],
+        $rules = [
+            'http_status' => ['required', Rule::in([200])],
             'error' => ['missing'],
+            'data' => ['bail', Rule::requiredIf($programIds !== [] || ($body['data'] ?? []) !== []), 'array', 'list', 'size:'.count($programIds)],
             'data.*' => ['array'],
-            'data.*.program_id' => ['required', 'uuid'],
+            'data.*.program_id' => [
+                'bail', 'required', 'uuid', 'distinct:ignore_case',
+                function (string $attribute, string $value, Closure $fail) use ($programIds): void {
+                    if (!in_array(strtolower($value), $programIds, true)) {
+                        $fail(__('care-plan.referral_prequalify_failed'));
+                    }
+                },
+            ],
             'data.*.program_name' => ['present', 'string'],
             'data.*.status' => ['required', Rule::in(['VALID', 'INVALID'])],
             'data.*.rejection_reason' => ['sometimes', 'string'],
             'urgent.authentication_method_current.type' => ['required', Rule::in(['OTP', 'OFFLINE', 'THIRD_PERSON'])],
             'urgent.authentication_method_current.number' => ['sometimes', 'string'],
-        ])->validate();
+        ];
+        $validated = Validator::make($body, $rules)->validate();
 
-        $verdicts = $validated['data'] ?? [];
-        $returnedIds = array_column($verdicts, 'program_id');
-
-        if (array_diff($programIds, array_map('strtolower', $returnedIds)) !== []) {
-            throw ValidationException::withMessages(['data' => __('care-plan.referral_prequalify_failed')]);
-        }
-
-        return new ServiceRequestPrequalification($verdicts);
+        return new ServiceRequestPrequalification($validated['data'] ?? []);
     }
 }

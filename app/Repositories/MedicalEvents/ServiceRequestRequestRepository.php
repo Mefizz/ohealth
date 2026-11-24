@@ -586,28 +586,16 @@ class ServiceRequestRequestRepository extends BaseRepository
         });
     }
 
-    /** A legacy draft can be completed locally until it is numbered or submitted. */
-    public function editableDraftResource(ServiceRequestRequest $draft): array
+    /** Read a consistent FHIR snapshot. An incomplete legacy draft has no resource yet. */
+    public function draftSnapshot(ServiceRequestRequest $request): ?array
     {
-        if (!in_array(ServiceRequestStatus::resolve($draft->status), [ServiceRequestStatus::DRAFT, ServiceRequestStatus::NEW], true)
-            || filled($draft->requestNumber)) {
-            throw ValidationException::withMessages(['draft' => __('referrals.draft_not_editable')]);
-        }
-        if ($this->hasPendingSubmission($draft)) {
-            throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
-        }
-
-        return $draft->detailsSyncedAt === null ? [] : $this->getResource($draft);
-    }
-
-    public function assertDraftUnchanged(ServiceRequestRequest $draft, array $original): void
-    {
-        $this->withLockedRequest($draft->personId, $draft->id, function (ServiceRequestRequest $locked) use ($original): ServiceRequestRequest {
-            if ($this->editableDraftResource($locked) !== $original) {
-                throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+        return $this->storageTransaction(function () use ($request): ?array {
+            $draft = $this->model->newQuery()->forPerson($request->personId)->whereKey($request->id)->lockForUpdate()->first();
+            if ($draft === null || !$draft->canPrepareForSubmission) {
+                return null;
             }
 
-            return $locked;
+            return $draft->detailsSyncedAt === null ? [] : $this->getResource($draft);
         });
     }
 
@@ -622,18 +610,22 @@ class ServiceRequestRequestRepository extends BaseRepository
         );
     }
 
-    public function storeActivityDraft(CarePlanActivity $activity, array $resource, array $original, ?ServiceRequestRequest $existing, int $employeeId, ?int $divisionId): void
+    public function storeActivityDraft(CarePlanActivity $activity, array $resource, array $original, ?ServiceRequestRequest $existing, int $employeeId, ?int $divisionId): bool
     {
-        // Prequalification runs outside the transaction. Recheck capacity and draft state while the write is locked.
-        $this->storageTransaction(function () use ($activity, $resource, $original, $existing, $employeeId, $divisionId): void {
+        // The API call ran outside the transaction. Compare the snapshot while the activity and draft are locked.
+        return $this->storageTransaction(function () use ($activity, $resource, $original, $existing, $employeeId, $divisionId): bool {
             $this->assertActivityDraftQuantity($activity, $resource['quantity']['value'], $existing);
             $personId = $activity->carePlan->personId;
-            if ($existing !== null) {
-                $this->assertDraftUnchanged($existing, $original);
-            } elseif ($this->findDraftByActivity($activity->uuid, $personId) !== null) {
-                throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+            $draftChanged = $existing === null
+                ? $this->findDraftByActivity($activity->uuid, $personId) !== null
+                : $this->draftSnapshot($existing) !== $original;
+            if ($draftChanged) {
+                return false;
             }
+
             $this->store($resource, $personId, $employeeId, $divisionId);
+
+            return true;
         });
     }
 
@@ -835,7 +827,7 @@ class ServiceRequestRequestRepository extends BaseRepository
     public function findDraftByActivity(string $activityUuid, ?int $personId = null): ?ServiceRequestRequest
     {
         return $this->model->newQuery()
-            ->when($personId !== null, fn (Builder $query) => $query->wherePersonId($personId))
+            ->when($personId !== null, fn (Builder $query) => $query->forPerson($personId))
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->whereIn('status', ['draft', 'DRAFT'])
             ->latest('id')

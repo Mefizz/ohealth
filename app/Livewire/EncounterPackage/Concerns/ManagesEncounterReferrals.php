@@ -6,7 +6,6 @@ namespace App\Livewire\EncounterPackage\Concerns;
 
 use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Classes\eHealth\EHealth;
-use App\Dto\FormCollection;
 use App\Dto\ServiceRequest\EhealthPrequalify;
 use App\Enums\JobStatus;
 use App\Enums\MedicalProgram\Type as MedicalProgramType;
@@ -380,14 +379,19 @@ trait ManagesEncounterReferrals
             // A refusal leaves the saved draft editable. Only the same confirmed content may proceed to signing.
             $draft = app(MedicalRequestOwnership::class)->serviceForEncounter($this->encounterReferralRequestIdToSign, $encounter);
             $repository = MedicalEventsRepository::serviceRequest();
-            $resource = $repository->editableDraftResource($draft);
-            if ($resource === []) {
+            $resource = $repository->draftSnapshot($draft);
+            if ($resource === null || $resource === []) {
                 throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
             }
             if (isset($resource['program']) || data_get($resource, 'category.coding.0.code') === 'transfer_of_care') {
-                $payload = objectMapper()->map(new FormCollection(ServiceRequestForm::buildCreateContent($resource)), EhealthPrequalify::class);
-                EHealth::serviceRequest()->prequalify($person->uuid, $payload->toArray())->validate()->assertEligible();
-                $repository->assertDraftUnchanged($draft, $resource);
+                $payload = objectMapper()->map(new EhealthPrequalify($resource));
+                $result = EHealth::serviceRequest()->prequalify($person->uuid, $payload->all())->validate();
+                if (($reason = $result->rejectionReason()) !== null) {
+                    throw new EHealthValidationException(['error' => ['message' => $reason]]);
+                }
+                if ($repository->draftSnapshot($draft) !== $resource) {
+                    throw ValidationException::withMessages(['draft' => __('referrals.draft_changed')]);
+                }
             }
             $this->assertEncounterReferralPeriod($period);
             $this->showEncounterReferralDrawer = false;

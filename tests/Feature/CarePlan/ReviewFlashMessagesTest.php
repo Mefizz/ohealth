@@ -8,13 +8,17 @@ use App\Livewire\CarePlan\CarePlanUpdate;
 use App\Livewire\Components\FlashMessage;
 use App\Livewire\Components\XMessage;
 use App\Models\CarePlan;
+use App\Models\User;
 use App\Repositories\CarePlanRepository;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Livewire\Component;
 use Livewire\Livewire;
 use Mockery;
 use Tests\TestCase;
+
+use function Livewire\invade;
 
 class ReviewFlashMessagesTest extends TestCase
 {
@@ -95,9 +99,9 @@ class ReviewFlashMessagesTest extends TestCase
             $plan->setRelation('encounter', null);
             $repository = Mockery::mock(CarePlanRepository::class);
             $repository->shouldReceive('deleteDraft')->once()->with(1)->andReturn($status === 'draft');
-            \Illuminate\Support\Facades\Gate::define('update', static fn (?\App\Models\User $user) => true);
+            Gate::define('update', static fn (?User $user) => true);
             $component = new ReviewCarePlanDeleteHarness();
-            $component->carePlan = $plan;
+            invade($component)->carePlan = $plan;
             $component->personId = 1;
 
             $component->delete($repository);

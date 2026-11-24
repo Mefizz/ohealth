@@ -9,6 +9,7 @@ use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Contracts\SubmittedToEHealth;
 use App\Core\EHealthJob;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\JobStatus;
 use App\Enums\ResponseStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
@@ -168,7 +169,8 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                     }
                     $resource = $api->getDetails($record->person->uuid, $record->uuid)->validate();
                 }
-                $details = $api->confirmedDetails($resource, $record->person->uuid, $record->uuid);
+                $data = $api->validate($resource, $record->person->uuid, $record->uuid);
+                $details = objectMapper()->map(collect($data), CarePlanData::class);
             }
             if (Repository::carePlanRequest()->finishSubmission($link, $jobData, $details)) {
                 $user->notify(new RemoteEHealthLinksNotification(__($details ? $processedMessage : $rejectedMessage), $details ? 'success' : 'error'));

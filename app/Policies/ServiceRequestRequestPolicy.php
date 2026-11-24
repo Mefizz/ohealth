@@ -46,7 +46,7 @@ class ServiceRequestRequestPolicy
         }
 
         return Employee::forUserInLegalEntity($user, $legalEntity)->whereKey($serviceRequest->employeeId)->exists()
-            && $serviceRequest->isEditableRequest()
+            && $serviceRequest->isEditableRequest
             ? Response::allow()
             : Response::denyWithStatus(404);
     }

@@ -533,7 +533,7 @@ class ServiceRequestRequestRepository extends BaseRepository
 
         return $requests->map(function (ServiceRequestRequest $serviceRequest) use ($carePlanIdsByActivityUuid, $encounterIdsByUuid): array {
             $row = $this->toPatientRegistryRow($serviceRequest, $carePlanIdsByActivityUuid, $encounterIdsByUuid);
-            $row['canEdit'] = ($serviceRequest->requestAuthor ?? false) && $serviceRequest->isEditableRequest();
+            $row['canEdit'] = ($serviceRequest->requestAuthor ?? false) && $serviceRequest->isEditableRequest;
 
             return $row;
         })->all();

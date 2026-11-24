@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Dto\CarePlan\Model as CarePlanData;
 use App\Dto\CarePlanRequest\Model as CarePlanRequestData;
 use App\Enums\JobStatus;
@@ -89,7 +88,7 @@ class CarePlanRequestRepository
         });
     }
 
-    public function finishSubmission(EhealthLink $link, array $outcome, ?CarePlanDetails $details): bool
+    public function finishSubmission(EhealthLink $link, array $outcome, ?CarePlanData $details): bool
     {
         return DB::transaction(function () use ($link, $outcome, $details): bool {
             $link = EhealthLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
@@ -102,7 +101,7 @@ class CarePlanRequestRepository
                 $plan = new CarePlan();
                 $plan->personId = $request->personId;
                 $plan->legalEntityId = $request->legalEntityId;
-                $plan = Repository::carePlan()->save($plan, objectMapper()->map($details, CarePlanData::class));
+                $plan = Repository::carePlan()->save($plan, $details);
                 $request->carePlan()->associate($plan)->save();
                 // Existing plan details and the inpatient approval job follow the confirmed plan's submission.
                 $link->linkable()->associate($plan);

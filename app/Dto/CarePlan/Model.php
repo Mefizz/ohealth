@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Dto\CarePlan;
 
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\Attribute\Map;
 
-#[Map(source: CarePlanDetails::class)]
+#[Map(source: Collection::class)]
 class Model
 {
     #[Map(source: '[id]')]

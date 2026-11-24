@@ -4,18 +4,16 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Core\Arr;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
-use Illuminate\Validation\Rule;
-
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
+use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class CarePlan extends Request
@@ -34,7 +32,7 @@ class CarePlan extends Request
     {
         $this->setValidator(function (EHealthResponse $response) use ($patientId): array {
             if ($response->getStatusCode() === 201) {
-                return $this->confirmedDetails($response->getData(), $patientId)->all();
+                return $this->validate($response->getData(), $patientId);
             }
 
             $data = Job::validateSubmissionResponse($response);
@@ -146,7 +144,10 @@ class CarePlan extends Request
         return $this->get("/api/patients/$patientId/summary/care_plans", $mergedQuery);
     }
 
-    public function confirmedDetails(array $resource, string $patientUuid, ?string $planUuid = null): CarePlanDetails
+    /**
+     * Validate the registered plan returned by creation or by its completed job.
+     */
+    public function validate(array $resource, string $patientUuid, ?string $planUuid = null): array
     {
         $data = Arr::toCamelCase($resource);
         $statuses = ['new', 'active', 'completed', 'cancelled', 'terminated'];
@@ -196,7 +197,7 @@ class CarePlan extends Request
         }
         Validator::make($data, $rules)->validate();
 
-        return new CarePlanDetails($data);
+        return $data;
     }
 
     protected function validateDetails(EHealthResponse $response, bool $preserveApiKeys = false): array

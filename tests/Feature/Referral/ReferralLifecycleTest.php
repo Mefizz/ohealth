@@ -11,7 +11,6 @@ use App\Contracts\SignatureProvider;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
-use GuzzleHttp\Psr7\Response;
 use App\Models\CarePlanActivity;
 use App\Models\Person\Person;
 use App\Models\Employee\Employee;
@@ -49,6 +48,8 @@ class ReferralLifecycleTest extends TestCase
     {
         $destination = (string) Str::uuid();
         $division = (string) Str::uuid();
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('validate')->once()->andReturn([]);
         $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
         $api->shouldReceive('prequalify')->once()->with($this->person->uuid, Mockery::on(function (array $payload) use ($destination, $division) {
             $this->assertSame([], $payload['programs']);
@@ -56,7 +57,7 @@ class ReferralLifecycleTest extends TestCase
             $this->assertSame($division, data_get($payload, 'service_request.location_reference.identifier.value'));
 
             return true;
-        }))->andReturn(new EHealthResponse(new Response(200, [], json_encode(['data' => []]))));
+        }))->andReturn($response);
         $this->instance(ServiceRequestApi::class, $api);
 
         $uuid = app(ReferralRequestLifecycleService::class)->prepareEncounterDraftForSigning($this->encounter, [
@@ -638,10 +639,8 @@ class ReferralLifecycleTest extends TestCase
         $this->instance(ServiceRequestApi::class, $mockServiceApi);
 
         $prequalifyResponse = Mockery::mock(EHealthResponse::class);
-        $prequalifyResponse->shouldReceive('getData', 'validate')->andReturn([
-            'data' => [
-                ['status' => 'VALID'],
-            ],
+        $prequalifyResponse->shouldReceive('validate')->once()->andReturn([
+            ['program_id' => $this->serviceActivity->program, 'program_name' => 'Test program', 'status' => 'VALID'],
         ]);
         $mockServiceApi->shouldReceive('prequalify')->once()->andReturn($prequalifyResponse);
 

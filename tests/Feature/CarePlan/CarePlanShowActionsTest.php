@@ -1112,7 +1112,9 @@ class CarePlanShowActionsTest extends TestCase
 
         $lifecycle->shouldReceive('trySyncDraftFromEHealth')->twice()->andReturnFalse();
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('getData')->andReturn(['status' => 'VALID']);
+        $response->shouldReceive('validate')->once()->andReturn([
+            ['program_id' => $activity->program, 'program_name' => 'Test program', 'status' => 'VALID'],
+        ]);
         $api->shouldReceive('prequalify')->once()->andReturn($response);
         $component->call('validateReferral')->assertHasNoErrors()->assertSet('showSignatureModal', true)
             ->assertSet('referralRequestIdToSign', $uuid);

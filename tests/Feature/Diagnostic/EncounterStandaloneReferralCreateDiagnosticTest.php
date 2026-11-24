@@ -127,7 +127,7 @@ class EncounterStandaloneReferralCreateDiagnosticTest extends TestCase
         $performer = (string) Str::uuid();
         $division = (string) Str::uuid();
         $prequalifyResponse = Mockery::mock(EHealthResponse::class);
-        $prequalifyResponse->shouldReceive('getData')->andReturn(['data' => [['status' => 'VALID']]]);
+        $prequalifyResponse->shouldReceive('validate')->once()->andReturn([]);
         $this->mock(PatientServiceRequest::class, function ($mock) use ($performer, $division, $prequalifyResponse): void {
             $mock->shouldReceive('prequalify')->once()->withArgs(function (string $personUuid, array $payload) use ($performer, $division): bool {
                 $this->assertSame($this->person->uuid, $personUuid);
@@ -291,8 +291,8 @@ class EncounterStandaloneReferralCreateDiagnosticTest extends TestCase
         $programId = (string) Str::uuid();
 
         $prequalifyResponse = Mockery::mock(EHealthResponse::class);
-        $prequalifyResponse->shouldReceive('getData')->andReturn([
-            'data' => [['status' => 'VALID']],
+        $prequalifyResponse->shouldReceive('validate')->once()->andReturn([
+            ['program_id' => $programId, 'program_name' => 'Test program', 'status' => 'VALID'],
         ]);
 
         $patientApi = Mockery::mock(PatientServiceRequest::class)->makePartial();

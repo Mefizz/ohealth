@@ -19,12 +19,14 @@ use App\Repositories\MedicalEvents\Repository;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\CarePlanActivityRepository;
 use App\Classes\eHealth\Api\Patient\ServiceRequest as ServiceRequestApi;
+use App\Classes\eHealth\EHealthResponse;
 use App\Services\MedicalEvents\Fhir;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Mockery;
 use Tests\TestCase;
 
 class ReferralSignPayloadTest extends TestCase
@@ -234,10 +236,12 @@ class ReferralSignPayloadTest extends TestCase
         unset($resource['detail']['dailyAmount']);
         $programId = '10050000-0000-4000-8000-000000000099';
         $resource['detail']['program'] = ['identifier' => ['type' => ['coding' => [['system' => 'eHealth/resources', 'code' => 'medical_program']]], 'value' => $programId]];
-        $api = \Mockery::mock(ServiceRequestApi::class)->makePartial();
-        $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $response->shouldReceive('getData')->andReturn([['status' => 'VALID']]);
-        $api->shouldReceive('prequalify')->once()->with($this->person->uuid, \Mockery::on(fn ($payload) => data_get($payload, 'programs.0.identifier.value') === $programId && data_get($payload, 'service_request.code.identifier.type.coding.0.code') === 'service_group'))->andReturn($response);
+        $api = Mockery::mock(ServiceRequestApi::class)->makePartial();
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('validate')->once()->andReturn([
+            ['program_id' => $programId, 'program_name' => 'Test program', 'status' => 'VALID'],
+        ]);
+        $api->shouldReceive('prequalify')->once()->with($this->person->uuid, Mockery::on(fn ($payload) => data_get($payload, 'programs.0.identifier.value') === $programId && data_get($payload, 'service_request.code.identifier.type.coding.0.code') === 'service_group'))->andReturn($response);
         $this->instance(ServiceRequestApi::class, $api);
         $activity = app(CarePlanActivityRepository::class)->storeResource($resource, $plan);
         $lifecycle = app(ReferralRequestLifecycleService::class);

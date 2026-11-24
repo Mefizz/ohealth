@@ -150,9 +150,7 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
                     $carePlan->uuid,
                     (string) $activity->uuid
                 );
-                $this->runPrequalify(
-                    EHealth::serviceRequest()->prequalify($carePlan->person->uuid, $prequalifyPayload)
-                );
+                $this->prequalifyServiceRequest($carePlan->person->uuid, $prequalifyPayload);
             }
 
             DB::transaction(function () use ($existingDraft, $dbData, $carePlan, $uuids): void {
@@ -308,12 +306,24 @@ class ReferralRequestLifecycleService extends EHealthRequestLifecycleService
             return;
         }
 
-        $mapper = $kind === 'service_request' ? Fhir::serviceRequest() : Fhir::deviceRequest();
-        $api = $kind === 'service_request' ? EHealth::serviceRequest() : EHealth::deviceRequest();
-        $this->runPrequalify($api->prequalify(
+        if ($kind === 'service_request') {
+            $payload = Fhir::serviceRequest()->toPrequalifyPayload($dbData, $uuids);
+            $this->prequalifyServiceRequest((string) $personUuid, $payload);
+
+            return;
+        }
+
+        $this->runPrequalify(EHealth::deviceRequest()->prequalify(
             (string) $personUuid,
-            $mapper->toPrequalifyPayload($dbData, $uuids, null, null)
+            Fhir::deviceRequest()->toPrequalifyPayload($dbData, $uuids)
         ));
+    }
+
+    private function prequalifyServiceRequest(string $personUuid, array $payload): void
+    {
+        // ServiceRequest prequalification returns the program verdicts synchronously, before the draft is saved.
+        $verdicts = EHealth::serviceRequest()->prequalify($personUuid, $payload)->validate();
+        $this->jobResolver->assertPrequalifyValid($verdicts);
     }
 
     private function assertDraftEditable(ServiceRequestRequest $draft): void

@@ -14,7 +14,9 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use stdClass;
 
 class ServiceRequest extends PatientApiBase
 {
@@ -100,6 +102,15 @@ class ServiceRequest extends PatientApiBase
      */
     public function prequalify(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
+        $validated = Validator::make($payload, [
+            'programs' => ['present', 'array', 'list'],
+            'programs.*.identifier' => ['required', 'array'],
+            'programs.*.identifier.value' => ['required', 'uuid'],
+        ])->validate();
+
+        $programIds = array_unique(array_map('strtolower', data_get($validated, 'programs.*.identifier.value', [])));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validatePrequalify($response, $programIds));
+
         return $this->post(self::URL . "/{$patientId}/service_requests/prequalify", $payload);
     }
 
@@ -196,5 +207,40 @@ class ServiceRequest extends PatientApiBase
         }
 
         return $response->getData();
+    }
+
+    /** @return list<array{program_id: string, program_name: string, status: string, rejection_reason?: string}> */
+    protected function validatePrequalify(EHealthResponse $response, array $programIds): array
+    {
+        $envelope = $response->object();
+
+        // Associative decoding would turn an empty JSON object into an empty list.
+        if (
+            !$response->ok() || !$envelope instanceof stdClass ||
+            (property_exists($envelope, 'data') && !is_array($envelope->data))
+        ) {
+            throw ValidationException::withMessages(['data' => __('care-plan.referral_prequalify_failed')]);
+        }
+
+        $validated = Validator::make($response->json(), [
+            'data' => [Rule::requiredIf($programIds !== []), 'array', 'size:'.count($programIds)],
+            'error' => ['missing'],
+            'data.*' => ['array'],
+            'data.*.program_id' => ['required', 'uuid'],
+            'data.*.program_name' => ['present', 'string'],
+            'data.*.status' => ['required', Rule::in(['VALID', 'INVALID'])],
+            'data.*.rejection_reason' => ['sometimes', 'string'],
+            'urgent.authentication_method_current.type' => ['required', Rule::in(['OTP', 'OFFLINE', 'THIRD_PERSON'])],
+            'urgent.authentication_method_current.number' => ['sometimes', 'string'],
+        ])->validate();
+
+        $verdicts = $validated['data'] ?? [];
+        $returnedIds = array_column($verdicts, 'program_id');
+
+        if (array_diff($programIds, array_map('strtolower', $returnedIds)) !== []) {
+            throw ValidationException::withMessages(['data' => __('care-plan.referral_prequalify_failed')]);
+        }
+
+        return $verdicts;
     }
 }

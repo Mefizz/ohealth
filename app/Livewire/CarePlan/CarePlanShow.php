@@ -60,6 +60,13 @@ class CarePlanShow extends CarePlanComponent
         }
 
         $this->activityForm['scheduled_period_end'] = now()->addDays(10)->format('d.m.Y');
+        $user = Auth::user();
+        if (request()->query('action') === 'sign_plan'
+            && $this->canSignPlan
+            && $user?->can('update', $this->carePlan)
+            && $user->can('create', CarePlan::class)) {
+            $this->openSignatureModal('sign_plan');
+        }
     }
 
     #[On('submission-processed')]

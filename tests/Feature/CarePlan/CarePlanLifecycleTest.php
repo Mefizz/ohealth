@@ -5,6 +5,13 @@ declare(strict_types=1);
 namespace Tests\Feature\CarePlan;
 
 use App\Classes\eHealth\Api\Approval;
+use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
+use App\Classes\eHealth\EHealthResponse;
+use App\Core\Arr;
+use App\Jobs\RemoteEHealthLinksProcessing;
+use App\Livewire\CarePlan\CarePlanCreate;
+use App\Livewire\CarePlan\CarePlanEdit;
+use App\Livewire\CarePlan\CarePlanShow;
 use App\Contracts\SignatureProvider;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
@@ -684,165 +691,100 @@ class CarePlanLifecycleTest extends TestCase
     public function test_local_persistence_and_payload_formatting_without_instantiates_protocol(): void
     {
         $this->actingAs($this->user);
-        $carePlanUuid = (string) Str::uuid();
+        session()->put(config('ehealth.api.oauth.bearer_token'), 'synthetic-care-plan-token');
+        $legalEntity = legalEntity();
+        $authMethodUuid = Str::uuid()->toString();
+        $value = null;
 
-        $mockCarePlanApi = Mockery::mock(\App\Classes\eHealth\Api\CarePlan::class)->makePartial();
-        $mockApprovalApi = Mockery::mock(\App\Classes\eHealth\Api\Approval::class);
-        $mockPatientApi = Mockery::mock(\App\Classes\eHealth\Api\Person::class);
-        $mockJobApi = Mockery::mock(\App\Classes\eHealth\Api\Job::class);
-        $mockJobApi->shouldReceive('withToken')->andReturnSelf();
-        $mockSignatureService = Mockery::mock(SignatureProvider::class);
+        $signature = Mockery::mock(SignatureProvider::class);
+        $signature->shouldReceive('getCertificateAuthorities')->andReturn([]);
+        $signature->shouldReceive('signData')->once()->andReturnUsing(function (array $payload) use (&$value): string {
+            $value = $payload;
 
-        $this->instance(\App\Classes\eHealth\Api\CarePlan::class, $mockCarePlanApi);
-        $this->instance(\App\Classes\eHealth\Api\Approval::class, $mockApprovalApi);
-        $this->instance(\App\Classes\eHealth\Api\Person::class, $mockPatientApi);
-        $this->instance(\App\Classes\eHealth\Api\Job::class, $mockJobApi);
-        $this->instance(SignatureProvider::class, $mockSignatureService);
+            return 'mock-base64-signature';
+        });
+        $this->instance(SignatureProvider::class, $signature);
 
-        $capturedPayload = null;
-        $mockSignatureService->shouldReceive('signData')
-            ->andReturnUsing(function ($payload) use (&$capturedPayload) {
-                $capturedPayload = $payload;
-
-                return 'mock-base64-signature';
-            });
-        $mockSignatureService->shouldReceive('getCertificateAuthorities')->andReturn([]);
-
-        $cpCreateResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $cpCreateResponse->shouldReceive('getData', 'validate')->andReturn(['job_id' => 'job-123']);
-        $cpCreateResponse->shouldReceive('getStatusCode')->andReturn(202);
-        $mockCarePlanApi->shouldReceive('create')->andReturn($cpCreateResponse);
-
-        $jobResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $jobResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $jobResponse->shouldReceive('json')->andReturn([]);
-        $jobResponse->shouldReceive('isNotLast')->andReturn(false);
-        $jobResponse->shouldReceive('getData', 'validate')->andReturn([
-            'status' => 'processed',
-            'id' => $carePlanUuid,
-            'result' => [
-                'id' => $carePlanUuid,
-                'status' => 'active'
-            ]
-        ]);
-        $mockJobApi->shouldReceive('getDetails')->andReturn($jobResponse);
-
-        $authResponse = Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-        $authResponse->shouldReceive('getData', 'validate')->andReturn([]);
-        $authResponse->shouldReceive('getStatusCode')->andReturn(200);
-        $mockPatientApi->shouldReceive('getAuthMethods')->andReturn($authResponse);
-
-        // 1. Test Save Draft on Create Component
-        Livewire::test(\App\Livewire\CarePlan\CarePlanCreate::class, [
-            'legalEntity' => \App\Models\LegalEntity::first(),
-            'personId' => $this->person->id,
-        ])
+        Livewire::test(CarePlanCreate::class, ['legalEntity' => $legalEntity, 'personId' => $this->person->id])
             ->set('form.encounter', $this->encounter->uuid)
             ->set('form.title', 'Draft Plan')
             ->set('form.category', 'class_18')
             ->set('form.context', 'context-value')
-            ->set('form.termsOfService', 'PROVIDING_CONDITION')
             ->set('form.description', 'My Description')
             ->set('form.note', 'My Note')
-            ->set('form.informWith', 'SMS')
+            ->set('form.informWith', $authMethodUuid)
             ->set('form.periodStart', now()->format('d.m.Y'))
             ->call('save')
             ->assertHasNoErrors();
 
-        // Check local draft is persisted with terms_of_service
+        $draft = CarePlan::where('title', 'Draft Plan')->firstOrFail();
         $this->assertFhirCarePlanStored([
-            'title' => 'Draft Plan',
+            'id' => $draft->id,
             'status' => 'draft',
             'context' => 'context-value',
             'terms_of_service' => 'OUTPATIENT',
             'description' => 'My Description',
             'note' => 'My Note',
-            'inform_with' => 'SMS',
+            'inform_with' => $authMethodUuid,
         ]);
 
-        $draft = CarePlan::where('title', 'Draft Plan')->firstOrFail();
+        Livewire::test(CarePlanEdit::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft])
+            ->set('form.title', 'Updated Draft Plan')
+            ->call('save')
+            ->assertHasNoErrors();
+        Livewire::test(CarePlanEdit::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft->fresh()])
+            ->set('form.title', 'Signed Updated Plan')
+            ->call('startSigningProcess')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('care-plans.show', [$legalEntity, $draft->id, 'action' => 'sign_plan']));
 
-        // 2. Test Sign on Create Component
-        Livewire::test(\App\Livewire\CarePlan\CarePlanCreate::class, [
-            'legalEntity' => \App\Models\LegalEntity::first(),
-            'personId' => $this->person->id,
-        ])
-            ->set('form.encounter', $this->encounter->uuid)
-            ->set('carePlanUuid', $carePlanUuid)
-            ->set('form.title', 'Signed Plan')
-            ->set('form.category', 'class_18')
-            ->set('form.context', 'context-value')
-            ->set('form.termsOfService', 'PROVIDING_CONDITION')
-            ->set('form.description', 'My Description')
-            ->set('form.note', 'My Note')
-            ->set('form.informWith', 'SMS')
-            ->set('form.periodStart', now()->format('d.m.Y'))
+        $response = Mockery::mock(EHealthResponse::class);
+        $response->shouldReceive('validate')->once()->andReturn(collect(['status' => 'pending', 'job_id' => Str::uuid()->toString()]));
+        $api = Mockery::mock(CarePlanApi::class)->makePartial();
+        $api->shouldReceive('create')->once()->with($this->person->uuid, [
+            'signed_data' => 'mock-base64-signature',
+            'signed_data_encoding' => 'base64',
+        ], $draft->uuid)->andReturn($response);
+        $this->instance(CarePlanApi::class, $api);
+
+        Livewire::withQueryParams(['action' => 'sign_plan'])
+            ->test(CarePlanShow::class, ['carePlan' => $draft->fresh()])
+            ->assertSet('showSignatureModal', true)
             ->set('form.knedp', '1.2.3.4')
             ->call('sign', base64_encode('key-container'), 'secret')
             ->assertHasNoErrors();
 
-        // Check payload did NOT contain instantiates_protocol, but did contain inform_with
-        $this->assertNotNull($capturedPayload);
-        $this->assertFalse(array_key_exists('instantiates_protocol', $capturedPayload));
-        $this->assertStringNotContainsString('"instantiates_protocol"', json_encode($capturedPayload));
-        $this->assertEquals('SMS', $capturedPayload['inform_with']['auth_method_id'] ?? null);
+        $this->assertNotNull($value);
+        $this->assertArrayNotHasKey('instantiates_protocol', $value);
+        $this->assertSame($authMethodUuid, $value['inform_with']['auth_method_id']);
+        $this->assertSame('draft', $draft->fresh()->status);
+        $link = $draft->ehealthLinks()->latest('id')->firstOrFail();
+        $this->assertSame('PENDING', $link->status);
 
-        $submitted = CarePlan::whereUuid($carePlanUuid)->firstOrFail();
-        $this->assertSame('draft', $submitted->status);
-        $submission = $submitted->ehealthLinks()->latest('id')->firstOrFail();
-        $this->assertSame('PENDING', $submission->status);
-        \App\Jobs\RemoteEHealthLinksProcessing::finishSubmission($submission, [
-            'status' => 'processed', 'result' => ['id' => $carePlanUuid, 'status' => 'active'],
-        ], $this->user);
+        $resource = Repository::carePlan()->getResource($draft->id);
+        $resource['status'] = 'active';
+        $resource['requisition'] = 'synthetic-requisition';
+        $resource['statusHistory'] = [];
+        $resource['insertedAt'] = $resource['updatedAt'] = now()->toIso8601String();
+        $resource['insertedBy'] = $resource['updatedBy'] = $this->user->uuid;
+        $resource['managingOrganization']['displayValue'] = 'Test facility';
+        if (($resource['period']['end'] ?? null) === null) {
+            unset($resource['period']['end']);
+        }
+        $this->assertTrue(RemoteEHealthLinksProcessing::finishSubmission($link, [
+            'status' => 'processed',
+            'result' => Arr::toSnakeCase($resource),
+        ], $this->user));
 
-        // Check signed Care Plan is in DB with all fields persisted locally
         $this->assertFhirCarePlanStored([
-            'uuid' => $carePlanUuid,
+            'id' => $draft->id,
+            'title' => 'Signed Updated Plan',
             'status' => 'active',
             'context' => 'context-value',
             'terms_of_service' => 'OUTPATIENT',
             'description' => 'My Description',
             'note' => 'My Note',
-            'inform_with' => 'SMS',
-        ]);
-
-        // 3. Test Save Draft on Update Component
-        Livewire::test(\App\Livewire\CarePlan\CarePlanUpdate::class, [
-            'legalEntity' => \App\Models\LegalEntity::first(),
-            'carePlan' => $draft,
-        ])
-            ->set('form.title', 'Updated Draft Plan')
-            ->set('form.termsOfService', 'PROVIDING_CONDITION_NEW')
-            ->call('save')
-            ->assertHasNoErrors();
-
-        $this->assertFhirCarePlanStored([
-            'id' => $draft->id,
-            'title' => 'Updated Draft Plan',
-            'terms_of_service' => 'OUTPATIENT',
-        ]);
-
-        // 4. Test Sign on Update Component
-        $capturedPayload = null;
-        Livewire::test(\App\Livewire\CarePlan\CarePlanUpdate::class, [
-            'legalEntity' => \App\Models\LegalEntity::first(),
-            'carePlan' => $draft,
-        ])
-            ->set('form.title', 'Signed Updated Plan')
-            ->set('form.termsOfService', 'PROVIDING_CONDITION_SIGNED')
-            ->set('form.knedp', '1.2.3.4')
-            ->call('sign', base64_encode('key-container'), 'secret')
-            ->assertHasNoErrors();
-
-        // Check payload did NOT contain instantiates_protocol
-        $this->assertNotNull($capturedPayload);
-        $this->assertFalse(array_key_exists('instantiates_protocol', $capturedPayload));
-
-        // Check updated Care Plan is in DB with all fields updated locally
-        $this->assertFhirCarePlanStored([
-            'id' => $draft->id,
-            'title' => 'Signed Updated Plan',
-            'terms_of_service' => 'OUTPATIENT',
+            'inform_with' => $authMethodUuid,
         ]);
     }
 

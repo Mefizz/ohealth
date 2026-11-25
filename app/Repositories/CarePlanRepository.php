@@ -1452,16 +1452,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                     || (isset($operationContext['expected']) && $resource !== $operationContext['expected'])) {
                     throw ValidationException::withMessages(['form.title' => __('care-plan.cannot_edit_non_draft')]);
                 }
-
-                // Keep unsaved editor changes durable before sending the exact signed snapshot.
-                $draft = $operationContext['draft'] ?? null;
-                if ($draft instanceof CarePlanData) {
-                    if (Auth::user()?->can('update', $record) !== true || $draft->uuid !== $record->uuid) {
-                        throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
-                    }
-                    $record = $this->savePreparedDraft($draft, $record);
-                    $resource = $this->getResource($record);
-                }
             }
 
             return RemoteEHealthLinksProcessing::startSubmission($record, ['changes' => $changes, 'resource' => $resource]);

@@ -17,6 +17,7 @@ use App\Livewire\Auth\Register;
 use App\Livewire\Auth\ResetPassword;
 use App\Livewire\Auth\VerifyEmail;
 use App\Livewire\Auth\VerifyPersonality;
+use App\Livewire\CarePlan\CarePlanEdit;
 use App\Livewire\Contract\CapitationContractCreate;
 use App\Livewire\Contract\ContractIndex;
 use App\Livewire\Contract\ContractShow;
@@ -358,7 +359,7 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 ->scopeBindings()
                 ->can('view', 'carePlan')
                 ->name('care-plans.activities.show');
-            Route::get('/care-plans/{carePlan}/edit', \App\Livewire\CarePlan\CarePlanUpdate::class)
+            Route::get('/care-plans/{carePlan}/edit', CarePlanEdit::class)
                 ->whereNumber('carePlan')
                 ->can('view', 'carePlan')
                 ->name('care-plans.edit');

@@ -235,11 +235,6 @@ class CarePlanCreate extends BasePatientComponent
         }
     }
 
-    protected function validateCategoryForSigning(): void
-    {
-        Repository::carePlan()->assertCategoryForEncounter($this->form->category, $this->form->encounter, (int) $this->personId);
-    }
-
     protected function refreshAuthorDisplay(): void
     {
         $party = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null)?->party;
@@ -718,7 +713,7 @@ class CarePlanCreate extends BasePatientComponent
 
     protected function isDraftCreation(): bool
     {
-        return !($this instanceof CarePlanUpdate);
+        return true;
     }
 
     // TODO: Move this local form-context check into CarePlanForm when its draft validation is consolidated.

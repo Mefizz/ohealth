@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\CarePlan;
 
 use App\Classes\eHealth\Api\Person as PersonApi;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealthResponse;
-use App\Livewire\CarePlan\CarePlanUpdate;
+use App\Core\Arr;
+use App\Livewire\CarePlan\CarePlanEdit;
+use App\Livewire\CarePlan\CarePlanShow;
+use App\Repositories\Repository;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
@@ -126,23 +130,25 @@ class CarePlanConfiguredPeriodTest extends TestCase
             });
         });
         $uuid = $draft->uuid;
-        $this->mock(CarePlanLifecycleService::class, function ($mock) use ($person, $uuid): void {
+        $this->mock(CarePlanLifecycleService::class, function ($mock) use ($person, $uuid, $draft): void {
             $mock->makePartial();
             $response = \Mockery::mock(\App\Classes\eHealth\EHealthResponse::class);
-            $response->shouldReceive('validate')->once()->andReturn(['id' => $uuid, 'status' => 'active']);
+            $response->shouldReceive('validate')->once()->andReturnUsing(fn (): CarePlanDetails => new CarePlanDetails(
+                Arr::toSnakeCase(array_replace(Repository::carePlan()->getResource($draft->id), ['status' => 'active']))
+            ));
             $response->shouldReceive('getStatusCode')->andReturn(201);
-            $mock->shouldReceive('create')->once()->with($person->uuid, ['signed_data' => 'signed-test-payload', 'signed_data_encoding' => 'base64'])
+            $mock->shouldReceive('create')->once()->with($person->uuid, ['signed_data' => 'signed-test-payload', 'signed_data_encoding' => 'base64'], $uuid)
                 ->andReturn($response);
         });
 
         $earlier = CarbonImmutable::parse('2026-11-09')->format($format);
-        Livewire::test(CarePlanUpdate::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft])
+        Livewire::test(CarePlanEdit::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft])
             ->set('form.periodEnd', $earlier)->call('save')
             ->assertHasErrors(['form.periodEnd'])
             ->assertSee(__('care-plan.period_end_before_start'))
             ->assertSet('showSignatureModal', false);
 
-        Livewire::test(CarePlanUpdate::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft])
+        Livewire::test(CarePlanEdit::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft])
             ->assertSet('form.episodes.0.name', 'Контроль лікування')
             ->assertSet('form.episodes.0.date', $start)
             ->assertSet('form.periodStart', $start)->assertSet('form.periodEnd', $end)
@@ -152,10 +158,19 @@ class CarePlanConfiguredPeriodTest extends TestCase
         $this->assertSame('2026-11-10', \Carbon\CarbonImmutable::parse(app(\App\Repositories\CarePlanRepository::class)->getResource($draft->id)['period']['start'])->setTimezone(config('app.timezone'))->toDateString());
         $this->assertSame('2026-11-11', \Carbon\CarbonImmutable::parse(app(\App\Repositories\CarePlanRepository::class)->getResource($draft->id)['period']['end'])->setTimezone(config('app.timezone'))->toDateString());
 
-        Livewire::test(CarePlanUpdate::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft->fresh()])
+        Livewire::test(CarePlanEdit::class, ['legalEntity' => $legalEntity, 'carePlan' => $draft->fresh()])
             ->assertSet('form.periodStart', $start)->assertSet('form.periodEnd', $end)
-            ->set('form.termsOfService', 'OUTPATIENT')->set('form.knedp', 'test-knedp')
-            ->call('sign', base64_encode('key-container'), 'secret')->assertHasNoErrors();
+            ->set('form.termsOfService', 'OUTPATIENT')
+            ->call('startSigningProcess')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('care-plans.show', [$legalEntity, $draft->id, 'action' => 'sign_plan']));
+
+        Livewire::withQueryParams(['action' => 'sign_plan'])
+            ->test(CarePlanShow::class, ['carePlan' => $draft->fresh()])
+            ->assertSet('showSignatureModal', true)
+            ->set('form.knedp', 'test-knedp')
+            ->call('sign', base64_encode('key-container'), 'secret')
+            ->assertHasNoErrors();
 
         $this->assertNotNull($payload);
         $this->assertSame('2026-11-10', CarbonImmutable::parse($payload['period']['start'])->setTimezone(config('app.timezone'))->toDateString());

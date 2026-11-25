@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CarePlan;
 
-use App\Livewire\CarePlan\CarePlanUpdate;
+use App\Livewire\CarePlan\CarePlanEdit;
 use App\Livewire\Components\FlashMessage;
 use App\Livewire\Components\XMessage;
 use App\Models\CarePlan;
@@ -250,7 +250,7 @@ class ReviewFlashMessagesTest extends TestCase
     }
 }
 
-class ReviewCarePlanDeleteHarness extends CarePlanUpdate
+class ReviewCarePlanDeleteHarness extends CarePlanEdit
 {
     public ?string $redirectedRoute = null;
 

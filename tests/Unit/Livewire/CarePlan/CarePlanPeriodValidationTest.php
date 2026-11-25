@@ -52,7 +52,7 @@ class CarePlanPeriodValidationTest extends TestCase
         $form->validate();
         $this->assertSame('2026-11-10', $form->periodStartIsoDate());
         $this->assertSame('2026-11-11', $form->periodEndIsoDate());
-        $rules = array_intersect_key($form->rulesForSigning(), array_flip(['periodStart', 'periodEnd']));
+        $rules = array_intersect_key($form->rulesForDraftEdit(), array_flip(['periodStart', 'periodEnd']));
         $this->assertTrue(Validator::make($form->toArray(), $rules)->passes());
 
         $payload = \App\Services\MedicalEvents\Fhir::carePlan()->toFhir(array_replace($form->toArray(), [

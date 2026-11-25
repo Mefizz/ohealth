@@ -12,6 +12,8 @@ use App\Dto\Input\FormIdentifier;
 use App\Enums\CarePlanStatus;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Models\CarePlan;
+use App\Services\MedicalEvents\Fhir;
+use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\Attribute\Map;
@@ -84,7 +86,7 @@ class Model
     #[Map(if: new TargetClass(CarePlan::class))]
     public ?string $note = null;
 
-    #[Map(source: '[inform_with][auth_method_id]', if: new SourceClass(CarePlanDetails::class))]
+    #[Map(source: '[inform_with?][auth_method_id?]', if: new SourceClass(CarePlanDetails::class))]
     #[Map(source: 'informWith', if: new SourceClass(CarePlanForm::class))]
     #[Map(if: new TargetClass(CarePlan::class))]
     public ?string $informWith = null;
@@ -188,8 +190,29 @@ class Model
     }
 
     /** Preserve the normalized references and coding from the edited local draft. */
-    public function prepareDraftUpdate(array $resource, ObjectMapperInterface $mapper): void
-    {
+    public function prepareDraftUpdate(
+        array $stored,
+        array $fields,
+        string $authorUuid,
+        array $addresses,
+        ObjectMapperInterface $mapper
+    ): void {
+        $fields['medicalRecords'] = collect($fields['medicalRecords'] ?? [])->map(static function (array $reference): array {
+            if (isset($reference['identifier'])) {
+                return $reference;
+            }
+
+            return FhirResource::make()->coding('eHealth/resources', $reference['type'])->toIdentifier($reference['uuid']);
+        })->all();
+        $fields['coAuthors'] = array_values(array_filter($fields['coAuthors'] ?? []));
+        $fields['author'] = $authorUuid;
+        $fields['addresses'] = $addresses;
+        $resource = Fhir::carePlan()->toFhir($fields, [
+            'resource' => $stored,
+            'timezone' => config('app.timezone'),
+            'dateFormat' => config('app.date_format'),
+        ]);
+
         $this->uuid = $resource['id'];
         foreach (['context', 'description', 'note', 'informWith'] as $field) {
             $this->{$field} = $this->{$field} === '' ? null : $this->{$field};

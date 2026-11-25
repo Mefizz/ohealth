@@ -24,7 +24,6 @@ use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Livewire\CarePlan\Forms\PatientSearchForm;
 use App\Livewire\Person\Records\BasePatientComponent;
 use App\Models\CarePlan;
-use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\Condition;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
@@ -717,12 +716,7 @@ class CarePlanCreate extends BasePatientComponent
                     'attribute' => __('care-plan.patient'),
                 ])]);
             }
-            $encounter = $this->draftEncounter($person);
-            if ($encounter === null) {
-                throw ValidationException::withMessages(['form.encounter' => __('validation.exists', [
-                    'attribute' => __('care-plan.encounter'),
-                ])]);
-            }
+            $encounter = $this->validateDraftEncounter($person);
 
             $this->synchronizeSystemFields();
             $coAuthors = array_column($repository->doctors($legalEntity->id), 'uuid');
@@ -730,12 +724,7 @@ class CarePlanCreate extends BasePatientComponent
             $medicalRecords = $this->form->medicalRecords === [] ? collect() : $this->draftMedicalRecords($person, $encounter, $user);
             $validated = $this->form->validateDraft($coAuthors, $episodes->keys()->all(), $medicalRecords->keys()->all());
 
-            $repository->assertCategoryForEncounter($this->form->category, $encounter->uuid, $person->id);
-            $addresses = $repository->encounterData($encounter->uuid, $person->id, $this->conditionUuid ?: null)['addresses'];
-            if ($addresses === []) {
-                throw ValidationException::withMessages(['form.category' => __('care-plan.category_diagnosis_unavailable')]);
-            }
-
+            $addresses = $this->draftAddresses($person, $encounter);
             $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
             if ($author === null || !Str::isUuid((string) $author->uuid)) {
                 throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
@@ -773,6 +762,26 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         return $carePlan;
+    }
+
+    protected function validateDraftEncounter(Person $person): Encounter
+    {
+        return $this->draftEncounter($person) ?? throw ValidationException::withMessages([
+            'form.encounter' => __('validation.exists', ['attribute' => __('care-plan.encounter')]),
+        ]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    protected function draftAddresses(Person $person, Encounter $encounter): array
+    {
+        $repository = Repository::carePlan();
+        $repository->assertCategoryForEncounter($this->form->category, $encounter->uuid, $person->id);
+        $addresses = $repository->encounterData($encounter->uuid, $person->id, $this->conditionUuid ?: null)['addresses'];
+        if ($addresses === []) {
+            throw ValidationException::withMessages(['form.category' => __('care-plan.category_diagnosis_unavailable')]);
+        }
+
+        return $addresses;
     }
 
     protected function draftEncounter(Person $person): ?Encounter
@@ -1006,13 +1015,8 @@ class CarePlanCreate extends BasePatientComponent
             return;
         }
 
-        $this->form->useSigningSecrets($keyContainer, $password);
-
-        try {
-            $credentials = $this->form->validate($this->form->signingRules());
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
+        $credentials = $this->signingCredentials($keyContainer, $password);
+        if ($credentials === null) {
             return;
         }
 
@@ -1023,6 +1027,24 @@ class CarePlanCreate extends BasePatientComponent
             return;
         }
 
+        $this->submitDraft($repository, $plan, $credentials, $user);
+    }
+
+    protected function signingCredentials(string $keyContainer, string $password): ?array
+    {
+        $this->form->useSigningSecrets($keyContainer, $password);
+
+        try {
+            return $this->form->validate($this->form->signingRules());
+        } catch (ValidationException $exception) {
+            $this->handleValidationFailed($exception);
+
+            return null;
+        }
+    }
+
+    protected function submitDraft(CarePlanRepository $repository, CarePlan $plan, array $credentials, User $user): void
+    {
         try {
             $repository->assertDraftSigningReady($plan);
             $resource = $repository->getResource($plan);
@@ -1138,16 +1160,6 @@ class CarePlanCreate extends BasePatientComponent
         }
 
         return (int) $carePlan->legalEntityId === (int) $legalEntity->id;
-    }
-
-    protected function authorHasActiveRoleForTermsOfService(Employee $author, string $termsOfService): bool
-    {
-        return Repository::carePlan()->authorHasActiveRoleForTermsOfService($author, $termsOfService);
-    }
-
-    protected function logCarePlanAuthorRoleDebug(?Employee $author, string $termsOfService): void
-    {
-        Log::debug('Care Plan author role validation', ['employeeUuid' => $author?->uuid, 'termsOfService' => $termsOfService, 'hasMatchingRole' => $author !== null && $this->authorHasActiveRoleForTermsOfService($author, $termsOfService)]);
     }
 
     public function render()

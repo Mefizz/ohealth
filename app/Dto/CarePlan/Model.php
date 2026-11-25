@@ -184,12 +184,31 @@ class Model
             'termsOfServiceConcept' => CodeableConceptData::map($details->get('terms_of_service')),
             'statusReasonConcept' => CodeableConceptData::map($details->statusReason()),
         ];
-        $resource = $details->toResource();
+        $this->prepareResourceRelations($details->toResource());
+    }
+
+    /** Preserve the normalized references and coding from the edited local draft. */
+    public function prepareDraftUpdate(array $resource, ObjectMapperInterface $mapper): void
+    {
+        $this->uuid = $resource['id'];
+        foreach (['context', 'description', 'note', 'informWith'] as $field) {
+            $this->{$field} = $this->{$field} === '' ? null : $this->{$field};
+        }
+        foreach (['categoryConcept' => 'category', 'termsOfServiceConcept' => 'termsOfService', 'statusReasonConcept' => 'statusReason'] as $relation => $field) {
+            $this->remoteConcepts[$relation] = isset($resource[$field])
+                ? $mapper->map(new FormCodeableConcept($resource[$field]), CodeableConceptData::class)
+                : null;
+        }
+        $this->prepareResourceRelations($resource);
+    }
+
+    protected function prepareResourceRelations(array $resource): void
+    {
         $this->remoteReferences = [
-            'subjectReference' => $resource['subject'],
-            'authorReference' => $resource['author'],
-            'encounterIdentifier' => $resource['encounter'],
-            'managingOrganization' => $resource['managingOrganization'],
+            'subjectReference' => $resource['subject'] ?? null,
+            'authorReference' => $resource['author'] ?? null,
+            'encounterIdentifier' => $resource['encounter'] ?? null,
+            'managingOrganization' => $resource['managingOrganization'] ?? null,
             'basedOn' => $resource['basedOn'] ?? null,
             'partOf' => $resource['partOf'] ?? null,
             'careManager' => $resource['careManager'] ?? null,

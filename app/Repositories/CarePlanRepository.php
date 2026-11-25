@@ -177,7 +177,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return ['data' => $data, 'context' => ['resource' => $resource, 'timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]];
     }
 
-    // TODO: Remove after the local editor saves a Model DTO directly.
+    // TODO: Migrate the remaining legacy array writers to Model DTOs.
     public function saveForm(
         array $form,
         int $personId,
@@ -495,27 +495,59 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             }
             $data->personId = $personId;
             $data->legalEntityId = $legalEntityId;
-            $data->authorId = Employee::whereUuid($data->remoteReferences['authorReference']['identifier']['value'])
-                ->whereLegalEntityId($legalEntityId)->value('id');
-            $data->encounterId = Encounter::whereUuid($data->remoteReferences['encounterIdentifier']['identifier']['value'])->value('id');
-            objectMapper()->map($data, $plan);
-
-            $existing = $plan->exists ? $plan : null;
-            foreach ($data->remoteConcepts as $relation => $concept) {
-                $plan->{$relation}()->associate($this->syncCodeableConcept($existing, $concept?->toArray(), $relation));
-            }
-            foreach ($data->remoteReferences as $relation => $reference) {
-                $plan->{$relation}()->associate($this->syncIdentifier($existing, $reference, $relation));
-            }
-            $plan->detailsSyncedAt = now();
-            $plan->saveOrFail();
-            MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
-            foreach ($data->remoteReferenceLists as $relation => $references) {
-                $this->syncPivot($plan, $relation, $this->syncIdentifiers($plan, $references, $relation));
-            }
-
-            return $plan->unsetRelations();
+            return $this->savePreparedResource($data, $plan);
         });
+    }
+
+    /** Update the same local draft only while the displayed snapshot is still current. */
+    public function updateDraft(CarePlan $draft, CarePlanData $data, array $expected): CarePlan
+    {
+        return $this->storageTransaction(function () use ($draft, $data, $expected): CarePlan {
+            $plan = CarePlan::wherePersonId($draft->personId)->whereLegalEntityId($draft->legalEntityId)
+                ->whereUuid($data->uuid)->whereKey($draft->id)->lockForUpdate()->firstOrFail();
+            if (Auth::user()?->can('update', $plan) !== true) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
+            }
+            $this->assertDraftSubmissionAllowed($plan);
+            if ($this->getResource($plan) !== $expected) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.cannot_edit_non_draft')]);
+            }
+            return $this->savePreparedDraft($data, $plan);
+        });
+    }
+
+    protected function savePreparedDraft(CarePlanData $data, CarePlan $plan): CarePlan
+    {
+        $data->personId = $plan->personId;
+        $data->legalEntityId = $plan->legalEntityId;
+        $data->requisition = $plan->requisition;
+
+        return $this->savePreparedResource($data, $plan);
+    }
+
+    protected function savePreparedResource(CarePlanData $data, CarePlan $plan): CarePlan
+    {
+        $authorUuid = data_get($data->remoteReferences, 'authorReference.identifier.value');
+        $encounterUuid = data_get($data->remoteReferences, 'encounterIdentifier.identifier.value');
+        $data->authorId = $authorUuid === null ? null : Employee::whereUuid($authorUuid)->whereLegalEntityId($data->legalEntityId)->value('id');
+        $data->encounterId = $encounterUuid === null ? null : Encounter::whereUuid($encounterUuid)->value('id');
+        objectMapper()->map($data, $plan);
+
+        $existing = $plan->exists ? $plan : null;
+        foreach ($data->remoteConcepts as $relation => $concept) {
+            $plan->{$relation}()->associate($this->syncCodeableConcept($existing, $concept?->toArray(), $relation));
+        }
+        foreach ($data->remoteReferences as $relation => $reference) {
+            $plan->{$relation}()->associate($this->syncIdentifier($existing, $reference, $relation));
+        }
+        $plan->detailsSyncedAt = now();
+        $plan->saveOrFail();
+        MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
+        foreach ($data->remoteReferenceLists as $relation => $references) {
+            $this->syncPivot($plan, $relation, $this->syncIdentifiers($plan, $references, $relation));
+        }
+
+        return $plan->unsetRelations();
     }
 
     // TODO: Replace array serialization with the DTO required by each reader or signing action.
@@ -1422,8 +1454,12 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                 }
 
                 // Keep unsaved editor changes durable before sending the exact signed snapshot.
-                if (isset($operationContext['draft']) && $operationContext['draft'] !== $resource) {
-                    $record = $this->storeResource($operationContext['draft'], $record->personId, $record->legalEntityId, $record->id);
+                $draft = $operationContext['draft'] ?? null;
+                if ($draft instanceof CarePlanData) {
+                    if (Auth::user()?->can('update', $record) !== true || $draft->uuid !== $record->uuid) {
+                        throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
+                    }
+                    $record = $this->savePreparedDraft($draft, $record);
                     $resource = $this->getResource($record);
                 }
             }

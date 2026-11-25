@@ -6,6 +6,7 @@ namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
 use App\Dto\CarePlan\Form as CarePlanFormData;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -92,44 +93,11 @@ class CarePlanUpdate extends CarePlanCreate
 
         $repository = Repository::carePlan();
         try {
-            $repository->assertDraftSubmissionAllowed($this->carePlan);
             $this->synchronizeSystemFields();
             $this->form->validate();
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
-            return;
-        }
-
-        $encounterData = $this->resolveEncounterData();
-
-        // Re-resolve the author for the (possibly changed) terms_of_service, same as on create,
-        // so a draft edited to a different "умови надання послуг" keeps a matching author.
-        $author = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null);
-
-        try {
-            $repository->assertFhirStorageReady();
-            $repository->saveForm([
-                'author_id' => $author?->id ?? $this->carePlan->authorId,
-                'category' => $this->form->category,
-                'co_authors' => $this->form->coAuthors,
-                'context' => $this->form->context ?: null,
-                'title' => $this->form->title,
-                'terms_of_service' => $this->form->termsOfService ?: null,
-                'period_start' => $this->form->periodStartIsoDate(),
-                'period_start_time' => $this->form->periodStartTime,
-                'period_end_time' => $this->form->periodEndTime,
-                'period_end' => $this->form->periodEndIsoDate(),
-                'encounter_id' => $encounterData['id'],
-                'addresses' => $encounterData['addresses'],
-                'supporting_info' => [
-                    'episodes' => $this->form->episodes,
-                    'medical_records' => $this->form->medicalRecords,
-                ],
-                'description' => $this->form->description ?: null,
-                'note' => $this->form->note ?: null,
-                'inform_with' => $this->form->informWith ?: null,
-            ], $this->carePlan->personId, legalEntity()->id, $this->carePlan->id, draftOnly: true);
+            $stored = $repository->getResource($this->carePlan->id);
+            [$draft] = $this->prepareEditedDraft($stored);
+            $repository->updateDraft($this->carePlan, $draft, $stored);
         } catch (ValidationException $exception) {
             $this->handleValidationFailed($exception);
 
@@ -140,7 +108,7 @@ class CarePlanUpdate extends CarePlanCreate
             return;
         }
 
-        session()->flash('success', __('care-plan.draft_updated') ?? 'План лікування успішно збережено');
+        Session::flash('success', __('care-plan.draft_updated'));
 
         $this->redirectRoute('care-plans.edit', [legalEntity(), $this->carePlan->id], navigate: true);
     }
@@ -216,18 +184,12 @@ class CarePlanUpdate extends CarePlanCreate
             $validated = $this->form->validate($this->form->rulesForSigning());
             $this->validateCategoryForSigning();
 
-            $encounter = $this->resolveEncounterData();
-            $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
-            if ($author?->uuid === null) {
-                throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
-            }
-
             $patientUuid = $this->carePlan->person->uuid;
             $stored = $repository->getResource($this->carePlan->id);
-            $draft = $this->draftResourceForSigning($stored, $author->uuid, $encounter['addresses']);
+            [$draft, $resource] = $this->prepareEditedDraft($stored);
             $api = EHealth::carePlan();
             $signature = signatureService()->signData(
-                $api->prepareCreateContent($draft),
+                $api->prepareCreateContent($resource),
                 $validated['knedp'],
                 $validated['keyContainer'],
                 $validated['password'],
@@ -265,6 +227,23 @@ class CarePlanUpdate extends CarePlanCreate
                 ? $exception->getMessage()
                 : __('care-plan.unexpected_error'));
         }
+    }
+
+    /** @return array{CarePlanData, array} */
+    protected function prepareEditedDraft(array $stored): array
+    {
+        $author = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService);
+        $authorUuid = $author?->uuid ?? data_get($stored, 'author.identifier.value');
+        if ($authorUuid === null) {
+            throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
+        }
+
+        $resource = $this->draftResourceForSigning($stored, $authorUuid, $this->resolveEncounterData()['addresses']);
+        $mapper = objectMapper();
+        $draft = $mapper->map($this->form, CarePlanData::class);
+        $draft->prepareDraftUpdate($resource, $mapper);
+
+        return [$draft, $resource];
     }
 
     /** Apply the validated editor fields to the local draft snapshot before signing. */

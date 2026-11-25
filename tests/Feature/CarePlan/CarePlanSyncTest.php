@@ -6,7 +6,13 @@ namespace Tests\Feature\CarePlan;
 
 use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
 use App\Classes\eHealth\Api\CarePlanActivity as ActivityApi;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealthResponse;
+use App\Core\Arr;
+use App\Jobs\RemoteEHealthLinksProcessing;
+use App\Livewire\CarePlan\CarePlanComponent;
+use App\Livewire\CarePlan\CarePlanIndex;
+use App\Models\CarePlan;
 use App\Models\Person\Person;
 use App\Models\User;
 use App\Repositories\CarePlanRepository;
@@ -37,17 +43,17 @@ class CarePlanSyncTest extends TestCase
             $activities[] = $activity;
         }
         $search = Mockery::mock(EHealthResponse::class);
-        $search->shouldReceive('validate')->once()->andReturn(array_map(static fn (array $plan): array => [
+        $search->shouldReceive('validate')->once()->andReturn(collect($plans)->map(static fn (array $plan): CarePlanDetails => new CarePlanDetails([
             'id' => $plan['id'], 'subject' => $plan['subject'],
-        ], $plans));
+        ])));
         $search->shouldReceive('getPaging')->once()->andReturn(['total_pages' => 1]);
-        $planApi = Mockery::mock(CarePlanApi::class);
+        $planApi = Mockery::mock(CarePlanApi::class)->makePartial();
         $planApi->shouldReceive('getMany')->once()->with(['requisition' => 'search-number', 'page' => 1])->andReturn($search);
         $activityApi = Mockery::mock(ActivityApi::class);
         foreach ($plans as $index => $plan) {
             $details = Mockery::mock(EHealthResponse::class);
-            $details->shouldReceive('validate')->once()->andReturn($plan);
-            $planApi->shouldReceive('getDetails')->once()->with($person->uuid, $plan['id'])->andReturn($details);
+            $details->shouldReceive('validate')->once()->andReturn(new CarePlanDetails(Arr::toSnakeCase($plan)));
+            $planApi->shouldReceive('getDetails')->once()->with($person->uuid, $plan['id'], [], false, true)->andReturn($details);
             $summary = Mockery::mock(EHealthResponse::class);
             $summary->shouldReceive('validate')->once()->andReturn([['id' => $activities[$index]['id']]]);
             $summary->shouldReceive('getPaging')->once()->andReturn(['total_pages' => 1]);
@@ -59,7 +65,7 @@ class CarePlanSyncTest extends TestCase
         $this->instance(CarePlanApi::class, $planApi);
         $this->instance(ActivityApi::class, $activityApi);
 
-        (new CarePlanSynchronizationHarness())->synchronizeSearch(['requisition' => 'search-number'], $employee->legalEntityId);
+        (new CarePlanSearchHarness())->synchronizeSearch(['requisition' => 'search-number'], $employee->legalEntityId);
 
         $this->assertSame(2, \App\Models\CarePlan::wherePersonId($person->id)->count());
         $this->assertSame(2, \App\Models\CarePlanActivity::whereIn('uuid', array_column($activities, 'id'))->count());
@@ -73,7 +79,9 @@ class CarePlanSyncTest extends TestCase
         $activity = $this->fixture('activity');
         $api = $this->bindRemote($plan, [$activity], $person->uuid);
 
-        $api->synchronizeResources([['id' => $plan['id']]], $person->id, $employee->legalEntityId);
+        $record = new CarePlan(['uuid' => $plan['id'], 'person_id' => $person->id, 'legal_entity_id' => $employee->legalEntityId]);
+        $record->setRelation('person', $person);
+        $api->synchronize($record);
 
         $stored = \App\Models\CarePlan::whereUuid($plan['id'])->firstOrFail();
         $storedActivity = \App\Models\CarePlanActivity::whereUuid($activity['id'])->firstOrFail();
@@ -91,7 +99,9 @@ class CarePlanSyncTest extends TestCase
         $plan = $this->fixture('plan');
         $api = $this->bindRemote($plan, [], $person->uuid);
 
-        $api->synchronizeResources([['id' => $plan['id']]], $person->id, $employee->legalEntityId);
+        $record = new CarePlan(['uuid' => $plan['id'], 'person_id' => $person->id, 'legal_entity_id' => $employee->legalEntityId]);
+        $record->setRelation('person', $person);
+        $api->synchronize($record);
 
         $stored = \App\Models\CarePlan::whereUuid($plan['id'])->firstOrFail();
         $this->assertNull($stored->authorId);
@@ -105,7 +115,9 @@ class CarePlanSyncTest extends TestCase
         $plan = $this->fixture('plan');
         $api = $this->bindRemote($plan, [], $person->uuid);
 
-        $api->synchronizeResources([['id' => $plan['id']]], $person->id, $employee->legalEntityId);
+        $record = new CarePlan(['uuid' => $plan['id'], 'person_id' => $person->id, 'legal_entity_id' => $employee->legalEntityId]);
+        $record->setRelation('person', $person);
+        $api->synchronize($record);
 
         $stored = \App\Models\CarePlan::whereUuid($plan['id'])->firstOrFail();
         $this->assertNull($stored->authorId);
@@ -124,15 +136,14 @@ class CarePlanSyncTest extends TestCase
         $plan = $repository->storeResource($resource, $person->id, $employee->legalEntityId);
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('validate')->once()->andReturn(['links' => [['entity' => 'job', 'href' => '/Jobs/test-job']], 'status' => 'pending']);
-        $harness = new CarePlanSubmissionHarness();
 
-        $this->assertNull($harness->submitClinicalOperation($plan, ['status' => 'cancelled'], fn () => $response));
+        $this->assertNull(RemoteEHealthLinksProcessing::submitOperation($plan, ['status' => 'cancelled'], fn () => $response));
         $this->assertSame('active', $plan->fresh()->status);
         $this->assertTrue($repository->hasPendingSubmission($plan));
         $this->assertSame('/Jobs/test-job', $plan->ehealthLinks()->firstOrFail()->href);
-        $this->assertFalse($harness->showSignatureModal);
+        $this->assertSame(__('care-plan.submission_pending'), session()->get('info'));
         \Illuminate\Support\Facades\Bus::assertBatched(fn ($batch) => $batch->jobs->first() instanceof \App\Jobs\RemoteEHealthLinksProcessing);
-        $this->assertNull($harness->submitClinicalOperation($plan, ['status' => 'cancelled'], fn () => throw new \RuntimeException('A duplicate request must not be sent')));
+        $this->assertNull(RemoteEHealthLinksProcessing::submitOperation($plan, ['status' => 'cancelled'], fn () => throw new \RuntimeException('A duplicate request must not be sent')));
     }
 
     public function test_processed_job_updates_status_and_remote_metadata_once(): void
@@ -202,7 +213,7 @@ class CarePlanSyncTest extends TestCase
         $response = Mockery::mock(EHealthResponse::class);
         $response->shouldReceive('validate')->once()->andReturn(['status' => 'pending']);
 
-        $this->assertNull((new CarePlanSubmissionHarness())->submitClinicalOperation($plan, ['status' => 'cancelled'], fn () => $response));
+        $this->assertNull(RemoteEHealthLinksProcessing::submitOperation($plan, ['status' => 'cancelled'], fn () => $response));
         $this->assertSame($before, $repository->getResource($plan->id));
         $this->assertTrue($repository->hasPendingSubmission($plan));
         $this->assertNull(session('success'));
@@ -340,9 +351,9 @@ class CarePlanSyncTest extends TestCase
     private function bindRemote(array $plan, array $activities, string $patientUuid): CarePlanSynchronizationHarness
     {
         $response = Mockery::mock(EHealthResponse::class);
-        $response->shouldReceive('validate')->once()->andReturn($plan);
+        $response->shouldReceive('validate')->once()->andReturn(new CarePlanDetails(Arr::toSnakeCase($plan)));
         $api = Mockery::mock(CarePlanApi::class)->makePartial();
-        $api->shouldReceive('getDetails')->once()->with($patientUuid, $plan['id'])->andReturn($response);
+        $api->shouldReceive('getDetails')->once()->with($patientUuid, $plan['id'], [], false, true)->andReturn($response);
         $activityApi = Mockery::mock(ActivityApi::class);
         $summary = Mockery::mock(EHealthResponse::class);
         $summary->shouldReceive('validate')->once()->andReturn(array_map(fn ($activity) => ['id' => $activity['id']], $activities));
@@ -424,22 +435,26 @@ class CarePlanSyncTest extends TestCase
 
 }
 
-class CarePlanSynchronizationHarness
+class CarePlanSynchronizationHarness extends CarePlanComponent
 {
-    use \App\Traits\SynchronizesCarePlans {
-        synchronizeResources as public;
-        synchronizeSearch as public;
-        fetchAllActivityResources as public;
+    public function synchronize(CarePlan $plan): void
+    {
+        $this->carePlan = $plan;
+        $this->synchronizePlan();
+    }
+
+    protected function renderCarePlan(): mixed
+    {
+        return null;
     }
 }
 
-class CarePlanSubmissionHarness extends \Livewire\Component
+class CarePlanSearchHarness extends CarePlanIndex
 {
-    use \App\Livewire\Concerns\SubmitsClinicalOperations {
-        submitClinicalOperation as public;
+    public function synchronizeSearch(array $query, int $legalEntityId): void
+    {
+        parent::synchronizeSearch($query, $legalEntityId);
     }
-
-    public bool $showSignatureModal = true;
 }
 
 class CarePlanProcessingHarness extends \App\Jobs\RemoteEHealthLinksProcessing

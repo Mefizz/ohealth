@@ -6,6 +6,7 @@ namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\Api\Job;
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\MedicalEventsErrorTranslator;
@@ -19,6 +20,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class CarePlan extends Request
 {
@@ -72,6 +74,58 @@ class CarePlan extends Request
         $this->setValidator($this->validateRequisition(...));
 
         return $this->get(self::URL, $query);
+    }
+
+    /** Fetch and validate the complete requisition search across all eHealth pages. */
+    public function getRequisitionResults(array $query): Collection
+    {
+        $results = collect();
+        for ($page = 1; ; $page++) {
+            $response = $this->getMany(array_replace($query, ['page' => $page]));
+            $entries = $response->validate();
+            foreach ($entries as $entry) {
+                $id = $entry->get('id');
+                if ($results->has($id)) {
+                    throw ValidationException::withMessages(['paging' => 'Care Plan pagination repeated a resource.']);
+                }
+                $results->put($id, $entry);
+            }
+            $lastPage = $response->getPaging()['total_pages'] ?? null;
+            if ($entries->isEmpty() || ($lastPage !== null && $page >= (int) $lastPage)) {
+                return $results->values();
+            }
+        }
+    }
+
+    /** Retrieve validated details for every activity linked to a CarePlan. */
+    public function getActivityResources(string $patientUuid, string $planUuid, array $query = [], ?string $token = null): array
+    {
+        $api = EHealth::carePlanActivity();
+        if ($token !== null) {
+            $api->withToken($token);
+        }
+        $resources = [];
+        for ($page = 1; ; $page++) {
+            $response = $api->getSummary($patientUuid, $planUuid, array_replace($query, ['page' => $page]));
+            $items = $response->validate();
+            foreach ($items as $item) {
+                $id = Arr::toCamelCase($item)['id'];
+                if (isset($resources[$id])) {
+                    throw ValidationException::withMessages(['paging' => 'Activity pagination repeated a resource.']);
+                }
+                $resource = $api->getDetails($patientUuid, $planUuid, $id)->validate();
+                if ($resource['id'] !== $id) {
+                    throw ValidationException::withMessages(['id' => 'Activity details do not match the requested resource.']);
+                }
+                $resources[$id] = $resource;
+            }
+            $lastPage = $response->getPaging()['total_pages'] ?? null;
+            if ($items === [] || ($lastPage !== null && $page >= (int) $lastPage)) {
+                break;
+            }
+        }
+
+        return array_values($resources);
     }
 
     /** Read a full plan by UUID, retaining native keys for callers that sign an eHealth snapshot. */

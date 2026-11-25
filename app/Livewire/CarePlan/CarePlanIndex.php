@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Classes\eHealth\EHealth;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanCompletenessFilter;
 use App\Enums\CarePlanStatusFilter;
 use App\Jobs\CarePlanFullSync;
 use App\Models\CarePlan;
 use App\Repositories\Repository;
 use App\Traits\HandlesCarePlanSync;
-use App\Traits\SynchronizesCarePlans;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +22,6 @@ use Throwable;
 
 class CarePlanIndex extends Component
 {
-    use SynchronizesCarePlans;
     use HandlesCarePlanSync;
 
     #[Locked]
@@ -81,6 +81,20 @@ class CarePlanIndex extends Component
         } catch (Throwable $e) {
             Log::error('CarePlan search error: ' . $e->getMessage());
             session()->flash('error', __('care-plan.search_error') . ': ' . $e->getMessage());
+        }
+    }
+
+    protected function synchronizeSearch(array $query, int $legalEntityId): void
+    {
+        $api = EHealth::carePlan();
+        $repository = Repository::carePlan();
+        foreach ($api->getRequisitionResults($query) as $summary) {
+            $patient = $repository->resolvePatientContext(null, data_get($summary->native, 'subject.identifier.value'));
+            $details = $api->getDetails($patient['uuid'], $summary->get('id'), typed: true)->validate();
+            $data = objectMapper()->map($details, CarePlanData::class);
+            $data->prepareResponse($details);
+            $activities = $api->getActivityResources($patient['uuid'], $data->uuid);
+            $repository->storeAggregate($data, $activities, $patient['id'], $legalEntityId);
         }
     }
 

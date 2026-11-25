@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Classes\eHealth\Api\Approval as ApprovalApi;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Core\BaseForm;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanStatus;
 use App\Enums\JobStatus;
 use App\Enums\MedicalProgram\Type;
@@ -23,7 +25,6 @@ use App\Jobs\CarePlanFullSync;
 use App\Livewire\CarePlan\Forms\CarePlanActivityForm;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Livewire\Concerns\ReadsClinicalSnapshots;
-use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
@@ -51,7 +52,6 @@ use App\Services\MedicalEvents\MedicationRequestLifecycleService;
 use App\Services\MedicalEvents\PatientApprovalService;
 use App\Services\MedicalEvents\ReferralRequestLifecycleService;
 use App\Traits\InteractsWithApprovals;
-use App\Traits\SynchronizesCarePlans;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Exception;
@@ -79,8 +79,6 @@ abstract class CarePlanComponent extends Component
 {
     use InteractsWithApprovals;
     use ReadsClinicalSnapshots;
-    use SubmitsClinicalOperations;
-    use SynchronizesCarePlans;
 
     // Everything the server derives is #[Locked]: it is sent to the browser on every request
     // and would otherwise come back whatever the client made of it. Only properties bound with
@@ -1237,7 +1235,7 @@ abstract class CarePlanComponent extends Component
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::CANCELLED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => EHealth::carePlan()->cancel(
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($this->carePlan, ['status' => CarePlanStatus::CANCELLED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => EHealth::carePlan()->cancel(
                 $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [
@@ -1246,6 +1244,7 @@ abstract class CarePlanComponent extends Component
                 ]
             ));
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 
@@ -1318,7 +1317,7 @@ abstract class CarePlanComponent extends Component
                 $signingData['password'],
                 Auth::user()->party->taxId
             );
-            $result = $this->submitClinicalOperation(
+            $result = RemoteEHealthLinksProcessing::submitOperation(
                 $this->carePlan,
                 ['status' => CarePlanStatus::PENDING->value],
                 fn () => $api->create($this->carePlan->person->uuid, [
@@ -1328,6 +1327,7 @@ abstract class CarePlanComponent extends Component
                 operationContext: ['expected' => $resource]
             );
             if ($result === null) {
+                $this->showSignatureModal = false;
                 $this->activateAfterSubmission = true;
                 $this->planSubmission = $repository->submissionState($this->carePlan);
 
@@ -1395,7 +1395,7 @@ abstract class CarePlanComponent extends Component
         ];
 
         try {
-            $finalResponse = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::COMPLETED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => EHealth::carePlan()->complete(
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($this->carePlan, ['status' => CarePlanStatus::COMPLETED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => EHealth::carePlan()->complete(
                 $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [
@@ -1403,6 +1403,7 @@ abstract class CarePlanComponent extends Component
                 ]
             ));
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 
@@ -1456,8 +1457,9 @@ abstract class CarePlanComponent extends Component
             $resource = $activityRepository->getResource($activity->id);
             $payload = CarePlanActivityForm::buildCreateContent($resource);
             $signedContent = signatureService()->signData($payload, $signingData['knedp'], $signingData['keyContainer'], $signingData['password'], Auth::user()->party->taxId);
-            $result = $this->submitClinicalOperation($activity, ['status' => 'scheduled'], fn () => EHealth::carePlanActivity()->create($this->carePlan->person->uuid, $this->carePlan->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $result = RemoteEHealthLinksProcessing::submitOperation($activity, ['status' => 'scheduled'], fn () => EHealth::carePlanActivity()->create($this->carePlan->person->uuid, $this->carePlan->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
             if ($result === null) {
+                $this->showSignatureModal = false;
                 $this->redirectRoute('care-plans.activities.show', [legalEntity(), $this->carePlan->id, $activity->id], navigate: true);
 
                 return;
@@ -1504,14 +1506,15 @@ abstract class CarePlanComponent extends Component
                 }
                 $outcomes = [FhirResource::make()->coding('eHealth/care_plan_activity_outcomes', $this->outcomeCode)->toCodeableConcept()];
                 $payload = CarePlanActivityForm::buildCompleteContent($reason, $outcomes);
-                $result = $this->submitClinicalOperation($activity, ['status' => 'completed', 'statusReason' => $reason, 'outcomeCodeableConcept' => $outcomes], fn () => $api->complete($this->carePlan->person->uuid, $this->carePlan->uuid, $activity->uuid, $payload));
+                $result = RemoteEHealthLinksProcessing::submitOperation($activity, ['status' => 'completed', 'statusReason' => $reason, 'outcomeCodeableConcept' => $outcomes], fn () => $api->complete($this->carePlan->person->uuid, $this->carePlan->uuid, $activity->uuid, $payload));
             } else {
                 $snapshot = $this->fetchActivityCancelSnapshot($this->carePlan->person->uuid, $this->carePlan->uuid, $activity->uuid);
                 $content = CarePlanActivityForm::buildCancelContent($snapshot, $reason);
                 $signed = signatureService()->signData($content, $signingData['knedp'], $signingData['keyContainer'], $signingData['password'], Auth::user()->party->taxId);
-                $result = $this->submitClinicalOperation($activity, ['status' => 'cancelled', 'statusReason' => $reason], fn () => $api->cancel($this->carePlan->person->uuid, $this->carePlan->uuid, $activity->uuid, ['signed_data' => $signed, 'signed_data_encoding' => 'base64']));
+                $result = RemoteEHealthLinksProcessing::submitOperation($activity, ['status' => 'cancelled', 'statusReason' => $reason], fn () => $api->cancel($this->carePlan->person->uuid, $this->carePlan->uuid, $activity->uuid, ['signed_data' => $signed, 'signed_data_encoding' => 'base64']));
             }
             if ($result === null) {
+                $this->showSignatureModal = false;
                 return;
             }
             $this->refreshCarePlan();
@@ -1867,10 +1870,21 @@ abstract class CarePlanComponent extends Component
         return CarePlanForm::buildCancelContent($this->fetchCarePlanCancelSnapshot($this->carePlan->person->uuid, $this->carePlan->uuid), $statusReasonCodeableConcept);
     }
 
+    protected function synchronizePlan(): void
+    {
+        $api = EHealth::carePlan();
+        $patientUuid = $this->carePlan->person->uuid;
+        $details = $api->getDetails($patientUuid, $this->carePlan->uuid, typed: true)->validate();
+        $data = objectMapper()->map($details, CarePlanData::class);
+        $data->prepareResponse($details);
+        $activities = $api->getActivityResources($patientUuid, $data->uuid);
+        Repository::carePlan()->storeAggregate($data, $activities, $this->carePlan->personId, $this->carePlan->legalEntityId);
+    }
+
     public function syncPlanStatus(): bool
     {
         try {
-            $this->synchronizeResources([['id' => $this->carePlan->uuid]], $this->carePlan->personId, $this->carePlan->legalEntityId, $this->carePlan->person->uuid);
+            $this->synchronizePlan();
             app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan);
             $this->refreshCarePlan();
             $this->dispatch('refreshApprovals');
@@ -3474,8 +3488,9 @@ abstract class CarePlanComponent extends Component
 
             $this->assertReferralOccurrencePeriod($dbData);
             $requestRecord = MedicalEventsRepository::serviceRequest()->storeResource($resource, $this->carePlan->personId, $requestRecord->employeeId, $requestRecord->divisionId);
-            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => EHealth::serviceRequest()->createSigned($this->carePlan->person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($requestRecord, ['status' => 'active'], fn () => EHealth::serviceRequest()->createSigned($this->carePlan->person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 $this->redirectRoute('care-plans.activities.show', [legalEntity(), $this->carePlan->id, $activity->id], navigate: true);
 
                 return;
@@ -3590,8 +3605,9 @@ abstract class CarePlanComponent extends Component
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'recalled', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => $letter], fn () => EHealth::serviceRequest()->recall($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:recall');
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($record, ['status' => 'recalled', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => $letter], fn () => EHealth::serviceRequest()->recall($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:recall');
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 
@@ -3674,8 +3690,9 @@ abstract class CarePlanComponent extends Component
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'entered-in-error', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => trim($this->referralExplanatoryLetter)], fn () => EHealth::serviceRequest()->cancel($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:cancel');
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($record, ['status' => 'entered-in-error', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => trim($this->referralExplanatoryLetter)], fn () => EHealth::serviceRequest()->cancel($this->carePlan->person->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:cancel');
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 

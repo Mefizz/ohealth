@@ -579,9 +579,19 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 
     public static function submitOperation(CarePlan|CarePlanActivity|ServiceRequestRequest $record, array $changes, callable $send, ?string $requiredScope = null, array $operationContext = []): ?array
     {
-        $link = $record instanceof ServiceRequestRequest
-            ? MedicalEventsRepository::serviceRequest()->beginSubmission($record, $changes, $requiredScope ?? 'service_request:write', $operationContext)
-            : Repository::carePlan()->beginSubmission($record, $changes, $operationContext);
+        try {
+            $link = $record instanceof ServiceRequestRequest
+                ? MedicalEventsRepository::serviceRequest()->beginSubmission($record, $changes, $requiredScope ?? 'service_request:write', $operationContext)
+                : Repository::carePlan()->beginSubmission($record, $changes, $operationContext);
+        } catch (ValidationException $exception) {
+            if (!array_key_exists('submission', $exception->errors())) {
+                throw $exception;
+            }
+            Session::flash('warning', __('care-plan.submission_pending'));
+
+            return null;
+        }
+
         try {
             $response = $send();
         } catch (Throwable $exception) {
@@ -633,6 +643,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
         }
         if (is_string($href) && str_contains(strtolower($href), '/jobs/')) {
             self::track($link, $data);
+            Session::flash('info', __('care-plan.submission_pending'));
 
             return null;
         }

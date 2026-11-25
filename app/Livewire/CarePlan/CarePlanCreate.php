@@ -18,7 +18,6 @@ use App\Exceptions\EHealth\EHealthValidationException;
 use App\Exceptions\MedicalEvents\ClinicalStorageException;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Livewire\CarePlan\Forms\PatientSearchForm;
-use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Person\Records\BasePatientComponent;
 use App\Models\CarePlan;
 use App\Models\Employee\Employee;
@@ -34,7 +33,6 @@ use App\Repositories\Repository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Traits\InteractsWithApprovals;
-use App\Traits\SynchronizesCarePlans;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Collection;
@@ -49,8 +47,6 @@ use Throwable;
 
 class CarePlanCreate extends BasePatientComponent
 {
-    use SynchronizesCarePlans;
-    use SubmitsClinicalOperations;
 
     use InteractsWithApprovals;
 

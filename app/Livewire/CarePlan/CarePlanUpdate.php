@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Classes\eHealth\EHealth;
 use App\Dto\CarePlan\Form as CarePlanFormData;
 use App\Dto\CarePlan\Model as CarePlanData;
@@ -196,7 +197,7 @@ class CarePlanUpdate extends CarePlanCreate
                 $user->party->taxId
             );
 
-            $result = $this->submitClinicalOperation(
+            $result = RemoteEHealthLinksProcessing::submitOperation(
                 $this->carePlan,
                 ['status' => CarePlanStatus::PENDING->value],
                 fn () => $api->create($patientUuid, [
@@ -206,7 +207,9 @@ class CarePlanUpdate extends CarePlanCreate
                 operationContext: ['expected' => $stored, 'draft' => $draft]
             );
 
-            if ($result !== null) {
+            if ($result === null) {
+                $this->showSignatureModal = false;
+            } else {
                 Session::flash('success', __('care-plan.signed_and_sent'));
             }
 

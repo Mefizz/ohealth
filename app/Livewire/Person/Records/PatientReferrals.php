@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\Person\Records;
 
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Classes\eHealth\EHealth as SubmissionApi;
 use App\Core\Arr;
 use App\Core\BaseForm as Form;
@@ -11,7 +12,6 @@ use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Exceptions\Signature\SignatureException;
-use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Jobs\ServiceRequestSync;
 use App\Models\Declaration;
 use App\Models\User;
@@ -43,7 +43,6 @@ use Throwable;
 
 class PatientReferrals extends BasePatientComponent
 {
-    use SubmitsClinicalOperations;
     use BatchLegalEntityQueries;
     use \App\Livewire\Concerns\ReadsClinicalSnapshots;
 
@@ -543,8 +542,9 @@ class PatientReferrals extends BasePatientComponent
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'recalled', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => $letter], fn () => SubmissionApi::serviceRequest()->recall($this->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:recall');
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($record, ['status' => 'recalled', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => $letter], fn () => SubmissionApi::serviceRequest()->recall($this->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:recall');
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 
@@ -605,8 +605,9 @@ class PatientReferrals extends BasePatientComponent
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($record, ['status' => 'entered-in-error', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => trim($this->referralExplanatoryLetter)], fn () => SubmissionApi::serviceRequest()->cancel($this->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:cancel');
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($record, ['status' => 'entered-in-error', 'statusReason' => $payload['status_reason'], 'explanatoryLetter' => trim($this->referralExplanatoryLetter)], fn () => SubmissionApi::serviceRequest()->cancel($this->uuid, $record->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']), 'service_request:cancel');
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 
@@ -697,8 +698,9 @@ class PatientReferrals extends BasePatientComponent
 
             $resource = $mapper->toFhir($dbData, $uuids + ['carePlanUuid' => $carePlan?->uuid]);
             $requestRecord = \App\Repositories\MedicalEvents\Repository::serviceRequest()->storeResource($resource, (int) $this->personId, $requestRecord->employeeId, $requestRecord->divisionId);
-            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($this->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($this->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
             if ($finalResponse === null) {
+                $this->showSignatureModal = false;
                 return;
             }
 

@@ -1366,8 +1366,7 @@ class CarePlanShow extends CarePlanComponent
         }
 
         try {
-            $planData = $this->fetchCarePlanDetails($this->carePlan->person->uuid, $this->carePlan->uuid);
-            $this->synchronizeResources(['data' => [$planData]], $this->carePlan->personId, (int) legalEntity()->id);
+            $this->synchronizePlan();
             $this->carePlan = $repository->findById($this->carePlan->id);
         } catch (Exception $e) {
             Log::warning('CarePlanShow: failed to sync effective period before activity sign: ' . $e->getMessage());

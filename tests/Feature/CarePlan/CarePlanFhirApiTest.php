@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\CarePlan;
 
 use Tests\TestCase;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
 use App\Classes\eHealth\Api\CarePlanActivity as ActivityApi;
 use App\Models\CarePlan;
@@ -143,7 +145,7 @@ class CarePlanFhirApiTest extends TestCase
         });
 
         $this->instance(ActivityApi::class, $this->fakeApi(ActivityApi::class));
-        $actual = (new CarePlanFhirSynchronizationHarness())->fetchAllActivityResources('patient-test', $fixture['carePlan']['identifier']['value']);
+        $actual = EHealth::carePlan()->getActivityResources('patient-test', $fixture['carePlan']['identifier']['value']);
 
         $this->assertSame([$fixture['id'], $secondId], array_column($actual, 'id'));
         $this->assertSame(1.2345, $actual[1]['detail']['quantity']['value']);
@@ -170,7 +172,7 @@ class CarePlanFhirApiTest extends TestCase
         $this->expectException(EHealthResponseException::class);
 
         $this->instance(ActivityApi::class, $this->fakeApi(ActivityApi::class));
-        (new CarePlanFhirSynchronizationHarness())->fetchAllActivityResources('patient-test', $plan->uuid);
+        EHealth::carePlan()->getActivityResources('patient-test', $plan->uuid);
     }
 
     public function test_cancel_fetch_failure_is_propagated_instead_of_rebuilding_a_local_payload(): void
@@ -307,15 +309,13 @@ class CarePlanFhirApiTest extends TestCase
         $api = Mockery::mock(CarePlanApi::class)->makePartial();
         foreach ($ids as $index => $id) {
             $response = Mockery::mock(EHealthResponse::class);
-            $response->shouldReceive('validate')->once()->andReturn([['id' => $id]]);
+            $response->shouldReceive('validate')->once()->andReturn(collect([new CarePlanDetails(['id' => $id])]));
             $response->shouldReceive('getPaging')->once()->andReturn(['total_pages' => 2]);
             $api->shouldReceive('getMany')->once()->with(['requisition' => 'TEST', 'page' => $index + 1])->andReturn($response);
         }
-        $this->instance(CarePlanApi::class, $api);
-        $harness = Mockery::mock(CarePlanFhirSynchronizationHarness::class)->makePartial();
-        $harness->shouldReceive('synchronizeResources')->once()->with([['id' => $ids[0]], ['id' => $ids[1]]], null, 1);
+        $entries = $api->getRequisitionResults(['requisition' => 'TEST']);
 
-        $harness->synchronizeSearch(['requisition' => 'TEST'], 1);
+        $this->assertSame($ids, $entries->map(static fn (CarePlanDetails $entry): string => $entry->get('id'))->all());
     }
 
 }
@@ -324,11 +324,5 @@ class CarePlanFhirSynchronizationHarness
 {
     use \App\Livewire\Concerns\ReadsClinicalSnapshots {
         fetchActivityCancelSnapshot as public;
-    }
-
-    use \App\Traits\SynchronizesCarePlans {
-        synchronizeResources as public;
-        synchronizeSearch as public;
-        fetchAllActivityResources as public;
     }
 }

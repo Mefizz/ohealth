@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Core\Arr;
@@ -16,11 +17,11 @@ use App\Exceptions\EHealth\EHealthResponseException;
 use App\Models\LegalEntity;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
-use App\Traits\SynchronizesCarePlans;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Queue\Middleware\RateLimited;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
@@ -29,7 +30,6 @@ use Throwable;
 
 class CarePlanFullSync extends PatientEHealthJob
 {
-    use SynchronizesCarePlans;
 
     public const string BATCH_NAME = 'CarePlanFullSync';
 
@@ -172,7 +172,7 @@ class CarePlanFullSync extends PatientEHealthJob
             $data->prepareResponse($validatedData);
             $patient = Repository::carePlan()->resolvePatientContext($this->personId, $this->patientUuid);
             try {
-                $activities = $this->fetchAllActivityResources($patient['uuid'], $this->resourceUuid, token: $this->token);
+                $activities = EHealth::carePlan()->getActivityResources($patient['uuid'], $this->resourceUuid, token: $this->token);
                 $plan = Repository::carePlan()->storeAggregate($data, $activities, $patient['id'], $this->legalEntity->id);
                 if ((($this->batch()?->options ?? []) + $this->patientContext)['care_plan_approvals'] ?? false) {
                     MedicalEventsRepository::approval()->syncApprovals(
@@ -195,7 +195,24 @@ class CarePlanFullSync extends PatientEHealthJob
 
             return;
         }
-        $this->synchronizeResources($this->summaryResources($validatedData), $this->personId, $this->legalEntity->id, $this->patientUuid, $this->token);
+        $repository = Repository::carePlan();
+        $api = EHealth::carePlan()->withToken($this->token);
+        foreach ($this->summaryResources($validatedData) as $summary) {
+            $patient = $repository->resolvePatientContext($this->personId, $this->patientUuid ?? data_get($summary, 'subject.identifier.value'));
+            $details = $api->getDetails($patient['uuid'], $summary['id'], typed: true)->validate();
+            $data = objectMapper()->map($details, CarePlanData::class);
+            $data->prepareResponse($details);
+            $activities = $api->getActivityResources($patient['uuid'], $data->uuid, token: $this->token);
+            $repository->storeAggregate($data, $activities, $patient['id'], $this->legalEntity->id);
+        }
+    }
+
+    /** @param Collection<int, CarePlanDetails>|array $entries */
+    protected function summaryResources(Collection|array $entries): array
+    {
+        return $entries instanceof Collection
+            ? $entries->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all()
+            : $entries;
     }
 
     private function isPatientRegistrySync(): bool

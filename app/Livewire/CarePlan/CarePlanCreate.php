@@ -7,7 +7,6 @@ namespace App\Livewire\CarePlan;
 use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\Episode\Status as EpisodeStatus;
 use App\Enums\Person\ProcedureStatus;
-use App\Exceptions\MedicalEvents\ClinicalStorageException;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
 use App\Models\MedicalEvents\Sql\DiagnosticReport;
@@ -26,7 +25,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 
-class CarePlanCreate extends CarePlanDraftComponent
+class CarePlanCreate extends CarePlanComponent
 {
     #[Locked]
     public ?string $draftUuid = null;
@@ -58,22 +57,14 @@ class CarePlanCreate extends CarePlanDraftComponent
      */
     public function save(): void
     {
-        $carePlan = $this->saveNewDraft();
-        if ($carePlan !== null) {
+        $draftId = $this->saveDraft();
+        if ($draftId !== null) {
             Session::flash('success', __('care-plan.draft_saved'));
-            $this->redirectRoute('care-plans.edit', [legalEntity(), $carePlan->id], navigate: true);
+            $this->redirectRoute('care-plans.edit', [legalEntity(), $draftId], navigate: true);
         }
     }
 
-    public function startSigningProcess(): void
-    {
-        $carePlan = $this->saveNewDraft();
-        if ($carePlan !== null) {
-            $this->redirectRoute('care-plans.show', [legalEntity(), $carePlan->id, 'action' => 'sign_plan'], navigate: true);
-        }
-    }
-
-    protected function saveNewDraft(): ?CarePlan
+    protected function saveDraftFromForm(): ?int
     {
         $user = Auth::user();
         $legalEntity = legalEntity();
@@ -86,59 +77,45 @@ class CarePlanCreate extends CarePlanDraftComponent
 
         $repository = Repository::carePlan();
 
-        try {
-            $person = $repository->findPatient((int) $this->personId);
-            if ($person === null || !Str::isUuid((string) $person->uuid)) {
-                throw ValidationException::withMessages(['form.patient' => __('validation.required', [
-                    'attribute' => __('care-plan.patient'),
-                ])]);
-            }
-            $encounter = $this->validateDraftEncounter($person);
+        $person = $repository->findPatient((int) $this->personId);
+        if ($person === null || !Str::isUuid((string) $person->uuid)) {
+            throw ValidationException::withMessages(['form.patient' => __('validation.required', [
+                'attribute' => __('care-plan.patient'),
+            ])]);
+        }
+        $encounter = $this->validateDraftEncounter($person);
 
-            $this->synchronizeSystemFields();
-            $coAuthors = array_column($repository->doctors($legalEntity->id), 'uuid');
-            $episodes = $this->draftEpisodes($person, $encounter, $user);
-            $medicalRecords = $this->form->medicalRecords === [] ? collect() : $this->draftMedicalRecords($person, $encounter, $user);
-            $validated = $this->form->validateDraft($coAuthors, $episodes->keys()->all(), $medicalRecords->keys()->all());
+        $this->synchronizeSystemFields();
+        $coAuthors = array_column($repository->doctors($legalEntity->id), 'uuid');
+        $episodes = $this->draftEpisodes($person, $encounter, $user);
+        $medicalRecords = $this->form->medicalRecords === [] ? collect() : $this->draftMedicalRecords($person, $encounter, $user);
+        $validated = $this->form->validateDraft($coAuthors, $episodes->keys()->all(), $medicalRecords->keys()->all());
 
-            $addresses = $this->draftAddresses($person, $encounter);
-            $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
-            if ($author === null || !Str::isUuid((string) $author->uuid)) {
-                throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
-            }
-
-            $mapper = objectMapper();
-            $draft = $mapper->map($this->form, CarePlanData::class);
-            $draft->uuid = $this->draftUuid;
-            $draft->personId = $person->id;
-            $draft->legalEntityId = $legalEntity->id;
-            $draft->authorId = $author->id;
-            $draft->encounterId = $encounter->id;
-            $draft->prepareLocal(
-                $mapper,
-                $person->uuid,
-                $author->uuid,
-                $legalEntity->uuid,
-                $addresses,
-                $validated['coAuthors'],
-                $validated['episodes'],
-                array_intersect_key($medicalRecords->all(), array_flip($validated['medicalRecords'])),
-            );
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
-            return null;
+        $addresses = $this->draftAddresses($person, $encounter);
+        $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
+        if ($author === null || !Str::isUuid((string) $author->uuid)) {
+            throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
         }
 
-        try {
-            $carePlan = $repository->saveLocally(collect([$draft]), $mapper)->first();
-        } catch (ClinicalStorageException $exception) {
-            Session::flash('error', $exception->getMessage());
+        $mapper = objectMapper();
+        $draft = $mapper->map($this->form, CarePlanData::class);
+        $draft->uuid = $this->draftUuid;
+        $draft->personId = $person->id;
+        $draft->legalEntityId = $legalEntity->id;
+        $draft->authorId = $author->id;
+        $draft->encounterId = $encounter->id;
+        $draft->prepareLocal(
+            $mapper,
+            $person->uuid,
+            $author->uuid,
+            $legalEntity->uuid,
+            $addresses,
+            $validated['coAuthors'],
+            $validated['episodes'],
+            array_intersect_key($medicalRecords->all(), array_flip($validated['medicalRecords'])),
+        );
 
-            return null;
-        }
-
-        return $carePlan;
+        return $repository->saveLocally(collect([$draft]), $mapper)->first()?->id;
     }
 
     protected function draftContextMatches(User $user): bool
@@ -239,7 +216,6 @@ class CarePlanCreate extends CarePlanDraftComponent
 
         $this->personId = $person->id;
         $this->uuid = $person->uuid;
-        $this->patientUuid = $person->uuid;
         $this->patientFullName = $person->fullName;
         $this->verificationStatus = $person->verificationStatus;
         $this->declarationNumber = $person->declarations->first()?->declarationNumber ?? null;
@@ -274,7 +250,6 @@ class CarePlanCreate extends CarePlanDraftComponent
         }
 
         $this->personId = 0;
-        $this->patientUuid = '';
         $this->uuid = '';
         $this->patientFullName = __('care-plan.new_care_plan');
         $this->verificationStatus = '';
@@ -289,7 +264,6 @@ class CarePlanCreate extends CarePlanDraftComponent
         $this->allowedCategoryCodes = [];
         $this->availableEncounters = [];
         $this->availableEpisodes = [];
-        $this->authMethods = [];
         $this->diagnoses = [];
         $this->patientSearchResults = [];
         $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());

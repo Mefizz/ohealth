@@ -6,7 +6,6 @@ namespace App\Livewire\CarePlan;
 
 use App\Dto\CarePlan\Form as CarePlanFormData;
 use App\Dto\CarePlan\Model as CarePlanData;
-use App\Exceptions\MedicalEvents\ClinicalStorageException;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
 use App\Models\Person\Person;
@@ -22,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
-class CarePlanEdit extends CarePlanDraftComponent
+class CarePlanEdit extends CarePlanComponent
 {
     #[Locked]
     public int $carePlanId;
@@ -62,8 +61,6 @@ class CarePlanEdit extends CarePlanDraftComponent
         $formData = $mapper->map(new ArrayObject($fields), CarePlanFormData::class);
         $mapper->map($formData, $this->form);
         $this->form->episodes = $repository->resolveEpisodeLabels($this->form->episodes, $this->personId);
-        $this->carePlanUuid = $resource['id'];
-        $this->patientUuid = $draft->person->uuid;
         $this->form->patient = $draft->person->fullName ?? '';
         $this->displayMedicalNumber((string) ($draft->encounterId ?? ''));
         $this->synchronizeSystemFields();
@@ -75,59 +72,36 @@ class CarePlanEdit extends CarePlanDraftComponent
 
     public function save(): void
     {
-        if ($this->saveDraftChanges()) {
+        if ($this->saveDraft() !== null) {
             Session::flash('success', __('care-plan.draft_updated'));
         }
     }
 
-    public function startSigningProcess(): void
-    {
-        if (Auth::user()?->can('create', CarePlan::class) !== true) {
-            Session::flash('error', __('care-plan.no_permission_create'));
-
-            return;
-        }
-
-        if ($this->saveDraftChanges()) {
-            $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlanId, 'action' => 'sign_plan'], navigate: true);
-        }
-    }
-
-    protected function saveDraftChanges(): bool
+    protected function saveDraftFromForm(): ?int
     {
         if (legalEntity()?->id !== $this->draftLegalEntityId) {
             Session::flash('error', __('care-plan.no_permission_update'));
 
-            return false;
+            return null;
         }
 
-        try {
-            $revision = Repository::carePlan()->withLockedDraft(
-                $this->carePlanId,
-                (int) $this->personId,
-                $this->draftLegalEntityId,
-                $this->saveLockedDraft(...)
-            );
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
-            return false;
-        } catch (ClinicalStorageException $exception) {
-            Session::flash('error', $exception->getMessage());
-
-            return false;
-        }
+        $revision = Repository::carePlan()->withLockedDraft(
+            $this->carePlanId,
+            (int) $this->personId,
+            $this->draftLegalEntityId,
+            $this->saveLockedDraft(...)
+        );
 
         if ($revision === null) {
             Session::flash('error', __('care-plan.no_permission_update'));
 
-            return false;
+            return null;
         }
 
         $this->draftRevision = $revision;
         unset($this->carePlan);
 
-        return true;
+        return $this->carePlanId;
     }
 
     protected function saveLockedDraft(CarePlan $draft): ?string

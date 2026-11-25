@@ -460,7 +460,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
-    /** Persist a validated full eHealth result into the normalized plan and its relations. */
+    /**
+     * Insert or refresh the local plan from validated eHealth details.
+     *
+     * A confirmed submission updates its existing draft. Synchronization may also insert the plan by UUID.
+     */
     public function saveConfirmed(CarePlanData $data, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
     {
         return $this->storageTransaction(function () use ($data, $personId, $legalEntityId, $localId): CarePlan {
@@ -513,6 +517,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $this->savePreparedResource($data, $draft, $mapper);
     }
 
+    /** Store the mapped attributes and relations shared by confirmed results and local draft edits. */
     protected function savePreparedResource(CarePlanData $data, CarePlan $plan, ?ObjectMapperInterface $mapper = null): CarePlan
     {
         $authorUuid = data_get($data->remoteReferences, 'authorReference.identifier.value');

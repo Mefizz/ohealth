@@ -16,13 +16,13 @@ use Illuminate\Support\Collection;
  */
 class CarePlanDetails extends Collection
 {
-    /** The complete native response, including fields outside the local projection. */
+    /** The native resource, kept intact for signed snapshots. */
     public array $native;
 
-    public function __construct(iterable|null $items = [])
+    public function __construct(iterable|null $items = [], ?array $native = null)
     {
         parent::__construct($items);
-        $this->native = $this->items;
+        $this->native = $native ?? $this->items;
 
         foreach (['category', 'terms_of_service', 'status_reason'] as $field) {
             if (is_array($this->get($field))) {

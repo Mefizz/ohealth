@@ -23,7 +23,7 @@ class CarePlan extends Request
     /** Submit signed creation content. Validation returns details on 201 or a job receipt on 202. */
     public function create(string $patientId, array $payload, ?string $planId = null): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(fn (EHealthResponse $response) => $this->validateSubmission($response, $planId, $patientId));
+        $this->setValidator(fn (EHealthResponse $response): CarePlanDetails|array => $this->validateSubmission($response, $planId, $patientId));
 
         return $this->post("/api/patients/$patientId/care_plans", $payload);
     }
@@ -53,7 +53,7 @@ class CarePlan extends Request
      */
     public function getDetails(string $patientId, string $id, array $query = [], bool $preserveApiKeys = false): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, $preserveApiKeys));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateResponse($response, $preserveApiKeys));
 
         return $this->get("/api/patients/{$patientId}/care_plans/{$id}", $query);
     }
@@ -128,7 +128,7 @@ class CarePlan extends Request
         return $this->get("/api/patients/$patientId/summary/care_plans", $mergedQuery);
     }
 
-    protected function validateDetails(EHealthResponse $response, bool $preserveApiKeys = false): array
+    protected function validateResponse(EHealthResponse $response, bool $preserveApiKeys = false): array
     {
         $native = $response->getData();
         if (array_is_list($native) && count($native) === 1) {
@@ -181,7 +181,7 @@ class CarePlan extends Request
     }
 
     /** Validate CarePlan details carried by a processed job or a synchronous response. */
-    public function validateDetailsData(array $data, ?string $id = null, ?string $patientId = null): CarePlanDetails
+    public function validateDetails(array $data, ?string $id = null, ?string $patientId = null): CarePlanDetails
     {
         $rules = $this->validationRules();
         if ($id !== null) {
@@ -190,15 +190,20 @@ class CarePlan extends Request
         if ($patientId !== null) {
             $rules['subject.identifier.value'] .= '|in:'.$patientId;
         }
-        Validator::make($data, $rules)->validate();
+        $validator = Validator::make($data, $rules);
 
-        return new CarePlanDetails($data);
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error('CarePlan details validation failed: ' . implode(', ', $validator->errors()->all()));
+        }
+
+        return new CarePlanDetails($validator->validate(), $data);
     }
 
+    /** Validate the created plan on 201 or the processing receipt on 202. */
     protected function validateSubmission(EHealthResponse $response, ?string $id, string $patientId): CarePlanDetails|array
     {
         if ($response->getStatusCode() === 201) {
-            return $this->validateDetailsData($response->getData(), $id, $patientId);
+            return $this->validateDetails($response->getData(), $id, $patientId);
         }
 
         Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:202'])->validate();

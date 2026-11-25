@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Traits;
 
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Dto\CarePlan\Model as CarePlanData;
 use App\Repositories\Repository;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 trait SynchronizesCarePlans
@@ -51,10 +51,7 @@ trait SynchronizesCarePlans
         $seen = [];
         for ($page = 1; ; $page++) {
             $response = $fetch($page);
-            $result = $response->validate();
-            $items = $result instanceof CarePlanGetMany
-                ? $result->toBase()->map(static fn (CarePlanDetails $item): array => $item->toResource())->all()
-                : $result;
+            $items = $this->summaryResources($response->validate());
             foreach ($items as $item) {
                 $item = Arr::toCamelCase($item);
                 if (isset($seen[$item['id']])) {
@@ -70,6 +67,14 @@ trait SynchronizesCarePlans
         }
 
         return $summaries;
+    }
+
+    /** Short entries supply discovery data; detail processing persists the full Model DTO. */
+    protected function summaryResources(Collection|array $entries): array
+    {
+        return $entries instanceof Collection
+            ? $entries->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all()
+            : $entries;
     }
 
     protected function fetchAllActivityResources(string $patientUuid, string $planUuid, array $query = [], ?string $token = null): array

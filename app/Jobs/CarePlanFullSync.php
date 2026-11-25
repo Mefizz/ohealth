@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Core\Arr;
@@ -198,14 +196,6 @@ class CarePlanFullSync extends PatientEHealthJob
             return;
         }
         $this->synchronizeResources($this->summaryResources($validatedData), $this->personId, $this->legalEntity->id, $this->patientUuid, $this->token);
-    }
-
-    /** Short entries supply discovery data; the detail job persists the full Model DTO. */
-    protected function summaryResources(CarePlanGetMany|array $entries): array
-    {
-        return $entries instanceof CarePlanGetMany
-            ? $entries->toBase()->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all()
-            : $entries;
     }
 
     private function isPatientRegistrySync(): bool

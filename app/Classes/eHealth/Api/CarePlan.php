@@ -6,12 +6,14 @@ namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\Api\Job;
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\MedicalEventsErrorTranslator;
 use App\Contracts\ApiErrorTranslator;
+use App\Core\Arr;
+use App\Dto\CarePlan\Ehealth as CreateContent;
 use App\Models\CarePlan as CarePlanModel;
+use ArrayObject;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -21,6 +23,38 @@ use Illuminate\Support\Facades\Validator;
 class CarePlan extends Request
 {
     protected const string URL = '/api/care_plans';
+
+    /** Build the native content required by the array-based signature provider. */
+    public function prepareCreateContent(array $resource): array
+    {
+        Validator::make($resource, [
+            'id' => 'required|uuid',
+            'title' => 'required|string',
+            'category.coding' => 'required|array|min:1',
+            'period.start' => 'required|date',
+            'period.end' => 'sometimes|nullable|date|after_or_equal:period.start',
+            'encounter.identifier.value' => 'required|uuid',
+            'author.identifier.value' => 'required|uuid',
+            'addresses' => 'required|array|min:1',
+            'termsOfService.coding' => 'required|array|min:1',
+            'basedOn' => 'sometimes|nullable|array',
+            'partOf' => 'sometimes|nullable|array',
+            'description' => 'sometimes|nullable|string',
+            'note' => 'sometimes|nullable|string',
+            'supportingInfo' => 'sometimes|nullable|array',
+            'supportingInfo.*.identifier.value' => 'required|uuid',
+            'supportingInfo.*.identifier.type.coding' => 'required|array|min:1',
+            'supportingInfo.*.identifier.type.coding.*.code' => 'required|in:episode_of_care,procedure,diagnostic_report',
+            'contributor' => 'sometimes|nullable|array',
+            'contributor.*.identifier.value' => 'required|uuid',
+            'informWith' => 'sometimes|nullable|array',
+            'informWith.authMethodId' => 'sometimes|nullable|uuid',
+        ])->validate();
+
+        $content = objectMapper()->map(new ArrayObject($resource), CreateContent::class);
+
+        return $this->omitEmpty(Arr::toSnakeCase(get_object_vars($content)));
+    }
 
     /** Submit signed creation content. Validation returns details on 201 or a job receipt on 202. */
     public function create(string $patientId, array $payload, ?string $planId = null): PromiseInterface|EHealthResponse
@@ -87,10 +121,10 @@ class CarePlan extends Request
     public function getBySearchParams(string $patientId, array $query = [], bool $typed = false): PromiseInterface|EHealthResponse
     {
         $this->authorizeOperation('getBySearchParams');
-        $this->setValidator(function (EHealthResponse $response) use ($patientId, $typed): CarePlanGetMany|array {
+        $this->setValidator(function (EHealthResponse $response) use ($patientId, $typed): Collection|array {
             $entries = $this->validateMany($response, $patientId);
 
-            return $typed ? $entries : $entries->toBase()->map(
+            return $typed ? $entries : $entries->map(
                 static fn (CarePlanDetails $entry): array => $entry->toResource()
             )->all();
         });
@@ -102,7 +136,7 @@ class CarePlan extends Request
     public function getSummary(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
         $this->authorizeOperation('getSummary');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanGetMany => $this->validateMany($response, $patientId));
+        $this->setValidator(fn (EHealthResponse $response): Collection => $this->validateMany($response, $patientId));
         $this->setDefaultPageSize();
 
         return $this->get("/api/patients/$patientId/summary/care_plans", array_replace($this->options['query'], $query));
@@ -164,7 +198,8 @@ class CarePlan extends Request
         return collect($data);
     }
 
-    protected function validateMany(EHealthResponse $response, string $patientId): CarePlanGetMany
+    /** @return Collection<int, CarePlanDetails> */
+    protected function validateMany(EHealthResponse $response, string $patientId): Collection
     {
         $rules = $this->validationRules(details: false);
         $rules['subject.identifier.value'] .= '|in:'.$patientId;
@@ -172,7 +207,8 @@ class CarePlan extends Request
         return $this->validateList($response, $rules);
     }
 
-    protected function validateRequisition(EHealthResponse $response): CarePlanGetMany
+    /** @return Collection<int, CarePlanDetails> */
+    protected function validateRequisition(EHealthResponse $response): Collection
     {
         return $this->validateList($response, $this->validationRules(details: false) + [
             'identity' => 'required|array',
@@ -184,7 +220,8 @@ class CarePlan extends Request
         ]);
     }
 
-    protected function validateList(EHealthResponse $response, array $itemRules): CarePlanGetMany
+    /** @return Collection<int, CarePlanDetails> */
+    protected function validateList(EHealthResponse $response, array $itemRules): Collection
     {
         Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:200'])->validate();
         $rules = collect($itemRules)->mapWithKeys(
@@ -201,7 +238,16 @@ class CarePlan extends Request
             ...$rules,
         ])->validate();
 
-        return new CarePlanGetMany($response->getData());
+        return collect($response->getData())->map(static fn (array $entry): CarePlanDetails => new CarePlanDetails($entry));
+    }
+
+    /** Omit empty optional fields while preserving false, zero and valid JSON list indexes. */
+    protected function omitEmpty(array $data): array
+    {
+        $data = array_map(fn (mixed $value): mixed => is_array($value) ? $this->omitEmpty($value) : $value, $data);
+        $filtered = array_filter($data, static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+
+        return array_is_list($data) ? array_values($filtered) : $filtered;
     }
 
     /** Medical Events 9.15.6, Care Plan details and short list response schemas. */

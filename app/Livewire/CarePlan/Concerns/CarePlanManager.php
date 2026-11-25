@@ -25,7 +25,6 @@ use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Models\CarePlan;
 use App\Classes\eHealth\Api\Approval as ApprovalApi;
 use App\Services\MedicalEvents\CarePlanLifecycleGateService;
-use App\Dto\CarePlan\Ehealth as CarePlanPayload;
 use Exception;
 use RuntimeException;
 use Illuminate\Support\Facades\Auth;
@@ -358,12 +357,18 @@ trait CarePlanManager
         try {
             $repository->assertDraftSigningReady($this->carePlan);
             $resource = $repository->getResource($this->carePlan->id);
-            $payload = new CarePlanPayload()->fromResource($resource)->toArray();
-            $signedContent = signatureService()->signData($payload, $signingData['knedp'], $signingData['keyContainer'], $signingData['password'], Auth::user()->party->taxId);
+            $api = EHealth::carePlan();
+            $signedContent = signatureService()->signData(
+                $api->prepareCreateContent($resource),
+                $signingData['knedp'],
+                $signingData['keyContainer'],
+                $signingData['password'],
+                Auth::user()->party->taxId
+            );
             $result = $this->submitClinicalOperation(
                 $this->carePlan,
                 ['status' => CarePlanStatus::PENDING->value],
-                fn () => EHealth::carePlan()->create($this->carePlan->person->uuid, [
+                fn () => $api->create($this->carePlan->person->uuid, [
                     'signed_data' => $signedContent,
                     'signed_data_encoding' => 'base64',
                 ], $this->carePlan->uuid),

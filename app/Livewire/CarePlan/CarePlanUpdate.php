@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\CarePlan;
 
 use App\Classes\eHealth\EHealth;
-use App\Dto\CarePlan\Ehealth as CarePlanPayload;
+use App\Dto\CarePlan\Form as CarePlanFormData;
 use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -17,8 +17,11 @@ use App\Models\LegalEntity;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\Fhir;
+use App\Services\MedicalEvents\FhirResource;
+use ArrayObject;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Throwable;
@@ -61,11 +64,9 @@ class CarePlanUpdate extends CarePlanCreate
         parent::mount($legalEntity, $this->carePlan->personId);
         $resource = $repository->getResource($this->carePlan->id);
         $fields = Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]);
-        foreach ($fields as $field => $value) {
-            if (property_exists($this->form, $field)) {
-                $this->form->{$field} = $value ?? '';
-            }
-        }
+        $mapper = objectMapper();
+        $formData = $mapper->map(new ArrayObject($fields), CarePlanFormData::class);
+        $mapper->map($formData, $this->form);
         $this->form->episodes = $repository->resolveEpisodeLabels($this->form->episodes, $this->personId);
         $this->carePlanUuid = $resource['id'];
         $this->patientUuid = $this->carePlan->person->uuid;
@@ -223,10 +224,10 @@ class CarePlanUpdate extends CarePlanCreate
 
             $patientUuid = $this->carePlan->person->uuid;
             $stored = $repository->getResource($this->carePlan->id);
-            $payload = objectMapper()->map($this->form, CarePlanPayload::class)
-                ->withFormChanges($stored, $author->uuid, $encounter['addresses']);
+            $draft = $this->draftResourceForSigning($stored, $author->uuid, $encounter['addresses']);
+            $api = EHealth::carePlan();
             $signature = signatureService()->signData(
-                $payload->toArray(),
+                $api->prepareCreateContent($draft),
                 $validated['knedp'],
                 $validated['keyContainer'],
                 $validated['password'],
@@ -236,11 +237,11 @@ class CarePlanUpdate extends CarePlanCreate
             $result = $this->submitClinicalOperation(
                 $this->carePlan,
                 ['status' => CarePlanStatus::PENDING->value],
-                fn () => EHealth::carePlan()->create($patientUuid, [
+                fn () => $api->create($patientUuid, [
                     'signed_data' => $signature,
                     'signed_data_encoding' => 'base64',
                 ], $this->carePlan->uuid),
-                operationContext: ['expected' => $stored, 'draft' => $payload->localResource()]
+                operationContext: ['expected' => $stored, 'draft' => $draft]
             );
 
             if ($result !== null) {
@@ -264,6 +265,45 @@ class CarePlanUpdate extends CarePlanCreate
                 ? $exception->getMessage()
                 : __('care-plan.unexpected_error'));
         }
+    }
+
+    /** Apply the validated editor fields to the local draft snapshot before signing. */
+    protected function draftResourceForSigning(array $stored, string $authorUuid, array $addresses): array
+    {
+        $fields = $this->form->only([
+            'title', 'category', 'termsOfService', 'periodStart', 'periodStartTime', 'periodEnd',
+            'periodEndTime', 'description', 'note', 'context', 'encounter', 'informWith',
+            'coAuthors', 'episodes', 'medicalRecords',
+        ]);
+
+        Validator::make($fields, [
+            'medicalRecords.*' => 'array',
+            'coAuthors.*' => 'nullable|uuid',
+            'episodes.*' => 'array',
+            'episodes.*.uuid' => 'required|uuid',
+        ])->validate();
+
+        $fields['medicalRecords'] = collect($fields['medicalRecords'])->map(static function (array $reference): array {
+            if (isset($reference['identifier'])) {
+                return $reference;
+            }
+
+            Validator::make($reference, [
+                'uuid' => 'required|uuid',
+                'type' => 'required|in:procedure,diagnostic_report',
+            ])->validate();
+
+            return FhirResource::make()->coding('eHealth/resources', $reference['type'])->toIdentifier($reference['uuid']);
+        })->all();
+        $fields['coAuthors'] = array_values(array_filter($fields['coAuthors']));
+        $fields['author'] = $authorUuid;
+        $fields['addresses'] = $addresses;
+
+        return Fhir::carePlan()->toFhir($fields, [
+            'resource' => $stored,
+            'timezone' => config('app.timezone'),
+            'dateFormat' => config('app.date_format'),
+        ]);
     }
 
     public function render()

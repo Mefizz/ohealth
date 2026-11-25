@@ -43,6 +43,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Validator;
 use Livewire\Attributes\Locked;
 use RuntimeException;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
@@ -66,6 +67,9 @@ class CarePlanCreate extends BasePatientComponent
 
     #[Locked]
     public int $legalEntityId;
+
+    #[Locked]
+    public ?string $draftVersion = null;
 
     public CarePlanForm $form;
 
@@ -341,6 +345,7 @@ class CarePlanCreate extends BasePatientComponent
         $person = Repository::carePlan()->findPatient($personId) ?? abort(404);
 
         $this->carePlanUuid = Str::uuid()->toString();
+        $this->draftVersion = null;
         $this->personId = $person->id;
         $this->uuid = $person->uuid;
         $this->patientUuid = $person->uuid;
@@ -391,6 +396,7 @@ class CarePlanCreate extends BasePatientComponent
     public function clearSelectedPatient(): void
     {
         $this->carePlanUuid = Str::uuid()->toString();
+        $this->draftVersion = null;
         $this->personId = 0;
         $this->patientUuid = '';
         $this->uuid = '';
@@ -717,10 +723,11 @@ class CarePlanCreate extends BasePatientComponent
         $this->carePlanUuid ??= Str::uuid()->toString();
         $mapper = objectMapper();
 
-        return $repository->withLockedCreation(
+        $plan = $repository->withLockedCreation(
             $this->carePlanUuid, $person->id, $facility->id,
             fn (CarePlan $plan): CarePlan => $this->saveLockedPlan($plan, $person, $encounter, $user, $facility, $mapper)
         );
+        return $plan;
     }
 
     /** Validate the current locked row, form and clinical selections before mapping or writing. */
@@ -733,7 +740,13 @@ class CarePlanCreate extends BasePatientComponent
         $repository = Repository::carePlan();
         $this->form->encounter = $encounter->uuid;
         $this->synchronizeSystemFields();
-        $this->form->validate(array_replace($this->form->rules(), [
+        $this->form->withValidator(function (Validator $validator) use ($plan, $repository): void {
+            $validator->after(function (Validator $validator) use ($plan, $repository): void {
+                if ($plan->exists && $repository->creationVersion($plan) !== $this->draftVersion) {
+                    $validator->errors()->add('request', __('care-plan.document_context_unavailable'));
+                }
+            });
+        })->validate(array_replace($this->form->rules(), [
             'periodStartTime' => 'nullable|date_format:H:i',
             'periodEndTime' => 'nullable|date_format:H:i',
         ]));
@@ -758,7 +771,10 @@ class CarePlanCreate extends BasePatientComponent
             $encounterData['addresses'], $coAuthors, $episodes, $records);
         $repository->assertFhirStorageReady();
 
-        return $repository->save($data, $plan, $mapper);
+        $plan = $repository->save($data, $plan, $mapper);
+        $this->draftVersion = $repository->creationVersion($plan);
+
+        return $plan;
     }
 
     /** Resolve UUID/key selections against current server-side options, including older editor array values. */
@@ -1009,7 +1025,7 @@ class CarePlanCreate extends BasePatientComponent
 
                 return;
             }
-            $finalResponse = $this->submitClinicalOperation($carePlan, ['status' => CarePlanStatus::PENDING->value], fn () => EHealth::carePlan()->create($this->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = $this->submitClinicalOperation($carePlan, ['status' => CarePlanStatus::PENDING->value, 'expectedVersion' => $this->draftVersion], fn () => EHealth::carePlan()->create($this->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
             if ($finalResponse === null) {
                 $this->redirectRoute('care-plans.show', [legalEntity(), $carePlan->id], navigate: true);
 
@@ -1080,6 +1096,8 @@ class CarePlanCreate extends BasePatientComponent
                 );
                 $this->dispatch('scroll-to-element', selector: '#period_end');
             }
+        } catch (ValidationException $exception) {
+            $this->handleValidationFailed($exception);
         } catch (ClinicalStorageException $exception) {
             Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;

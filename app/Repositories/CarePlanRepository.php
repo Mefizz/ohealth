@@ -90,6 +90,12 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
+    /** Detect fields or relations changed while the creation form was signing. */
+    public function creationVersion(CarePlan $plan): string
+    {
+        return hash('sha256', json_encode($this->getResource($plan), JSON_THROW_ON_ERROR));
+    }
+
     /** Persist a prepared full Model DTO inside the caller's locked repository transaction. */
     public function save(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
     {
@@ -1324,6 +1330,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             }
 
             $resource = $record instanceof CarePlan ? $this->getResource($record->id) : Repository::carePlanActivity()->getResource($record->id);
+            if ($record instanceof CarePlan && isset($changes['expectedVersion'])
+                && !hash_equals($changes['expectedVersion'], hash('sha256', json_encode($resource, JSON_THROW_ON_ERROR)))) {
+                throw ValidationException::withMessages(['request' => __('care-plan.document_context_unavailable')]);
+            }
+            unset($changes['expectedVersion']);
 
             return RemoteEHealthLinksProcessing::startSubmission($record, ['changes' => $changes, 'resource' => $resource]);
         });

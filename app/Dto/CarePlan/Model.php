@@ -12,8 +12,6 @@ use App\Dto\Input\FormIdentifier;
 use App\Enums\CarePlanStatus;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Models\CarePlan;
-use App\Services\MedicalEvents\Fhir;
-use App\Services\MedicalEvents\FhirResource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\Attribute\Map;
@@ -187,42 +185,6 @@ class Model
             'statusReasonConcept' => CodeableConceptData::map($details->statusReason()),
         ];
         $this->prepareResourceRelations($details->toResource());
-    }
-
-    /** Preserve the normalized references and coding from the edited local draft. */
-    public function prepareDraftUpdate(
-        array $stored,
-        array $fields,
-        string $authorUuid,
-        array $addresses,
-        ObjectMapperInterface $mapper
-    ): void {
-        $fields['medicalRecords'] = collect($fields['medicalRecords'] ?? [])->map(static function (array $reference): array {
-            if (isset($reference['identifier'])) {
-                return $reference;
-            }
-
-            return FhirResource::make()->coding('eHealth/resources', $reference['type'])->toIdentifier($reference['uuid']);
-        })->all();
-        $fields['coAuthors'] = array_values(array_filter($fields['coAuthors'] ?? []));
-        $fields['author'] = $authorUuid;
-        $fields['addresses'] = $addresses;
-        $resource = Fhir::carePlan()->toFhir($fields, [
-            'resource' => $stored,
-            'timezone' => config('app.timezone'),
-            'dateFormat' => config('app.date_format'),
-        ]);
-
-        $this->uuid = $resource['id'];
-        foreach (['context', 'description', 'note', 'informWith'] as $field) {
-            $this->{$field} = $this->{$field} === '' ? null : $this->{$field};
-        }
-        foreach (['categoryConcept' => 'category', 'termsOfServiceConcept' => 'termsOfService', 'statusReasonConcept' => 'statusReason'] as $relation => $field) {
-            $this->remoteConcepts[$relation] = isset($resource[$field])
-                ? $mapper->map(new FormCodeableConcept($resource[$field]), CodeableConceptData::class)
-                : null;
-        }
-        $this->prepareResourceRelations($resource);
     }
 
     protected function prepareResourceRelations(array $resource): void

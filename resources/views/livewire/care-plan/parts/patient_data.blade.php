@@ -134,15 +134,17 @@
             <div class="form-group group">
                 <input
                     type="text"
-                    id="medicalNumber"
+                    name="medical_number"
+                    id="medical_number"
                     class="input peer"
                     placeholder=" "
                     autocomplete="off"
                     value="{{ $medicalNumber }}"
                     readonly
+                    required
                 />
 
-                <label for="medicalNumber" class="label">
+                <label for="medical_number" class="label">
                     {{ __('care-plan.medical_number') ?? 'Медичний запис №' }}
                 </label>
             </div>

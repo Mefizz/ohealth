@@ -167,7 +167,10 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 
         if ($record instanceof CarePlan || $record instanceof CarePlanActivity || $record instanceof ServiceRequestRequest) {
             $confirmed = null;
-            if ($record instanceof CarePlan && $status === 'processed') {
+            $isCarePlanCreation = $record instanceof CarePlan
+                && data_get($link->job->request_data, 'resource.status') === CarePlanStatus::DRAFT->value
+                && data_get($link->job->request_data, 'changes.status') === CarePlanStatus::PENDING->value;
+            if ($isCarePlanCreation && $status === 'processed') {
                 try {
                     $api = EHealth::carePlan();
                     if (filled($bearerToken)) {
@@ -194,8 +197,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 
             $repository = $record instanceof ServiceRequestRequest ? MedicalEventsRepository::serviceRequest() : Repository::carePlan();
             $queueInpatientApproval = $status === 'processed' && $record instanceof CarePlan && $legalEntity !== null && filled($bearerToken)
-                && data_get($link->job->request_data, 'resource.status') === 'draft'
-                && data_get($link->job->request_data, 'changes.status') === 'new'
+                && $isCarePlanCreation
                 && app(CarePlanApprovalService::class)->skipsPatientOtp($record, $legalEntity);
             $finished = $record instanceof CarePlan
                 ? $repository->finishSubmission($link, $jobData, $queueInpatientApproval, $confirmed)
@@ -357,12 +359,14 @@ class RemoteEHealthLinksProcessing extends EHealthJob
             $detailsPending = false;
             try {
                 if ($status === 'processed' && !isset($responseData['response_data']) && !isset($responseData['result']) && !isset($responseData['data'])
-                    && $record instanceof CarePlanActivity
+                    && ($record instanceof CarePlanActivity || ($record instanceof CarePlan
+                        && data_get($this->eHealthLink->job->request_data, 'changes.status') !== CarePlanStatus::PENDING->value))
                     && !empty($responseData['links'])) {
                     // Medical Events jobs can return only links. Fetch the confirmed resource in the queue.
-                    $plan = $record->carePlan;
-                    $responseData['response_data'] = EHealth::carePlanActivity()->withToken($this->token)
-                        ->getDetails($plan->person->uuid, $plan->uuid, $record->uuid)->validate();
+                    $plan = $record instanceof CarePlan ? $record : $record->carePlan;
+                    $responseData['response_data'] = $record instanceof CarePlan
+                        ? EHealth::carePlan()->withToken($this->token)->getDetails($plan->person->uuid, $plan->uuid)->validate()
+                        : EHealth::carePlanActivity()->withToken($this->token)->getDetails($plan->person->uuid, $plan->uuid, $record->uuid)->validate();
                 }
                 if ($status === 'processed' && $record instanceof CarePlanActivity
                     && data_get($this->eHealthLink->job->request_data, 'changes.status') === 'scheduled') {
@@ -643,7 +647,9 @@ class RemoteEHealthLinksProcessing extends EHealthJob
         }
         if (is_string($href) && str_contains(strtolower($href), '/jobs/')) {
             self::track($link, $data);
-            Session::flash('info', __('care-plan.submission_pending'));
+            if ($record instanceof CarePlan && ($changes['status'] ?? null) === CarePlanStatus::PENDING->value) {
+                Session::flash('info', __('care-plan.submission_pending'));
+            }
 
             return null;
         }

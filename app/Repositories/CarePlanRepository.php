@@ -55,6 +55,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Throwable;
 
 class CarePlanRepository extends MedicalEventsBaseRepository
@@ -69,30 +70,32 @@ class CarePlanRepository extends MedicalEventsBaseRepository
      * A retry returns the row with the same UUID, patient and facility without updating it.
      *
      * @param  DataCollection<int, CarePlanData>  $items
+     * @param  ObjectMapperInterface  $mapper
      * @return DataCollection<int, CarePlan>
      * @throws ClinicalStorageException
      */
-    public function saveLocally(DataCollection $items): DataCollection
+    public function saveLocally(DataCollection $items, ObjectMapperInterface $mapper): DataCollection
     {
-        return $this->storageTransaction(function () use ($items): DataCollection {
-            return $items->map(function (CarePlanData $data): CarePlan {
+        return $this->storageTransaction(function () use ($items, $mapper): DataCollection {
+            return $items->map(function (CarePlanData $data) use ($mapper): CarePlan {
                 // Serialize retries before this form's UUID has a corresponding row to lock.
                 Person::whereKey($data->personId)->lockForUpdate()->firstOrFail();
                 $plan = CarePlan::whereUuid($data->uuid)
                     ->wherePersonId($data->personId)
                     ->whereLegalEntityId($data->legalEntityId)
+                    ->whereAuthorId($data->authorId)
                     ->lockForUpdate()
                     ->first();
 
-                return $plan ?? $this->save($data, new CarePlan());
+                return $plan ?? $this->saveLocalDraft($data, new CarePlan(), $mapper);
             });
         });
     }
 
     /** Persist the draft's attributes and relations within saveLocally's transaction. */
-    protected function save(CarePlanData $data, CarePlan $plan): CarePlan
+    protected function saveLocalDraft(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
     {
-        objectMapper()->map($data, $plan);
+        $mapper->map($data, $plan);
         $concepts = MedicalEventsRepository::codeableConcept();
         $identifiers = MedicalEventsRepository::identifier();
 
@@ -279,21 +282,16 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    public function storeAggregate(CarePlanData|array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
+    public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
     {
         return $this->storageTransaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
-            $plan = $resource instanceof CarePlanData
-                ? $this->saveConfirmed($resource, $personId, $legalEntityId)
-                : $this->storeResource($resource, $personId, $legalEntityId);
+            $plan = $this->storeResource($resource, $personId, $legalEntityId);
             $activityRepository = Repository::carePlanActivity();
             foreach ($activities as $activityResource) {
                 $activity = $activityRepository->storeResource($activityResource, $plan);
                 $this->reconcileSubmissionFromResource($activity, $activityResource, 'detail.status');
             }
-            $this->reconcileSubmissionFromResource(
-                $plan,
-                $resource instanceof CarePlanData ? $this->getResource($plan) : $resource
-            );
+            $this->reconcileSubmissionFromResource($plan, $resource);
 
             return $plan->unsetRelations();
         });
@@ -475,37 +473,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             $data->legalEntityId = $legalEntityId;
             return $this->savePreparedResource($data, $plan);
         });
-    }
-
-    public function draftRevision(array $resource): string
-    {
-        return hash('sha256', json_encode($resource, JSON_THROW_ON_ERROR));
-    }
-
-    /** Update the same local draft only while the displayed snapshot is still current. */
-    public function updateDraft(CarePlan $draft, CarePlanData $data, string $expectedRevision): CarePlan
-    {
-        return $this->storageTransaction(function () use ($draft, $data, $expectedRevision): CarePlan {
-            $plan = CarePlan::wherePersonId($draft->personId)->whereLegalEntityId($draft->legalEntityId)
-                ->whereUuid($data->uuid)->whereKey($draft->id)->lockForUpdate()->firstOrFail();
-            if (Auth::user()?->can('update', $plan) !== true) {
-                throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
-            }
-            $this->assertDraftSubmissionAllowed($plan);
-            if (!hash_equals($expectedRevision, $this->draftRevision($this->getResource($plan)))) {
-                throw ValidationException::withMessages(['submission' => __('care-plan.document_context_unavailable')]);
-            }
-            return $this->savePreparedDraft($data, $plan);
-        });
-    }
-
-    protected function savePreparedDraft(CarePlanData $data, CarePlan $plan): CarePlan
-    {
-        $data->personId = $plan->personId;
-        $data->legalEntityId = $plan->legalEntityId;
-        $data->requisition = $plan->requisition;
-
-        return $this->savePreparedResource($data, $plan);
     }
 
     protected function savePreparedResource(CarePlanData $data, CarePlan $plan): CarePlan
@@ -1391,9 +1358,12 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     public function applySubmissionResult(EhealthLink $link, array $jobData, ?CarePlanData $confirmedPlan = null): void
     {
         $record = $link->linkable;
-        if ($record instanceof CarePlan) {
+        $isCreation = $record instanceof CarePlan
+            && data_get($link->job->request_data, 'resource.status') === CarePlanStatus::DRAFT->value
+            && data_get($link->job->request_data, 'changes.status') === CarePlanStatus::PENDING->value;
+        if ($isCreation) {
             if ($confirmedPlan === null) {
-                throw new InvalidArgumentException('A processed CarePlan requires validated full details.');
+                throw new InvalidArgumentException('A processed CarePlan creation requires validated full details.');
             }
 
             $this->saveConfirmed($confirmedPlan, $record->personId, $record->legalEntityId, $record->id);
@@ -1415,19 +1385,24 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
         $changes = $link->job->request_data['changes'];
         $original = $link->job->request_data['resource'];
-        $repository = Repository::carePlanActivity();
-        $resource = $original;
-        $resource['detail'] = array_replace($resource['detail'], $changes);
-        foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
-            if (array_key_exists($field, $changes)) {
-                $resource[$field] = $changes[$field];
-                unset($resource['detail'][$field]);
+        if ($record instanceof CarePlan) {
+            $resource = array_replace($original, $changes, $data);
+            $this->storeResource($resource, $record->personId, $record->legalEntityId, $record->id);
+        } else {
+            $repository = Repository::carePlanActivity();
+            $resource = $original;
+            $resource['detail'] = array_replace($resource['detail'], $changes);
+            foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
+                if (array_key_exists($field, $changes)) {
+                    $resource[$field] = $changes[$field];
+                    unset($resource['detail'][$field]);
+                }
             }
+            $detail = array_replace($resource['detail'], $data['detail'] ?? []);
+            $resource = array_replace($resource, $data);
+            $resource['detail'] = $detail;
+            $repository->storeResource($resource, $record->carePlan, $record->id);
         }
-        $detail = array_replace($resource['detail'], $data['detail'] ?? []);
-        $resource = array_replace($resource, $data);
-        $resource['detail'] = $detail;
-        $repository->storeResource($resource, $record->carePlan, $record->id);
     }
 
     public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false, ?CarePlanData $confirmedPlan = null): bool

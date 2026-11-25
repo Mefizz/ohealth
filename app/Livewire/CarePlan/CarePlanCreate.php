@@ -54,6 +54,9 @@ class CarePlanCreate extends BasePatientComponent
     public string $patientUuid = '';
     #[Locked]
     public string $conditionUuid = '';
+    #[Locked]
+    public string $medicalNumber = '';
+
     public string $medicalRecordType = 'CONDITION';
     #[Locked]
     public ?string $carePlanUuid = null;
@@ -175,7 +178,7 @@ class CarePlanCreate extends BasePatientComponent
             $this->availableEpisodes = Repository::carePlan()->activeEpisodes($person);
         }
 
-        $this->form->setMedicalNumber(Repository::carePlan()->nextDisplayNumber());
+        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
         $this->loadAvailableEncounters();
 
         $conditionUuid = request()->query('conditionUuid');
@@ -309,7 +312,7 @@ class CarePlanCreate extends BasePatientComponent
             ? Carbon::parse($person->birth_date)->format(config('app.date_format'))
             : null;
         $this->form->patient = trim($person->fullName . ($birthDate ? ' · ' . $birthDate : ''));
-        $this->form->setMedicalNumber(Repository::carePlan()->nextDisplayNumber());
+        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
         $this->form->encounter = '';
         $this->form->category = '';
         $this->form->episodes = [];
@@ -353,7 +356,7 @@ class CarePlanCreate extends BasePatientComponent
         $this->authMethods = [];
         $this->diagnoses = [];
         $this->patientSearchResults = [];
-        $this->form->setMedicalNumber(Repository::carePlan()->nextDisplayNumber());
+        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
     }
 
     /**
@@ -830,7 +833,7 @@ class CarePlanCreate extends BasePatientComponent
         if ($encounter !== null) {
             $this->applyEncounterToForm($encounter);
         } elseif (!$this->form->encounter) {
-            $this->form->setMedicalNumber(Repository::carePlan()->nextDisplayNumber());
+            $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
             $this->diagnoses = [];
             $this->form->episodes = [];
         }
@@ -840,7 +843,7 @@ class CarePlanCreate extends BasePatientComponent
 
     protected function applyEncounterToForm(Encounter $encounter): void
     {
-        $this->form->setMedicalNumber((string) $encounter->id);
+        $this->medicalNumber = (string) $encounter->id;
         if ($this->form->title === '') {
             $date = $encounter->period?->start ? Carbon::parse($encounter->period->start)->format('d.m.Y') : now()->format('d.m.Y');
             $this->form->title = __('План лікування від ').$date;

@@ -14,8 +14,6 @@ use Illuminate\Validation\ValidationException;
 class CarePlanForm extends BaseForm
 {
     public string $patient = '';
-    /** Legacy read-only Livewire binding used by the existing patient data template. */
-    public string $medical_number = '';
     public string $author = '';
     public array $coAuthors = [];
     public string $category = '';
@@ -35,11 +33,6 @@ class CarePlanForm extends BaseForm
     public array $medicalRecords = [];
     public ?string $based_on = null;
     public ?string $part_of = null;
-
-    public function setMedicalNumber(string $medicalNumber): void
-    {
-        $this->medical_number = $medicalNumber;
-    }
 
     /**
      * Get the default validation rules.

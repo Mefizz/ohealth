@@ -59,7 +59,7 @@ class CarePlanEdit extends CarePlanCreate
         $this->carePlanUuid = $resource['id'];
         $this->patientUuid = $this->carePlan->person->uuid;
         $this->form->patient = $this->carePlan->person->fullName ?? '';
-        $this->form->setMedicalNumber((string) ($this->carePlan->encounterId ?? ''));
+        $this->medicalNumber = (string) ($this->carePlan->encounterId ?? '');
         $this->synchronizeSystemFields();
         if ($this->carePlan->encounter) {
             $this->diagnoses = $this->buildDiagnosesForUi($this->carePlan->encounter);

@@ -7,7 +7,6 @@ namespace Tests\Unit\CarePlan;
 use App\Core\BaseForm;
 use App\Livewire\CarePlan\CarePlanComponent;
 use App\Livewire\CarePlan\CarePlanShow;
-use App\Livewire\CarePlan\Concerns\CarePlanManager;
 use App\Models\CarePlan;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\CarePlanRepository;
@@ -21,8 +20,6 @@ class CarePlanFhirWorkflowTest extends TestCase
     {
         $component = new class extends CarePlanComponent
         {
-            use CarePlanManager;
-
             public bool $signedPlan = false;
 
             protected function authorizeCarePlanWrite(): void

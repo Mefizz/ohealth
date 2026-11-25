@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Livewire\CarePlan\Concerns\CarePlanManager;
 use App\Livewire\CarePlan\Concerns\ManagesCarePlanActivities;
 use App\Livewire\CarePlan\Concerns\ManagesCarePlanEPrescription;
 use App\Livewire\CarePlan\Concerns\ManagesCarePlanReferrals;
@@ -15,7 +14,6 @@ use Livewire\Attributes\On;
 
 class CarePlanShow extends CarePlanComponent
 {
-    use CarePlanManager;
     use ManagesCarePlanActivities;
     use ManagesCarePlanEPrescription;
     use ManagesCarePlanReferrals;

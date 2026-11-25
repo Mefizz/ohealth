@@ -7,7 +7,6 @@ namespace App\Livewire\CarePlan\Activity\Show;
 use App\Classes\eHealth\EHealth;
 use App\Livewire\CarePlan\CarePlanComponent;
 use App\Livewire\CarePlan\Concerns\ManagesCarePlanEPrescription;
-use App\Livewire\CarePlan\Concerns\CarePlanManager;
 use App\Livewire\CarePlan\Concerns\ManagesCarePlanReferrals;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
@@ -20,7 +19,6 @@ use Livewire\Attributes\Locked;
 class CarePlanActivityShow extends CarePlanComponent
 {
     use ManagesCarePlanEPrescription;
-    use CarePlanManager;
     use ManagesCarePlanReferrals;
 
     #[Locked]

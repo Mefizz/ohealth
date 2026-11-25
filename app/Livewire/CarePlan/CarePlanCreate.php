@@ -7,6 +7,7 @@ namespace App\Livewire\CarePlan;
 use App\Classes\eHealth\Api\Approval as ApprovalApi;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\Ehealth as CarePlanEhealthData;
 use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanStatus;
 use App\Enums\CarePlanTermsOfService;
@@ -37,6 +38,7 @@ use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Traits\InteractsWithApprovals;
+use ArrayObject;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Collection;
@@ -1025,10 +1027,9 @@ class CarePlanCreate extends BasePatientComponent
             $repository->assertDraftSigningReady($plan);
             $resource = $repository->getResource($plan);
             $patientId = $plan->person->uuid;
-            $api = EHealth::carePlan();
-            $content = $api->prepareCreateContent($resource);
+            $content = objectMapper()->map(new ArrayObject($resource), CarePlanEhealthData::class);
             $signed = signatureService()->signData(
-                $content,
+                $content->signingPayload(),
                 $credentials['knedp'],
                 $credentials['keyContainer'],
                 $credentials['password'],
@@ -1038,7 +1039,7 @@ class CarePlanCreate extends BasePatientComponent
             $response = RemoteEHealthLinksProcessing::submitOperation(
                 $plan,
                 ['status' => CarePlanStatus::PENDING->value],
-                fn () => $api->create($patientId, [
+                fn () => EHealth::carePlan()->create($patientId, [
                     'signed_data' => $signed,
                     'signed_data_encoding' => 'base64',
                 ], $plan->uuid),

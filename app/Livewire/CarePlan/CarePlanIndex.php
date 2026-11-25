@@ -131,7 +131,7 @@ class CarePlanIndex extends Component
     public function sync(): void
     {
         $user = Auth::user();
-        if ($user?->can('getBySearchParams', CarePlan::class) !== true || $user->activeEmployee() === null) {
+        if ($user?->can('search', CarePlan::class) !== true || $user->activeEmployee() === null) {
             session()->flash('error', __('care-plan.sync_access_denied'));
 
             return;

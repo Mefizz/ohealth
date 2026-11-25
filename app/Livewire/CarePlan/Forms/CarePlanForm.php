@@ -104,6 +104,16 @@ class CarePlanForm extends BaseForm
         return array_merge($this->rules(), $this->signingRules());
     }
 
+    /** Validate the editable fields against the draft revision locked for this save. */
+    public function validateForUpdate(string $expectedRevision, string $currentRevision): array
+    {
+        if (!hash_equals($expectedRevision, $currentRevision)) {
+            throw ValidationException::withMessages(['submission' => __('care-plan.document_context_unavailable')]);
+        }
+
+        return $this->validate($this->rulesForDraftEdit());
+    }
+
     /** Validate the editable values and reference shapes of an already saved draft. */
     public function rulesForDraftEdit(): array
     {

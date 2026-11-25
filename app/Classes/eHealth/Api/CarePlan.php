@@ -42,7 +42,7 @@ class CarePlan extends Request
      */
     public function getMany(array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('getMany');
+        $this->authorizeOperation('search');
         $this->setValidator($this->validateMany(...));
 
         return $this->get(self::URL, $query);
@@ -59,7 +59,7 @@ class CarePlan extends Request
      */
     public function getDetails(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('getDetails');
+        $this->authorizeOperation('viewAny');
         $this->setValidator(fn (EHealthResponse $response): CarePlanDetails => $this->validateResponse($response, $id, $patientId));
 
         return $this->get("/api/patients/{$patientId}/care_plans/{$id}", $query);
@@ -112,7 +112,7 @@ class CarePlan extends Request
      */
     public function getBySearchParams(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('getBySearchParams');
+        $this->authorizeOperation('search');
         $this->setValidator(fn (EHealthResponse $response): CarePlanGetMany => $this->validateMany($response, $patientId));
 
         return $this->get("/api/patients/$patientId/care_plans", $query);

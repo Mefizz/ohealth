@@ -489,30 +489,29 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return hash('sha256', json_encode($resource, JSON_THROW_ON_ERROR));
     }
 
-    /** Update the same local draft only while the displayed snapshot is still current. */
-    public function updateDraft(CarePlan $draft, CarePlanData $data, string $expectedRevision, ObjectMapperInterface $mapper): CarePlan
+    /**
+     * Lock the draft while the editor validates and saves its current revision.
+     *
+     * @param  callable(CarePlan): ?string  $callback
+     */
+    public function withLockedDraft(int $draftId, int $personId, int $legalEntityId, callable $callback): ?string
     {
-        return $this->storageTransaction(function () use ($draft, $data, $expectedRevision, $mapper): CarePlan {
-            $plan = CarePlan::wherePersonId($draft->personId)->whereLegalEntityId($draft->legalEntityId)
-                ->whereUuid($data->uuid)->whereKey($draft->id)->lockForUpdate()->firstOrFail();
-            if (Auth::user()?->can('update', $plan) !== true) {
-                throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
-            }
-            $this->assertDraftSubmissionAllowed($plan);
-            if (!hash_equals($expectedRevision, $this->draftRevision($this->getResource($plan)))) {
-                throw ValidationException::withMessages(['submission' => __('care-plan.document_context_unavailable')]);
-            }
-            return $this->savePreparedDraft($data, $plan, $mapper);
+        return $this->storageTransaction(function () use ($draftId, $personId, $legalEntityId, $callback): ?string {
+            $draft = CarePlan::wherePersonId($personId)->whereLegalEntityId($legalEntityId)
+                ->whereKey($draftId)->lockForUpdate()->first();
+
+            return $draft === null ? null : $callback($draft);
         });
     }
 
-    protected function savePreparedDraft(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
+    /** Apply the prepared values to the draft inside the editor's transaction. */
+    public function saveDraft(CarePlanData $data, CarePlan $draft, ObjectMapperInterface $mapper): CarePlan
     {
-        $data->personId = $plan->personId;
-        $data->legalEntityId = $plan->legalEntityId;
-        $data->requisition = $plan->requisition;
+        $data->personId = $draft->personId;
+        $data->legalEntityId = $draft->legalEntityId;
+        $data->requisition = $draft->requisition;
 
-        return $this->savePreparedResource($data, $plan, $mapper);
+        return $this->savePreparedResource($data, $draft, $mapper);
     }
 
     protected function savePreparedResource(CarePlanData $data, CarePlan $plan, ?ObjectMapperInterface $mapper = null): CarePlan

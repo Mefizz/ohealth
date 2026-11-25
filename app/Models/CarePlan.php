@@ -12,6 +12,8 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\Period;
 use App\Models\Person\Person;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,8 +23,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Str;
-use App\Repositories\Repository;
-use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 
 class CarePlan extends Model implements SubmittedToEHealth
 {
@@ -62,6 +62,12 @@ class CarePlan extends Model implements SubmittedToEHealth
         'part_of_id',
 
         'details_synced_at',
+        'status_history',
+        'ehealth_payload',
+        'ehealth_inserted_at',
+        'ehealth_inserted_by',
+        'ehealth_updated_at',
+        'ehealth_updated_by',
     ];
 
     protected $casts = [
@@ -71,6 +77,10 @@ class CarePlan extends Model implements SubmittedToEHealth
         'supporting_info' => 'array',
 
         'details_synced_at' => 'datetime',
+        'status_history' => 'array',
+        'ehealth_payload' => 'array',
+        'ehealth_inserted_at' => 'immutable_datetime',
+        'ehealth_updated_at' => 'immutable_datetime',
     ];
 
     public function displayTitle(): string

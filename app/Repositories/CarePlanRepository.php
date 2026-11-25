@@ -4,54 +4,60 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
-use App\Repositories\Repository;
-use App\Enums\CarePlanStatusFilter;
+use App\Core\Arr;
+use App\Dto\CarePlan\Model as CarePlanData;
+use App\Dto\CodeableConcept\Model as CodeableConceptData;
+use App\Enums\CarePlanActivityKind;
 use App\Enums\CarePlanCompletenessFilter;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Database\Eloquent\Builder;
-use App\Jobs\RemoteEHealthLinksProcessing;
-use App\Enums\JobStatus;
-use App\Models\EhealthLink;
-use App\Models\CarePlanActivity;
 use App\Enums\CarePlanStatus;
-use App\Models\CarePlan;
-use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\DB;
-use App\Models\Employee\Employee;
+use App\Enums\CarePlanStatusFilter;
+use App\Enums\EmployeeRole\Status as EmployeeRoleStatus;
+use App\Enums\JobStatus;
+use App\Enums\Person\ApprovalStatus;
 use App\Enums\Person\EncounterStatus;
+use App\Enums\Person\ObservationStatus;
+use App\Enums\Person\ProcedureStatus;
+use App\Enums\Status;
+use App\Enums\User\Role;
+use App\Jobs\CarePlanInpatientApprovalProcessing;
+use App\Jobs\RemoteEHealthLinksProcessing;
+use App\Models\CarePlan;
+use App\Models\CarePlanActivity;
+use App\Models\Declaration;
+use App\Models\EhealthLink;
+use App\Models\EmployeeRole;
+use App\Models\Employee\Employee;
+use App\Models\Icd10;
+use App\Models\LegalEntity;
+use App\Models\MedicalEvents\Sql\Condition;
+use App\Models\MedicalEvents\Sql\CodeableConcept as SqlCodeableConcept;
+use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Episode;
-use App\Models\MedicalEvents\Sql\Condition;
-use App\Models\Person\Person;
-use Illuminate\Support\Facades\Auth;
-use InvalidArgumentException;
-use Illuminate\Support\Str;
-use App\Services\MedicalEvents\Fhir;
-use App\Core\Arr;
-use Throwable;
-use Carbon\CarbonImmutable;
-use App\Repositories\MedicalEvents\BaseRepository as MedicalEventsBaseRepository;
-use App\Services\MedicalEvents\FhirResource;
-use App\Models\Icd10;
-use App\Services\Dictionary\Collections\BasicDictionaryCollection;
-use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
-use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\MedicalEvents\Sql\Observation;
-use App\Enums\CarePlanActivityKind;
-use App\Enums\Person\ObservationStatus;
-use App\Enums\User\Role;
-use App\Enums\Status;
-use App\Models\EmployeeRole;
-use App\Enums\EmployeeRole\Status as EmployeeRoleStatus;
+use App\Models\MedicalEvents\Sql\Procedure;
+use App\Models\Person\Person;
 use App\Models\User;
-use App\Models\Declaration;
-use App\Enums\Person\ApprovalStatus;
+use App\Repositories\MedicalEvents\BaseRepository as MedicalEventsBaseRepository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
+use App\Services\Dictionary\Collections\BasicDictionaryCollection;
+use App\Services\MedicalEvents\Fhir;
+use App\Services\MedicalEvents\FhirResource;
+use Carbon\Carbon;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
-use App\Models\LegalEntity;
-use App\Jobs\CarePlanInpatientApprovalProcessing;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
+use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+use Throwable;
 
 class CarePlanRepository extends MedicalEventsBaseRepository
 {
@@ -65,6 +71,109 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     private function uiRelations(): array
     {
         return [...self::FHIR_RELATIONS, 'person.names', 'author.party', 'encounter.episode', 'encounter.diagnoses.condition.type.coding', 'approvals.grantedTo.type.coding', ...array_map(static fn (string $relation): string => 'activities.'.$relation, CarePlanActivityRepository::FHIR_RELATIONS), 'activities.author.party'];
+    }
+
+    /** Lock the plan once; serialize first saves on the patient while the UUID has no row yet. */
+    public function withLockedCreation(string $uuid, int $personId, int $legalEntityId, callable $save): CarePlan
+    {
+        return $this->storageTransaction(function () use ($uuid, $personId, $legalEntityId, $save): CarePlan {
+            $query = CarePlan::whereUuid($uuid)->wherePersonId($personId)->whereLegalEntityId($legalEntityId);
+            $plan = (clone $query)->lockForUpdate()->first();
+            if ($plan === null) {
+                Person::whereKey($personId)->lockForUpdate()->firstOrFail();
+                $plan = $query->lockForUpdate()->first() ?? new CarePlan([
+                    'uuid' => $uuid, 'person_id' => $personId, 'legal_entity_id' => $legalEntityId,
+                ]);
+            }
+
+            return $save($plan);
+        });
+    }
+
+    /** Persist a prepared full Model DTO inside the caller's locked repository transaction. */
+    public function save(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
+    {
+        if ($plan->uuid !== null && $plan->uuid !== $data->uuid) {
+            throw new InvalidArgumentException('Cannot replace an existing Care Plan identity.');
+        }
+        $mapper->map($data, $plan);
+        $plan->authorId = Employee::whereUuid(data_get($data->author, 'identifier.value'))
+            ->whereLegalEntityId($plan->legalEntityId)->value('id');
+        $plan->encounterId = Encounter::whereUuid(data_get($data->encounter, 'identifier.value'))
+            ->wherePersonId($plan->personId)->value('id');
+        $plan->addresses = array_map(static fn (CodeableConceptData $concept): array => $concept->toArray(), $data->addresses);
+        foreach (['category' => ['categoryConcept', 'categoryId'], 'termsOfService' => ['termsOfServiceConcept', 'termsOfServiceConceptId'], 'statusReason' => ['statusReasonConcept', 'statusReasonId']] as $field => [$relation, $attribute]) {
+            $plan->{$attribute} = $this->syncPlanConcept($plan, $data->{$field}, $relation)?->id;
+        }
+        foreach (['author' => ['authorReference', 'authorReferenceId'], 'encounter' => ['encounterIdentifier', 'encounterIdentifierId'], 'subject' => ['subjectReference', 'subjectReferenceId'], 'managingOrganization' => ['managingOrganization', 'managingOrganizationId'], 'basedOn' => ['basedOn', 'basedOnId'], 'partOf' => ['partOf', 'partOfId']] as $field => [$relation, $attribute]) {
+            $plan->{$attribute} = $this->syncIdentifier($plan->exists ? $plan : null, $data->{$field}, $relation)?->id;
+        }
+        $plan->detailsSyncedAt = now();
+        $plan->saveOrFail();
+        MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
+        $this->syncPivot($plan, 'supportingInfoReferences', $this->syncIdentifiers($plan, $data->supportingInfo, 'supportingInfoReferences'));
+        $this->syncPivot($plan, 'contributors', $this->syncIdentifiers($plan, $data->contributor, 'contributors'));
+
+        return $plan->unsetRelations();
+    }
+
+    /**
+     * Both draft writes and full imports identify coded concepts by every system/code pair.
+     * A changed coding gets a separate concept, leaving the previous concept available to other records.
+     */
+    protected function syncPlanConcept(CarePlan $plan, CodeableConceptData|array|null $data, string $relation): ?SqlCodeableConcept
+    {
+        if ($data === null) {
+            return null;
+        }
+        $attributes = $data instanceof CodeableConceptData ? $data->toArray() : $data;
+        $current = $plan->exists ? $plan->{$relation} : null;
+        $incomingCoding = collect($attributes['coding'] ?? [])
+            ->map(static fn (array $coding): string => json_encode([$coding['system'], $coding['code']], JSON_THROW_ON_ERROR))->sort()->values()->all();
+        $currentCoding = $current?->coding
+            ->map(static fn ($coding): string => json_encode([$coding->system, $coding->code], JSON_THROW_ON_ERROR))->sort()->values()->all();
+        if ($current !== null && $incomingCoding === $currentCoding) {
+            return MedicalEventsRepository::codeableConcept()->update($current, $attributes);
+        }
+
+        return MedicalEventsRepository::codeableConcept()->store($attributes);
+    }
+
+    /**
+     * List readable, completed procedures and final diagnostic reports in the selected encounter.
+     *
+     * @return array<string, array{type: string, uuid: string, name: string}>
+     */
+    public function requestMedicalRecords(Person $person, Encounter $encounter, User $user): array
+    {
+        $procedures = $person->filterRecordsWithMerged(Procedure::query())
+            ->forEncounter($encounter->uuid)
+            ->whereStatus(ProcedureStatus::COMPLETED->value)
+            ->whereNotNull('uuid')
+            ->with('code')
+            ->get();
+        $reports = $person->filterRecordsWithMerged(DiagnosticReport::query())
+            ->forEncounter($encounter->uuid)
+            ->final()
+            ->whereNotNull('uuid')
+            ->with('code')
+            ->get();
+
+        $records = [];
+        foreach (['procedure' => $procedures, 'diagnostic_report' => $reports] as $type => $items) {
+            foreach ($items as $record) {
+                if (Str::isUuid($record->uuid) && $user->can('view', [$record, $person])) {
+                    $label = $record->code?->displayValue ?: ($record->code?->value ?: '#'.$record->id);
+                    $records[$type.':'.$record->uuid] = [
+                        'type' => $type,
+                        'uuid' => $record->uuid,
+                        'name' => __('care-plan.emz_type.'.$type).' · '.$label,
+                    ];
+                }
+            }
+        }
+
+        return $records;
     }
 
     public function formContext(array $form, ?int $localId = null): array
@@ -361,7 +470,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                 'intent' => $resource['intent'] ?? null,
                 'context' => $resource['context'] ?? null,
                 'informWith' => data_get($resource, 'informWith.authMethodId'),
-                'statusReasonId' => isset($resource['statusReason']) ? $this->syncCodeableConcept($plan->exists ? $plan : null, $resource['statusReason'], 'statusReasonConcept')->id : null,
+                'statusReasonId' => isset($resource['statusReason']) ? $this->syncPlanConcept($plan, $resource['statusReason'], 'statusReasonConcept')->id : null,
                 'description' => $resource['description'] ?? null,
                 'note' => $resource['note'] ?? null,
                 'addresses' => $resource['addresses'] ?? [],
@@ -369,9 +478,15 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                 'authorId' => $authorUuid ? Employee::whereUuid($authorUuid)->whereLegalEntityId($legalEntityId)->value('id') : null,
                 'encounterId' => $encounterUuid ? Encounter::whereUuid($encounterUuid)->value('id') : null,
                 'detailsSyncedAt' => now(),
+                'statusHistory' => $resource['statusHistory'] ?? ($plan->statusHistory ?? []),
+                'ehealthPayload' => isset($resource['insertedAt']) ? Arr::toSnakeCase($resource) : $plan->ehealthPayload,
+                'ehealthInsertedAt' => $resource['insertedAt'] ?? $plan->ehealthInsertedAt,
+                'ehealthInsertedBy' => $resource['insertedBy'] ?? $plan->ehealthInsertedBy,
+                'ehealthUpdatedAt' => $resource['updatedAt'] ?? $plan->ehealthUpdatedAt,
+                'ehealthUpdatedBy' => $resource['updatedBy'] ?? $plan->ehealthUpdatedBy,
             ];
             foreach (['category' => ['categoryConcept', 'categoryId'], 'termsOfService' => ['termsOfServiceConcept', 'termsOfServiceConceptId']] as $field => [$relation, $attribute]) {
-                $attributes[$attribute] = isset($resource[$field]) ? $this->syncCodeableConcept($plan->exists ? $plan : null, $resource[$field], $relation)?->id : null;
+                $attributes[$attribute] = isset($resource[$field]) ? $this->syncPlanConcept($plan, $resource[$field], $relation)?->id : null;
             }
             foreach (['author' => ['authorReference', 'authorReferenceId'], 'basedOn' => ['basedOn', 'basedOnId'], 'partOf' => ['partOf', 'partOfId'], 'encounter' => ['encounterIdentifier', 'encounterIdentifierId'], 'careManager' => ['careManager', 'careManagerId'], 'managingOrganization' => ['managingOrganization', 'managingOrganizationId'], 'subject' => ['subjectReference', 'subjectReferenceId']] as $field => [$relation, $attribute]) {
                 $attributes[$attribute] = isset($resource[$field]) ? $this->syncIdentifier($plan->exists ? $plan : null, $resource[$field], $relation)?->id : null;
@@ -403,6 +518,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             'note' => $plan->note,
             'addresses' => $plan->addresses ?? [],
             'requisition' => $plan->requisition,
+            'statusHistory' => $plan->statusHistory,
+            'insertedAt' => $plan->ehealthInsertedAt?->toIso8601String(),
+            'insertedBy' => $plan->ehealthInsertedBy,
+            'updatedAt' => $plan->ehealthUpdatedAt?->toIso8601String(),
+            'updatedBy' => $plan->ehealthUpdatedBy,
             'period' => $plan->effectivePeriod ? MedicalEventsRepository::period()->toResource($plan->effectivePeriod) : null,
             'supportingInfo' => $plan->supportingInfoReferences->map(fn ($reference): array => MedicalEventsRepository::identifier()->toReference($reference))->all(),
             'contributor' => $plan->contributors->map(fn ($reference): array => MedicalEventsRepository::identifier()->toReference($reference))->all(),
@@ -699,6 +819,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     public function activeEpisodes(Person $person): array
     {
         return Episode::forPatient($person)->whereStatus('active')->with('period')->get()
+            ->filter(fn (Episode $episode): bool => Auth::user()?->can('view', [$episode, $person]) === true)
             ->map(fn ($episode): array => ['uuid' => $episode->uuid, 'name' => $episode->name, 'date' => $episode->period?->start ? Carbon::parse($episode->period->start)->format('d.m.Y') : ''])->all();
     }
 
@@ -1197,6 +1318,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                 throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
             }
 
+            if ($record instanceof CarePlan && ($changes['status'] ?? null) === CarePlanStatus::PENDING->value
+                && (Auth::user()->cannot('update', $record) || CarePlanStatus::fromStored($record->status) !== CarePlanStatus::DRAFT)) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_create')]);
+            }
+
             $resource = $record instanceof CarePlan ? $this->getResource($record->id) : Repository::carePlanActivity()->getResource($record->id);
 
             return RemoteEHealthLinksProcessing::startSubmission($record, ['changes' => $changes, 'resource' => $resource]);
@@ -1223,8 +1349,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         $changes = $link->job->request_data['changes'];
         $original = $link->job->request_data['resource'];
         if ($record instanceof CarePlan) {
-            $resource = array_replace($original, $changes, $data);
-            $this->storeResource($resource, $record->personId, $record->legalEntityId, $record->id);
+            throw new InvalidArgumentException('CarePlan submission results require the validated DTO path.');
         } else {
             $repository = Repository::carePlanActivity();
             $resource = $original;
@@ -1242,16 +1367,24 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false): bool
+    public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false, ?CarePlanData $carePlanData = null, ?ObjectMapperInterface $mapper = null): bool
     {
-        return $this->storageTransaction(function () use ($link, $jobData, $queueInpatientApproval): bool {
+        return $this->storageTransaction(function () use ($link, $jobData, $queueInpatientApproval, $carePlanData, $mapper): bool {
             $link = EhealthLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
             if ($link->status !== JobStatus::PENDING->value) {
                 return false;
             }
             $processed = strtolower((string) ($jobData['status'] ?? '')) === 'processed';
             if ($processed) {
-                $this->applySubmissionResult($link, $jobData);
+                if ($link->linkable instanceof CarePlan) {
+                    if ($carePlanData === null || $mapper === null) {
+                        throw new InvalidArgumentException('A confirmed CarePlan requires its validated Model DTO.');
+                    }
+                    $plan = CarePlan::whereKey($link->linkable_id)->lockForUpdate()->firstOrFail();
+                    $this->save($carePlanData, $plan, $mapper);
+                } else {
+                    $this->applySubmissionResult($link, $jobData);
+                }
                 if ($link->linkable instanceof CarePlanActivity && isset($jobData['carePlanResource'])) {
                     $plan = $link->linkable->carePlan;
                     $this->storeResource($jobData['carePlanResource'], $plan->personId, $plan->legalEntityId, $plan->id);

@@ -25,7 +25,7 @@ use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Models\CarePlan;
 use App\Classes\eHealth\Api\Approval as ApprovalApi;
 use App\Services\MedicalEvents\CarePlanLifecycleGateService;
-use App\Classes\eHealth\Api\CarePlan as CarePlanApi;
+use App\Dto\CarePlan\Ehealth as CarePlanPayload;
 use Exception;
 use RuntimeException;
 use Illuminate\Support\Facades\Auth;
@@ -231,6 +231,12 @@ trait CarePlanManager
             return;
         }
 
+        if (Auth::user()?->can('cancel', $this->carePlan) !== true) {
+            Session::flash('error', __('care-plan.no_permission_update'));
+
+            return;
+        }
+
         if ($this->actionType !== 'cancel') {
             $this->showSignatureModal = false;
 
@@ -279,7 +285,7 @@ trait CarePlanManager
                 Auth::user()->party->taxId
             );
 
-            $finalResponse = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::CANCELLED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => app(CarePlanApi::class)->cancel(
+            $finalResponse = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::CANCELLED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => EHealth::carePlan()->cancel(
                 $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [
@@ -343,12 +349,26 @@ trait CarePlanManager
 
     protected function signPlan(CarePlanRepository $repository, array $signingData): void
     {
+        if (Auth::user()?->can('create', CarePlan::class) !== true) {
+            Session::flash('error', __('care-plan.no_permission_create'));
+
+            return;
+        }
+
         try {
             $repository->assertDraftSigningReady($this->carePlan);
             $resource = $repository->getResource($this->carePlan->id);
-            $payload = CarePlanForm::buildCreateContent($resource);
+            $payload = new CarePlanPayload()->fromResource($resource)->toArray();
             $signedContent = signatureService()->signData($payload, $signingData['knedp'], $signingData['keyContainer'], $signingData['password'], Auth::user()->party->taxId);
-            $result = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::PENDING->value], fn () => EHealth::carePlan()->create($this->carePlan->person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $result = $this->submitClinicalOperation(
+                $this->carePlan,
+                ['status' => CarePlanStatus::PENDING->value],
+                fn () => EHealth::carePlan()->create($this->carePlan->person->uuid, [
+                    'signed_data' => $signedContent,
+                    'signed_data_encoding' => 'base64',
+                ], $this->carePlan->uuid),
+                operationContext: ['expected' => $resource]
+            );
             if ($result === null) {
                 $this->activateAfterSubmission = true;
                 $this->planSubmission = $repository->submissionState($this->carePlan);
@@ -363,7 +383,6 @@ trait CarePlanManager
         } catch (SignatureException $exception) {
             $exception->handle('Error when signing care plan');
             $this->planSubmission = $repository->submissionState($this->carePlan);
-            $this->showSignatureModal = false;
         } catch (Throwable $exception) {
             report($exception);
             Session::flash('error', match (true) {
@@ -378,6 +397,11 @@ trait CarePlanManager
 
     public function completePlan(CarePlanRepository $repository): void
     {
+        if (Auth::user()?->can('complete', $this->carePlan) !== true) {
+            Session::flash('error', __('care-plan.no_permission_update'));
+
+            return;
+        }
         $this->authorizeCarePlanWrite();
         if ($this->guardPlanLifecycleAccess('complete')) {
             return;
@@ -413,7 +437,7 @@ trait CarePlanManager
         ];
 
         try {
-            $finalResponse = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::COMPLETED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => app(CarePlanApi::class)->complete(
+            $finalResponse = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::COMPLETED->value, 'statusReason' => $statusReasonCodeableConcept], fn () => EHealth::carePlan()->complete(
                 $this->carePlan->person->uuid,
                 $this->carePlan->uuid,
                 [

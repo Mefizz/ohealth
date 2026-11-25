@@ -24,7 +24,7 @@ class CarePlanPolicy
             : Response::denyWithStatus(404);
     }
 
-    /** Create a treatment plan. */
+    /** POST /api/patients/{patient_id}/care_plans. */
     public function create(User $user): Response
     {
         return $user->can('care_plan:write')
@@ -38,6 +38,42 @@ class CarePlanPolicy
         return $user->can('care_plan:write') && $this->belongsToCurrentFacility($carePlan)
             ? Response::allow()
             : Response::denyWithStatus(404);
+    }
+
+    /** GET /api/care_plans. */
+    public function getMany(User $user): Response
+    {
+        return $this->viewAny($user);
+    }
+
+    /** GET /api/patients/{patient_id}/care_plans. */
+    public function getBySearchParams(User $user): Response
+    {
+        return $this->viewAny($user);
+    }
+
+    /** GET /api/patients/{patient_id}/care_plans/{id}. ESOZ also checks patient-level access. */
+    public function getDetails(User $user): Response
+    {
+        return $this->viewAny($user);
+    }
+
+    /** GET /api/patients/{patient_id}/summary/care_plans. */
+    public function getSummary(User $user): Response
+    {
+        return $user->can('patient_summary:read') ? Response::allow() : Response::denyWithStatus(404);
+    }
+
+    /** PATCH the registered plan's cancel action. */
+    public function cancel(User $user, ?CarePlan $carePlan = null): Response
+    {
+        return $carePlan === null ? $this->create($user) : $this->update($user, $carePlan);
+    }
+
+    /** PATCH the registered plan's complete action. */
+    public function complete(User $user, ?CarePlan $carePlan = null): Response
+    {
+        return $carePlan === null ? $this->create($user) : $this->update($user, $carePlan);
     }
 
     protected function belongsToCurrentFacility(CarePlan $carePlan): bool

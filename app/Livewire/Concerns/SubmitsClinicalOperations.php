@@ -9,14 +9,15 @@ use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 
 trait SubmitsClinicalOperations
 {
-    protected function submitClinicalOperation(CarePlan|CarePlanActivity|ServiceRequestRequest $record, array $changes, callable $send, ?string $requiredScope = null): ?array
+    protected function submitClinicalOperation(CarePlan|CarePlanActivity|ServiceRequestRequest $record, array $changes, callable $send, ?string $requiredScope = null, array $operationContext = []): ?array
     {
         try {
-            $result = RemoteEHealthLinksProcessing::submitOperation($record, $changes, $send, $requiredScope);
-        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $result = RemoteEHealthLinksProcessing::submitOperation($record, $changes, $send, $requiredScope, $operationContext);
+        } catch (ValidationException $exception) {
             if (!array_key_exists('submission', $exception->errors())) {
                 throw $exception;
             }

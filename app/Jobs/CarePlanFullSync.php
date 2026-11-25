@@ -4,27 +4,30 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
+use App\Classes\eHealth\EHealth;
+use App\Classes\eHealth\EHealthResponse;
+use App\Core\Arr;
 use App\Core\EHealthJob;
 use App\Core\PatientEHealthJob;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanStatus;
-use App\Models\LegalEntity;
-use App\Classes\eHealth\EHealth;
-use GuzzleHttp\Promise\PromiseInterface;
-use App\Classes\eHealth\EHealthResponse;
-use Illuminate\Queue\Middleware\RateLimited;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Crypt;
+use App\Enums\JobStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
+use App\Models\LegalEntity;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use App\Repositories\Repository;
+use App\Traits\SynchronizesCarePlans;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
-use Throwable;
-use App\Core\Arr;
-use App\Repositories\Repository;
-use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
+use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Queue\Middleware\RateLimited;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
-use App\Traits\SynchronizesCarePlans;
-use App\Enums\JobStatus;
+use Throwable;
 
 class CarePlanFullSync extends PatientEHealthJob
 {
@@ -122,7 +125,7 @@ class CarePlanFullSync extends PatientEHealthJob
         $api = EHealth::carePlan()->withToken($token);
         if ($this->isPatientRegistrySync() && $this->resourceUuid !== null) {
             try {
-                return $api->getDetails($this->patientUuid, $this->resourceUuid);
+                return $api->getDetails($this->patientUuid, $this->resourceUuid, typed: true);
             } catch (EHealthResponseException $exception) {
                 if ($exception->getCode() !== 403) {
                     throw $exception;
@@ -140,7 +143,7 @@ class CarePlanFullSync extends PatientEHealthJob
             $query['managing_organization_id'] = $this->legalEntity->uuid;
         }
 
-        return $api->getBySearchParams($this->patientUuid, $query);
+        return $api->getBySearchParams($this->patientUuid, $query, typed: true);
     }
 
     /**
@@ -153,7 +156,7 @@ class CarePlanFullSync extends PatientEHealthJob
         }
         if ($this->isPatientRegistrySync() && $this->resourceUuid === null) {
             // Queue one full aggregate per job; a long patient history never runs in one HTTP request.
-            $summaries = $response->validate();
+            $summaries = $this->summaryResources($response->validate());
             Repository::carePlan()->storeSummaries($summaries, $this->personId, $this->legalEntity->id);
             $jobs = self::detailJobs($summaries, $this->legalEntity, $this->patientContext);
             if ($jobs !== []) {
@@ -167,13 +170,12 @@ class CarePlanFullSync extends PatientEHealthJob
             return;
         }
         if ($this->isPatientRegistrySync() && $this->resourceUuid !== null) {
-            if (($validatedData['id'] ?? null) !== $this->resourceUuid) {
-                throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
-            }
+            $data = objectMapper()->map($validatedData, CarePlanData::class);
+            $data->prepareResponse($validatedData);
             $patient = Repository::carePlan()->resolvePatientContext($this->personId, $this->patientUuid);
             try {
                 $activities = $this->fetchAllActivityResources($patient['uuid'], $this->resourceUuid, token: $this->token);
-                $plan = Repository::carePlan()->storeAggregate($validatedData, $activities, $patient['id'], $this->legalEntity->id);
+                $plan = Repository::carePlan()->storeAggregate($data, $activities, $patient['id'], $this->legalEntity->id);
                 if ((($this->batch()?->options ?? []) + $this->patientContext)['care_plan_approvals'] ?? false) {
                     MedicalEventsRepository::approval()->syncApprovals(
                         $plan,
@@ -186,7 +188,7 @@ class CarePlanFullSync extends PatientEHealthJob
                 if ($exception->getCode() !== 403) {
                     throw $exception;
                 }
-                Repository::carePlan()->storeResource($validatedData, $patient['id'], $this->legalEntity->id);
+                Repository::carePlan()->saveConfirmed($data, $patient['id'], $this->legalEntity->id);
                 $key = 'care-plan-sync-denied:'.$this->batch()->id;
                 Cache::add($key, 0, now()->addDay());
                 Cache::increment($key);
@@ -195,7 +197,15 @@ class CarePlanFullSync extends PatientEHealthJob
 
             return;
         }
-        $this->synchronizeResources($validatedData, $this->personId, $this->legalEntity->id, $this->patientUuid, $this->token);
+        $this->synchronizeResources($this->summaryResources($validatedData), $this->personId, $this->legalEntity->id, $this->patientUuid, $this->token);
+    }
+
+    /** Short entries supply discovery data; the detail job persists the full Model DTO. */
+    protected function summaryResources(CarePlanGetMany|array $entries): array
+    {
+        return $entries instanceof CarePlanGetMany
+            ? $entries->toBase()->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all()
+            : $entries;
     }
 
     private function isPatientRegistrySync(): bool

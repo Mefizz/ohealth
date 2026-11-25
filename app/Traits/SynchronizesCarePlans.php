@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Traits;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Repositories\Repository;
 use Illuminate\Validation\ValidationException;
 
@@ -22,18 +25,17 @@ trait SynchronizesCarePlans
             if ($token !== null) {
                 $planApi->withToken($token);
             }
-            $resource = $planApi->getDetails($patient['uuid'], $summary['id'])->validate();
-            if ($resource['id'] !== $summary['id']) {
-                throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
-            }
-            $activities = $this->fetchAllActivityResources($patient['uuid'], $resource['id'], token: $token);
-            $repository->storeAggregate($resource, $activities, $patient['id'], $legalEntityId);
+            $details = $planApi->getDetails($patient['uuid'], $summary['id'], typed: true)->validate();
+            $data = objectMapper()->map($details, CarePlanData::class);
+            $data->prepareResponse($details);
+            $activities = $this->fetchAllActivityResources($patient['uuid'], $data->uuid, token: $token);
+            $repository->storeAggregate($data, $activities, $patient['id'], $legalEntityId);
         }
     }
 
     protected function synchronizePatient(string $patientUuid, int $personId, int $legalEntityId, array $query = []): void
     {
-        $summaries = $this->collectSummaries(fn (int $page) => EHealth::carePlan()->getBySearchParams($patientUuid, array_replace($query, ['page' => $page])));
+        $summaries = $this->collectSummaries(fn (int $page) => EHealth::carePlan()->getBySearchParams($patientUuid, array_replace($query, ['page' => $page]), typed: true));
         $this->synchronizeResources($summaries, $personId, $legalEntityId, $patientUuid);
     }
 
@@ -49,7 +51,10 @@ trait SynchronizesCarePlans
         $seen = [];
         for ($page = 1; ; $page++) {
             $response = $fetch($page);
-            $items = $response->validate();
+            $result = $response->validate();
+            $items = $result instanceof CarePlanGetMany
+                ? $result->toBase()->map(static fn (CarePlanDetails $item): array => $item->toResource())->all()
+                : $result;
             foreach ($items as $item) {
                 $item = Arr::toCamelCase($item);
                 if (isset($seen[$item['id']])) {

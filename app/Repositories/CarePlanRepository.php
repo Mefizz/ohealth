@@ -299,17 +299,19 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Persist the validated detail DTOs here and move submission reconciliation to the sync caller.
-    public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
+    // TODO: Retire the normalized-array fallback after the legacy aggregate callers migrate.
+    public function storeAggregate(CarePlanData|array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
     {
         return $this->storageTransaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
-            $plan = $this->storeResource($resource, $personId, $legalEntityId);
+            $plan = $resource instanceof CarePlanData
+                ? $this->saveConfirmed($resource, $personId, $legalEntityId)
+                : $this->storeResource($resource, $personId, $legalEntityId);
             $activityRepository = Repository::carePlanActivity();
             foreach ($activities as $activityResource) {
                 $activity = $activityRepository->storeResource($activityResource, $plan);
                 $this->reconcileSubmissionFromResource($activity, $activityResource, 'detail.status');
             }
-            $this->reconcileSubmissionFromResource($plan, $resource);
+            $this->reconcileSubmissionFromResource($plan, $resource instanceof CarePlanData ? $this->getResource($plan) : $resource);
 
             return $plan->unsetRelations();
         });
@@ -425,7 +427,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Store a complete, normalized resource. This method performs no remote requests. */
-    // TODO: Replace the array adapter with Model DTO persistence when full detail sync is migrated.
+    // TODO: Migrate the remaining legacy array writers to the appropriate DTOs.
     public function storeResource(array $resource, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
     {
         if (!isset($resource['id'], $resource['title'], $resource['status'], $resource['period']['start'])) {
@@ -469,6 +471,48 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             MedicalEventsRepository::period()->sync($plan, !empty($resource['period']) ? $resource['period'] + ['start' => null] : null, 'effectivePeriod');
             $this->syncPivot($plan, 'supportingInfoReferences', $this->syncIdentifiers($plan, $resource['supportingInfo'] ?? [], 'supportingInfoReferences'));
             $this->syncPivot($plan, 'contributors', $this->syncIdentifiers($plan, $resource['contributor'] ?? [], 'contributors'));
+
+            return $plan->unsetRelations();
+        });
+    }
+
+    /** Persist a validated full eHealth result into the normalized plan and its relations. */
+    public function saveConfirmed(CarePlanData $data, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
+    {
+        return $this->storageTransaction(function () use ($data, $personId, $legalEntityId, $localId): CarePlan {
+            if ($localId === null) {
+                Person::whereKey($personId)->lockForUpdate()->firstOrFail();
+            }
+            $query = CarePlan::wherePersonId($personId)->whereLegalEntityId($legalEntityId)->lockForUpdate();
+            $plan = $localId === null ? $query->whereUuid($data->uuid)->first() : $query->findOrFail($localId);
+            if ($plan !== null && $plan->uuid !== $data->uuid) {
+                throw ValidationException::withMessages(['id' => __('care-plan.document_context_unavailable')]);
+            }
+
+            $plan ??= new CarePlan();
+            if ($plan->exists) {
+                $data->context ??= $plan->context;
+            }
+            $data->personId = $personId;
+            $data->legalEntityId = $legalEntityId;
+            $data->authorId = Employee::whereUuid($data->remoteReferences['authorReference']['identifier']['value'])
+                ->whereLegalEntityId($legalEntityId)->value('id');
+            $data->encounterId = Encounter::whereUuid($data->remoteReferences['encounterIdentifier']['identifier']['value'])->value('id');
+            objectMapper()->map($data, $plan);
+
+            $existing = $plan->exists ? $plan : null;
+            foreach ($data->remoteConcepts as $relation => $concept) {
+                $plan->{$relation}()->associate($this->syncCodeableConcept($existing, $concept?->toArray(), $relation));
+            }
+            foreach ($data->remoteReferences as $relation => $reference) {
+                $plan->{$relation}()->associate($this->syncIdentifier($existing, $reference, $relation));
+            }
+            $plan->detailsSyncedAt = now();
+            $plan->saveOrFail();
+            MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
+            foreach ($data->remoteReferenceLists as $relation => $references) {
+                $this->syncPivot($plan, $relation, $this->syncIdentifiers($plan, $references, $relation));
+            }
 
             return $plan->unsetRelations();
         });
@@ -1361,9 +1405,9 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     // TODO: Move submission orchestration to the signing workflow and keep the locked receipt write here.
-    public function beginSubmission(CarePlan|CarePlanActivity $record, array $changes): EhealthLink
+    public function beginSubmission(CarePlan|CarePlanActivity $record, array $changes, array $operationContext = []): EhealthLink
     {
-        return $this->storageTransaction(function () use ($record, $changes) {
+        return $this->storageTransaction(function () use ($record, $changes, $operationContext) {
             $record = $record->newQuery()->whereKey($record->id)->lockForUpdate()->firstOrFail();
             if ($this->hasPendingSubmission($record)) {
                 throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
@@ -1371,15 +1415,36 @@ class CarePlanRepository extends MedicalEventsBaseRepository
 
             $resource = $record instanceof CarePlan ? $this->getResource($record->id) : Repository::carePlanActivity()->getResource($record->id);
 
+            if ($record instanceof CarePlan && ($changes['status'] ?? null) === CarePlanStatus::PENDING->value) {
+                if (CarePlanStatus::fromStored($record->status) !== CarePlanStatus::DRAFT
+                    || (isset($operationContext['expected']) && $resource !== $operationContext['expected'])) {
+                    throw ValidationException::withMessages(['form.title' => __('care-plan.cannot_edit_non_draft')]);
+                }
+
+                // Keep unsaved editor changes durable before sending the exact signed snapshot.
+                if (isset($operationContext['draft']) && $operationContext['draft'] !== $resource) {
+                    $record = $this->storeResource($operationContext['draft'], $record->personId, $record->legalEntityId, $record->id);
+                    $resource = $this->getResource($record);
+                }
+            }
+
             return RemoteEHealthLinksProcessing::startSubmission($record, ['changes' => $changes, 'resource' => $resource]);
         });
     }
 
     /** Apply only a confirmed response; the request is never evidence that eHealth accepted it. */
-    // TODO: Interpret and validate the job response in the eHealth client before saving a Model DTO.
-    public function applySubmissionResult(EhealthLink $link, array $jobData): void
+    public function applySubmissionResult(EhealthLink $link, array $jobData, ?CarePlanData $confirmedPlan = null): void
     {
         $record = $link->linkable;
+        if ($record instanceof CarePlan) {
+            if ($confirmedPlan === null) {
+                throw new InvalidArgumentException('A processed CarePlan requires validated full details.');
+            }
+
+            $this->saveConfirmed($confirmedPlan, $record->personId, $record->legalEntityId, $record->id);
+
+            return;
+        }
         $data = $jobData['response_data'] ?? $jobData['result'] ?? $jobData['data'] ?? [];
         $data = $data[0] ?? $data;
         $data = $data['response_data'] ?? $data['result'] ?? $data['data'] ?? $data;
@@ -1395,37 +1460,37 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
         $changes = $link->job->request_data['changes'];
         $original = $link->job->request_data['resource'];
-        if ($record instanceof CarePlan) {
-            $resource = array_replace($original, $changes, $data);
-            $this->storeResource($resource, $record->personId, $record->legalEntityId, $record->id);
-        } else {
-            $repository = Repository::carePlanActivity();
-            $resource = $original;
-            $resource['detail'] = array_replace($resource['detail'], $changes);
-            foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
-                if (array_key_exists($field, $changes)) {
-                    $resource[$field] = $changes[$field];
-                    unset($resource['detail'][$field]);
-                }
+        $repository = Repository::carePlanActivity();
+        $resource = $original;
+        $resource['detail'] = array_replace($resource['detail'], $changes);
+        foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
+            if (array_key_exists($field, $changes)) {
+                $resource[$field] = $changes[$field];
+                unset($resource['detail'][$field]);
             }
-            $detail = array_replace($resource['detail'], $data['detail'] ?? []);
-            $resource = array_replace($resource, $data);
-            $resource['detail'] = $detail;
-            $repository->storeResource($resource, $record->carePlan, $record->id);
         }
+        $detail = array_replace($resource['detail'], $data['detail'] ?? []);
+        $resource = array_replace($resource, $data);
+        $resource['detail'] = $detail;
+        $repository->storeResource($resource, $record->carePlan, $record->id);
     }
 
     // TODO: Move completion decisions to the job and keep the transactional writes in repositories.
-    public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false): bool
+    public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false, ?CarePlanData $confirmedPlan = null): bool
     {
-        return $this->storageTransaction(function () use ($link, $jobData, $queueInpatientApproval): bool {
+        return $this->storageTransaction(function () use ($link, $jobData, $queueInpatientApproval, $confirmedPlan): bool {
+            $plan = $link->linkable;
+            if ($plan instanceof CarePlan) {
+                // Sync takes the plan lock before touching its submission receipt.
+                CarePlan::whereKey($plan->id)->lockForUpdate()->firstOrFail();
+            }
             $link = EhealthLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
             if ($link->status !== JobStatus::PENDING->value) {
                 return false;
             }
             $processed = strtolower((string) ($jobData['status'] ?? '')) === 'processed';
             if ($processed) {
-                $this->applySubmissionResult($link, $jobData);
+                $this->applySubmissionResult($link, $jobData, $confirmedPlan);
                 if ($link->linkable instanceof CarePlanActivity && isset($jobData['carePlanResource'])) {
                     $plan = $link->linkable->carePlan;
                     $this->storeResource($jobData['carePlanResource'], $plan->personId, $plan->legalEntityId, $plan->id);

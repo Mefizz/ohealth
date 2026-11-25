@@ -6,6 +6,7 @@ namespace App\Livewire\Person\Records;
 
 use App\Models\CarePlan;
 use App\Classes\eHealth\EHealth;
+use App\Dto\ServiceRequest\Approval as ReferralApprovalData;
 use App\Exceptions\EHealth\EHealthException;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -167,30 +168,16 @@ class PatientApproval extends Component
             return;
         }
 
-        $referral = ServiceRequestRequest::query()
-            ->where('person_id', $this->personId)
-            ->where('uuid', $uuid)
-            ->first();
-
-        if ($referral === null && !isset($this->remoteReferrals[$uuid])) {
+        $this->closePreview();
+        if (!isset($this->remoteReferrals[$uuid]) && !ServiceRequestRequest::forPerson($this->personId)->whereUuid($uuid)->exists()) {
             return;
         }
 
         try {
-            $referralData = app(PatientApprovalService::class)
-                ->referralDetails($this->person(), $uuid);
-            $resources = $referralData['permitted_resources'] ?? [];
+            $referralData = $this->referralDetails($this->person(), $uuid);
+            $this->previewRows = $referralData->previewRows;
 
-            $this->previewRows = collect($resources)
-                ->map(static fn (array $resource): array => [
-                    'code' => data_get($resource, 'identifier.type.coding.0.code'),
-                    'name' => data_get($resource, 'identifier.value'),
-                ])
-                ->all();
-
-            $this->previewTitle = __('approval.create.referral_prefix').' '.(
-                $referral?->requestNumber ?? $this->remoteReferrals[$uuid]['requisition']
-            );
+            $this->previewTitle = __('approval.create.referral_prefix').' '.$referralData->requisition;
             $this->previewSection = 'referral';
             $this->previewCodingSystem = 'all';
         } catch (Throwable) {
@@ -357,6 +344,7 @@ class PatientApproval extends Component
     private function loadReferrals(): void
     {
         try {
+            // TODO(#1229): Remove PatientApprovalService after migrating referral lists and the approval workflow.
             $this->remoteReferrals = app(PatientApprovalService::class)
                 ->patientReferrals($this->person());
         } catch (Throwable) {
@@ -1214,6 +1202,14 @@ class PatientApproval extends Component
         return $employee;
     }
 
+    /** Returns the validated referral status and resources permitted for patient approval. */
+    private function referralDetails(Person $person, string $uuid): ReferralApprovalData
+    {
+        $details = EHealth::serviceRequest()->getDetails($person->uuid, $uuid)->validate();
+
+        return objectMapper()->map($details, ReferralApprovalData::class);
+    }
+
     private function validatedSelection(): array
     {
         if ($this->carePlansOnly) {
@@ -1231,8 +1227,9 @@ class PatientApproval extends Component
             return $selection;
         }
 
-        return $this->form->validateSelection(
-            $this->person(),
+        $person = $this->person();
+        $selection = $this->form->validateSelection(
+            $person,
             [
                 'mode' => $this->mode,
                 'resourceType' => $this->resourceType,
@@ -1246,6 +1243,18 @@ class PatientApproval extends Component
                 'accessLevel' => $this->accessLevel,
             ]
         );
+
+        if ($selection['mode'] === 'service_request') {
+            try {
+                $referral = $this->referralDetails($person, $selection['service_request_uuid']);
+            } catch (Throwable) {
+                throw ValidationException::withMessages(['resourceIds' => __('approval.create.referral_check_failed')]);
+            }
+
+            $this->form->validateReferralAccess($referral);
+        }
+
+        return $selection;
     }
 
     private function buildPayload(string $employeeUuid): array

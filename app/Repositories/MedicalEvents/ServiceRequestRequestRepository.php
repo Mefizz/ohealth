@@ -162,7 +162,13 @@ class ServiceRequestRequestRepository extends BaseRepository
         });
     }
 
-    /** This entry point is for full responses fetched from ESOZ, never locally assembled drafts. */
+    /**
+     * Import a full eHealth referral for the patient, updating the local record and its FHIR relations.
+     * When a pending submission has no job URL, mark its job and link as processed in the same
+     * transaction only if eHealth now reports the status change requested by that submission.
+     *
+     * @param array<string, mixed> $resource Complete eHealth ServiceRequest with camelCase keys.
+     */
     public function importResource(array $resource, int $personId, ?int $employeeId = null, ?int $divisionId = null): ServiceRequestRequest
     {
         return $this->storageTransaction(function () use ($resource, $personId, $employeeId, $divisionId): ServiceRequestRequest {
@@ -781,9 +787,10 @@ class ServiceRequestRequestRepository extends BaseRepository
             ->sum('quantity');
     }
 
-    public function findDraftByActivity(string $activityUuid): ?ServiceRequestRequest
+    public function findDraftByActivity(string $activityUuid, ?int $personId = null): ?ServiceRequestRequest
     {
         return $this->model->newQuery()
+            ->when($personId !== null, fn (Builder $query) => $query->forPerson($personId))
             ->whereHas('basedOn', fn ($q) => $q->where('value', $activityUuid))
             ->whereIn('status', ['draft', 'DRAFT'])
             ->latest('id')

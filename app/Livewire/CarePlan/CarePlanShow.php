@@ -12,7 +12,7 @@ use App\Repositories\CarePlanActivityRepository;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 
-class CarePlanShow extends CarePlanComponent
+class CarePlanShow extends CarePlanDetailsComponent
 {
     use ManagesCarePlanActivities;
     use ManagesCarePlanEPrescription;

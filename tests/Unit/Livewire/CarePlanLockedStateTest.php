@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Livewire;
 
 use App\Livewire\CarePlan\CarePlanApprovals;
-use App\Livewire\CarePlan\CarePlanComponent;
+use App\Livewire\CarePlan\CarePlanDetailsComponent;
 use App\Livewire\CarePlan\CarePlanShow;
 use App\Traits\InteractsWithApprovals;
 use Livewire\Attributes\Locked;
@@ -101,7 +101,7 @@ class CarePlanLockedStateTest extends TestCase
     public function test_form_bound_properties_stay_writable(): void
     {
         $writable = [
-            CarePlanComponent::class => [
+            CarePlanDetailsComponent::class => [
                 'form',
                 'activityForm',
                 'ePrescriptionForm',

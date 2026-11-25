@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Tests\Unit\CarePlan;
 
 use App\Core\BaseForm;
-use App\Livewire\CarePlan\CarePlanComponent;
+use App\Livewire\CarePlan\CarePlanDetailsComponent;
 use App\Livewire\CarePlan\CarePlanShow;
-use App\Livewire\CarePlan\Concerns\CarePlanManager;
 use App\Models\CarePlan;
 use App\Repositories\CarePlanActivityRepository;
 use App\Repositories\CarePlanRepository;
@@ -19,10 +18,8 @@ class CarePlanFhirWorkflowTest extends TestCase
 {
     public function test_allocated_draft_uuid_still_dispatches_the_plan_creation_action(): void
     {
-        $component = new class extends CarePlanComponent
+        $component = new class extends CarePlanDetailsComponent
         {
-            use CarePlanManager;
-
             public bool $signedPlan = false;
 
             protected function authorizeCarePlanWrite(): void

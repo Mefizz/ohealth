@@ -66,7 +66,7 @@ use Livewire\Component;
 use RuntimeException;
 use Throwable;
 
-abstract class CarePlanComponent extends Component
+abstract class CarePlanDetailsComponent extends Component
 {
     use InteractsWithApprovals;
     use HandlesCarePlanApprovalSms;

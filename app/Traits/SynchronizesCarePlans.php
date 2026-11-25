@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Traits;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Repositories\Repository;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 trait SynchronizesCarePlans
@@ -50,8 +52,11 @@ trait SynchronizesCarePlans
         for ($page = 1; ; $page++) {
             $response = $fetch($page);
             $items = $response->validate();
+            if ($items instanceof Collection) {
+                $items = $items->all();
+            }
             foreach ($items as $item) {
-                $item = Arr::toCamelCase($item);
+                $item = $item instanceof CarePlanDetails ? $item->toResource() : Arr::toCamelCase($item);
                 if (isset($seen[$item['id']])) {
                     throw ValidationException::withMessages(['paging' => 'Care Plan pagination repeated a resource.']);
                 }

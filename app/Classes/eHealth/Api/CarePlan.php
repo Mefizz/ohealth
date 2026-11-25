@@ -12,6 +12,7 @@ use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -29,7 +30,7 @@ class CarePlan extends Request
     }
 
     /**
-     * Get Care Plans by search parameters.
+     * Find Care Plans by requisition.
      *
      * @param  array  $query
      * @return PromiseInterface|EHealthResponse
@@ -103,7 +104,7 @@ class CarePlan extends Request
      */
     public function getBySearchParams(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateMany(...));
+        $this->setValidator($this->validateLegacyMany(...));
 
         return $this->get("/api/patients/$patientId/care_plans", $query);
     }
@@ -120,7 +121,7 @@ class CarePlan extends Request
      */
     public function getSummary(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateMany(...));
+        $this->setValidator($this->validateLegacyMany(...));
         $this->setDefaultPageSize();
 
         $mergedQuery = array_merge($this->options['query'], $query);
@@ -153,7 +154,41 @@ class CarePlan extends Request
         return $preserveApiKeys ? $native : $data;
     }
 
-    protected function validateMany(EHealthResponse $response): array
+    /** @return Collection<int, CarePlanDetails> */
+    protected function validateMany(EHealthResponse $response): Collection
+    {
+        Validator::make(['statusCode' => $response->getStatusCode()] + (array) $response->json(), [
+            'statusCode' => 'required|in:200',
+            'data' => 'present|array|list',
+            'paging' => 'sometimes|array',
+            'paging.page' => 'required_with:paging|integer|min:1',
+            'paging.page_size' => 'sometimes|integer|min:1',
+            'paging.total_pages' => 'sometimes|integer|min:0',
+            'paging.total_entries' => 'sometimes|integer|min:0',
+        ])->validate();
+
+        $rules = $this->validationRules(details: false) + [
+            'identity' => 'required|array',
+            'identity.last_name' => 'required|string',
+            'identity.first_name' => 'required|string',
+            'identity.second_name' => 'present|string',
+            'identity.gender' => 'required|in:MALE,FEMALE',
+            'identity.age' => 'required|numeric',
+        ];
+
+        $itemRules = collect($rules)->mapWithKeys(
+            static fn (string $rule, string $key): array => ["*.$key" => str_replace('required_with:', 'required_with:*.', $rule)]
+        )->all();
+        $validator = Validator::make($response->getData(), ['*' => 'required|array', ...$itemRules]);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error('CarePlan list validation failed: ' . implode(', ', $validator->errors()->all()));
+        }
+
+        return collect($validator->validate())->map(static fn (array $item): CarePlanDetails => new CarePlanDetails($item));
+    }
+
+    protected function validateLegacyMany(EHealthResponse $response): array
     {
         $transformedData = [];
         foreach ($response->getData() as $item) {
@@ -213,7 +248,7 @@ class CarePlan extends Request
         return $data;
     }
 
-    protected function validationRules(): array
+    protected function validationRules(bool $details = true): array
     {
         $rules = [
             'id' => 'required|uuid',
@@ -223,19 +258,19 @@ class CarePlan extends Request
             'period' => 'required|array',
             'period.start' => 'required|string|date',
             'period.end' => 'sometimes|string|date',
-            'title' => 'required|string',
+            'title' => $details ? 'required|string' : 'sometimes|string',
             'description' => 'sometimes|string',
             'note' => 'sometimes|string',
             'context' => 'sometimes|nullable|string',
             'inform_with' => 'sometimes|array',
             'inform_with.auth_method_id' => 'sometimes|uuid',
-            'addresses' => 'present|array',
+            'addresses' => $details ? 'present|array' : 'sometimes|array',
             'addresses.*' => 'required|array',
             'supporting_info' => 'sometimes|array',
             'supporting_info.*' => 'required|array',
             'contributor' => 'sometimes|array',
             'contributor.*' => 'required|array',
-            'status_history' => 'present|array',
+            'status_history' => $details ? 'present|array' : 'sometimes|array',
             'status_history.*' => 'required|array',
             'status_history.*.status' => 'required|string',
             'status_history.*.inserted_at' => 'required|string|date',
@@ -244,7 +279,7 @@ class CarePlan extends Request
         ];
 
         foreach (['category', 'terms_of_service', 'status_reason', 'addresses.*', 'status_history.*.status_reason'] as $field) {
-            $rules[$field] ??= ($field === 'terms_of_service' || $field === 'category') ? 'required|array' : 'sometimes|array';
+            $rules[$field] ??= ($field === 'terms_of_service' || ($details && $field === 'category')) ? 'required|array' : 'sometimes|array';
             $rules[$field . '.coding'] = 'required_with:' . $field . '|array|min:1';
             $rules[$field . '.coding.*'] = 'required|array';
             $rules[$field . '.coding.*.system'] = 'required|string';
@@ -270,10 +305,10 @@ class CarePlan extends Request
         $rules['managing_organization.identifier'] = 'sometimes|array';
 
         foreach (['inserted_at', 'updated_at'] as $field) {
-            $rules[$field] = 'required|string|date';
+            $rules[$field] = $details ? 'required|string|date' : 'sometimes|string|date';
         }
         foreach (['inserted_by', 'updated_by'] as $field) {
-            $rules[$field] = 'required|uuid';
+            $rules[$field] = $details ? 'required|uuid' : 'sometimes|uuid';
         }
 
         return $rules;

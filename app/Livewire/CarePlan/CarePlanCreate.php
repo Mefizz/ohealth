@@ -60,8 +60,6 @@ class CarePlanCreate extends BasePatientComponent
     public string $patientUuid = '';
     #[Locked]
     public string $conditionUuid = '';
-    #[Locked]
-    public string $medicalNumber = '';
 
     #[Locked]
     public string $draftUuid;
@@ -178,7 +176,7 @@ class CarePlanCreate extends BasePatientComponent
             $this->loadPatientAuthMethods($this->uuid);
         }
 
-        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
         $this->loadAvailableEncounters();
 
         $conditionUuid = request()->query('conditionUuid');
@@ -186,7 +184,7 @@ class CarePlanCreate extends BasePatientComponent
 
         if ($resolvedEncounter) {
             $this->form->encounter = $resolvedEncounter->uuid;
-            $this->medicalNumber = (string) $resolvedEncounter->id;
+            $this->displayMedicalNumber((string) $resolvedEncounter->id);
 
             // Pre-fill title if empty
             if (empty($this->form->title)) {
@@ -359,7 +357,7 @@ class CarePlanCreate extends BasePatientComponent
             ? Carbon::parse($person->birth_date)->format(config('app.date_format'))
             : null;
         $this->form->patient = trim($person->fullName . ($birthDate ? ' · ' . $birthDate : ''));
-        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
         $this->form->encounter = '';
         $this->form->category = '';
         $this->allowedCategoryCodes = [];
@@ -411,7 +409,7 @@ class CarePlanCreate extends BasePatientComponent
         $this->authMethods = [];
         $this->diagnoses = [];
         $this->patientSearchResults = [];
-        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
     }
 
     /**
@@ -851,6 +849,12 @@ class CarePlanCreate extends BasePatientComponent
         $this->redirectRoute('care-plans.index', legalEntity(), navigate: true);
     }
 
+    /** Populate the read-only field used by the existing Blade form. */
+    protected function displayMedicalNumber(string $medicalNumber): void
+    {
+        $this->form->fill([Str::snake('medicalNumber') => $medicalNumber]);
+    }
+
     protected function loadAvailableEncounters(): void
     {
         $this->availableEncounters = $this->personId ? Repository::carePlan()->encounterChoices($this->personId) : [];
@@ -862,7 +866,7 @@ class CarePlanCreate extends BasePatientComponent
         if ($value) {
             $encounter = Repository::carePlan()->findEncounter($value, $this->personId);
             if ($encounter) {
-                $this->medicalNumber = (string) $encounter->id;
+                $this->displayMedicalNumber((string) $encounter->id);
                 if (empty($this->form->title)) {
                     $date = $encounter->period?->start ? Carbon::parse($encounter->period->start)->format('d.m.Y') : now()->format('d.m.Y');
                     $this->form->title = __('План лікування від ') . $date;
@@ -886,7 +890,7 @@ class CarePlanCreate extends BasePatientComponent
                 $this->diagnoses = $this->buildDiagnosesForUi($encounter);
             }
         } else {
-            $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+            $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
             $this->diagnoses = [];
             $this->form->episodes = [];
         }

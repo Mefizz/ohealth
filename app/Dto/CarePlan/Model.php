@@ -184,11 +184,7 @@ class Model
             'termsOfServiceConcept' => CodeableConceptData::map($details->get('terms_of_service')),
             'statusReasonConcept' => CodeableConceptData::map($details->statusReason()),
         ];
-        $this->prepareResourceRelations($details->toResource());
-    }
-
-    protected function prepareResourceRelations(array $resource): void
-    {
+        $resource = $details->toResource();
         $this->remoteReferences = [
             'subjectReference' => $resource['subject'] ?? null,
             'authorReference' => $resource['author'] ?? null,

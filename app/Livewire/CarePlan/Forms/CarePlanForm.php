@@ -104,6 +104,25 @@ class CarePlanForm extends BaseForm
         return array_merge($this->rules(), $this->signingRules());
     }
 
+    /** Validate the editable values and reference shapes of an already saved draft. */
+    public function rulesForDraftEdit(): array
+    {
+        return [
+            ...$this->rules(),
+            'periodStartTime' => 'nullable|date_format:H:i,H:i:s',
+            'periodEndTime' => 'nullable|date_format:H:i,H:i:s',
+            'coAuthors' => 'array',
+            'coAuthors.*' => 'nullable|uuid',
+            'episodes.*' => 'array',
+            'episodes.*.uuid' => 'required|uuid',
+            'medicalRecords.*' => 'array',
+            'medicalRecords.*.identifier' => 'sometimes|array',
+            'medicalRecords.*.displayValue' => 'sometimes|nullable|string',
+            'medicalRecords.*.uuid' => 'required_without:medicalRecords.*.identifier|uuid',
+            'medicalRecords.*.type' => 'required_without:medicalRecords.*.identifier|in:procedure,diagnostic_report',
+        ];
+    }
+
     public function periodStartIsoDate(): string
     {
         return CarbonImmutable::createFromFormat('!'.config('app.date_format'), $this->periodStart)->format('Y-m-d');

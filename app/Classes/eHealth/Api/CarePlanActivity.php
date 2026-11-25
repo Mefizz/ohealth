@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace App\Classes\eHealth\Api;
 
-use App\Core\Arr;
-
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
+use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class CarePlanActivity extends Request
 {
@@ -30,7 +30,7 @@ class CarePlanActivity extends Request
      */
     public function create(string $patientId, string $carePlanId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->post("/api/patients/{$patientId}/care_plans/{$carePlanId}/activities", $payload);
     }
@@ -49,7 +49,7 @@ class CarePlanActivity extends Request
      */
     public function cancel(string $personId, string $carePlanId, string $activityId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch("/api/patients/$personId/care_plans/$carePlanId/activities/$activityId/actions/cancel", $payload);
     }
@@ -68,7 +68,7 @@ class CarePlanActivity extends Request
      */
     public function complete(string $personId, string $carePlanId, string $activityId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator(Job::validateSubmissionResponse(...));
 
         return $this->patch("/api/patients/$personId/care_plans/$carePlanId/activities/$activityId/actions/complete", $payload);
     }
@@ -127,7 +127,7 @@ class CarePlanActivity extends Request
             Log::channel('e_health_errors')->error(
                 'CarePlanActivity details validation failed: ' . implode(', ', $validator->errors()->all())
             );
-            throw new \Illuminate\Validation\ValidationException($validator);
+            throw new ValidationException($validator);
         }
 
         // Signed snapshots retain the API's keys; both forms pass the same validator.
@@ -160,10 +160,36 @@ class CarePlanActivity extends Request
             Log::channel('e_health_errors')->error(
                 'CarePlanActivity many validation failed: ' . implode(', ', $validator->errors()->all())
             );
-            throw new \Illuminate\Validation\ValidationException($validator);
+            throw new ValidationException($validator);
         }
 
         return $transformedData;
     }
 
+    /** Read all validated details for a plan, one summary page at a time. */
+    public function allDetails(string $patientUuid, string $planUuid): array
+    {
+        $resources = [];
+        for ($page = 1; ; $page++) {
+            $response = $this->getSummary($patientUuid, $planUuid, ['page' => $page]);
+            $items = $response->validate();
+            foreach ($items as $item) {
+                $id = Arr::toCamelCase($item)['id'];
+                if (isset($resources[$id])) {
+                    throw ValidationException::withMessages(['paging' => 'Activity pagination repeated a resource.']);
+                }
+                $resource = $this->getDetails($patientUuid, $planUuid, $id)->validate();
+                if ($resource['id'] !== $id) {
+                    throw ValidationException::withMessages(['id' => 'Activity details do not match the requested resource.']);
+                }
+                $resources[$id] = $resource;
+            }
+            $lastPage = $response->getPaging()['total_pages'] ?? null;
+            if ($items === [] || ($lastPage !== null && $page >= (int) $lastPage)) {
+                break;
+            }
+        }
+
+        return array_values($resources);
+    }
 }

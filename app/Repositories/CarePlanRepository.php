@@ -282,16 +282,21 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
+    public function storeAggregate(CarePlanData|array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
     {
         return $this->storageTransaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
-            $plan = $this->storeResource($resource, $personId, $legalEntityId);
+            $plan = $resource instanceof CarePlanData
+                ? $this->saveConfirmed($resource, $personId, $legalEntityId)
+                : $this->storeResource($resource, $personId, $legalEntityId);
             $activityRepository = Repository::carePlanActivity();
             foreach ($activities as $activityResource) {
                 $activity = $activityRepository->storeResource($activityResource, $plan);
                 $this->reconcileSubmissionFromResource($activity, $activityResource, 'detail.status');
             }
-            $this->reconcileSubmissionFromResource($plan, $resource);
+            $this->reconcileSubmissionFromResource(
+                $plan,
+                $resource instanceof CarePlanData ? $this->getResource($plan) : $resource
+            );
 
             return $plan->unsetRelations();
         });
@@ -475,13 +480,44 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
-    protected function savePreparedResource(CarePlanData $data, CarePlan $plan): CarePlan
+    public function draftRevision(array $resource): string
+    {
+        return hash('sha256', json_encode($resource, JSON_THROW_ON_ERROR));
+    }
+
+    /** Update the same local draft only while the displayed snapshot is still current. */
+    public function updateDraft(CarePlan $draft, CarePlanData $data, string $expectedRevision, ObjectMapperInterface $mapper): CarePlan
+    {
+        return $this->storageTransaction(function () use ($draft, $data, $expectedRevision, $mapper): CarePlan {
+            $plan = CarePlan::wherePersonId($draft->personId)->whereLegalEntityId($draft->legalEntityId)
+                ->whereUuid($data->uuid)->whereKey($draft->id)->lockForUpdate()->firstOrFail();
+            if (Auth::user()?->can('update', $plan) !== true) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
+            }
+            $this->assertDraftSubmissionAllowed($plan);
+            if (!hash_equals($expectedRevision, $this->draftRevision($this->getResource($plan)))) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.document_context_unavailable')]);
+            }
+            return $this->savePreparedDraft($data, $plan, $mapper);
+        });
+    }
+
+    protected function savePreparedDraft(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
+    {
+        $data->personId = $plan->personId;
+        $data->legalEntityId = $plan->legalEntityId;
+        $data->requisition = $plan->requisition;
+
+        return $this->savePreparedResource($data, $plan, $mapper);
+    }
+
+    protected function savePreparedResource(CarePlanData $data, CarePlan $plan, ?ObjectMapperInterface $mapper = null): CarePlan
     {
         $authorUuid = data_get($data->remoteReferences, 'authorReference.identifier.value');
         $encounterUuid = data_get($data->remoteReferences, 'encounterIdentifier.identifier.value');
         $data->authorId = $authorUuid === null ? null : Employee::whereUuid($authorUuid)->whereLegalEntityId($data->legalEntityId)->value('id');
         $data->encounterId = $encounterUuid === null ? null : Encounter::whereUuid($encounterUuid)->value('id');
-        objectMapper()->map($data, $plan);
+        ($mapper ?? objectMapper())->map($data, $plan);
 
         $existing = $plan->exists ? $plan : null;
         foreach ($data->remoteConcepts as $relation => $concept) {
@@ -1358,12 +1394,9 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     public function applySubmissionResult(EhealthLink $link, array $jobData, ?CarePlanData $confirmedPlan = null): void
     {
         $record = $link->linkable;
-        $isCreation = $record instanceof CarePlan
-            && data_get($link->job->request_data, 'resource.status') === CarePlanStatus::DRAFT->value
-            && data_get($link->job->request_data, 'changes.status') === CarePlanStatus::PENDING->value;
-        if ($isCreation) {
+        if ($record instanceof CarePlan) {
             if ($confirmedPlan === null) {
-                throw new InvalidArgumentException('A processed CarePlan creation requires validated full details.');
+                throw new InvalidArgumentException('A processed CarePlan requires validated full details.');
             }
 
             $this->saveConfirmed($confirmedPlan, $record->personId, $record->legalEntityId, $record->id);
@@ -1385,24 +1418,19 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
         $changes = $link->job->request_data['changes'];
         $original = $link->job->request_data['resource'];
-        if ($record instanceof CarePlan) {
-            $resource = array_replace($original, $changes, $data);
-            $this->storeResource($resource, $record->personId, $record->legalEntityId, $record->id);
-        } else {
-            $repository = Repository::carePlanActivity();
-            $resource = $original;
-            $resource['detail'] = array_replace($resource['detail'], $changes);
-            foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
-                if (array_key_exists($field, $changes)) {
-                    $resource[$field] = $changes[$field];
-                    unset($resource['detail'][$field]);
-                }
+        $repository = Repository::carePlanActivity();
+        $resource = $original;
+        $resource['detail'] = array_replace($resource['detail'], $changes);
+        foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
+            if (array_key_exists($field, $changes)) {
+                $resource[$field] = $changes[$field];
+                unset($resource['detail'][$field]);
             }
-            $detail = array_replace($resource['detail'], $data['detail'] ?? []);
-            $resource = array_replace($resource, $data);
-            $resource['detail'] = $detail;
-            $repository->storeResource($resource, $record->carePlan, $record->id);
         }
+        $detail = array_replace($resource['detail'], $data['detail'] ?? []);
+        $resource = array_replace($resource, $data);
+        $resource['detail'] = $detail;
+        $repository->storeResource($resource, $record->carePlan, $record->id);
     }
 
     public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false, ?CarePlanData $confirmedPlan = null): bool

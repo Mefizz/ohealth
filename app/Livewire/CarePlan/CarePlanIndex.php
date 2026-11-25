@@ -6,7 +6,10 @@ namespace App\Livewire\CarePlan;
 
 use App\Enums\CarePlanStatusFilter;
 use App\Enums\CarePlanCompletenessFilter;
-use App\Traits\SynchronizesCarePlans;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
+use App\Classes\eHealth\EHealth;
+use App\Dto\CarePlan\Model as CarePlanData;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -22,7 +25,6 @@ use App\Jobs\CarePlanFullSync;
 
 class CarePlanIndex extends Component
 {
-    use SynchronizesCarePlans;
     use HandlesCarePlanSync;
 
     #[Locked]
@@ -69,7 +71,22 @@ class CarePlanIndex extends Component
         }
 
         try {
-            $this->synchronizeSearch(['requisition' => $this->searchRequisition], (int) legalEntity()->id);
+            $facilityId = (int) legalEntity()->id;
+            $repository = Repository::carePlan();
+            $planApi = EHealth::carePlan();
+            $activitiesApi = EHealth::carePlanActivity();
+            $mapper = objectMapper();
+            foreach ($this->collectSummaries(fn (int $page) => $planApi->getMany([
+                'requisition' => $this->searchRequisition,
+                'page' => $page,
+            ])) as $summary) {
+                $patient = $repository->resolvePatientContext(null, data_get($summary->native, 'subject.identifier.value'));
+                $details = $planApi->getDetails($patient['uuid'], $summary->get('id'), typed: true)->validate();
+                $plan = $mapper->map($details, CarePlanData::class);
+                $plan->prepareResponse($details);
+                $activities = $activitiesApi->allDetails($patient['uuid'], $plan->uuid);
+                $repository->storeAggregate($plan, $activities, $patient['id'], $facilityId);
+            }
             $this->filterCompleteness = CarePlanCompletenessFilter::ALL->value;
             if ($this->filterStatus === CarePlanStatusFilter::CURRENT->value) {
                 $this->filterStatus = CarePlanStatusFilter::ALL->value;
@@ -78,6 +95,30 @@ class CarePlanIndex extends Component
             Log::error('CarePlan search error: ' . $e->getMessage());
             session()->flash('error', __('care-plan.search_error') . ': ' . $e->getMessage());
         }
+    }
+
+    protected function collectSummaries(callable $fetch): CarePlanGetMany
+    {
+        $summaries = new CarePlanGetMany();
+        $seen = [];
+        for ($page = 1; ; $page++) {
+            $response = $fetch($page);
+            $items = $response->validate();
+            foreach ($items as $item) {
+                $id = $item->get('id');
+                if (isset($seen[$id])) {
+                    throw ValidationException::withMessages(['paging' => 'Care Plan pagination repeated a resource.']);
+                }
+                $seen[$id] = true;
+                $summaries->push($item);
+            }
+            $lastPage = $response->getPaging()['total_pages'] ?? null;
+            if ($items->isEmpty() || ($lastPage !== null && $page >= (int) $lastPage)) {
+                break;
+            }
+        }
+
+        return $summaries;
     }
 
     public function mount(): void
@@ -89,7 +130,8 @@ class CarePlanIndex extends Component
 
     public function sync(): void
     {
-        if (Auth::user()->cannot('sync', CarePlan::class)) {
+        $user = Auth::user();
+        if ($user?->can('getBySearchParams', CarePlan::class) !== true || $user->activeEmployee() === null) {
             session()->flash('error', __('care-plan.sync_access_denied'));
 
             return;

@@ -23,12 +23,11 @@ use App\Core\Arr;
 use App\Repositories\Repository;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Validation\ValidationException;
-use App\Traits\SynchronizesCarePlans;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\JobStatus;
 
 class CarePlanFullSync extends PatientEHealthJob
 {
-    use SynchronizesCarePlans;
 
     public const string BATCH_NAME = 'CarePlanFullSync';
 
@@ -172,7 +171,7 @@ class CarePlanFullSync extends PatientEHealthJob
             }
             $patient = Repository::carePlan()->resolvePatientContext($this->personId, $this->patientUuid);
             try {
-                $activities = $this->fetchAllActivityResources($patient['uuid'], $this->resourceUuid, token: $this->token);
+                $activities = EHealth::carePlanActivity()->withToken($this->token)->allDetails($patient['uuid'], $this->resourceUuid);
                 $plan = Repository::carePlan()->storeAggregate($validatedData, $activities, $patient['id'], $this->legalEntity->id);
                 if ((($this->batch()?->options ?? []) + $this->patientContext)['care_plan_approvals'] ?? false) {
                     MedicalEventsRepository::approval()->syncApprovals(
@@ -195,7 +194,18 @@ class CarePlanFullSync extends PatientEHealthJob
 
             return;
         }
-        $this->synchronizeResources($validatedData, $this->personId, $this->legalEntity->id, $this->patientUuid, $this->token);
+        $repository = Repository::carePlan();
+        $api = EHealth::carePlan()->withToken($this->token);
+        $activitiesApi = EHealth::carePlanActivity()->withToken($this->token);
+        $mapper = objectMapper();
+        foreach ($validatedData as $summary) {
+            $patient = $repository->resolvePatientContext($this->personId, $this->patientUuid ?? data_get($summary, 'subject.identifier.value'));
+            $details = $api->getDetails($patient['uuid'], $summary['id'], typed: true)->validate();
+            $plan = $mapper->map($details, CarePlanData::class);
+            $plan->prepareResponse($details);
+            $activities = $activitiesApi->allDetails($patient['uuid'], $plan->uuid);
+            $repository->storeAggregate($plan, $activities, $patient['id'], $this->legalEntity->id);
+        }
     }
 
     private function isPatientRegistrySync(): bool

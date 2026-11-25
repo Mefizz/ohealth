@@ -152,13 +152,13 @@ class CarePlan extends Request
         return new MedicalEventsErrorTranslator();
     }
 
-    /** Validate the details response and its optional informing method. */
+    /** Validate the details response and its informing method. */
     protected function validateDetails(EHealthResponse $response, string $id, string $patientId): CarePlanDetails
     {
         Validator::make($response->json(), [
-            'urgent' => 'sometimes|array',
-            'urgent.informing_method_current' => 'required_with:urgent|array',
-            'urgent.informing_method_current.type' => 'required_with:urgent.informing_method_current|in:OTP,OFFLINE,THIRD_PERSON',
+            'urgent' => 'required|array',
+            'urgent.informing_method_current' => 'required|array',
+            'urgent.informing_method_current.type' => 'required|in:OTP,OFFLINE,THIRD_PERSON',
             'urgent.informing_method_current.phone_number' => 'sometimes|string',
         ])->validate();
         Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:200'])->validate();
@@ -295,6 +295,9 @@ class CarePlan extends Request
             $rules[$field . '.identifier.type.text'] = 'sometimes|string';
             $rules[$field . '.display_value'] ??= 'sometimes|string';
         }
+
+        // eHealth can return an organization display name without its identifier.
+        $rules['managing_organization.identifier'] = 'sometimes|array';
 
         foreach (['inserted_at', 'updated_at'] as $field) {
             $rules[$field] = $details ? 'required|string|date' : 'sometimes|string|date';

@@ -182,7 +182,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     {
         return $this->storageTransaction(function () use ($form, $personId, $legalEntityId, $localId): CarePlan {
             if ($localId !== null) {
-                $record = CarePlan::whereKey($localId)->lockForUpdate()->firstOrFail();
+                $record = CarePlan::wherePersonId($personId)->whereLegalEntityId($legalEntityId)
+                    ->whereKey($localId)->lockForUpdate()->firstOrFail();
+                if ($record->status !== CarePlanStatus::DRAFT->value) {
+                    throw ValidationException::withMessages(['submission' => __('care-plan.cannot_edit_non_draft')]);
+                }
                 if ($this->hasPendingSubmission($record)) {
                     throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
                 }
@@ -524,6 +528,10 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             $plan->{$relation}()->associate($this->syncCodeableConcept($existing, $concept?->toArray(), $relation));
         }
         foreach ($data->remoteReferences as $relation => $reference) {
+            if ($relation === 'managingOrganization' && !isset($reference['identifier']['value'])) {
+                continue;
+            }
+
             $plan->{$relation}()->associate($this->syncIdentifier($existing, $reference, $relation));
         }
         $plan->detailsSyncedAt = now();

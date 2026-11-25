@@ -184,7 +184,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                             }
                             $details = $api->getDetails($patientId, $record->uuid)->validate();
                         } else {
-                            $details = $api->validateDetailsData($result, $record->uuid, $patientId);
+                            $details = $api->validateDetails($result, $record->uuid, $patientId);
                         }
                     }
                     $remoteStatus = $details->status();

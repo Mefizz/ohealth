@@ -43,7 +43,7 @@ class CarePlan extends Request
     public function getMany(array $query = []): PromiseInterface|EHealthResponse
     {
         $this->authorizeOperation('getMany');
-        $this->setValidator($this->validateRequisition(...));
+        $this->setValidator($this->validateMany(...));
 
         return $this->get(self::URL, $query);
     }
@@ -60,7 +60,7 @@ class CarePlan extends Request
     public function getDetails(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
         $this->authorizeOperation('getDetails');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanDetails => $this->validateDetails($response, $id, $patientId));
+        $this->setValidator(fn (EHealthResponse $response): CarePlanDetails => $this->validateResponse($response, $id, $patientId));
 
         return $this->get("/api/patients/{$patientId}/care_plans/{$id}", $query);
     }
@@ -153,66 +153,66 @@ class CarePlan extends Request
     }
 
     /** Validate the details response and its informing method. */
-    protected function validateDetails(EHealthResponse $response, string $id, string $patientId): CarePlanDetails
+    protected function validateResponse(EHealthResponse $response, string $id, string $patientId): CarePlanDetails
     {
-        Validator::make($response->json(), [
+        Validator::make(['statusCode' => $response->getStatusCode()] + (array) $response->json(), [
+            'statusCode' => 'required|in:200',
+            'data' => 'required|array',
             'urgent' => 'required|array',
             'urgent.informing_method_current' => 'required|array',
             'urgent.informing_method_current.type' => 'required|in:OTP,OFFLINE,THIRD_PERSON',
             'urgent.informing_method_current.phone_number' => 'sometimes|string',
         ])->validate();
-        Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:200'])->validate();
 
         $data = $response->getData();
         if (array_is_list($data) && count($data) === 1 && is_array($data[0])) {
             $data = $data[0];
         }
 
-        return $this->validateDetailsData($data, $id, $patientId);
+        return $this->validateDetails($data, $id, $patientId);
     }
 
-    protected function validateMany(EHealthResponse $response, string $patientId): CarePlanGetMany
+    /** Validate the short records used by patient lists and requisition search. */
+    protected function validateMany(EHealthResponse $response, ?string $patientId = null): CarePlanGetMany
     {
-        $rules = $this->validationRules(details: false);
-        $rules['subject.identifier.value'] .= '|in:'.$patientId;
-
-        return $this->validateList($response, $rules);
-    }
-
-    protected function validateRequisition(EHealthResponse $response): CarePlanGetMany
-    {
-        return $this->validateList($response, $this->validationRules(details: false) + [
-            'identity' => 'required|array',
-            'identity.last_name' => 'required|string',
-            'identity.first_name' => 'required|string',
-            'identity.second_name' => 'present|string',
-            'identity.gender' => 'required|in:MALE,FEMALE',
-            'identity.age' => 'required|numeric',
-        ]);
-    }
-
-    protected function validateList(EHealthResponse $response, array $itemRules): CarePlanGetMany
-    {
-        Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:200'])->validate();
-        $rules = collect($itemRules)->mapWithKeys(
-            static fn (string $rule, string $key): array => ["data.*.$key" => str_replace('required_with:', 'required_with:data.*.', $rule)]
-        )->all();
-        Validator::make($response->json(), [
+        Validator::make(['statusCode' => $response->getStatusCode()] + (array) $response->json(), [
+            'statusCode' => 'required|in:200',
             'data' => 'present|array|list',
-            'data.*' => 'required|array',
             'paging' => 'sometimes|array',
             'paging.page' => 'required_with:paging|integer|min:1',
             'paging.page_size' => 'sometimes|integer|min:1',
             'paging.total_pages' => 'sometimes|integer|min:0',
             'paging.total_entries' => 'sometimes|integer|min:0',
-            ...$rules,
         ])->validate();
 
-        return new CarePlanGetMany($response->getData());
+        $rules = $this->validationRules(details: false);
+        if ($patientId === null) {
+            $rules += [
+                'identity' => 'required|array',
+                'identity.last_name' => 'required|string',
+                'identity.first_name' => 'required|string',
+                'identity.second_name' => 'present|string',
+                'identity.gender' => 'required|in:MALE,FEMALE',
+                'identity.age' => 'required|numeric',
+            ];
+        } else {
+            $rules['subject.identifier.value'] .= '|in:'.$patientId;
+        }
+
+        $itemRules = collect($rules)->mapWithKeys(
+            static fn (string $rule, string $key): array => ["*.$key" => str_replace('required_with:', 'required_with:*.', $rule)]
+        )->all();
+        $validator = Validator::make($response->getData(), ['*' => 'required|array', ...$itemRules]);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error('CarePlan list validation failed: ' . implode(', ', $validator->errors()->all()));
+        }
+
+        return new CarePlanGetMany($validator->validate());
     }
 
     /** Validate CarePlan details carried by a processed job or a synchronous response. */
-    public function validateDetailsData(array $data, ?string $id = null, ?string $patientId = null): CarePlanDetails
+    public function validateDetails(array $data, ?string $id = null, ?string $patientId = null): CarePlanDetails
     {
         $rules = $this->validationRules();
         if ($id !== null) {
@@ -222,18 +222,19 @@ class CarePlan extends Request
             $rules['subject.identifier.value'] .= '|in:'.$patientId;
         }
         $validator = Validator::make($data, $rules);
-        if ($validator->fails()) {
-            Log::channel('e_health_errors')->error('CarePlan details validation failed: '.implode(', ', $validator->errors()->all()));
-        }
-        $validator->validate();
 
-        return new CarePlanDetails($data);
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error('CarePlan details validation failed: ' . implode(', ', $validator->errors()->all()));
+        }
+
+        return new CarePlanDetails($validator->validate(), $data);
     }
 
+    /** Validate the resulting plan on 201 or the processing receipt on 202. */
     protected function validateSubmission(EHealthResponse $response, ?string $id, string $patientId): CarePlanDetails|array
     {
         if ($response->getStatusCode() === 201) {
-            return $this->validateDetailsData($response->getData(), $id, $patientId);
+            return $this->validateDetails($response->getData(), $id, $patientId);
         }
 
         Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:202'])->validate();

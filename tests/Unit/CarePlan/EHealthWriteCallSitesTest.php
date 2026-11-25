@@ -8,14 +8,13 @@ use Tests\TestCase;
 
 class EHealthWriteCallSitesTest extends TestCase
 {
-    public function test_care_plan_show_defers_activity_form_to_a_concern(): void
+    public function test_care_plan_show_owns_its_activity_form(): void
     {
         $show = file_get_contents(app_path('Livewire/CarePlan/CarePlanShow.php'));
 
         $this->assertIsString($show);
-        $this->assertStringContainsString('use ManagesCarePlanActivities;', $show);
-        $this->assertStringNotContainsString('function saveActivity', $show);
-        $this->assertStringNotContainsString('function initActivityForm', $show);
+        $this->assertStringContainsString('function saveActivity', $show);
+        $this->assertStringContainsString('function initActivityForm', $show);
     }
 
     public function test_device_writes_keep_the_existing_domain_boundary(): void
@@ -42,11 +41,8 @@ class EHealthWriteCallSitesTest extends TestCase
             app_path('Livewire/CarePlan/CarePlanCreate.php'),
             app_path('Livewire/CarePlan/CarePlanUpdate.php'),
             app_path('Livewire/CarePlan/CarePlanShow.php'),
+            app_path('Livewire/CarePlan/CarePlanComponent.php'),
             app_path('Livewire/CarePlan/CarePlanApprovals.php'),
-            app_path('Livewire/CarePlan/Concerns/CarePlanManager.php'),
-            app_path('Livewire/CarePlan/Concerns/ManagesCarePlanActivities.php'),
-            app_path('Livewire/CarePlan/Concerns/ManagesCarePlanReferrals.php'),
-            app_path('Livewire/CarePlan/Concerns/ManagesCarePlanEPrescription.php'),
             app_path('Livewire/Person/Records/PatientReferrals.php'),
             app_path('Livewire/EncounterPackage/Concerns/ManagesEncounterReferrals.php'),
         ];

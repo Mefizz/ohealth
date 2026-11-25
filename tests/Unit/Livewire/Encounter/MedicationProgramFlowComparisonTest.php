@@ -17,8 +17,7 @@ use Illuminate\Support\ViewErrorBag;
 use DOMDocument;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
-use App\Livewire\CarePlan\CarePlanComponent;
-use App\Livewire\CarePlan\Concerns\ManagesCarePlanActivities;
+use App\Livewire\CarePlan\CarePlanShow;
 use App\Livewire\EncounterPackage\Concerns\ManagesEncounterEPrescription;
 use App\Services\Dictionary\DictionaryManager;
 use GuzzleHttp\Psr7\Response;
@@ -304,10 +303,8 @@ class MedicationProgramFlowComparisonTest extends TestCase
     }
 }
 
-class CarePlanMedicationProgramHarness extends CarePlanComponent
+class CarePlanMedicationProgramHarness extends CarePlanShow
 {
-    use ManagesCarePlanActivities;
-
     public function filterProgramsForTest(Collection $programs): Collection
     {
         return $this->filterMedicationPrograms($programs);

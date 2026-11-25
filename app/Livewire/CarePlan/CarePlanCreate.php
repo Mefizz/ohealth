@@ -11,11 +11,11 @@ use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanStatus;
 use App\Enums\CarePlanTermsOfService;
 use App\Enums\Episode\Status as EpisodeStatus;
+use App\Enums\Person\AuthenticationMethod;
 use App\Enums\Person\ProcedureStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Exceptions\MedicalEvents\ClinicalStorageException;
-use App\Livewire\CarePlan\Concerns\HandlesCarePlanApprovalSms;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Livewire\CarePlan\Forms\PatientSearchForm;
 use App\Livewire\Concerns\SubmitsClinicalOperations;
@@ -44,6 +44,8 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use RuntimeException;
+use Throwable;
 
 class CarePlanCreate extends BasePatientComponent
 {
@@ -51,7 +53,6 @@ class CarePlanCreate extends BasePatientComponent
     use SubmitsClinicalOperations;
 
     use InteractsWithApprovals;
-    use HandlesCarePlanApprovalSms;
 
     public bool $showSignatureModal = false;
     public bool $showMethodSelectionModal = false;
@@ -1025,5 +1026,81 @@ class CarePlanCreate extends BasePatientComponent
             'draftEpisodeChoices' => $encounter && $user ? $this->draftEpisodes($person, $encounter, $user) : collect(),
             'draftRecordChoices' => $encounter && $user ? $this->draftMedicalRecords($person, $encounter, $user) : collect(),
         ]);
+    }
+
+    #[Locked]
+    public ?int $smsResendLinkId = null;
+
+    #[Locked]
+    public bool $isSmsResending = false;
+
+    public function resendSms(): void
+    {
+        if (!$this->approvalId || $this->smsResent || $this->isSmsResending
+            || AuthenticationMethod::confirmationMethod($this->currentAuthMethod ?? []) !== AuthenticationMethod::OTP) {
+            return;
+        }
+        try {
+            $plan = $this->carePlanForSms();
+            if (!$this->guardApprovalAccess($plan)) {
+                return;
+            }
+            app(MedicalRequestOwnership::class)->approvalForCarePlan($plan, $this->approvalId);
+            $this->resetValidation('verificationCode');
+            $this->isSmsResending = true;
+            $token = session()->get(config('ehealth.api.oauth.bearer_token'));
+            if (!$token || !Auth::user() || !legalEntity()) {
+                throw new RuntimeException(__('care-plan.sync_session_expired'));
+            }
+            $result = app(CarePlanApprovalService::class)->requestSmsResend($plan, $this->approvalId, legalEntity(), Auth::user(), $token);
+            if ($result['status'] === 'pending') {
+                $this->smsResendLinkId = $result['linkId'];
+                Session::flash('info', __('care-plan.sms_resend_processing'));
+
+                return;
+            }
+            $this->finishSmsResend($result['status']);
+        } catch (Throwable $exception) {
+            $this->isSmsResending = false;
+            Log::warning('Care plan approval SMS resend failed', ['exceptionType' => $exception::class]);
+            $message = $exception instanceof EHealthValidationException ? $exception->getFormattedMessage()
+                : ($exception instanceof RuntimeException ? $exception->getMessage() : __('care-plan.sms_resend_error'));
+            $this->addError('verificationCode', $message);
+            Session::flash('error', $message);
+        }
+    }
+
+    public function checkSmsResendStatus(): void
+    {
+        if ($this->smsResendLinkId === null || !$this->approvalId) {
+            return;
+        }
+        $plan = $this->carePlanForSms();
+        $this->authorize('view', $plan);
+        $state = MedicalEventsRepository::approval()->carePlanSmsResendState($plan, $this->approvalId, $this->smsResendLinkId);
+        if (in_array($state['status'], ['PENDING', 'PROCESSING'], true)) {
+            return;
+        }
+        $this->finishSmsResend(strtolower($state['status']));
+    }
+
+    protected function finishSmsResend(string $status): void
+    {
+        $this->smsResendLinkId = null;
+        $this->isSmsResending = false;
+        if ($status === 'granted') {
+            $this->closeAuthModal();
+            Session::flash('success', __('care-plan.approval_verified'));
+            $this->onSmsApprovalAlreadyGranted();
+        } elseif ($status === 'processed') {
+            $this->smsResent = true;
+            $this->verificationCode = '';
+            $this->resetValidation('verificationCode');
+            Session::flash('success', __('care-plan.sms_resent'));
+        } else {
+            $this->smsResent = false;
+            $this->addError('verificationCode', __('care-plan.sms_resend_error'));
+            Session::flash('error', __('care-plan.sms_resend_error'));
+        }
     }
 }

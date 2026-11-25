@@ -178,13 +178,25 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     // TODO: Remove after the local editor saves a Model DTO directly.
-    public function saveForm(array $form, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
-    {
-        return $this->storageTransaction(function () use ($form, $personId, $legalEntityId, $localId): CarePlan {
+    public function saveForm(
+        array $form,
+        int $personId,
+        int $legalEntityId,
+        ?int $localId = null,
+        bool $draftOnly = false
+    ): CarePlan {
+        return $this->storageTransaction(function () use ($form, $personId, $legalEntityId, $localId, $draftOnly): CarePlan {
             if ($localId !== null) {
-                $record = CarePlan::whereKey($localId)->lockForUpdate()->firstOrFail();
+                $record = CarePlan::whereKey($localId)
+                    ->wherePersonId($personId)
+                    ->whereLegalEntityId($legalEntityId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
                 if ($this->hasPendingSubmission($record)) {
                     throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
+                }
+                if ($draftOnly && CarePlanStatus::fromStored($record->status) !== CarePlanStatus::DRAFT) {
+                    throw ValidationException::withMessages(['submission' => __('care-plan.cannot_edit_non_draft')]);
                 }
             }
 
@@ -683,7 +695,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return compact('conditions', 'reports', 'observations');
     }
 
-    // TODO: Move authorization and eligibility to Policy and keep the locked delete transaction here.
+    // TODO: Share the local draft eligibility check with the locked update and keep deletion transactional.
     public function deleteDraft(int $id): bool
     {
         return $this->storageTransaction(function () use ($id): bool {
@@ -707,7 +719,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     // TODO: Move the reusable encounter lookup to model scopes and use the Policy from the caller.
-    public function findEncounter(int|string $key, ?int $personId = null): ?Encounter
+    public function findEncounter(int|string $key, ?int $personId = null, bool $forDraftCreation = false): ?Encounter
     {
         $query = Encounter::with(['period', 'episode', 'diagnoses.condition']);
         $person = $personId !== null ? Person::find($personId) : null;
@@ -716,6 +728,19 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                 return null;
             }
             $person->filterRecordsWithMerged($query);
+        }
+
+        if ($forDraftCreation) {
+            $legalEntityUuid = legalEntity()?->uuid;
+            if ($person === null || $legalEntityUuid === null) {
+                return null;
+            }
+
+            $query->whereStatus(EncounterStatus::FINISHED)
+                ->whereHas('episode', fn (Builder $episode) => $episode->whereIn(
+                    'value',
+                    $this->eligibleCarePlanEpisodes($person, $legalEntityUuid, forDraftCreation: true)
+                ));
         }
 
         $encounter = Str::isUuid((string) $key) ? $query->whereUuid($key)->first() : $query->find((int) $key);
@@ -829,27 +854,28 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
 
         $legalEntityUuid = legalEntity()?->uuid;
+        if ($forDraftCreation && $legalEntityUuid === null) {
+            return [];
+        }
+
         $user = Auth::user();
-        // Include only confirmed MPI merges; medical records keep their original person/preperson owner.
-        $eligibleEpisodes = $person->filterRecordsWithMerged(Episode::query())
-            ->whereHas('managingOrganization', fn ($query) => $query->whereValue($legalEntityUuid))
-            ->when($forDraftCreation, fn ($query) => $query->whereIn('status', [EpisodeStatus::ACTIVE, EpisodeStatus::CLOSED]))
-            ->selectRaw(DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb' ? 'CAST(uuid AS CHAR)' : 'CAST(uuid AS TEXT)');
-        $encounters = $person->filterRecordsWithMerged(Encounter::query())->whereStatus('finished')
+        $encounters = $person->filterRecordsWithMerged(Encounter::query())->whereStatus(EncounterStatus::FINISHED)
             ->when($legalEntityUuid !== null, fn ($query) => $query->whereHas(
                 'episode',
-                fn ($episode) => $episode->whereIn('value', $eligibleEpisodes)
+                fn ($episode) => $episode->whereIn(
+                    'value',
+                    $this->eligibleCarePlanEpisodes($person, $legalEntityUuid, $forDraftCreation)
+                )
             ))
             ->with(['period', 'episode'])->orderByDesc('ehealth_inserted_at')
             ->get(['id', 'uuid', 'person_id', 'preperson_id', 'status', 'performer_id', 'episode_id', 'ehealth_inserted_at'])
             ->filter(function (Encounter $encounter) use ($person, $user, $forDraftCreation): bool {
                 $isDirect = (int) $encounter->getAttribute('person_id') === $person->id;
-                if ($forDraftCreation && !$user?->can('useEncounterForDraft', [CarePlan::class, $encounter, $person])) {
+                if (($forDraftCreation || !$isDirect) && $user?->can('view', [$encounter, $person]) !== true) {
                     return false;
                 }
 
-                return $isDirect || ($user?->can('view', [$encounter, $person])
-                    && $this->mergedEncounterIsEligible($encounter, $person));
+                return $isDirect || $this->mergedEncounterIsEligible($encounter, $person);
             })
             ->values();
         $episodeUuids = $encounters->pluck('episode.value')
@@ -873,6 +899,16 @@ class CarePlanRepository extends MedicalEventsBaseRepository
 
             return ['uuid' => $encounter->uuid, 'label' => $label];
         })->all();
+    }
+
+    // TODO: Move the shared episode eligibility predicate to an Encounter query scope.
+    protected function eligibleCarePlanEpisodes(Person $person, string $legalEntityUuid, bool $forDraftCreation): Builder
+    {
+        // Confirmed MPI merges preserve the original patient or preperson of each medical record.
+        return $person->filterRecordsWithMerged(Episode::query())
+            ->whereHas('managingOrganization', fn (Builder $query) => $query->whereValue($legalEntityUuid))
+            ->when($forDraftCreation, fn (Builder $query) => $query->whereIn('status', [EpisodeStatus::ACTIVE, EpisodeStatus::CLOSED]))
+            ->selectRaw(in_array(DB::getDriverName(), ['mysql', 'mariadb'], true) ? 'CAST(uuid AS CHAR)' : 'CAST(uuid AS TEXT)');
     }
 
     // TODO: Move merged encounter eligibility to an Encounter scope and reuse it in the Policy.
@@ -931,7 +967,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Move the permission and state check to Policy and apply it to the locked draft.
+    // TODO: Consolidate the local lifecycle precondition with the draft write under the record lock.
     public function assertDraftSubmissionAllowed(CarePlan $plan): void
     {
         $current = CarePlan::whereKey($plan->id)->firstOrFail();
@@ -1254,7 +1290,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Express pending status through the submission relation and use it from Policy.
+    // TODO: Expose pending submission through a model relation for the local editor and lifecycle actions.
     public function hasPendingSubmission(CarePlan|CarePlanActivity $record): bool
     {
         return $record->ehealthLinks()->where('status', JobStatus::PENDING->value)->exists();

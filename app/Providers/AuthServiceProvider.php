@@ -4,18 +4,22 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Auth\EHealth\Guards\EHealthGuard;
+use App\Auth\EHealth\Providers\EHealthUserProvider;
+use App\Auth\EHealth\Services\TokenStorage;
+use App\Models\CarePlan;
+use App\Models\User;
 use App\Policies\DeviceDefinitionPolicy;
 use App\Policies\DrugPolicy;
 use App\Policies\ServiceCatalogPolicy;
+use App\Services\MedicalEvents\CarePlanApprovalService;
+use Illuminate\Auth\Access\Response;
+use Illuminate\Contracts\Cookie\QueueingFactory;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Laravel\Passport\Passport;
-use App\Auth\EHealth\Guards\EHealthGuard;
-use App\Auth\EHealth\Services\TokenStorage;
-use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Contracts\Cookie\QueueingFactory;
-use App\Auth\EHealth\Providers\EHealthUserProvider;
-use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -65,5 +69,13 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('view-drugs', [DrugPolicy::class, 'view']);
         Gate::define('view-device-definitions', [DeviceDefinitionPolicy::class, 'view']);
         Gate::define('view-service-catalog', [ServiceCatalogPolicy::class, 'view']);
+
+        // TODO: Migrate existing CarePlan lifecycle and approval callers to update, then remove this alias.
+        Gate::define('manage', static fn (User $user, mixed $resource = null): Response => $resource instanceof CarePlan
+            ? Gate::forUser($user)->inspect('update', $resource)
+            : Response::deny());
+
+        // TODO: Remove the shared gate when activity and prescription actions enforce their own resource permissions.
+        Gate::define('manageActivities', [CarePlanApprovalService::class, 'authorizeActivityManagement']);
     }
 }

@@ -645,7 +645,7 @@ class CarePlanCreate extends BasePatientComponent
         $user = Auth::user();
         $legalEntity = legalEntity();
         if ($user === null || $legalEntity === null || $this->draftUuid === null
-            || $user->cannot('saveDraft', [CarePlan::class, $this->draftOpenedById, $this->draftLegalEntityId])) {
+            || !$this->draftContextMatches($user) || $user->cannot('create', CarePlan::class)) {
             Session::flash('error', __('care-plan.no_permission_create'));
 
             return;
@@ -724,16 +724,24 @@ class CarePlanCreate extends BasePatientComponent
         return !($this instanceof CarePlanUpdate);
     }
 
+    // TODO: Move this local form-context check into CarePlanForm when its draft validation is consolidated.
+    protected function draftContextMatches(User $user): bool
+    {
+        return $this->draftOpenedById === $user->id
+            && $this->draftLegalEntityId !== null
+            && $this->draftLegalEntityId === legalEntity()?->id;
+    }
+
     protected function draftEncounter(Person $person): ?Encounter
     {
         $user = Auth::user();
         if ($user === null || !Str::isUuid($this->form->encounter)
-            || $user->cannot('saveDraft', [CarePlan::class, $this->draftOpenedById, $this->draftLegalEntityId])) {
+            || !$this->draftContextMatches($user) || $user->cannot('create', CarePlan::class)) {
             return null;
         }
 
-        $encounter = Repository::carePlan()->findEncounter($this->form->encounter, $person->id);
-        if ($encounter === null || $user->cannot('useEncounterForDraft', [CarePlan::class, $encounter, $person])) {
+        $encounter = Repository::carePlan()->findEncounter($this->form->encounter, $person->id, forDraftCreation: true);
+        if ($encounter === null || $user->cannot('view', [$encounter, $person])) {
             return null;
         }
 

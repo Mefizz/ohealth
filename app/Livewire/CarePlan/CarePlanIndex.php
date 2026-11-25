@@ -4,21 +4,20 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Enums\CarePlanStatusFilter;
 use App\Enums\CarePlanCompletenessFilter;
-use App\Traits\SynchronizesCarePlans;
-use Livewire\Attributes\Computed;
-use Illuminate\Database\Eloquent\Collection;
-
+use App\Enums\CarePlanStatusFilter;
+use App\Jobs\CarePlanFullSync;
 use App\Models\CarePlan;
 use App\Repositories\Repository;
+use App\Traits\HandlesCarePlanSync;
+use App\Traits\SynchronizesCarePlans;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Livewire\Component;
-use App\Traits\HandlesCarePlanSync;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Component;
 use Throwable;
-use App\Jobs\CarePlanFullSync;
 
 class CarePlanIndex extends Component
 {
@@ -67,6 +66,11 @@ class CarePlanIndex extends Component
         if (empty($this->searchRequisition)) {
             return;
         }
+        if (Auth::user()?->can('viewAny', CarePlan::class) !== true) {
+            session()->flash('error', __('care-plan.sync_access_denied'));
+
+            return;
+        }
 
         try {
             $this->synchronizeSearch(['requisition' => $this->searchRequisition], (int) legalEntity()->id);
@@ -82,6 +86,8 @@ class CarePlanIndex extends Component
 
     public function mount(): void
     {
+        abort_unless(Auth::user()?->can('viewAny', CarePlan::class), 404);
+
         $this->syncBatchIds = $this->findRunningBatchesByLegalEntity(legalEntity()->id)
             ->filter(static fn ($batch): bool => str_starts_with($batch->name, CarePlanFullSync::BATCH_NAME.'_'))
             ->pluck('id')->all();
@@ -89,7 +95,9 @@ class CarePlanIndex extends Component
 
     public function sync(): void
     {
-        if (Auth::user()->cannot('sync', CarePlan::class)) {
+        // TODO: Share the employee precondition across the CarePlan sync entry points.
+        $user = Auth::user();
+        if ($user === null || $user->cannot('viewAny', CarePlan::class) || $user->activeEmployee() === null) {
             session()->flash('error', __('care-plan.sync_access_denied'));
 
             return;
@@ -102,7 +110,7 @@ class CarePlanIndex extends Component
         $this->syncBatchIds = [];
         $this->syncInitiationFailed = false;
         try {
-            $persons = Repository::carePlan()->patientsForSync(legalEntity()->id, auth()->user());
+            $persons = Repository::carePlan()->patientsForSync(legalEntity()->id, $user);
             foreach ($persons->values() as $index => $person) {
                 try {
                     $batchId = $this->startCarePlanPatientSync($person, firstPageSynchronously: $index === 0);
@@ -145,6 +153,8 @@ class CarePlanIndex extends Component
     #[Computed]
     public function carePlans(): Collection
     {
+        abort_unless(Auth::user()?->can('viewAny', CarePlan::class), 404);
+
         return Repository::carePlan()->listing(legalEntity()->id, ['status' => $this->filterStatus, 'completeness' => $this->filterCompleteness, 'name' => $this->filterName, 'startDate' => $this->filterStartDateRange, 'endDate' => $this->filterEndDateRange, 'encounterId' => $this->filterEncounterId, 'requisition' => $this->searchRequisition]);
     }
 

@@ -42,8 +42,8 @@ class CarePlanUpdate extends CarePlanCreate
         $carePlan = $repository->findById($bound instanceof CarePlan ? $bound->id : (int) $bound);
         abort_if($carePlan === null, 404);
         $this->carePlan = $carePlan;
-        $this->authorize('view', $this->carePlan);
-        $this->authorize('manage', $this->carePlan);
+        $user = Auth::user();
+        abort_unless($user?->can('view', $this->carePlan) && $user->can('update', $this->carePlan), 404);
         if ($repository->hasPendingSubmission($this->carePlan) || CarePlanStatus::fromStored($this->carePlan->status) !== CarePlanStatus::DRAFT) {
             Session::flash('info', __('care-plan.cannot_edit_non_draft'));
             $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id], navigate: true);
@@ -51,7 +51,6 @@ class CarePlanUpdate extends CarePlanCreate
 
             return;
         }
-        $this->authorize('update', $this->carePlan);
         if ($this->carePlan->requiresFhirImport()) {
             Session::flash('warning', __($this->carePlan->status === CarePlanStatus::DRAFT->value ? 'care-plan.draft_backfill_required' : 'care-plan.full_sync_required'));
             $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id], navigate: true);
@@ -91,7 +90,9 @@ class CarePlanUpdate extends CarePlanCreate
             return;
         }
 
+        $repository = Repository::carePlan();
         try {
+            $repository->assertDraftSubmissionAllowed($this->carePlan);
             $this->synchronizeSystemFields();
             $this->form->validate();
         } catch (ValidationException $exception) {
@@ -106,12 +107,10 @@ class CarePlanUpdate extends CarePlanCreate
         // so a draft edited to a different "умови надання послуг" keeps a matching author.
         $author = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null);
 
-        $repository = Repository::carePlan();
-
         try {
             $repository->assertFhirStorageReady();
-            $repository->updateById($this->carePlan->id, [
-                'author_id' => $author?->id ?? $this->carePlan->author_id,
+            $repository->saveForm([
+                'author_id' => $author?->id ?? $this->carePlan->authorId,
                 'category' => $this->form->category,
                 'co_authors' => $this->form->coAuthors,
                 'context' => $this->form->context ?: null,
@@ -130,7 +129,11 @@ class CarePlanUpdate extends CarePlanCreate
                 'description' => $this->form->description ?: null,
                 'note' => $this->form->note ?: null,
                 'inform_with' => $this->form->informWith ?: null,
-            ]);
+            ], $this->carePlan->personId, legalEntity()->id, $this->carePlan->id, draftOnly: true);
+        } catch (ValidationException $exception) {
+            $this->handleValidationFailed($exception);
+
+            return;
         } catch (ClinicalStorageException $exception) {
             Session::flash('error', $exception->getMessage());
 
@@ -144,7 +147,11 @@ class CarePlanUpdate extends CarePlanCreate
 
     public function delete(CarePlanRepository $repository): void
     {
-        $this->authorize('update', $this->carePlan);
+        if (Auth::user()?->can('update', $this->carePlan) !== true) {
+            Session::flash('error', __('care-plan.no_permission_update'));
+
+            return;
+        }
         if (isset($this->carePlan) && $this->carePlan->exists) {
             if ($repository->deleteDraft($this->carePlan->id)) {
                 session()->flash('success', __('Чернетку плану лікування успішно видалено.'));
@@ -175,6 +182,7 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         try {
+            Repository::carePlan()->assertDraftSubmissionAllowed($this->carePlan);
             $this->synchronizeSystemFields();
             $this->form->validate();
             $this->validateCategoryForSigning();
@@ -201,12 +209,12 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         try {
+            $repository->assertDraftSubmissionAllowed($this->carePlan);
             $this->synchronizeSystemFields();
             $validated = $this->form->validate($this->form->rulesForSigning());
             $this->validateCategoryForSigning();
-            $repository->assertDraftSubmissionAllowed($this->carePlan);
         } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception, closeModal: true);
+            $this->handleValidationFailed($exception);
 
             return;
         }

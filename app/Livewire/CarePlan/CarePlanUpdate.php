@@ -4,35 +4,33 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Classes\eHealth\EHealth;
+use App\Dto\CarePlan\Form as CarePlanFormData;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\CarePlanStatus;
-use App\Exceptions\EHealth\EHealthConnectionException;
-use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\EHealth\EHealthValidationException;
 use App\Exceptions\MedicalEvents\ClinicalStorageException;
-use App\Exceptions\Signature\SignatureException;
-use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\Fhir;
+use ArrayObject;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
-use Throwable;
 
 class CarePlanUpdate extends CarePlanCreate
 {
     #[Locked]
     public CarePlan $carePlan;
 
+    #[Locked]
+    public string $draftRevision;
+
     public function hydrate(): void
     {
-        abort_unless(Auth::user()->can('view', $this->carePlan), 404);
-        $this->carePlan = Repository::carePlan()->findById($this->carePlan->id);
+        abort_unless(Auth::user()?->can('view', $this->carePlan), 404);
+        $this->carePlan = Repository::carePlan()->findById($this->carePlan->id) ?? abort(404);
     }
 
     public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null, $carePlan = null): void
@@ -52,7 +50,7 @@ class CarePlanUpdate extends CarePlanCreate
             return;
         }
         if ($this->carePlan->requiresFhirImport()) {
-            Session::flash('warning', __($this->carePlan->status === CarePlanStatus::DRAFT->value ? 'care-plan.draft_backfill_required' : 'care-plan.full_sync_required'));
+            Session::flash('warning', __('care-plan.draft_backfill_required'));
             $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id], navigate: true);
             $this->skipRender();
 
@@ -61,17 +59,16 @@ class CarePlanUpdate extends CarePlanCreate
 
         parent::mount($legalEntity, $this->carePlan->personId);
         $resource = $repository->getResource($this->carePlan->id);
+        $this->draftRevision = $repository->draftRevision($resource);
         $fields = Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]);
-        foreach ($fields as $field => $value) {
-            if (property_exists($this->form, $field)) {
-                $this->form->{$field} = $value ?? '';
-            }
-        }
+        $mapper = objectMapper();
+        $formData = $mapper->map(new ArrayObject($fields), CarePlanFormData::class);
+        $mapper->map($formData, $this->form);
         $this->form->episodes = $repository->resolveEpisodeLabels($this->form->episodes, $this->personId);
         $this->carePlanUuid = $resource['id'];
         $this->patientUuid = $this->carePlan->person->uuid;
         $this->form->patient = $this->carePlan->person->fullName ?? '';
-        $this->form->medicalNumber = (string) ($this->carePlan->encounterId ?? '');
+        $this->form->setMedicalNumber((string) ($this->carePlan->encounterId ?? ''));
         $this->synchronizeSystemFields();
         if ($this->carePlan->encounter) {
             $this->diagnoses = $this->buildDiagnosesForUi($this->carePlan->encounter);
@@ -79,70 +76,53 @@ class CarePlanUpdate extends CarePlanCreate
         $this->refreshCategoryOptions();
     }
 
-    /**
-     * Update existing local draft.
-     */
+    /** Save the hydrated local draft. */
     public function save(): void
     {
-        if (Auth::user()?->cannot('update', $this->carePlan)) {
+        if ($this->persistDraft()) {
+            Session::flash('success', __('care-plan.draft_updated'));
+            $this->redirectRoute('care-plans.edit', [legalEntity(), $this->carePlan->id], navigate: true);
+        }
+    }
+
+    public function startSigningProcess(): void
+    {
+        if (Auth::user()?->can('create', CarePlan::class) !== true) {
+            Session::flash('error', __('care-plan.no_permission_create'));
+
+            return;
+        }
+
+        if ($this->persistDraft()) {
+            $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id, 'action' => 'sign_plan'], navigate: true);
+        }
+    }
+
+    protected function persistDraft(): bool
+    {
+        if (Auth::user()?->can('update', $this->carePlan) !== true) {
             Session::flash('error', __('care-plan.no_permission_update'));
 
-            return;
+            return false;
         }
 
-        $repository = Repository::carePlan();
         try {
-            $repository->assertDraftSubmissionAllowed($this->carePlan);
+            $repository = Repository::carePlan();
             $this->synchronizeSystemFields();
-            $this->form->validate();
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
+            $fields = $this->form->validate($this->form->rulesForDraftEdit());
+            $stored = $repository->getResource($this->carePlan->id);
+            $repository->updateDraft($this->carePlan, $this->prepareEditedDraft($stored, $fields), $this->draftRevision);
 
-            return;
+            return true;
+        } catch (ValidationException|ClinicalStorageException $exception) {
+            if ($exception instanceof ValidationException) {
+                $this->handleValidationFailed($exception);
+            } else {
+                Session::flash('error', $exception->getMessage());
+            }
+
+            return false;
         }
-
-        $encounterData = $this->resolveEncounterData();
-
-        // Re-resolve the author for the (possibly changed) terms_of_service, same as on create,
-        // so a draft edited to a different "умови надання послуг" keeps a matching author.
-        $author = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null);
-
-        try {
-            $repository->assertFhirStorageReady();
-            $repository->saveForm([
-                'author_id' => $author?->id ?? $this->carePlan->authorId,
-                'category' => $this->form->category,
-                'co_authors' => $this->form->coAuthors,
-                'context' => $this->form->context ?: null,
-                'title' => $this->form->title,
-                'terms_of_service' => $this->form->termsOfService ?: null,
-                'period_start' => $this->form->periodStartIsoDate(),
-                'period_start_time' => $this->form->periodStartTime,
-                'period_end_time' => $this->form->periodEndTime,
-                'period_end' => $this->form->periodEndIsoDate(),
-                'encounter_id' => $encounterData['id'],
-                'addresses' => $encounterData['addresses'],
-                'supporting_info' => [
-                    'episodes' => $this->form->episodes,
-                    'medical_records' => $this->form->medicalRecords,
-                ],
-                'description' => $this->form->description ?: null,
-                'note' => $this->form->note ?: null,
-                'inform_with' => $this->form->informWith ?: null,
-            ], $this->carePlan->personId, legalEntity()->id, $this->carePlan->id, draftOnly: true);
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
-            return;
-        } catch (ClinicalStorageException $exception) {
-            Session::flash('error', $exception->getMessage());
-
-            return;
-        }
-
-        session()->flash('success', __('care-plan.draft_updated') ?? 'План лікування успішно збережено');
-
-        $this->redirectRoute('care-plans.edit', [legalEntity(), $this->carePlan->id], navigate: true);
     }
 
     public function delete(CarePlanRepository $repository): void
@@ -170,121 +150,37 @@ class CarePlanUpdate extends CarePlanCreate
         $this->redirectRoute('persons.care-plans', [legalEntity(), $this->personId], navigate: true);
     }
 
-    /**
-     * Start the signing process by opening the signature modal.
-     */
-    public function startSigningProcess(): void
+    protected function prepareEditedDraft(array $stored, array $fields): CarePlanData
     {
-        if (Auth::user()?->can('update', $this->carePlan) !== true) {
-            Session::flash('error', __('care-plan.no_permission_update'));
-
-            return;
+        $repository = Repository::carePlan();
+        $user = Auth::user();
+        $person = $this->carePlan->person;
+        $encounter = $repository->findEncounter($this->form->encounter, $person->id, forDraftCreation: true);
+        if ($encounter === null || $user?->can('view', [$encounter, $person]) !== true) {
+            throw ValidationException::withMessages(['form.encounter' => __('validation.exists', ['attribute' => __('care-plan.encounter')])]);
+        }
+        $repository->assertCategoryForEncounter($this->form->category, $encounter->uuid, $person->id);
+        $addresses = $repository->encounterData($encounter->uuid, $person->id, $this->conditionUuid ?: null)['addresses'];
+        if ($addresses === []) {
+            throw ValidationException::withMessages(['form.category' => __('care-plan.category_diagnosis_unavailable')]);
         }
 
-        try {
-            Repository::carePlan()->assertDraftSubmissionAllowed($this->carePlan);
-            $this->synchronizeSystemFields();
-            $this->form->validate();
-            $this->validateCategoryForSigning();
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
-            return;
+        $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
+        $authorUuid = $author?->uuid ?? data_get($stored, 'author.identifier.value');
+        if ($authorUuid === null) {
+            throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
         }
 
-        $this->showSignatureModal = true;
+        $mapper = objectMapper();
+        $draft = $mapper->map($this->form, CarePlanData::class);
+        $draft->prepareDraftUpdate($stored, $fields, $authorUuid, $addresses, $mapper);
+
+        return $draft;
     }
 
-    /**
-     * Sign with KEP and send to eHealth (Update current plan).
-     */
-    public function sign(CarePlanRepository $repository, string $keyContainer = '', string $password = ''): void
+    protected function isDraftCreation(): bool
     {
-        $this->form->useSigningSecrets($keyContainer, $password);
-
-        if (Auth::user()?->cannot('update', $this->carePlan)) {
-            Session::flash('error', __('care-plan.no_permission_update'));
-
-            return;
-        }
-
-        try {
-            $repository->assertDraftSubmissionAllowed($this->carePlan);
-            $this->synchronizeSystemFields();
-            $validated = $this->form->validate($this->form->rulesForSigning());
-            $this->validateCategoryForSigning();
-        } catch (ValidationException $exception) {
-            $this->handleValidationFailed($exception);
-
-            return;
-        }
-
-        $encounterData = $this->resolveEncounterData();
-
-        $termsOfService = $this->form->termsOfService;
-        $author = Auth::user()?->getCarePlanWriterEmployee($termsOfService);
-        $this->logCarePlanAuthorRoleDebug($author, $termsOfService);
-
-        try {
-            $repository->assertFhirStorageReady(beforeSubmission: true);
-            $mapping = $repository->formContext(array_replace($this->form->toArray(), [
-                'uuid' => $this->carePlanUuid,
-                'author' => $author?->uuid,
-                'addresses' => $encounterData['addresses'],
-            ]), $this->carePlan->id);
-            $carePlanResource = Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
-            $carePlanPayload = CarePlanForm::buildCreateContent($carePlanResource);
-
-            $signedContent = signatureService()->signData(
-                $carePlanPayload,
-                $validated['knedp'],
-                $validated['keyContainer'],
-                $validated['password'],
-                Auth::user()->party->taxId
-            );
-
-            $carePlanResource['status'] = CarePlanStatus::DRAFT->value;
-            $carePlan = $repository->storeResource($carePlanResource, (int) $this->personId, (int) legalEntity()->id, $this->carePlan->id);
-            $finalResponse = $this->submitClinicalOperation($carePlan, ['status' => CarePlanStatus::PENDING->value], fn () => EHealth::carePlan()->create($this->patientUuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
-            if ($finalResponse === null) {
-                $this->redirectRoute('care-plans.show', [legalEntity(), $carePlan->id], navigate: true);
-
-                return;
-            }
-
-            session()->flash('success', __('care-plan.signed_and_sent'));
-
-            $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id], navigate: true);
-
-        } catch (EHealthConnectionException $exception) {
-            Log::error('CarePlan: connection error: ' . $exception->getMessage());
-            Session::flash('error', __('care-plan.connection_error'));
-            $this->showSignatureModal = false;
-        } catch (EHealthValidationException|EHealthResponseException $exception) {
-            if (method_exists($exception, 'report')) {
-                $exception->report();
-            }
-            Log::error('CarePlan: eHealth error: ' . $exception->getMessage());
-            $msg = $exception instanceof EHealthValidationException
-                ? $exception->getFormattedMessage()
-                : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
-            Session::flash('error', $msg);
-            $this->showSignatureModal = false;
-        } catch (ClinicalStorageException $exception) {
-            Session::flash('error', $exception->getMessage());
-            $this->showSignatureModal = false;
-        } catch (SignatureException $exception) {
-            $exception->handle('Error when signing care plan');
-            $this->showSignatureModal = false;
-        } catch (Throwable $exception) {
-            Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [
-                'file' => $exception->getFile(),
-                'line' => $exception->getLine(),
-                'trace' => $exception->getTraceAsString(),
-            ]);
-            Session::flash('error', __('care-plan.unexpected_error'));
-            $this->showSignatureModal = false;
-        }
+        return false;
     }
 
     public function render()

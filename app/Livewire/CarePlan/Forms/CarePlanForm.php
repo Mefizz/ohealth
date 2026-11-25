@@ -14,7 +14,8 @@ use Illuminate\Validation\ValidationException;
 class CarePlanForm extends BaseForm
 {
     public string $patient = '';
-    public string $medicalNumber = '';
+    /** Legacy read-only Livewire binding used by the existing patient data template. */
+    public string $medical_number = '';
     public string $author = '';
     public array $coAuthors = [];
     public string $category = '';
@@ -34,6 +35,11 @@ class CarePlanForm extends BaseForm
     public array $medicalRecords = [];
     public ?string $based_on = null;
     public ?string $part_of = null;
+
+    public function setMedicalNumber(string $medicalNumber): void
+    {
+        $this->medical_number = $medicalNumber;
+    }
 
     /**
      * Get the default validation rules.
@@ -71,8 +77,9 @@ class CarePlanForm extends BaseForm
             'episodes' => 'array|list',
             'medicalRecords' => 'array|list',
             'coAuthors.*' => ['nullable', 'uuid', Rule::in($authorUuids)],
-            'episodes.*' => ['required', 'uuid', 'distinct', Rule::in($episodeUuids)],
-            'medicalRecords.*' => ['required', 'string', 'distinct', Rule::in($medicalRecordKeys)],
+            'episodes.*' => 'array',
+            'episodes.*.uuid' => ['required', 'uuid', 'distinct', Rule::in($episodeUuids)],
+            'medicalRecords.*' => 'array',
         ]);
 
         $start = $this->periodStartIsoDate().' '.($this->periodStartTime ?: '00:00');
@@ -81,17 +88,46 @@ class CarePlanForm extends BaseForm
             throw ValidationException::withMessages(['form.periodEnd' => __('care-plan.period_end_before_start')]);
         }
 
+        $validated['episodes'] = array_column($validated['episodes'], 'uuid');
+        $validated['medicalRecords'] = collect($validated['medicalRecords'])->map(static function (array $record): string {
+            $type = $record['type'] ?? data_get($record, 'identifier.type.coding.0.code', '');
+            $uuid = $record['uuid'] ?? data_get($record, 'identifier.value', '');
+
+            return is_string($type) && is_string($uuid) ? $type.':'.$uuid : '';
+        })->unique()->values()->all();
+        if (array_diff($validated['medicalRecords'], $medicalRecordKeys) !== []) {
+            throw ValidationException::withMessages(['form.medicalRecords' => __('validation.exists', [
+                'attribute' => __('care-plan.medical_record'),
+            ])]);
+        }
+
         $validated['coAuthors'] = array_values(array_unique(array_filter($validated['coAuthors'])));
 
         return $validated;
     }
 
-    /**
-     * Validation rules for signing.
-     */
     public function rulesForSigning(): array
     {
         return array_merge($this->rules(), $this->signingRules());
+    }
+
+    /** Validate the editable values and reference shapes of an already saved draft. */
+    public function rulesForDraftEdit(): array
+    {
+        return [
+            ...$this->rules(),
+            'periodStartTime' => 'nullable|date_format:H:i,H:i:s',
+            'periodEndTime' => 'nullable|date_format:H:i,H:i:s',
+            'coAuthors' => 'array',
+            'coAuthors.*' => 'nullable|uuid',
+            'episodes.*' => 'array',
+            'episodes.*.uuid' => 'required|uuid',
+            'medicalRecords.*' => 'array',
+            'medicalRecords.*.identifier' => 'sometimes|array',
+            'medicalRecords.*.displayValue' => 'sometimes|nullable|string',
+            'medicalRecords.*.uuid' => 'required_without:medicalRecords.*.identifier|uuid',
+            'medicalRecords.*.type' => 'required_without:medicalRecords.*.identifier|in:procedure,diagnostic_report',
+        ];
     }
 
     public function periodStartIsoDate(): string

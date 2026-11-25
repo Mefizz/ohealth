@@ -126,13 +126,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
 
     private const array FHIR_RELATIONS = ['subjectReference.type.coding', 'statusReasonConcept.coding', 'categoryConcept.coding', 'termsOfServiceConcept.coding', 'authorReference.type.coding', 'basedOn.type.coding', 'partOf.type.coding', 'encounterIdentifier.type.coding', 'careManager.type.coding', 'managingOrganization.type.coding', 'effectivePeriod', 'supportingInfoReferences.type.coding', 'contributors.type.coding'];
 
-    // TODO: Move the display eager-load list to the read query used by the CarePlan components.
     private function uiRelations(): array
     {
         return [...self::FHIR_RELATIONS, 'person.names', 'author.party', 'encounter.episode', 'encounter.diagnoses.condition.type.coding', 'approvals.grantedTo.type.coding', ...array_map(static fn (string $relation): string => 'activities.'.$relation, CarePlanActivityRepository::FHIR_RELATIONS), 'activities.author.party'];
     }
 
-    // TODO: Remove after the editor and signing path take their own Form and eHealth DTOs.
     public function formContext(array $form, ?int $localId = null): array
     {
         unset($form['keyContainer'], $form['key_container'], $form['password'], $form['knedp']);
@@ -177,26 +175,13 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return ['data' => $data, 'context' => ['resource' => $resource, 'timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]];
     }
 
-    // TODO: Remove after the local editor saves a Model DTO directly.
-    public function saveForm(
-        array $form,
-        int $personId,
-        int $legalEntityId,
-        ?int $localId = null,
-        bool $draftOnly = false
-    ): CarePlan {
-        return $this->storageTransaction(function () use ($form, $personId, $legalEntityId, $localId, $draftOnly): CarePlan {
+    public function saveForm(array $form, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
+    {
+        return $this->storageTransaction(function () use ($form, $personId, $legalEntityId, $localId): CarePlan {
             if ($localId !== null) {
-                $record = CarePlan::whereKey($localId)
-                    ->wherePersonId($personId)
-                    ->whereLegalEntityId($legalEntityId)
-                    ->lockForUpdate()
-                    ->firstOrFail();
+                $record = CarePlan::whereKey($localId)->lockForUpdate()->firstOrFail();
                 if ($this->hasPendingSubmission($record)) {
                     throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
-                }
-                if ($draftOnly && CarePlanStatus::fromStored($record->status) !== CarePlanStatus::DRAFT) {
-                    throw ValidationException::withMessages(['submission' => __('care-plan.cannot_edit_non_draft')]);
                 }
             }
 
@@ -208,7 +193,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Compatibility projection for the existing UI; the historical columns are not written. */
-    // TODO: Remove after listing and detail components consume Form or display DTOs.
     private function present(CarePlan $plan, bool $forListing = false): CarePlan
     {
         if ($plan->detailsSyncedAt === null) {
@@ -233,7 +217,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Display data only: keep the canonical supporting references unchanged. */
-    // TODO: Resolve episode labels when building the display DTO in the component.
     public function resolveEpisodeLabels(array $references, int $personId): array
     {
         $episodes = Episode::wherePersonId($personId)
@@ -249,7 +232,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }, $references);
     }
 
-    // TODO: Move the patient-scoped diagnosis selection to a Condition model scope.
     public function addressConditions(CarePlan $plan): Collection
     {
         $uuids = collect($plan->addresses ?? [])->map(static function (array $address): ?string {
@@ -262,7 +244,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->whereIn('uuid', $uuids)->with('code.coding')->get()->keyBy('uuid');
     }
 
-    // TODO: Resolve route and synchronization identity in the sync caller.
     public function resolvePatientContext(?int $personId, ?string $patientUuid): array
     {
         $query = Person::query();
@@ -275,7 +256,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Save list entries without treating a summary as a complete clinical resource. */
-    // TODO: Replace the array input with the Model DTO for validated list results.
     public function storeSummaries(array $summaries, int $personId, int $legalEntityId): void
     {
         foreach ($summaries as $summary) {
@@ -299,7 +279,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Persist the validated detail DTOs here and move submission reconciliation to the sync caller.
     public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
     {
         return $this->storageTransaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
@@ -316,7 +295,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Registered legacy resources require a full remote sync, not a guess from lossy columns. */
-    // TODO: Move backfill orchestration to its Artisan command and keep only the database writes here.
     public function backfillResources(int $legalEntityId, bool $write = false): array
     {
         $report = ['plans' => 0, 'activities' => 0, 'converted' => 0, 'needsRemoteSync' => [], 'errors' => []];
@@ -378,7 +356,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $report;
     }
 
-    // TODO: Move legacy row conversion to the backfill DTO and remove it after the backfill retires.
     private function legacyDraftResource(CarePlan $plan): array
     {
         $plan->loadMissing(['author', 'encounter', 'effectivePeriod', 'categoryConcept.coding', 'basedOn.type.coding', 'partOf.type.coding', 'encounterIdentifier.type.coding', 'supportingInfoReferences.type.coding']);
@@ -410,7 +387,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return Fhir::carePlan()->toFhir($data, ['timezone' => config('app.timezone')]);
     }
 
-    // TODO: Remove the schema probe once normalized CarePlan storage is required in every installation.
     public function assertFhirStorageReady(bool $beforeSubmission = false): void
     {
         $this->assertStorageSchema([
@@ -425,7 +401,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Store a complete, normalized resource. This method performs no remote requests. */
-    // TODO: Replace the array adapter with Model DTO persistence when full detail sync is migrated.
     public function storeResource(array $resource, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
     {
         if (!isset($resource['id'], $resource['title'], $resource['status'], $resource['period']['start'])) {
@@ -474,7 +449,85 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
-    // TODO: Replace array serialization with the DTO required by each reader or signing action.
+    /** Persist a validated full eHealth result into the normalized plan and its relations. */
+    public function saveConfirmed(CarePlanData $data, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
+    {
+        return $this->storageTransaction(function () use ($data, $personId, $legalEntityId, $localId): CarePlan {
+            if ($localId === null) {
+                Person::whereKey($personId)->lockForUpdate()->firstOrFail();
+            }
+            $query = CarePlan::wherePersonId($personId)->whereLegalEntityId($legalEntityId)->lockForUpdate();
+            $plan = $localId === null ? $query->whereUuid($data->uuid)->first() : $query->findOrFail($localId);
+            if ($plan !== null && $plan->uuid !== $data->uuid) {
+                throw ValidationException::withMessages(['id' => __('care-plan.document_context_unavailable')]);
+            }
+
+            $plan ??= new CarePlan();
+            if ($plan->exists) {
+                $data->context ??= $plan->context;
+            }
+            $data->personId = $personId;
+            $data->legalEntityId = $legalEntityId;
+            return $this->savePreparedResource($data, $plan);
+        });
+    }
+
+    public function draftRevision(array $resource): string
+    {
+        return hash('sha256', json_encode($resource, JSON_THROW_ON_ERROR));
+    }
+
+    /** Update the same local draft only while the displayed snapshot is still current. */
+    public function updateDraft(CarePlan $draft, CarePlanData $data, string $expectedRevision): CarePlan
+    {
+        return $this->storageTransaction(function () use ($draft, $data, $expectedRevision): CarePlan {
+            $plan = CarePlan::wherePersonId($draft->personId)->whereLegalEntityId($draft->legalEntityId)
+                ->whereUuid($data->uuid)->whereKey($draft->id)->lockForUpdate()->firstOrFail();
+            if (Auth::user()?->can('update', $plan) !== true) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.no_permission_update')]);
+            }
+            $this->assertDraftSubmissionAllowed($plan);
+            if (!hash_equals($expectedRevision, $this->draftRevision($this->getResource($plan)))) {
+                throw ValidationException::withMessages(['submission' => __('care-plan.document_context_unavailable')]);
+            }
+            return $this->savePreparedDraft($data, $plan);
+        });
+    }
+
+    protected function savePreparedDraft(CarePlanData $data, CarePlan $plan): CarePlan
+    {
+        $data->personId = $plan->personId;
+        $data->legalEntityId = $plan->legalEntityId;
+        $data->requisition = $plan->requisition;
+
+        return $this->savePreparedResource($data, $plan);
+    }
+
+    protected function savePreparedResource(CarePlanData $data, CarePlan $plan): CarePlan
+    {
+        $authorUuid = data_get($data->remoteReferences, 'authorReference.identifier.value');
+        $encounterUuid = data_get($data->remoteReferences, 'encounterIdentifier.identifier.value');
+        $data->authorId = $authorUuid === null ? null : Employee::whereUuid($authorUuid)->whereLegalEntityId($data->legalEntityId)->value('id');
+        $data->encounterId = $encounterUuid === null ? null : Encounter::whereUuid($encounterUuid)->value('id');
+        objectMapper()->map($data, $plan);
+
+        $existing = $plan->exists ? $plan : null;
+        foreach ($data->remoteConcepts as $relation => $concept) {
+            $plan->{$relation}()->associate($this->syncCodeableConcept($existing, $concept?->toArray(), $relation));
+        }
+        foreach ($data->remoteReferences as $relation => $reference) {
+            $plan->{$relation}()->associate($this->syncIdentifier($existing, $reference, $relation));
+        }
+        $plan->detailsSyncedAt = now();
+        $plan->saveOrFail();
+        MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
+        foreach ($data->remoteReferenceLists as $relation => $references) {
+            $this->syncPivot($plan, $relation, $this->syncIdentifiers($plan, $references, $relation));
+        }
+
+        return $plan->unsetRelations();
+    }
+
     public function getResource(int|CarePlan $id): array
     {
         $plan = $id instanceof CarePlan ? $id->loadMissing(self::FHIR_RELATIONS) : CarePlan::with(self::FHIR_RELATIONS)->findOrFail($id);
@@ -507,7 +560,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return array_filter($resource, static fn (mixed $value): bool => $value !== null);
     }
 
-    // TODO: Keep the facility query here and move presentation mapping to the listing component.
     public function getByLegalEntity(int $legalEntityId): Collection
     {
         return CarePlan::whereLegalEntityId($legalEntityId)
@@ -516,7 +568,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan, forListing: true));
     }
 
-    // TODO: Move reusable filters to CarePlan scopes and presentation mapping to the listing component.
     public function getByPersonId(int $personId, array $filters = [], ?int $legalEntityId = null): Collection
     {
         $query = CarePlan::wherePersonId($personId)
@@ -549,7 +600,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $this->orderForDisplay($query)->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan, forListing: true));
     }
 
-    // TODO: Keep the record lookup here and move presentation mapping to the caller.
     public function findById(int $id): ?CarePlan
     {
         $plan = CarePlan::with($this->uiRelations())->find($id);
@@ -557,7 +607,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $plan ? $this->present($plan) : null;
     }
 
-    // TODO: Read the submission relation and build the display data in the CarePlan component.
     public function submissionForDisplay(int $id): array
     {
         $record = new CarePlan();
@@ -573,7 +622,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Persist display values in Livewire without rehydrating Eloquent records on each poll. */
-    // TODO: Move patient list orchestration and display options to the listing component.
     public function patientListing(int $personId, array $filters, int $legalEntityId): array
     {
         return $this->getByPersonId($personId, $filters, $legalEntityId)->map(fn (CarePlan $plan): array => [
@@ -595,7 +643,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         ])->all();
     }
 
-    // TODO: Keep the scoped lookup here and move presentation mapping to the caller.
     public function findByUuid(string $uuid, ?int $legalEntityId = null, ?int $personId = null): ?CarePlan
     {
         $query = CarePlan::with($this->uiRelations())->whereUuid($uuid);
@@ -610,7 +657,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $plan ? $this->present($plan) : null;
     }
 
-    // TODO: Remove the legacy array adapter after its remaining callers migrate to saveLocally.
     public function create(array $data): CarePlan
     {
         $input = Arr::toCamelCase($data);
@@ -618,7 +664,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $this->saveForm($input, (int) $input['personId'], (int) $input['legalEntityId']);
     }
 
-    // TODO: Remove this adapter after the editor supplies a validated Model DTO.
     public function update(CarePlan $carePlan, array $data): bool
     {
         $this->saveForm($data, $carePlan->personId, $carePlan->legalEntityId, $carePlan->id);
@@ -626,7 +671,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return true;
     }
 
-    // TODO: Replace array updates with a typed save inside the locked update transaction.
     public function updateById(int $id, array $data): bool
     {
         $carePlan = CarePlan::find($id);
@@ -637,7 +681,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $this->update($carePlan, $data);
     }
 
-    // TODO: Build date bounds in the DTO used by the signing and activity workflows.
     public function resolveEHealthPeriodBounds(CarePlan $carePlan): array
     {
         $period = $this->getResource($carePlan->id)['period'] ?? [];
@@ -645,7 +688,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return ['start' => isset($period['start']) ? CarbonImmutable::parse($period['start'], 'UTC') : null, 'end' => isset($period['end']) ? CarbonImmutable::parse($period['end'], 'UTC') : null];
     }
 
-    // TODO: Use patient-scoped model queries and build the selection labels in the consuming component.
     public function availableGrounds(int $personId): array
     {
         // Fetch patient conditions for outcomeReference selection
@@ -695,7 +737,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return compact('conditions', 'reports', 'observations');
     }
 
-    // TODO: Share the local draft eligibility check with the locked update and keep deletion transactional.
     public function deleteDraft(int $id): bool
     {
         return $this->storageTransaction(function () use ($id): bool {
@@ -718,7 +759,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
-    // TODO: Move the reusable encounter lookup to model scopes and use the Policy from the caller.
     public function findEncounter(int|string $key, ?int $personId = null, bool $forDraftCreation = false): ?Encounter
     {
         $query = Encounter::with(['period', 'episode', 'diagnoses.condition']);
@@ -755,7 +795,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $encounter;
     }
 
-    // TODO: Resolve the form value from the selected encounter in the CarePlan component.
     public function encounterTermsOfService(string $uuid, int $personId): string
     {
         $encounter = $this->findEncounter($uuid, $personId);
@@ -767,7 +806,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $encounter->class?->code === 'INPATIENT' ? 'INPATIENT' : 'OUTPATIENT';
     }
 
-    // TODO: Move the observation predicates to an Observation scope and use it in activity validation.
     public function hasRehabilitationObservation(CarePlan $plan, array $references): bool
     {
         $episodeUuid = $this->episodeUuid($plan);
@@ -799,32 +837,27 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->exists();
     }
 
-    // TODO: Use the existing patient lookup and declaration relationship from the component.
     public function findPatient(int $id): ?Person
     {
         return Person::with(['names', 'declarations' => fn ($query) => $query->active()->latest()->take(1)])->find($id);
     }
 
-    // TODO: Remove the predicted number when the form displays the saved record or encounter identifier.
     public function nextDisplayNumber(): string
     {
         return (string) ((CarePlan::max('id') ?? 0) + 1);
     }
 
-    // TODO: Query the Episode model through patient-scoped selection in the caller.
     public function findEpisode(string $uuid): ?Episode
     {
         return Episode::with('period')->whereUuid($uuid)->first();
     }
 
-    // TODO: Move selection to Episode scopes and formatting to the editor.
     public function activeEpisodes(Person $person): array
     {
         return Episode::forPatient($person)->whereStatus('active')->with('period')->get()
             ->map(fn ($episode): array => ['uuid' => $episode->uuid, 'name' => $episode->name, 'date' => $episode->period?->start ? Carbon::parse($episode->period->start)->format('d.m.Y') : ''])->all();
     }
 
-    // TODO: Use a patient and merged-record Condition scope with the existing view Policy.
     public function findCondition(string $uuid, ?int $personId = null): ?Condition
     {
         $query = Condition::with('code.coding')->whereUuid($uuid);
@@ -845,7 +878,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $condition;
     }
 
-    // TODO: Move reusable predicates to Encounter scopes and build selector labels in the component.
     public function encounterChoices(int $personId, bool $forDraftCreation = false): array
     {
         $person = Person::find($personId);
@@ -901,7 +933,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         })->all();
     }
 
-    // TODO: Move the shared episode eligibility predicate to an Encounter query scope.
     protected function eligibleCarePlanEpisodes(Person $person, string $legalEntityUuid, bool $forDraftCreation): Builder
     {
         // Confirmed MPI merges preserve the original patient or preperson of each medical record.
@@ -911,7 +942,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->selectRaw(in_array(DB::getDriverName(), ['mysql', 'mariadb'], true) ? 'CAST(uuid AS CHAR)' : 'CAST(uuid AS TEXT)');
     }
 
-    // TODO: Move merged encounter eligibility to an Encounter scope and reuse it in the Policy.
     private function mergedEncounterIsEligible(Encounter $encounter, Person $person): bool
     {
         return legalEntity()?->uuid !== null
@@ -923,7 +953,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                 ->exists();
     }
 
-    // TODO: Select contributors through an Employee scope and format their names in the component.
     public function doctors(int $legalEntityId): array
     {
         return Employee::whereLegalEntityId($legalEntityId)->whereIn('employee_type', [Role::DOCTOR, Role::SPECIALIST])->whereStatus(Status::APPROVED)->whereIsActive(true)->with('party')->get()
@@ -936,7 +965,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
      *
      * @return list<string>
      */
-    // TODO: Move diagnosis category selection to the CarePlan component and reuse it in the Form.
     public function categoryCodesForEncounter(string $uuid, int $personId): array
     {
         $addresses = $this->encounterData($uuid, $personId)['addresses'];
@@ -955,7 +983,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return array_values(array_unique($categories));
     }
 
-    // TODO: Move category validation to the Form and reuse it in the submission workflow.
     public function assertCategoryForEncounter(string $category, string $encounterUuid, int $personId): void
     {
         $allowedCategories = $this->categoryCodesForEncounter($encounterUuid, $personId);
@@ -967,7 +994,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Consolidate the local lifecycle precondition with the draft write under the record lock.
     public function assertDraftSubmissionAllowed(CarePlan $plan): void
     {
         $current = CarePlan::whereKey($plan->id)->firstOrFail();
@@ -979,7 +1005,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Move signing orchestration to the CarePlan signing action and its Form.
     public function assertDraftSigningReady(CarePlan $plan): void
     {
         $this->assertDraftSubmissionAllowed($plan);
@@ -991,13 +1016,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         );
     }
 
-    // TODO: Reuse the primary diagnosis relation when it is exposed on Encounter.
     public function primaryDiagnosisForEncounter(Encounter $encounter): ?Condition
     {
         return MedicalEventsRepository::encounter()->primaryDiagnosisConditions($encounter)->first();
     }
 
-    // TODO: Select the clinical records via model relations and map the diagnosis in the consuming DTO.
     public function encounterData(string $uuid, int $personId, ?string $conditionUuid = null): array
     {
         $encounter = $this->findEncounter($uuid, $personId);
@@ -1013,13 +1036,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $data;
     }
 
-    // TODO: Remove this preloader once callers load their required encounter relations.
     public function loadEncounter(Encounter $encounter): void
     {
         $encounter->loadMissing(['period', 'episode', 'diagnoses.condition']);
     }
 
-    // TODO: Reuse the patient registry search scopes and build result labels in the component.
     public function searchPatients(string $firstName, string $lastName, string $birthDate): array
     {
         $firstName = trim($firstName);
@@ -1056,7 +1077,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
      *
      * @see https://e-health-ua.atlassian.net/wiki/spaces/ESOZ/pages/19686719489/AR+Create+Care+Plan
      */
-    // TODO: Move matching active roles to an Employee scope shared with author selection.
     public function authorHasActiveRoleForTermsOfService(Employee $author, string $termsOfService): bool
     {
         return EmployeeRole::query()
@@ -1072,7 +1092,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->exists();
     }
 
-    // TODO: Select patients through model scopes from the CarePlan sync caller.
     public function patientsForSync(int $legalEntityId, User $user): Collection
     {
         $query = Declaration::active()->filterByLegalEntityId($legalEntityId);
@@ -1085,7 +1104,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return Person::whereIn('id', $ids)->get();
     }
 
-    // TODO: Move reusable list predicates to CarePlan scopes and presentation to the list component.
     public function listing(int $legalEntityId, array $filters): Collection
     {
         $query = CarePlan::whereLegalEntityId($legalEntityId)->with($this->uiRelations());
@@ -1111,7 +1129,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $this->orderForDisplay($query)->get()->map(fn (CarePlan $plan): CarePlan => $this->present($plan, forListing: true));
     }
 
-    // TODO: Move this predicate to a CarePlan status scope.
     private function filterStatus(Builder $query, string $status): void
     {
         if ($status === CarePlanStatusFilter::CURRENT->value) {
@@ -1126,13 +1143,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Express the patient and facility filters as an Approval scope.
     public function approvalQuery(int $personId, int $legalEntityId): Builder
     {
         return CarePlan::wherePersonId($personId)->whereLegalEntityId($legalEntityId)->whereNotNull('uuid');
     }
 
-    // TODO: Select incomplete approvals through the Approval scope from the listing component.
     public function incompleteApprovalUuids(int $personId, int $legalEntityId): array
     {
         $query = $this->approvalQuery($personId, $legalEntityId);
@@ -1141,7 +1156,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $query->pluck('uuid')->unique()->values()->all();
     }
 
-    // TODO: Move this predicate to a CarePlan completeness scope.
     private function filterCompleteness(Builder $query, string $completeness): void
     {
         if ($completeness === CarePlanCompletenessFilter::COMPLETE->value) {
@@ -1156,7 +1170,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Apply the listing order through a CarePlan scope selected by the component.
     private function orderForDisplay(Builder $query): Builder
     {
         return $query->orderByRaw("CASE
@@ -1172,7 +1185,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->orderByDesc('care_plans.created_at')->orderByDesc('care_plans.id');
     }
 
-    // TODO: Read the episode UUID from the encounter relationship in the CarePlan model.
     public function episodeUuid(CarePlan $plan): ?string
     {
         $plan->loadMissing('encounter.episode');
@@ -1180,7 +1192,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $plan->encounter?->episode?->value;
     }
 
-    // TODO: Move the reusable grant predicate to an Approval scope and apply it in Policy.
     public function hasGrantedApproval(CarePlan $plan, ?string $employeeUuid): bool
     {
         if (!$employeeUuid) {
@@ -1195,7 +1206,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             && ApprovalStatus::resolve($approval->status)?->isGranted() === true);
     }
 
-    // TODO: Build the detail view data through a display DTO in the CarePlan component.
     public function displayedDetails(CarePlan $plan, array $dictionaries): array
     {
         $resource = $this->getResource($plan);
@@ -1257,20 +1267,17 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         ];
     }
 
-    // TODO: Move the database delete to the existing Approval repository.
     public function removeApproval(CarePlan $plan, string $uuid): void
     {
         $plan->approvals()->whereUuid($uuid)->delete();
     }
 
-    // TODO: Select employees through an Employee scope and map recipient labels in the approval component.
     public function approvalEmployees(int $legalEntityId): array
     {
         return Employee::whereLegalEntityId($legalEntityId)->whereStatus('APPROVED')->whereIsActive(true)->whereIn('employee_type', [Role::DOCTOR->value, Role::SPECIALIST->value])->with('party')->get()
             ->map(fn ($employee): array => ['uuid' => $employee->uuid, 'label' => trim($employee->fullName).' ('.$employee->positionLabel().')'])->all();
     }
 
-    // TODO: Check approval eligibility in Policy before the CarePlan approval action.
     public function assertApprovalCreationReady(CarePlan $plan): void
     {
         $plan = CarePlan::whereKey($plan->id)->firstOrFail();
@@ -1282,7 +1289,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Validate the recipient with the approval Form and the Employee scope.
     public function assertApprovalRecipient(string $employeeUuid, int $legalEntityId): void
     {
         if (!Employee::whereUuid($employeeUuid)->whereLegalEntityId($legalEntityId)->whereStatus('APPROVED')->whereIsActive(true)->exists()) {
@@ -1290,13 +1296,11 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    // TODO: Expose pending submission through a model relation for the local editor and lifecycle actions.
     public function hasPendingSubmission(CarePlan|CarePlanActivity $record): bool
     {
         return $record->ehealthLinks()->where('status', JobStatus::PENDING->value)->exists();
     }
 
-    // TODO: Move the locked progress write to the repository that owns the linked job.
     public function setInpatientApprovalProgress(EhealthLink $submission, string $status, ?int $linkId = null): void
     {
         $this->storageTransaction(function () use ($submission, $status, $linkId): void {
@@ -1307,7 +1311,6 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
-    // TODO: Resolve queue progress from the linked job in the CarePlan approval workflow.
     public function inpatientApprovalProgress(CarePlan $plan): array
     {
         $submission = $this->latestSubmissionLink($plan);
@@ -1329,14 +1332,12 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         return $progress;
     }
 
-    // TODO: Expose the latest submission through the resource model relation.
     public function latestSubmissionLink(CarePlan $plan): ?EhealthLink
     {
         return $plan->ehealthLinks()->with('job')->latest('id')->first();
     }
 
     /** Persist the queue receipt and its batch together, so the page never waits for an untracked job. */
-    // TODO: Dispatch the batch from the approval workflow and persist its receipt with the linked job.
     public function queueInpatientApproval(EhealthLink $submission, LegalEntity $legalEntity, User $user, string $bearerToken, ?string $employeeUuid = null): void
     {
         $this->storageTransaction(function () use ($submission, $legalEntity, $user, $bearerToken, $employeeUuid): void {
@@ -1360,10 +1361,9 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         });
     }
 
-    // TODO: Move submission orchestration to the signing workflow and keep the locked receipt write here.
-    public function beginSubmission(CarePlan|CarePlanActivity $record, array $changes): EhealthLink
+    public function beginSubmission(CarePlan|CarePlanActivity $record, array $changes, array $operationContext = []): EhealthLink
     {
-        return $this->storageTransaction(function () use ($record, $changes) {
+        return $this->storageTransaction(function () use ($record, $changes, $operationContext) {
             $record = $record->newQuery()->whereKey($record->id)->lockForUpdate()->firstOrFail();
             if ($this->hasPendingSubmission($record)) {
                 throw ValidationException::withMessages(['submission' => __('care-plan.submission_pending')]);
@@ -1371,15 +1371,30 @@ class CarePlanRepository extends MedicalEventsBaseRepository
 
             $resource = $record instanceof CarePlan ? $this->getResource($record->id) : Repository::carePlanActivity()->getResource($record->id);
 
+            if ($record instanceof CarePlan && ($changes['status'] ?? null) === CarePlanStatus::PENDING->value) {
+                if (CarePlanStatus::fromStored($record->status) !== CarePlanStatus::DRAFT
+                    || (isset($operationContext['expected']) && $resource !== $operationContext['expected'])) {
+                    throw ValidationException::withMessages(['form.title' => __('care-plan.cannot_edit_non_draft')]);
+                }
+            }
+
             return RemoteEHealthLinksProcessing::startSubmission($record, ['changes' => $changes, 'resource' => $resource]);
         });
     }
 
     /** Apply only a confirmed response; the request is never evidence that eHealth accepted it. */
-    // TODO: Interpret and validate the job response in the eHealth client before saving a Model DTO.
-    public function applySubmissionResult(EhealthLink $link, array $jobData): void
+    public function applySubmissionResult(EhealthLink $link, array $jobData, ?CarePlanData $confirmedPlan = null): void
     {
         $record = $link->linkable;
+        if ($record instanceof CarePlan) {
+            if ($confirmedPlan === null) {
+                throw new InvalidArgumentException('A processed CarePlan requires validated full details.');
+            }
+
+            $this->saveConfirmed($confirmedPlan, $record->personId, $record->legalEntityId, $record->id);
+
+            return;
+        }
         $data = $jobData['response_data'] ?? $jobData['result'] ?? $jobData['data'] ?? [];
         $data = $data[0] ?? $data;
         $data = $data['response_data'] ?? $data['result'] ?? $data['data'] ?? $data;
@@ -1395,37 +1410,36 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
         $changes = $link->job->request_data['changes'];
         $original = $link->job->request_data['resource'];
-        if ($record instanceof CarePlan) {
-            $resource = array_replace($original, $changes, $data);
-            $this->storeResource($resource, $record->personId, $record->legalEntityId, $record->id);
-        } else {
-            $repository = Repository::carePlanActivity();
-            $resource = $original;
-            $resource['detail'] = array_replace($resource['detail'], $changes);
-            foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
-                if (array_key_exists($field, $changes)) {
-                    $resource[$field] = $changes[$field];
-                    unset($resource['detail'][$field]);
-                }
+        $repository = Repository::carePlanActivity();
+        $resource = $original;
+        $resource['detail'] = array_replace($resource['detail'], $changes);
+        foreach (['outcomeCodeableConcept', 'outcomeReference'] as $field) {
+            if (array_key_exists($field, $changes)) {
+                $resource[$field] = $changes[$field];
+                unset($resource['detail'][$field]);
             }
-            $detail = array_replace($resource['detail'], $data['detail'] ?? []);
-            $resource = array_replace($resource, $data);
-            $resource['detail'] = $detail;
-            $repository->storeResource($resource, $record->carePlan, $record->id);
         }
+        $detail = array_replace($resource['detail'], $data['detail'] ?? []);
+        $resource = array_replace($resource, $data);
+        $resource['detail'] = $detail;
+        $repository->storeResource($resource, $record->carePlan, $record->id);
     }
 
-    // TODO: Move completion decisions to the job and keep the transactional writes in repositories.
-    public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false): bool
+    public function finishSubmission(EhealthLink $link, array $jobData, bool $queueInpatientApproval = false, ?CarePlanData $confirmedPlan = null): bool
     {
-        return $this->storageTransaction(function () use ($link, $jobData, $queueInpatientApproval): bool {
+        return $this->storageTransaction(function () use ($link, $jobData, $queueInpatientApproval, $confirmedPlan): bool {
+            $plan = $link->linkable;
+            if ($plan instanceof CarePlan) {
+                // Sync takes the plan lock before touching its submission receipt.
+                CarePlan::whereKey($plan->id)->lockForUpdate()->firstOrFail();
+            }
             $link = EhealthLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
             if ($link->status !== JobStatus::PENDING->value) {
                 return false;
             }
             $processed = strtolower((string) ($jobData['status'] ?? '')) === 'processed';
             if ($processed) {
-                $this->applySubmissionResult($link, $jobData);
+                $this->applySubmissionResult($link, $jobData, $confirmedPlan);
                 if ($link->linkable instanceof CarePlanActivity && isset($jobData['carePlanResource'])) {
                     $plan = $link->linkable->carePlan;
                     $this->storeResource($jobData['carePlanResource'], $plan->personId, $plan->legalEntityId, $plan->id);

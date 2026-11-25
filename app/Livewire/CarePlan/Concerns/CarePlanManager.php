@@ -341,41 +341,6 @@ trait CarePlanManager
         }
     }
 
-    protected function signPlan(CarePlanRepository $repository, array $signingData): void
-    {
-        try {
-            $repository->assertDraftSigningReady($this->carePlan);
-            $resource = $repository->getResource($this->carePlan->id);
-            $payload = CarePlanForm::buildCreateContent($resource);
-            $signedContent = signatureService()->signData($payload, $signingData['knedp'], $signingData['keyContainer'], $signingData['password'], Auth::user()->party->taxId);
-            $result = $this->submitClinicalOperation($this->carePlan, ['status' => CarePlanStatus::PENDING->value], fn () => EHealth::carePlan()->create($this->carePlan->person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
-            if ($result === null) {
-                $this->activateAfterSubmission = true;
-                $this->planSubmission = $repository->submissionState($this->carePlan);
-
-                return;
-            }
-            $this->refreshCarePlan();
-            Session::flash('success', __('care-plan.signed_and_sent'));
-            $this->showSignatureModal = false;
-            $this->activateAfterSubmission = true;
-            $this->continuePlanActivation();
-        } catch (SignatureException $exception) {
-            $exception->handle('Error when signing care plan');
-            $this->planSubmission = $repository->submissionState($this->carePlan);
-            $this->showSignatureModal = false;
-        } catch (Throwable $exception) {
-            report($exception);
-            Session::flash('error', match (true) {
-                $exception instanceof ValidationException => $exception->validator->errors()->first(),
-                $exception instanceof EHealthValidationException => $exception->getFormattedMessage(),
-                default => __('care-plan.unexpected_error'),
-            });
-            $this->planSubmission = $repository->submissionState($this->carePlan);
-            $this->showSignatureModal = false;
-        }
-    }
-
     public function completePlan(CarePlanRepository $repository): void
     {
         $this->authorizeCarePlanWrite();

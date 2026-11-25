@@ -8,15 +8,24 @@ use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
 use App\Core\BaseForm;
 use App\Enums\CarePlanStatus;
+use App\Enums\JobStatus;
 use App\Enums\MedicalProgram\Type;
 use App\Enums\Person\ServiceRequestStatus;
 use App\Enums\User\Role;
+use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\MedicalEvents\ClinicalStorageException;
+use App\Exceptions\Signature\SignatureException;
+use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Models\CarePlan;
 use App\Models\CarePlanActivity;
 use App\Models\Employee\Employee;
+use App\Repositories\CarePlanRepository;
+use App\Repositories\Repository;
 use App\Services\Dictionary\DictionaryManager;
 use App\Services\Dictionary\MedicationProgramPicker;
 use App\Services\MedicalEvents\CarePlanActivityValidationService;
+use App\Services\MedicalEvents\CarePlanApprovalService;
 use App\Services\MedicalEvents\CarePlanLifecycleGateService;
 use App\Services\MedicalEvents\DeviceProgramParticipationGuard;
 use App\Traits\InteractsWithApprovals;
@@ -28,9 +37,11 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Throwable;
 
 abstract class CarePlanComponent extends Component
 {
@@ -290,7 +301,7 @@ abstract class CarePlanComponent extends Component
     {
         if (isset($this->carePlan)) {
             $this->authorize('view', $this->carePlan);
-            $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
+            $this->carePlan = Repository::carePlan()->findById($this->carePlan->id);
             if (property_exists($this, 'activity') && isset($this->activity)) {
                 $this->activity = $this->ownedActivity($this->activity->id);
             }
@@ -301,7 +312,7 @@ abstract class CarePlanComponent extends Component
     {
         $this->authorizeCarePlanWrite();
         // Use fresh consent state for a mutation, even if the page was opened before it expired.
-        $plan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
+        $plan = Repository::carePlan()->findById($this->carePlan->id);
         $this->authorize('manageActivities', $plan);
     }
 
@@ -317,29 +328,29 @@ abstract class CarePlanComponent extends Component
         if ($this->carePlan->requiresFhirImport()) {
             $message = __($this->carePlan->status === CarePlanStatus::DRAFT->value ? 'care-plan.draft_backfill_required' : 'care-plan.full_sync_required');
             Session::flash('error', $message);
-            throw \Illuminate\Validation\ValidationException::withMessages(['carePlan' => $message]);
+            throw ValidationException::withMessages(['carePlan' => $message]);
         }
     }
 
     protected function ownedActivity(int $activityId): CarePlanActivity
     {
-        return app(\App\Repositories\CarePlanActivityRepository::class)->findOwned($this->carePlan->id, $activityId);
+        return Repository::carePlanActivity()->findOwned($this->carePlan->id, $activityId);
     }
 
     protected function ownedActivityByBasedOnUuid(?string $activityUuid): CarePlanActivity
     {
-        return app(\App\Repositories\CarePlanActivityRepository::class)->findOwnedByUuid($this->carePlan->id, $activityUuid);
+        return Repository::carePlanActivity()->findOwnedByUuid($this->carePlan->id, $activityUuid);
     }
 
     protected function bootCarePlan(CarePlan $carePlan): void
     {
         $this->authorize('view', $carePlan);
 
-        $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($carePlan->id);
+        $this->carePlan = Repository::carePlan()->findById($carePlan->id);
 
         $personId = $this->carePlan->personId;
 
-        $grounds = app(\App\Repositories\CarePlanRepository::class)->availableGrounds($personId);
+        $grounds = Repository::carePlan()->availableGrounds($personId);
         $this->availableConditions = $grounds['conditions'];
         $this->availableReports = $grounds['reports'];
         $this->availableObservations = $grounds['observations'];
@@ -430,7 +441,7 @@ abstract class CarePlanComponent extends Component
         $this->patientId = $this->carePlan->person->uuid;
         $this->loadDeviceProgramParticipationState();
 
-        $this->activePrescriptions = app(\App\Repositories\CarePlanActivityRepository::class)
+        $this->activePrescriptions = Repository::carePlanActivity()
             ->linkedDocuments($this->carePlan->activities->pluck('uuid')->all(), 'medication_request', forDisplay: true)
             ->map(function ($record): array {
                 $row = $record->toArray();
@@ -445,6 +456,70 @@ abstract class CarePlanComponent extends Component
         if (in_array($action, ['cancel', 'complete'], true) && $this->canChangePlanLifecycle) {
             $this->openSignatureModal($action);
         }
+
+        $user = Auth::user();
+        if ($action === 'sign_plan' && $this->canSignPlan
+            && $user?->can('update', $this->carePlan) && $user->can('create', CarePlan::class)
+            && method_exists($this, 'sign')) {
+            $this->openSignatureModal($action);
+        }
+    }
+
+    protected function signPlan(CarePlanRepository $repository, array $signingData): void
+    {
+        if (Auth::user()?->can('create', CarePlan::class) !== true) {
+            Session::flash('error', __('care-plan.no_permission_create'));
+
+            return;
+        }
+
+        try {
+            $repository->assertDraftSigningReady($this->carePlan);
+            $resource = $repository->getResource($this->carePlan->id);
+            $api = EHealth::carePlan();
+            $signedContent = signatureService()->signData(
+                $api->prepareCreateContent($resource),
+                $signingData['knedp'],
+                $signingData['keyContainer'],
+                $signingData['password'],
+                Auth::user()->party->taxId
+            );
+            $result = RemoteEHealthLinksProcessing::submitOperation(
+                $this->carePlan,
+                ['status' => CarePlanStatus::PENDING->value],
+                fn () => $api->create($this->carePlan->person->uuid, [
+                    'signed_data' => $signedContent,
+                    'signed_data_encoding' => 'base64',
+                ], $this->carePlan->uuid),
+                operationContext: ['expected' => $resource]
+            );
+            if ($result === null) {
+                $this->showSignatureModal = false;
+                $this->activateAfterSubmission = true;
+                $this->planSubmission = $repository->submissionState($this->carePlan);
+
+                return;
+            }
+            $this->refreshCarePlan();
+            Session::flash('success', __('care-plan.signed_and_sent'));
+            $this->showSignatureModal = false;
+            $this->activateAfterSubmission = true;
+            $this->continuePlanActivation();
+        } catch (SignatureException $exception) {
+            $exception->handle('Error when signing care plan');
+            $this->planSubmission = $repository->submissionState($this->carePlan);
+        } catch (Throwable $exception) {
+            report($exception);
+            Session::flash('error', match (true) {
+                $exception instanceof ValidationException => $exception->validator->errors()->first(),
+                $exception instanceof EHealthValidationException => $exception->getFormattedMessage(),
+                $exception instanceof ClinicalStorageException => $exception->getMessage(),
+                $exception instanceof EHealthConnectionException => __('care-plan.connection_error'),
+                default => __('care-plan.unexpected_error'),
+            });
+            $this->planSubmission = $repository->submissionState($this->carePlan);
+            $this->showSignatureModal = false;
+        }
     }
 
     /**
@@ -454,8 +529,8 @@ abstract class CarePlanComponent extends Component
     {
         return $this->carePlanStatusCode() === CarePlanStatus::DRAFT->value
             && !$this->carePlan->requiresFhirImport()
-            && !in_array($this->planSubmission['status'] ?? null, [\App\Enums\JobStatus::PENDING->value, \App\Enums\JobStatus::PROCESSING->value, \App\Enums\JobStatus::PROCESSED->value], true)
-            && !app(\App\Repositories\CarePlanRepository::class)->hasPendingSubmission($this->carePlan);
+            && !in_array($this->planSubmission['status'] ?? null, [JobStatus::PENDING->value, JobStatus::PROCESSING->value, JobStatus::PROCESSED->value], true)
+            && !Repository::carePlan()->hasPendingSubmission($this->carePlan);
     }
 
     /**
@@ -468,9 +543,9 @@ abstract class CarePlanComponent extends Component
             && !$this->isInpatientPlanOfCurrentOrganization
             && !$this->carePlan->requiresFhirImport()
             && $this->carePlanStatusCode() === CarePlanStatus::PENDING->value
-            && !in_array($this->planSubmission['status'] ?? null, [\App\Enums\JobStatus::PENDING->value, \App\Enums\JobStatus::PROCESSING->value], true)
+            && !in_array($this->planSubmission['status'] ?? null, [JobStatus::PENDING->value, JobStatus::PROCESSING->value], true)
             && !$this->hasGrantedApprovalForCurrentDoctor
-            && !app(\App\Repositories\CarePlanRepository::class)->hasPendingSubmission($this->carePlan);
+            && !Repository::carePlan()->hasPendingSubmission($this->carePlan);
     }
 
     /**
@@ -480,7 +555,7 @@ abstract class CarePlanComponent extends Component
     {
         if (!filled($this->carePlan->uuid) || $this->isTerminalCarePlan || $this->carePlan->requiresFhirImport()
             || !Auth::user()?->can('manage', $this->carePlan)
-            || app(\App\Repositories\CarePlanRepository::class)->hasPendingSubmission($this->carePlan)) {
+            || Repository::carePlan()->hasPendingSubmission($this->carePlan)) {
             return false;
         }
 
@@ -521,7 +596,7 @@ abstract class CarePlanComponent extends Component
 
     public function getIsInpatientPlanOfCurrentOrganizationProperty(): bool
     {
-        return app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->skipsPatientOtp($this->carePlan);
+        return app(CarePlanApprovalService::class)->skipsPatientOtp($this->carePlan);
     }
 
     public function getCanRequestInpatientAccessProperty(): bool
@@ -532,7 +607,7 @@ abstract class CarePlanComponent extends Component
             && !$this->carePlan->requiresFhirImport()
             && !$this->hasGrantedApprovalForCurrentDoctor
             && !in_array($this->inpatientApprovalStatus, ['queued', 'pending'], true)
-            && !app(\App\Repositories\CarePlanRepository::class)->hasPendingSubmission($this->carePlan);
+            && !Repository::carePlan()->hasPendingSubmission($this->carePlan);
     }
 
     public function getHasGrantedApprovalForCurrentDoctorProperty(): bool
@@ -626,8 +701,8 @@ abstract class CarePlanComponent extends Component
 
         if ($actionType === 'sign_plan') {
             try {
-                app(\App\Repositories\CarePlanRepository::class)->assertDraftSigningReady($this->carePlan);
-            } catch (\Illuminate\Validation\ValidationException $exception) {
+                Repository::carePlan()->assertDraftSigningReady($this->carePlan);
+            } catch (ValidationException $exception) {
                 Session::flash('error', $exception->validator->errors()->first());
                 $this->showSignatureModal = false;
 
@@ -749,9 +824,9 @@ abstract class CarePlanComponent extends Component
 
     protected function refreshCarePlan(): void
     {
-        $this->carePlan = app(\App\Repositories\CarePlanRepository::class)->findById($this->carePlan->id);
+        $this->carePlan = Repository::carePlan()->findById($this->carePlan->id);
         unset($this->canManageActivities, $this->hasGrantedApprovalForCurrentDoctor, $this->canRequestPatientApproval, $this->canRequestInpatientAccess, $this->canChangePlanLifecycle, $this->canCancelPlan, $this->canCompletePlan);
-        $repository = app(\App\Repositories\CarePlanActivityRepository::class);
+        $repository = Repository::carePlanActivity();
         if (property_exists($this, 'activity') && $this->activity instanceof CarePlanActivity) {
             $this->activity = $repository->findOwned($this->carePlan->id, $this->activity->id);
         }
@@ -768,7 +843,7 @@ abstract class CarePlanComponent extends Component
     protected function loadActiveReferrals(): void
     {
         $activityUuids = $this->carePlan->activities->pluck('uuid')->all();
-        $repository = app(\App\Repositories\CarePlanActivityRepository::class);
+        $repository = Repository::carePlanActivity();
         $this->activeReferrals = [];
         foreach (['service_request', 'device_request'] as $kind) {
             foreach ($repository->linkedDocuments($activityUuids, $kind) as $record) {

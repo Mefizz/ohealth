@@ -12,7 +12,6 @@ use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\Identifier;
 use App\Models\MedicalEvents\Sql\Period;
 use App\Models\Person\Person;
-use App\Repositories\Repository;
 use Eloquence\Behaviours\HasCamelCasing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +21,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Str;
+use App\Repositories\Repository;
+use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 
 class CarePlan extends Model implements SubmittedToEHealth
 {
@@ -263,11 +264,12 @@ class CarePlan extends Model implements SubmittedToEHealth
         if (!$this->relationLoaded('encounter') || $this->encounter === null) {
             return '—';
         }
-        $condition = Repository::carePlan()->primaryDiagnosisForEncounter($this->encounter);
+        $condition = MedicalEventsRepository::encounter()
+            ->primaryDiagnosisConditions($this->encounter)->first();
         $concept = $condition?->code;
         $coding = $concept?->coding->first();
 
-        return trim(($coding?->code ?? '').' - '.($coding?->display ?? ($concept?->text ?? '')), ' -') ?: '—';
+        return trim(($coding?->code ?? '').' - '.($coding?->display ?? $concept?->text ?? ''), ' -') ?: '—';
     }
 
     public function getAuthorNameAttribute(): string

@@ -279,16 +279,21 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
+    public function storeAggregate(CarePlanData|array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
     {
         return $this->storageTransaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
-            $plan = $this->storeResource($resource, $personId, $legalEntityId);
+            $plan = $resource instanceof CarePlanData
+                ? $this->saveConfirmed($resource, $personId, $legalEntityId)
+                : $this->storeResource($resource, $personId, $legalEntityId);
             $activityRepository = Repository::carePlanActivity();
             foreach ($activities as $activityResource) {
                 $activity = $activityRepository->storeResource($activityResource, $plan);
                 $this->reconcileSubmissionFromResource($activity, $activityResource, 'detail.status');
             }
-            $this->reconcileSubmissionFromResource($plan, $resource);
+            $this->reconcileSubmissionFromResource(
+                $plan,
+                $resource instanceof CarePlanData ? $this->getResource($plan) : $resource
+            );
 
             return $plan->unsetRelations();
         });

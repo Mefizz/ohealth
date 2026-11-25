@@ -4,36 +4,43 @@ declare(strict_types=1);
 
 namespace App\Traits;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Repositories\Repository;
 use Illuminate\Validation\ValidationException;
 
 trait SynchronizesCarePlans
 {
-    protected function synchronizeResources(array $summaries, ?int $personId, int $legalEntityId, ?string $patientUuid = null, ?string $token = null): void
-    {
-        $summaries = $summaries['data'] ?? $summaries;
+    protected function synchronizeResources(
+        array|CarePlanGetMany $summaries,
+        ?int $personId,
+        int $legalEntityId,
+        ?string $patientUuid = null,
+        ?string $token = null
+    ): void {
+        $items = $summaries instanceof CarePlanGetMany ? $summaries : ($summaries['data'] ?? $summaries);
         $repository = Repository::carePlan();
         $planApi = EHealth::carePlan();
-        foreach ($summaries as $summary) {
-            $summary = Arr::toCamelCase($summary);
+        if ($token !== null) {
+            $planApi->withToken($token);
+        }
+        foreach ($items as $item) {
+            $summary = $item instanceof CarePlanDetails ? $item->native : $item;
             $patient = $repository->resolvePatientContext($personId, $patientUuid ?? data_get($summary, 'subject.identifier.value'));
-            if ($token !== null) {
-                $planApi->withToken($token);
-            }
-            $resource = $planApi->getDetails($patient['uuid'], $summary['id'])->validate();
-            if ($resource['id'] !== $summary['id']) {
-                throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
-            }
-            $activities = $this->fetchAllActivityResources($patient['uuid'], $resource['id'], token: $token);
-            $repository->storeAggregate($resource, $activities, $patient['id'], $legalEntityId);
+            $details = $planApi->getDetails($patient['uuid'], $summary['id'], typed: true)->validate();
+            $data = objectMapper()->map($details, CarePlanData::class);
+            $data->prepareResponse($details);
+            $activities = $this->fetchAllActivityResources($patient['uuid'], $data->uuid, token: $token);
+            $repository->storeAggregate($data, $activities, $patient['id'], $legalEntityId);
         }
     }
 
     protected function synchronizePatient(string $patientUuid, int $personId, int $legalEntityId, array $query = []): void
     {
-        $summaries = $this->collectSummaries(fn (int $page) => EHealth::carePlan()->getBySearchParams($patientUuid, array_replace($query, ['page' => $page])));
+        $summaries = $this->collectSummaries(fn (int $page) => EHealth::carePlan()->getBySearchParams($patientUuid, array_replace($query, ['page' => $page]), typed: true));
         $this->synchronizeResources($summaries, $personId, $legalEntityId, $patientUuid);
     }
 
@@ -43,23 +50,23 @@ trait SynchronizesCarePlans
         $this->synchronizeResources($summaries, null, $legalEntityId);
     }
 
-    private function collectSummaries(callable $fetch): array
+    private function collectSummaries(callable $fetch): CarePlanGetMany
     {
-        $summaries = [];
+        $summaries = new CarePlanGetMany();
         $seen = [];
         for ($page = 1; ; $page++) {
             $response = $fetch($page);
             $items = $response->validate();
             foreach ($items as $item) {
-                $item = Arr::toCamelCase($item);
-                if (isset($seen[$item['id']])) {
+                $id = $item->get('id');
+                if (isset($seen[$id])) {
                     throw ValidationException::withMessages(['paging' => 'Care Plan pagination repeated a resource.']);
                 }
-                $seen[$item['id']] = true;
-                $summaries[] = $item;
+                $seen[$id] = true;
+                $summaries->push($item);
             }
             $lastPage = $response->getPaging()['total_pages'] ?? null;
-            if ($items === [] || ($lastPage !== null && $page >= (int) $lastPage)) {
+            if ($items->isEmpty() || ($lastPage !== null && $page >= (int) $lastPage)) {
                 break;
             }
         }

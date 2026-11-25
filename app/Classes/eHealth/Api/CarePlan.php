@@ -6,6 +6,7 @@ namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\Api\Job;
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
 use App\Classes\eHealth\Errors\MedicalEventsErrorTranslator;
@@ -69,8 +70,7 @@ class CarePlan extends Request
     public function getMany(array $query = []): PromiseInterface|EHealthResponse
     {
         $this->authorizeOperation('getMany');
-        $this->setValidator(fn (EHealthResponse $response): array => $this->validateRequisition($response)
-            ->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all());
+        $this->setValidator($this->validateRequisition(...));
 
         return $this->get(self::URL, $query);
     }
@@ -122,10 +122,10 @@ class CarePlan extends Request
     public function getBySearchParams(string $patientId, array $query = [], bool $typed = false): PromiseInterface|EHealthResponse
     {
         $this->authorizeOperation('getBySearchParams');
-        $this->setValidator(function (EHealthResponse $response) use ($patientId, $typed): Collection|array {
+        $this->setValidator(function (EHealthResponse $response) use ($patientId, $typed): CarePlanGetMany|array {
             $entries = $this->validateMany($response, $patientId);
 
-            return $typed ? $entries : $entries->map(
+            return $typed ? $entries : $entries->toBase()->map(
                 static fn (CarePlanDetails $entry): array => $entry->toResource()
             )->all();
         });
@@ -138,7 +138,7 @@ class CarePlan extends Request
     {
         $this->authorizeOperation('getSummary');
         $this->setValidator(fn (EHealthResponse $response): array => $this->validateMany($response, $patientId)
-            ->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all());
+            ->toBase()->map(static fn (CarePlanDetails $entry): array => $entry->toResource())->all());
         $this->setDefaultPageSize();
 
         return $this->get("/api/patients/$patientId/summary/care_plans", array_replace($this->options['query'], $query));
@@ -203,8 +203,7 @@ class CarePlan extends Request
         return collect($data);
     }
 
-    /** @return Collection<int, CarePlanDetails> */
-    protected function validateMany(EHealthResponse $response, string $patientId): Collection
+    protected function validateMany(EHealthResponse $response, string $patientId): CarePlanGetMany
     {
         $rules = $this->validationRules(details: false);
         $rules['subject.identifier.value'] .= '|in:'.$patientId;
@@ -212,8 +211,7 @@ class CarePlan extends Request
         return $this->validateList($response, $rules);
     }
 
-    /** @return Collection<int, CarePlanDetails> */
-    protected function validateRequisition(EHealthResponse $response): Collection
+    protected function validateRequisition(EHealthResponse $response): CarePlanGetMany
     {
         return $this->validateList($response, $this->validationRules(details: false) + [
             'identity' => 'required|array',
@@ -225,8 +223,7 @@ class CarePlan extends Request
         ]);
     }
 
-    /** @return Collection<int, CarePlanDetails> */
-    protected function validateList(EHealthResponse $response, array $itemRules): Collection
+    protected function validateList(EHealthResponse $response, array $itemRules): CarePlanGetMany
     {
         Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:200'])->validate();
         $rules = collect($itemRules)->mapWithKeys(
@@ -243,7 +240,7 @@ class CarePlan extends Request
             ...$rules,
         ])->validate();
 
-        return collect($response->getData())->map(static fn (array $entry): CarePlanDetails => new CarePlanDetails($entry));
+        return new CarePlanGetMany($response->getData());
     }
 
     /** Omit empty optional fields while preserving false, zero and valid JSON list indexes. */

@@ -43,7 +43,7 @@ class EHealthWriteCallSitesTest extends TestCase
             app_path('Livewire/CarePlan/CarePlanUpdate.php'),
             app_path('Livewire/CarePlan/CarePlanShow.php'),
             app_path('Livewire/CarePlan/CarePlanApprovals.php'),
-            app_path('Livewire/CarePlan/CarePlanComponent.php'),
+            app_path('Livewire/CarePlan/Concerns/CarePlanManager.php'),
             app_path('Livewire/CarePlan/Concerns/ManagesCarePlanActivities.php'),
             app_path('Livewire/CarePlan/Concerns/ManagesCarePlanReferrals.php'),
             app_path('Livewire/CarePlan/Concerns/ManagesCarePlanEPrescription.php'),

@@ -37,9 +37,11 @@ class CarePlanPolicy
     /** Authorize changes to a draft in the current facility. */
     public function update(User $user, CarePlan $carePlan): Response
     {
-        return CarePlanStatus::fromStored($carePlan->status) === CarePlanStatus::DRAFT
-            ? $this->manage($user, $carePlan)
-            : Response::denyWithStatus(404);
+        return $this->view($user, $carePlan)->allowed()
+            && $this->manage($user, $carePlan)->allowed()
+            && CarePlanStatus::fromStored($carePlan->status) === CarePlanStatus::DRAFT
+                ? Response::allow()
+                : Response::denyWithStatus(404);
     }
 
     public function getMany(User $user): Response

@@ -37,7 +37,7 @@ class CarePlanApprovalRepositoryResolutionTest extends TestCase
     {
         $sources = [
             'CarePlanShow' => file_get_contents(app_path('Livewire/CarePlan/CarePlanShow.php')),
-            'CarePlanComponent' => file_get_contents(app_path('Livewire/CarePlan/CarePlanComponent.php')),
+            'CarePlanManager' => file_get_contents(app_path('Livewire/CarePlan/Concerns/CarePlanManager.php')),
         ];
 
         foreach ($sources as $name => $source) {
@@ -49,6 +49,8 @@ class CarePlanApprovalRepositoryResolutionTest extends TestCase
             );
         }
 
+        // The call lives in whichever of the two holds the sync action; CarePlanShow uses the
+        // CarePlanManager trait, so requiring it in both files only pins where the code sits.
         $this->assertStringContainsString(
             'app(CarePlanApprovalService::class)->syncForCarePlan($this->carePlan)',
             implode("\n", $sources)

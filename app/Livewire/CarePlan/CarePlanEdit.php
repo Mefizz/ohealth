@@ -6,20 +6,19 @@ namespace App\Livewire\CarePlan;
 
 use App\Dto\CarePlan\Form as CarePlanFormData;
 use App\Dto\CarePlan\Model as CarePlanData;
-use App\Enums\CarePlanStatus;
 use App\Exceptions\MedicalEvents\ClinicalStorageException;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
-use App\Repositories\CarePlanRepository;
 use App\Repositories\Repository;
 use App\Services\MedicalEvents\Fhir;
 use ArrayObject;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 
-class CarePlanUpdate extends CarePlanCreate
+class CarePlanEdit extends CarePlanCreate
 {
     #[Locked]
     public CarePlan $carePlan;
@@ -27,22 +26,14 @@ class CarePlanUpdate extends CarePlanCreate
     #[Locked]
     public string $draftRevision;
 
-    public function hydrate(): void
-    {
-        abort_unless(Auth::user()?->can('view', $this->carePlan), 404);
-        $this->carePlan = Repository::carePlan()->findById($this->carePlan->id) ?? abort(404);
-    }
-
     public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null, $carePlan = null): void
     {
         $bound = $carePlan ?? request()->route('carePlan');
         $repository = Repository::carePlan();
-        $carePlan = $repository->findById($bound instanceof CarePlan ? $bound->id : (int) $bound);
-        abort_if($carePlan === null, 404);
-        $this->carePlan = $carePlan;
-        $user = Auth::user();
-        abort_unless($user?->can('view', $this->carePlan) && $user->can('update', $this->carePlan), 404);
-        if ($repository->hasPendingSubmission($this->carePlan) || CarePlanStatus::fromStored($this->carePlan->status) !== CarePlanStatus::DRAFT) {
+        $id = $bound instanceof CarePlan ? $bound->id : (int) $bound;
+        $this->carePlan = $repository->findById($id) ?? throw (new ModelNotFoundException())->setModel(CarePlan::class, [$id]);
+
+        if ($repository->hasPendingSubmission($this->carePlan)) {
             Session::flash('info', __('care-plan.cannot_edit_non_draft'));
             $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id], navigate: true);
             $this->skipRender();
@@ -76,56 +67,53 @@ class CarePlanUpdate extends CarePlanCreate
         $this->refreshCategoryOptions();
     }
 
-    /** Save the hydrated local draft. */
-    public function save(): void
+    public function save(bool $openForSigning = false): void
     {
-        if ($this->persistDraft()) {
-            Session::flash('success', __('care-plan.draft_updated'));
-            $this->redirectRoute('care-plans.edit', [legalEntity(), $this->carePlan->id], navigate: true);
-        }
-    }
+        $user = Auth::user();
+        if ($user?->can('update', $this->carePlan) !== true) {
+            Session::flash('error', __('care-plan.no_permission_update'));
 
-    public function startSigningProcess(): void
-    {
-        if (Auth::user()?->can('create', CarePlan::class) !== true) {
+            return;
+        }
+
+        if ($openForSigning && $user->cannot('create', CarePlan::class)) {
             Session::flash('error', __('care-plan.no_permission_create'));
 
             return;
         }
 
-        if ($this->persistDraft()) {
-            $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id, 'action' => 'sign_plan'], navigate: true);
-        }
-    }
-
-    protected function persistDraft(): bool
-    {
-        if (Auth::user()?->can('update', $this->carePlan) !== true) {
-            Session::flash('error', __('care-plan.no_permission_update'));
-
-            return false;
-        }
-
         try {
-            $repository = Repository::carePlan();
             $this->synchronizeSystemFields();
             $fields = $this->form->validate($this->form->rulesForDraftEdit());
+            $repository = Repository::carePlan();
             $stored = $repository->getResource($this->carePlan->id);
             $repository->updateDraft($this->carePlan, $this->prepareEditedDraft($stored, $fields), $this->draftRevision);
+        } catch (ValidationException $exception) {
+            $this->handleValidationFailed($exception);
 
-            return true;
-        } catch (ValidationException|ClinicalStorageException $exception) {
-            if ($exception instanceof ValidationException) {
-                $this->handleValidationFailed($exception);
-            } else {
-                Session::flash('error', $exception->getMessage());
-            }
+            return;
+        } catch (ClinicalStorageException $exception) {
+            Session::flash('error', $exception->getMessage());
 
-            return false;
+            return;
         }
+
+        if ($openForSigning) {
+            $this->redirectRoute('care-plans.show', [legalEntity(), $this->carePlan->id, 'action' => 'sign_plan'], navigate: true);
+
+            return;
+        }
+
+        Session::flash('success', __('care-plan.draft_updated'));
+        $this->redirectRoute('care-plans.edit', [legalEntity(), $this->carePlan->id], navigate: true);
     }
 
-    public function delete(CarePlanRepository $repository): void
+    public function startSigningProcess(): void
+    {
+        $this->save(openForSigning: true);
+    }
+
+    public function delete(): void
     {
         if (Auth::user()?->can('update', $this->carePlan) !== true) {
             Session::flash('error', __('care-plan.no_permission_update'));
@@ -133,7 +121,7 @@ class CarePlanUpdate extends CarePlanCreate
             return;
         }
         if (isset($this->carePlan) && $this->carePlan->exists) {
-            if ($repository->deleteDraft($this->carePlan->id)) {
+            if (Repository::carePlan()->deleteDraft($this->carePlan->id)) {
                 session()->flash('success', __('Чернетку плану лікування успішно видалено.'));
             } else {
                 session()->flash('error', __('Можна видаляти лише чернетки планів лікування.'));

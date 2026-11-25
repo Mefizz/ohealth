@@ -248,7 +248,7 @@ class CarePlanCreate extends CarePlanDraftComponent
             ? Carbon::parse($person->birth_date)->format(config('app.date_format'))
             : null;
         $this->form->patient = trim($person->fullName . ($birthDate ? ' · ' . $birthDate : ''));
-        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
         $this->form->encounter = '';
         $this->form->category = '';
         $this->form->episodes = [];
@@ -292,7 +292,7 @@ class CarePlanCreate extends CarePlanDraftComponent
         $this->authMethods = [];
         $this->diagnoses = [];
         $this->patientSearchResults = [];
-        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
     }
 
     public function render(): View

@@ -42,8 +42,6 @@ abstract class CarePlanDraftComponent extends BasePatientComponent
     public string $patientUuid = '';
     #[Locked]
     public string $conditionUuid = '';
-    #[Locked]
-    public string $medicalNumber = '';
 
     public string $medicalRecordType = 'CONDITION';
     #[Locked]
@@ -148,7 +146,7 @@ abstract class CarePlanDraftComponent extends BasePatientComponent
             $this->availableEpisodes = Repository::carePlan()->activeEpisodes($person);
         }
 
-        $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
         $this->loadAvailableEncounters();
 
         $conditionUuid = request()->query('conditionUuid');
@@ -529,6 +527,12 @@ abstract class CarePlanDraftComponent extends BasePatientComponent
 
     /** @return Collection<string, string> */
     /** @return Collection<string, string> */
+    /** Populate the read-only field used by the existing Blade form. */
+    protected function displayMedicalNumber(string $medicalNumber): void
+    {
+        $this->form->fill([Str::snake('medicalNumber') => $medicalNumber]);
+    }
+
     protected function loadAvailableEncounters(): void
     {
         $this->availableEncounters = $this->personId
@@ -549,7 +553,7 @@ abstract class CarePlanDraftComponent extends BasePatientComponent
         if ($encounter !== null) {
             $this->applyEncounterToForm($encounter);
         } elseif (!$this->form->encounter) {
-            $this->medicalNumber = Repository::carePlan()->nextDisplayNumber();
+            $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
             $this->diagnoses = [];
             $this->form->episodes = [];
         }
@@ -559,7 +563,7 @@ abstract class CarePlanDraftComponent extends BasePatientComponent
 
     protected function applyEncounterToForm(Encounter $encounter): void
     {
-        $this->medicalNumber = (string) $encounter->id;
+        $this->displayMedicalNumber((string) $encounter->id);
         if ($this->form->title === '') {
             $date = $encounter->period?->start ? Carbon::parse($encounter->period->start)->format('d.m.Y') : now()->format('d.m.Y');
             $this->form->title = __('План лікування від ').$date;

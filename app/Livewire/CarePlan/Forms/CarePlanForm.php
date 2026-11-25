@@ -14,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 class CarePlanForm extends BaseForm
 {
     public string $patient = '';
+    /** Read-only binding in the existing Blade form. */
+    public string $medical_number = '';
     public string $author = '';
     public array $coAuthors = [];
     public string $category = '';

@@ -65,7 +65,7 @@ class CarePlanEdit extends CarePlanDraftComponent
         $this->carePlanUuid = $resource['id'];
         $this->patientUuid = $draft->person->uuid;
         $this->form->patient = $draft->person->fullName ?? '';
-        $this->medicalNumber = (string) ($draft->encounterId ?? '');
+        $this->displayMedicalNumber((string) ($draft->encounterId ?? ''));
         $this->synchronizeSystemFields();
         if ($draft->encounter) {
             $this->diagnoses = $this->buildDiagnosesForUi($draft->encounter);

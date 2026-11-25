@@ -67,7 +67,7 @@ class CarePlanRepository extends MedicalEventsBaseRepository
 
     /**
      * Insert prepared local drafts and their relations within one database transaction.
-     * A retry returns the row with the same UUID, patient and facility without updating it.
+     * A retry returns the row with the same UUID, patient, facility and author.
      *
      * @param  DataCollection<int, CarePlanData>  $items
      * @param  ObjectMapperInterface  $mapper
@@ -87,44 +87,43 @@ class CarePlanRepository extends MedicalEventsBaseRepository
                     ->lockForUpdate()
                     ->first();
 
-                return $plan ?? $this->saveLocalDraft($data, new CarePlan(), $mapper);
+                if ($plan !== null) {
+                    return $plan;
+                }
+
+                $plan = new CarePlan();
+                $mapper->map($data, $plan);
+                $concepts = MedicalEventsRepository::codeableConcept();
+                $identifiers = MedicalEventsRepository::identifier();
+
+                foreach (['categoryConcept', 'termsOfServiceConcept'] as $relation) {
+                    $plan->{$relation}()->associate($concepts->store($data->{$relation}));
+                }
+                foreach (['authorReference', 'subjectReference', 'encounterIdentifier', 'managingOrganization'] as $relation) {
+                    $plan->{$relation}()->associate($identifiers->store($data->{$relation}));
+                }
+
+                // Existing readers use this marker for complete normalized rows, including local drafts.
+                $plan->detailsSyncedAt = now();
+                $plan->saveOrFail();
+                MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
+                $supportingIds = $data->supportingInfoReferences->map(function (IdentifierData $reference) use ($data, $identifiers): int {
+                    $identifier = $identifiers->store($reference);
+                    $key = $reference->type->coding[0]->code.':'.$reference->value;
+                    if (isset($data->medicalRecordLabels[$key])) {
+                        $identifier->displayValue = $data->medicalRecordLabels[$key];
+                        $identifier->saveOrFail();
+                    }
+
+                    return $identifier->id;
+                });
+                $this->syncPivot($plan, 'supportingInfoReferences', $supportingIds->all());
+                $contributorIds = $data->contributors->map(fn (IdentifierData $reference): int => $identifiers->store($reference)->id);
+                $this->syncPivot($plan, 'contributors', $contributorIds->all());
+
+                return $plan;
             });
         });
-    }
-
-    /** Persist the draft's attributes and relations within saveLocally's transaction. */
-    protected function saveLocalDraft(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
-    {
-        $mapper->map($data, $plan);
-        $concepts = MedicalEventsRepository::codeableConcept();
-        $identifiers = MedicalEventsRepository::identifier();
-
-        foreach (['categoryConcept', 'termsOfServiceConcept'] as $relation) {
-            $plan->{$relation}()->associate($concepts->store($data->{$relation}));
-        }
-        foreach (['authorReference', 'subjectReference', 'encounterIdentifier', 'managingOrganization'] as $relation) {
-            $plan->{$relation}()->associate($identifiers->store($data->{$relation}));
-        }
-
-        // Existing readers use this marker for complete normalized rows, including local drafts.
-        $plan->detailsSyncedAt = now();
-        $plan->saveOrFail();
-        MedicalEventsRepository::period()->sync($plan, $data->period, 'effectivePeriod');
-        $supportingIds = $data->supportingInfoReferences->map(function (IdentifierData $reference) use ($data, $identifiers): int {
-            $identifier = $identifiers->store($reference);
-            $key = $reference->type->coding[0]->code.':'.$reference->value;
-            if (isset($data->medicalRecordLabels[$key])) {
-                $identifier->displayValue = $data->medicalRecordLabels[$key];
-                $identifier->saveOrFail();
-            }
-
-            return $identifier->id;
-        });
-        $this->syncPivot($plan, 'supportingInfoReferences', $supportingIds->all());
-        $contributorIds = $data->contributors->map(fn (IdentifierData $reference): int => $identifiers->store($reference)->id);
-        $this->syncPivot($plan, 'contributors', $contributorIds->all());
-
-        return $plan;
     }
 
     private const array FHIR_RELATIONS = ['subjectReference.type.coding', 'statusReasonConcept.coding', 'categoryConcept.coding', 'termsOfServiceConcept.coding', 'authorReference.type.coding', 'basedOn.type.coding', 'partOf.type.coding', 'encounterIdentifier.type.coding', 'careManager.type.coding', 'managingOrganization.type.coding', 'effectivePeriod', 'supportingInfoReferences.type.coding', 'contributors.type.coding'];

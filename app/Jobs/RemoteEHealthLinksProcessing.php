@@ -169,11 +169,24 @@ class RemoteEHealthLinksProcessing extends EHealthJob
             $confirmed = null;
             if ($record instanceof CarePlan && $status === 'processed') {
                 try {
-                    $api = EHealth::carePlan();
-                    if (filled($bearerToken)) {
-                        $api->withToken($bearerToken);
+                    if ($details === null) {
+                        $api = EHealth::carePlan();
+                        $patientId = $record->person->uuid;
+                        $result = data_get($jobData, 'response_data') ?? (data_get($jobData, 'result')
+                            ?? (data_get($jobData, 'response.body') ?? data_get($jobData, 'data')));
+                        $result = is_array($result) && array_is_list($result) ? ($result[0] ?? null) : $result;
+                        $result = is_array($result) ? ($result['data'] ?? $result) : null;
+
+                        // Some processed jobs provide only links. Read the plan when details are missing.
+                        if (!is_array($result) || !isset($result['subject'], $result['period'])) {
+                            if (filled($bearerToken)) {
+                                $api->withToken($bearerToken);
+                            }
+                            $details = $api->getDetails($patientId, $record->uuid)->validate();
+                        } else {
+                            $details = $api->validateDetailsData($result, $record->uuid, $patientId);
+                        }
                     }
-                    $details ??= $api->confirmedDetails($jobData, $record->uuid, $record->person->uuid);
                     $remoteStatus = $details->status();
                     $expected = CarePlanStatus::fromStored(data_get($link->job->request_data, 'changes.status'));
                     if ($remoteStatus !== $expected
@@ -369,7 +382,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                     // The first registered activity can activate its parent; only the remote detail proves that transition.
                     $plan = $record->carePlan;
                     $responseData['carePlanResource'] = EHealth::carePlan()->withToken($this->token)
-                        ->getDetails($plan->person->uuid, $plan->uuid)->validate();
+                        ->getDetails($plan->person->uuid, $plan->uuid)->validate()->toResource();
                 }
                 if ($status === 'processed' && $record instanceof ServiceRequestRequest && !isset($responseData['response_data']) && !isset($responseData['result']) && !isset($responseData['data']) && !empty($responseData['links'])) {
                     $responseData['response_data'] = EHealth::serviceRequest()->withToken($this->token)

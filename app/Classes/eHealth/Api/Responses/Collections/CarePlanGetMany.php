@@ -24,4 +24,10 @@ class CarePlanGetMany extends Collection
             $this->items
         );
     }
+
+    /** Convert short validated entries for consumers of the legacy summary arrays. */
+    public function toResources(): array
+    {
+        return $this->toBase()->map(static fn (CarePlanDetails $details): array => $details->toResource())->all();
+    }
 }

@@ -81,7 +81,7 @@ class CarePlanIndex extends Component
                 'page' => $page,
             ])) as $summary) {
                 $patient = $repository->resolvePatientContext(null, data_get($summary->native, 'subject.identifier.value'));
-                $details = $planApi->getDetails($patient['uuid'], $summary->get('id'), typed: true)->validate();
+                $details = $planApi->getDetails($patient['uuid'], $summary->get('id'))->validate();
                 $plan = $mapper->map($details, CarePlanData::class);
                 $plan->prepareResponse($details);
                 $activities = $activitiesApi->allDetails($patient['uuid'], $plan->uuid);

@@ -666,12 +666,7 @@ class CarePlanCreate extends BasePatientComponent
                     'attribute' => __('care-plan.patient'),
                 ])]);
             }
-            $encounter = $this->draftEncounter($person);
-            if ($encounter === null) {
-                throw ValidationException::withMessages(['form.encounter' => __('validation.exists', [
-                    'attribute' => __('care-plan.encounter'),
-                ])]);
-            }
+            $encounter = $this->validateDraftEncounter($person);
 
             $this->synchronizeSystemFields();
             $coAuthors = array_column($repository->doctors($legalEntity->id), 'uuid');
@@ -679,12 +674,7 @@ class CarePlanCreate extends BasePatientComponent
             $medicalRecords = $this->form->medicalRecords === [] ? collect() : $this->draftMedicalRecords($person, $encounter, $user);
             $validated = $this->form->validateDraft($coAuthors, $episodes->keys()->all(), $medicalRecords->keys()->all());
 
-            $repository->assertCategoryForEncounter($this->form->category, $encounter->uuid, $person->id);
-            $addresses = $repository->encounterData($encounter->uuid, $person->id, $this->conditionUuid ?: null)['addresses'];
-            if ($addresses === []) {
-                throw ValidationException::withMessages(['form.category' => __('care-plan.category_diagnosis_unavailable')]);
-            }
-
+            $addresses = $this->draftAddresses($person, $encounter);
             $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
             if ($author === null || !Str::isUuid((string) $author->uuid)) {
                 throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
@@ -729,6 +719,26 @@ class CarePlanCreate extends BasePatientComponent
         return $this->draftOpenedById === $user->id
             && $this->draftLegalEntityId !== null
             && $this->draftLegalEntityId === legalEntity()?->id;
+    }
+
+    protected function validateDraftEncounter(Person $person): Encounter
+    {
+        return $this->draftEncounter($person) ?? throw ValidationException::withMessages([
+            'form.encounter' => __('validation.exists', ['attribute' => __('care-plan.encounter')]),
+        ]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    protected function draftAddresses(Person $person, Encounter $encounter): array
+    {
+        $repository = Repository::carePlan();
+        $repository->assertCategoryForEncounter($this->form->category, $encounter->uuid, $person->id);
+        $addresses = $repository->encounterData($encounter->uuid, $person->id, $this->conditionUuid ?: null)['addresses'];
+        if ($addresses === []) {
+            throw ValidationException::withMessages(['form.category' => __('care-plan.category_diagnosis_unavailable')]);
+        }
+
+        return $addresses;
     }
 
     protected function draftEncounter(Person $person): ?Encounter

@@ -43,8 +43,10 @@ use App\Services\MedicalEvents\FhirResource;
 use App\Services\MedicalEvents\MedicalRequestOwnership;
 use App\Services\MedicalEvents\PatientApprovalService;
 use App\Traits\InteractsWithApprovals;
+use App\Dto\CarePlan\Ehealth as CarePlanEhealthData;
 use App\Dto\CarePlan\Model as CarePlanData;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
+use ArrayObject;
 use Exception;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -528,9 +530,9 @@ abstract class CarePlanComponent extends Component
         try {
             $repository->assertDraftSigningReady($this->carePlan);
             $resource = $repository->getResource($this->carePlan->id);
-            $api = EHealth::carePlan();
+            $content = objectMapper()->map(new ArrayObject($resource), CarePlanEhealthData::class);
             $signedContent = signatureService()->signData(
-                $api->prepareCreateContent($resource),
+                $content->signingPayload(),
                 $signingData['knedp'],
                 $signingData['keyContainer'],
                 $signingData['password'],
@@ -539,7 +541,7 @@ abstract class CarePlanComponent extends Component
             $result = RemoteEHealthLinksProcessing::submitOperation(
                 $this->carePlan,
                 ['status' => CarePlanStatus::PENDING->value],
-                fn () => $api->create($this->carePlan->person->uuid, [
+                fn () => EHealth::carePlan()->create($this->carePlan->person->uuid, [
                     'signed_data' => $signedContent,
                     'signed_data_encoding' => 'base64',
                 ], $this->carePlan->uuid),
@@ -1897,7 +1899,7 @@ abstract class CarePlanComponent extends Component
     {
         $patientId = $this->carePlan->person->uuid;
         $planId = $this->carePlan->uuid;
-        $details = EHealth::carePlan()->getDetails($patientId, $planId, typed: true)->validate();
+        $details = EHealth::carePlan()->getDetails($patientId, $planId)->validate();
         $plan = objectMapper()->map($details, CarePlanData::class);
         $plan->prepareResponse($details);
         $activities = EHealth::carePlanActivity()->allDetails($patientId, $planId);

@@ -1,3 +1,36 @@
+@if ($draftOnly ?? false)
+    <fieldset class="fieldset">
+        <legend class="legend">{{ __('care-plan.supporting_information') }}</legend>
+
+        @foreach ([
+            'episodes' => [__('care-plan.episode'), __('care-plan.no_episodes'), $draftEpisodeChoices],
+            'medicalRecords' => [__('care-plan.medical_record'), __('care-plan.no_records'), $draftRecordChoices],
+        ] as $field => [$label, $emptyMessage, $choices])
+            <fieldset class="mt-4">
+                <legend class="font-medium">{{ $label }}</legend>
+
+                @forelse ($choices as $value => $choice)
+                    @php($id = 'draft-' . $field . '-' . $loop->index)
+                    <div
+                        class="mt-2 flex items-center gap-2"
+                        wire:key="draft-{{ $field }}-{{ $value }}"
+                    >
+                        <input
+                            type="checkbox"
+                            class="default-checkbox"
+                            id="{{ $id }}"
+                            value="{{ $value }}"
+                            wire:model="form.{{ $field }}"
+                        />
+                        <label for="{{ $id }}">{{ $choice }}</label>
+                    </div>
+                @empty
+                    <p>{{ $emptyMessage }}</p>
+                @endforelse
+            </fieldset>
+        @endforeach
+    </fieldset>
+@else
 <fieldset
     class="fieldset !mb-6 !max-w-full !rounded-xl !border-gray-100 bg-white !p-6 !shadow-none dark:!border-gray-700 dark:bg-gray-800"
     x-data="{
@@ -118,7 +151,7 @@
                             <template x-for="(item, index) in localMedicalRecords" :key="'mr-' + index">
                                 <tr class="index-table-tr group cursor-pointer" @click="initEdit('medical', index)">
                                     <td class="index-table-td" x-text="item.date"></td>
-                                    <td class="index-table-td-primary" x-text="item.name"></td>
+                                    <td class="index-table-td-primary" x-text="item.name || item.displayValue"></td>
                                     <td class="index-table-td text-right">
                                         <button
                                             type="button"
@@ -399,3 +432,4 @@
         </div>
     </template>
 </fieldset>
+@endif

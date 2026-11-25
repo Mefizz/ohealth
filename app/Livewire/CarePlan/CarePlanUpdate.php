@@ -4,25 +4,29 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Livewire\CarePlan\Forms\CarePlanForm;
-use App\Enums\CarePlanStatus;
 use App\Classes\eHealth\EHealth;
+use App\Enums\CarePlanStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
-use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Exceptions\MedicalEvents\ClinicalStorageException;
+use App\Exceptions\Signature\SignatureException;
+use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
 use App\Repositories\CarePlanRepository;
 use App\Repositories\Repository;
+use App\Services\MedicalEvents\Fhir;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
+use Throwable;
 
 class CarePlanUpdate extends CarePlanCreate
 {
-    #[\Livewire\Attributes\Locked]
+    #[Locked]
     public CarePlan $carePlan;
 
     public function hydrate(): void
@@ -58,7 +62,7 @@ class CarePlanUpdate extends CarePlanCreate
 
         parent::mount($legalEntity, $this->carePlan->personId);
         $resource = $repository->getResource($this->carePlan->id);
-        $fields = \App\Services\MedicalEvents\Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]);
+        $fields = Fhir::carePlan()->fromFhir($resource, ['timezone' => config('app.timezone'), 'dateFormat' => config('app.date_format')]);
         foreach ($fields as $field => $value) {
             if (property_exists($this->form, $field)) {
                 $this->form->{$field} = $value ?? '';
@@ -79,7 +83,7 @@ class CarePlanUpdate extends CarePlanCreate
     /**
      * Update existing local draft.
      */
-    public function save(CarePlanRepository $repository): void
+    public function save(): void
     {
         if (Auth::user()?->cannot('update', $this->carePlan)) {
             Session::flash('error', __('care-plan.no_permission_update'));
@@ -101,6 +105,8 @@ class CarePlanUpdate extends CarePlanCreate
         // Re-resolve the author for the (possibly changed) terms_of_service, same as on create,
         // so a draft edited to a different "умови надання послуг" keeps a matching author.
         $author = Auth::user()?->getCarePlanWriterEmployee($this->form->termsOfService ?: null);
+
+        $repository = Repository::carePlan();
 
         try {
             $repository->assertFhirStorageReady();
@@ -125,7 +131,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'note' => $this->form->note ?: null,
                 'inform_with' => $this->form->informWith ?: null,
             ]);
-        } catch (\App\Exceptions\MedicalEvents\ClinicalStorageException $exception) {
+        } catch (ClinicalStorageException $exception) {
             Session::flash('error', $exception->getMessage());
 
             return;
@@ -155,6 +161,30 @@ class CarePlanUpdate extends CarePlanCreate
         }
 
         $this->redirectRoute('persons.care-plans', [legalEntity(), $this->personId], navigate: true);
+    }
+
+    /**
+     * Start the signing process by opening the signature modal.
+     */
+    public function startSigningProcess(): void
+    {
+        if (Auth::user()?->can('update', $this->carePlan) !== true) {
+            Session::flash('error', __('care-plan.no_permission_update'));
+
+            return;
+        }
+
+        try {
+            $this->synchronizeSystemFields();
+            $this->form->validate();
+            $this->validateCategoryForSigning();
+        } catch (ValidationException $exception) {
+            $this->handleValidationFailed($exception);
+
+            return;
+        }
+
+        $this->showSignatureModal = true;
     }
 
     /**
@@ -194,7 +224,7 @@ class CarePlanUpdate extends CarePlanCreate
                 'author' => $author?->uuid,
                 'addresses' => $encounterData['addresses'],
             ]), $this->carePlan->id);
-            $carePlanResource = \App\Services\MedicalEvents\Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
+            $carePlanResource = Fhir::carePlan()->toFhir($mapping['data'], $mapping['context']);
             $carePlanPayload = CarePlanForm::buildCreateContent($carePlanResource);
 
             $signedContent = signatureService()->signData(
@@ -232,13 +262,13 @@ class CarePlanUpdate extends CarePlanCreate
                 : 'Помилка від ЕСОЗ: ' . $exception->getMessage();
             Session::flash('error', $msg);
             $this->showSignatureModal = false;
-        } catch (\App\Exceptions\MedicalEvents\ClinicalStorageException $exception) {
+        } catch (ClinicalStorageException $exception) {
             Session::flash('error', $exception->getMessage());
             $this->showSignatureModal = false;
         } catch (SignatureException $exception) {
             $exception->handle('Error when signing care plan');
             $this->showSignatureModal = false;
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Log::error('CarePlan: unexpected error: ' . $exception->getMessage(), [
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),

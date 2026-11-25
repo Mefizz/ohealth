@@ -4,17 +4,12 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Classes\eHealth\Api\Approval as ApprovalApi;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Contracts\SubmittedToEHealth;
-use App\Core\Arr;
 use App\Core\EHealthJob;
-use App\Dto\CarePlan\Model as CarePlanData;
 use App\Enums\JobStatus;
 use App\Enums\ResponseStatus;
-use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use App\Models\CarePlan;
@@ -30,14 +25,11 @@ use App\Models\MedicalEvents\Sql\Procedure;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
 use App\Models\User;
 use App\Notifications\RemoteEHealthLinksNotification;
-use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
-use App\Repositories\Repository;
-use App\Services\MedicalEvents\CarePlanApprovalService;
+use App\Repositories\MedicalEvents\Repository;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Queue\Middleware\RateLimited;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -154,38 +146,13 @@ class RemoteEHealthLinksProcessing extends EHealthJob
         [$signedStatus, $processedMessage, $rejectedMessage] = self::submissionDetails($link, $record);
 
         if ($record instanceof CarePlan || $record instanceof CarePlanActivity || $record instanceof ServiceRequestRequest) {
-            $repository = $record instanceof ServiceRequestRequest ? MedicalEventsRepository::serviceRequest() : Repository::carePlan();
-            $carePlanData = null;
-            $mapper = null;
-            if ($record instanceof CarePlan && $status === 'processed') {
-                // A processed job is a receipt, not a complete CarePlan. Import only validated details.
-                $resource = $jobData['response_data'] ?? ($jobData['result'] ?? ($jobData['data'] ?? []));
-                for ($level = 0; $level < 5 && is_array($resource); $level++) {
-                    if (isset($resource['id'])) {
-                        break;
-                    }
-                    $nested = $resource['response_data'] ?? ($resource['result'] ?? ($resource['data'] ?? ($resource[0] ?? null)));
-                    if (!is_array($nested)) {
-                        break;
-                    }
-                    $resource = $nested;
-                }
-                $api = EHealth::carePlan();
-                if ($bearerToken !== null) {
-                    $api->withToken($bearerToken);
-                }
-                $details = isset($resource['id'])
-                    ? $api->validateResource(Arr::toSnakeCase($resource), $record->uuid, $record->person->uuid)
-                    : $api->getById($record->person->uuid, $record->uuid)->validate();
-                $mapper = objectMapper();
-                $carePlanData = $mapper->map($details, CarePlanData::class);
-            }
+            $repository = $record instanceof ServiceRequestRequest ? Repository::serviceRequest() : \App\Repositories\Repository::carePlan();
             $queueInpatientApproval = $status === 'processed' && $record instanceof CarePlan && $legalEntity !== null && filled($bearerToken)
                 && data_get($link->job->request_data, 'resource.status') === 'draft'
                 && data_get($link->job->request_data, 'changes.status') === 'new'
-                && app(CarePlanApprovalService::class)->skipsPatientOtp($record, $legalEntity);
+                && app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->skipsPatientOtp($record, $legalEntity);
             $finished = $record instanceof CarePlan
-                ? $repository->finishSubmission($link, $jobData, $queueInpatientApproval, $carePlanData, $mapper)
+                ? $repository->finishSubmission($link, $jobData, $queueInpatientApproval)
                 : $repository->finishSubmission($link, $jobData);
             if ($finished) {
                 $user->notify(new RemoteEHealthLinksNotification(__($status === 'processed' ? $processedMessage : $rejectedMessage), $status === 'processed' ? 'success' : 'error'));
@@ -362,22 +329,16 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                         ->getById($record->person->uuid, $record->uuid)->validate();
                 }
                 if ($status === 'processed' && $record instanceof ServiceRequestRequest && $this->legalEntity !== null) {
-                    $activity = MedicalEventsRepository::serviceRequest()->relatedCarePlanActivity($record, $this->legalEntity->id);
+                    $activity = Repository::serviceRequest()->relatedCarePlanActivity($record, $this->legalEntity->id);
                     if ($activity !== null) {
                         $responseData['carePlanActivityResource'] = EHealth::carePlanActivity()->withToken($this->token)
                             ->getDetails($activity->carePlan->person->uuid, $activity->carePlan->uuid, $activity->uuid)->validate();
                     }
                 }
-            } catch (EHealthConnectionException|EHealthResponseException $exception) {
+            } catch (\App\Exceptions\EHealth\EHealthConnectionException|EHealthResponseException $exception) {
                 $detailsPending = true;
                 $responseData['detailSyncPending'] = true;
                 Log::warning('Confirmed clinical operation details could not be refreshed', ['eHealthLinkId' => $this->eHealthLink->id, 'exceptionType' => $exception::class]);
-            }
-            if ($detailsPending && $record instanceof CarePlan) {
-                $this->stillPending = true;
-                $this->release(self::TIME_TO_RETRY);
-
-                return;
             }
             self::finishSubmission($this->eHealthLink->refresh(), $responseData, $this->user, $this->legalEntity, $this->token);
             if ($detailsPending) {
@@ -391,7 +352,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
             if ($status !== 'processed' || !in_array((int) $statusCode, [200, 201, 204], true)) {
                 $responseData['status'] = 'failed';
             }
-            MedicalEventsRepository::approval()->finishCarePlanSmsResend($this->eHealthLink, $responseData);
+            Repository::approval()->finishCarePlanSmsResend($this->eHealthLink, $responseData);
             if ($responseData['status'] === 'failed') {
                 $approval = $this->eHealthLink->linkable;
                 Cache::forget('care-plan-otp-resend:'.$approval->approvable->person->uuid.':'.$approval->uuid);
@@ -402,21 +363,21 @@ class RemoteEHealthLinksProcessing extends EHealthJob
 
         if ($status === 'processed' && in_array((int) $statusCode, [200, 201], true)) {
             if ($this->eHealthLink->linkableType === Approval::class) {
-                $approvalData = ApprovalApi::validateResourceData($responseData);
-                MedicalEventsRepository::approval()->completeCarePlanRequest($this->eHealthLink, $approvalData);
+                $approvalData = \App\Classes\eHealth\Api\Approval::validateResourceData($responseData);
+                Repository::approval()->completeCarePlanRequest($this->eHealthLink, $approvalData);
                 $approval = $this->eHealthLink->fresh()->linkable;
                 $plan = $approval->approvable;
                 if (!$approval->getAttribute('is_verified') && $plan instanceof CarePlan
                     && data_get($this->eHealthLink->job->request_data, 'confirmWithoutOtp') === true
-                    && app(CarePlanApprovalService::class)->skipsPatientOtp($plan, $this->legalEntity)) {
+                    && app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->skipsPatientOtp($plan, $this->legalEntity)) {
                     try {
-                        app(CarePlanApprovalService::class)->confirmWithoutOtp(
+                        app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->confirmWithoutOtp(
                             $plan->person->uuid,
                             $approval->uuid,
                             $this->token
                         );
                     } catch (Throwable $exception) {
-                        MedicalEventsRepository::approval()->recordConfirmationError($this->eHealthLink);
+                        Repository::approval()->recordConfirmationError($this->eHealthLink);
                         throw $exception;
                     }
                 }
@@ -461,7 +422,7 @@ class RemoteEHealthLinksProcessing extends EHealthJob
     public function failed(?Throwable $exception): void
     {
         if (data_get($this->eHealthLink->job?->request_data, 'operation') === 'resendSms') {
-            MedicalEventsRepository::approval()->finishCarePlanSmsResend($this->eHealthLink, ['status' => 'failed']);
+            Repository::approval()->finishCarePlanSmsResend($this->eHealthLink, ['status' => 'failed']);
             $approval = $this->eHealthLink->linkable;
             Cache::forget('care-plan-otp-resend:'.$approval->approvable->person->uuid.':'.$approval->uuid);
 
@@ -567,8 +528,8 @@ class RemoteEHealthLinksProcessing extends EHealthJob
     public static function submitOperation(CarePlan|CarePlanActivity|ServiceRequestRequest $record, array $changes, callable $send, ?string $requiredScope = null, array $operationContext = []): ?array
     {
         $link = $record instanceof ServiceRequestRequest
-            ? MedicalEventsRepository::serviceRequest()->beginSubmission($record, $changes, $requiredScope ?? 'service_request:write', $operationContext)
-            : Repository::carePlan()->beginSubmission($record, $changes);
+            ? Repository::serviceRequest()->beginSubmission($record, $changes, $requiredScope ?? 'service_request:write', $operationContext)
+            : \App\Repositories\Repository::carePlan()->beginSubmission($record, $changes);
         try {
             $response = $send();
         } catch (Throwable $exception) {
@@ -585,11 +546,6 @@ class RemoteEHealthLinksProcessing extends EHealthJob
             throw $exception;
         }
         $data = $response->validate();
-        if ($data instanceof CarePlanDetails) {
-            $data = $data->native;
-        } elseif ($data instanceof Collection) {
-            $data = $data->toArray();
-        }
         $status = strtolower((string) ($data['status'] ?? ''));
         if (isset($data['error']) || in_array($status, ['failed', 'rejected', 'error'], true)) {
             self::markSubmissionFailed($link);

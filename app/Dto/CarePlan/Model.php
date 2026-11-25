@@ -4,153 +4,104 @@ declare(strict_types=1);
 
 namespace App\Dto\CarePlan;
 
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
-use App\Dto\CodeableConcept\Model as Concept;
+use App\Dto\CodeableConcept\Model as CodeableConceptData;
+use App\Dto\Identifier\Model as IdentifierData;
 use App\Dto\Input\FormCodeableConcept;
+use App\Dto\Input\FormIdentifier;
+use App\Enums\CarePlanStatus;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
 use App\Models\CarePlan;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 use Symfony\Component\ObjectMapper\Attribute\Map;
-use Symfony\Component\ObjectMapper\Condition\IsNotNull;
-use Symfony\Component\ObjectMapper\Condition\SourceClass;
 use Symfony\Component\ObjectMapper\Condition\TargetClass;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
-use Symfony\Component\ObjectMapper\Transform\MapCollection;
 
-/** Form or validated full CarePlan projected directly into an existing SQL model. */
+/** Validated local form projected into the care plan's attributes and clinical relations. */
 #[Map(source: CarePlanForm::class)]
-#[Map(source: CarePlanDetails::class)]
 #[Map(target: CarePlan::class)]
 class Model
 {
-    #[Map(source: '[id?]', if: new SourceClass(CarePlanDetails::class))]
     #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $uuid = null;
+    public string $uuid;
 
-    #[Map(source: '[status?]', if: new SourceClass(CarePlanDetails::class))]
     #[Map(if: new TargetClass(CarePlan::class))]
-    public string $status = 'draft';
+    public int $personId;
 
-    #[Map(source: '[title?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(source: 'title', if: new SourceClass(CarePlanForm::class))]
     #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $title = null;
+    public int $legalEntityId;
 
-    #[Map(source: '[intent?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(source: 'intent', if: new SourceClass(CarePlanForm::class))]
     #[Map(if: new TargetClass(CarePlan::class))]
+    public int $authorId;
+
+    #[Map(if: new TargetClass(CarePlan::class))]
+    public int $encounterId;
+
+    #[Map(if: new TargetClass(CarePlan::class))]
+    public string $status = CarePlanStatus::DRAFT->value;
+
+    #[Map]
     public string $intent = 'order';
 
-    #[Map(source: '[context?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(source: 'context', if: new SourceClass(CarePlanForm::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
+    #[Map]
+    public string $title = '';
+
+    public string $category = '';
+
+    public string $termsOfService = '';
+
+    #[Map]
     public ?string $context = null;
 
-    #[Map(source: '[description?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(source: 'description', if: new SourceClass(CarePlanForm::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
+    #[Map]
     public ?string $description = null;
 
-    #[Map(source: '[note?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(source: 'note', if: new SourceClass(CarePlanForm::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
+    #[Map]
     public ?string $note = null;
 
-    #[Map(source: '[requisition?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $requisition = null;
-
-    #[Map(source: '[inform_with?][auth_method_id?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(source: 'informWith', if: new SourceClass(CarePlanForm::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
+    #[Map]
     public ?string $informWith = null;
 
-    #[Map(source: '[status_history?]', if: new IsNotNull())]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public array $statusHistory = [];
-
-    #[Map(source: '[inserted_at?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $ehealthInsertedAt = null;
-
-    #[Map(source: '[inserted_by?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $ehealthInsertedBy = null;
-
-    #[Map(source: '[updated_at?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $ehealthUpdatedAt = null;
-
-    #[Map(source: '[updated_by?]', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public ?string $ehealthUpdatedBy = null;
-
-    #[Map(source: 'native', if: new SourceClass(CarePlanDetails::class))]
-    #[Map(if: new TargetClass(CarePlan::class))]
-    public ?array $ehealthPayload = null;
-
-    #[Map(source: '[category?]', if: new SourceClass(CarePlanDetails::class), transform: [Concept::class, 'map'])]
-    public ?Concept $category = null;
-
-    #[Map(source: '[terms_of_service?]', if: new SourceClass(CarePlanDetails::class), transform: [Concept::class, 'map'])]
-    public ?Concept $termsOfService = null;
-
-    #[Map(source: '[status_reason?]', if: new SourceClass(CarePlanDetails::class), transform: [Concept::class, 'map'])]
-    public ?Concept $statusReason = null;
-
-    /** @var list<Concept> */
-    #[Map(source: '[addresses?]', if: new IsNotNull(), transform: new MapCollection(targetClass: Concept::class))]
-    public array $addresses = [];
-
-    #[Map(source: '[period?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $period = null;
-
-    #[Map(source: '[author?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $author = null;
-
-    #[Map(source: '[encounter?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $encounter = null;
-
-    #[Map(source: '[subject?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $subject = null;
-
-    #[Map(source: '[managing_organization?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $managingOrganization = null;
-
-    #[Map(source: '[based_on?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $basedOn = null;
-
-    #[Map(source: '[part_of?]', if: new SourceClass(CarePlanDetails::class))]
-    public ?array $partOf = null;
-
-    #[Map(source: '[supporting_info?]', if: new IsNotNull())]
-    public array $supportingInfo = [];
-
-    #[Map(source: '[contributor?]', if: new IsNotNull())]
-    public array $contributor = [];
-
-    #[Map(source: 'category', if: new SourceClass(CarePlanForm::class))]
-    public string $categoryCode = '';
-
-    #[Map(source: 'termsOfService', if: new SourceClass(CarePlanForm::class))]
-    public string $termsOfServiceCode = '';
-
-    #[Map(source: 'encounter', if: new SourceClass(CarePlanForm::class))]
-    public string $encounterUuid = '';
-
-    #[Map(source: 'periodStart', if: new SourceClass(CarePlanForm::class))]
     public string $periodStart = '';
 
-    #[Map(source: 'periodStartTime', if: new SourceClass(CarePlanForm::class))]
     public string $periodStartTime = '';
 
-    #[Map(source: 'periodEnd', if: new SourceClass(CarePlanForm::class))]
     public string $periodEnd = '';
 
-    #[Map(source: 'periodEndTime', if: new SourceClass(CarePlanForm::class))]
     public string $periodEndTime = '';
+    public string $encounter = '';
 
-    /** Prepare local clinical relations after the component supplies authorized identities and selections. */
+    /** @var list<array<string, mixed>> */
+    #[Map(if: new TargetClass(CarePlan::class))]
+    public array $addresses = [];
+
+    public CodeableConceptData $categoryConcept;
+    public CodeableConceptData $termsOfServiceConcept;
+    public IdentifierData $authorReference;
+    public IdentifierData $subjectReference;
+    public IdentifierData $encounterIdentifier;
+    public IdentifierData $managingOrganization;
+
+    /** @var array{start: string, end: string|null} */
+    public array $period;
+
+    /** @var Collection<int, IdentifierData> */
+    public Collection $supportingInfoReferences;
+
+    /** @var array<string, string> */
+    public array $medicalRecordLabels;
+
+    /** @var Collection<int, IdentifierData> */
+    public Collection $contributors;
+
+    /**
+     * Map validated local selections into the relations stored with the draft.
+     *
+     * @param list<array<string, mixed>> $addresses
+     * @param list<string> $coAuthors
+     * @param list<string> $episodeUuids
+     * @param array<string, string> $medicalRecordLabels
+     */
     public function prepareLocal(
         ObjectMapperInterface $mapper,
         string $patientUuid,
@@ -158,43 +109,50 @@ class Model
         string $legalEntityUuid,
         array $addresses,
         array $coAuthors,
-        array $episodes,
-        array $medicalRecords,
+        array $episodeUuids,
+        array $medicalRecordLabels,
     ): void {
-        $this->category = $mapper->map(new FormCodeableConcept([
-            'coding' => [['system' => 'eHealth/care_plan_categories', 'code' => $this->categoryCode]],
-        ]), Concept::class);
-        $this->termsOfService = $mapper->map(new FormCodeableConcept([
-            'coding' => [['system' => 'PROVIDING_CONDITION', 'code' => $this->termsOfServiceCode]],
-        ]), Concept::class);
-        $this->addresses = array_map(
-            fn (array $address): Concept => $mapper->map(new FormCodeableConcept($address), Concept::class),
-            $addresses
-        );
-        $this->author = $this->reference($authorUuid, 'employee');
-        $this->subject = $this->reference($patientUuid, 'patient');
-        $this->encounter = $this->reference($this->encounterUuid, 'encounter');
-        $this->managingOrganization = $this->reference($legalEntityUuid, 'legal_entity');
+        $this->categoryConcept = $this->concept($mapper, 'eHealth/care_plan_categories', $this->category);
+        $this->termsOfServiceConcept = $this->concept($mapper, 'PROVIDING_CONDITION', $this->termsOfService);
+        $this->authorReference = $this->identifier($mapper, $authorUuid, 'employee');
+        $this->subjectReference = $this->identifier($mapper, $patientUuid, 'patient');
+        $this->encounterIdentifier = $this->identifier($mapper, $this->encounter, 'encounter');
+        $this->managingOrganization = $this->identifier($mapper, $legalEntityUuid, 'legal_entity');
         $this->period = [
             'start' => $this->instant($this->periodStart, $this->periodStartTime),
             'end' => $this->periodEnd === '' ? null : $this->instant($this->periodEnd, $this->periodEndTime),
         ];
-        $this->contributor = array_map(fn (string $uuid): array => $this->reference($uuid, 'employee'), $coAuthors);
-        $this->supportingInfo = [
-            ...array_map(fn (string $uuid): array => $this->reference($uuid, 'episode_of_care'), $episodes),
-            ...array_map(fn (array $record): array => $this->reference($record['uuid'], $record['type']), $medicalRecords),
-        ];
-        $this->description = $this->description === '' ? null : $this->description;
-        $this->note = $this->note === '' ? null : $this->note;
-        $this->informWith = $this->informWith === '' ? null : $this->informWith;
+        $this->addresses = $addresses;
+        $this->medicalRecordLabels = $medicalRecordLabels;
+        $this->contributors = collect($coAuthors)->map(
+            fn (string $uuid): IdentifierData => $this->identifier($mapper, $uuid, 'employee')
+        );
+        $this->supportingInfoReferences = collect($episodeUuids)->map(
+            fn (string $uuid): IdentifierData => $this->identifier($mapper, $uuid, 'episode_of_care')
+        )->concat(collect(array_keys($medicalRecordLabels))->map(function (string $key) use ($mapper): IdentifierData {
+            [$type, $uuid] = explode(':', $key, 2);
+
+            return $this->identifier($mapper, $uuid, $type);
+        }));
+        foreach (['context', 'description', 'note', 'informWith'] as $field) {
+            $this->{$field} = $this->{$field} === '' ? null : $this->{$field};
+        }
     }
 
-    protected function reference(string $uuid, string $type): array
+    protected function concept(ObjectMapperInterface $mapper, string $system, string $code): CodeableConceptData
     {
-        return ['identifier' => [
+        return $mapper->map(new FormCodeableConcept([
+            'coding' => [['system' => $system, 'code' => $code]],
+            'text' => null,
+        ]), CodeableConceptData::class);
+    }
+
+    protected function identifier(ObjectMapperInterface $mapper, string $uuid, string $type): IdentifierData
+    {
+        return $mapper->map(new FormIdentifier([
             'value' => $uuid,
-            'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => $type]]],
-        ]];
+            'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => $type]], 'text' => null],
+        ]), IdentifierData::class);
     }
 
     protected function instant(string $date, string $time): string

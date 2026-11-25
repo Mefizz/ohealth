@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan\Forms;
 
-use Illuminate\Support\Facades\Validator;
-
 use App\Core\Arr;
 use App\Core\BaseForm;
-
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CarePlanForm extends BaseForm
 {
@@ -57,6 +57,35 @@ class CarePlanForm extends BaseForm
         ];
     }
 
+    /** Validate the draft fields and the choices resolved for the current patient and facility. */
+    public function validateDraft(array $authorUuids, array $episodeUuids, array $medicalRecordKeys): array
+    {
+        $validated = $this->validate([
+            ...$this->rules(),
+            'title' => 'required|string|max:255',
+            'context' => 'nullable|string|max:255',
+            'informWith' => 'nullable|string|max:255',
+            'periodStartTime' => 'nullable|date_format:H:i',
+            'periodEndTime' => 'nullable|date_format:H:i',
+            'coAuthors' => 'array|list',
+            'episodes' => 'array|list',
+            'medicalRecords' => 'array|list',
+            'coAuthors.*' => ['nullable', 'uuid', Rule::in($authorUuids)],
+            'episodes.*' => ['required', 'uuid', 'distinct', Rule::in($episodeUuids)],
+            'medicalRecords.*' => ['required', 'string', 'distinct', Rule::in($medicalRecordKeys)],
+        ]);
+
+        $start = $this->periodStartIsoDate().' '.($this->periodStartTime ?: '00:00');
+        $end = $this->periodEndIsoDate();
+        if ($end !== null && ($end.' '.($this->periodEndTime ?: '00:00')) < $start) {
+            throw ValidationException::withMessages(['form.periodEnd' => __('care-plan.period_end_before_start')]);
+        }
+
+        $validated['coAuthors'] = array_values(array_unique(array_filter($validated['coAuthors'])));
+
+        return $validated;
+    }
+
     /**
      * Validation rules for signing.
      */
@@ -90,6 +119,11 @@ class CarePlanForm extends BaseForm
             'periodStart' => __('care-plan.date_and_time_start'),
             'periodEnd' => __('care-plan.date_and_time_end'),
             'encounter' => __('care-plan.encounter'),
+            'periodStartTime' => __('care-plan.date_and_time_start'),
+            'periodEndTime' => __('care-plan.date_and_time_end'),
+            'coAuthors.*' => __('care-plan.co-author'),
+            'episodes.*' => __('care-plan.episode'),
+            'medicalRecords.*' => __('care-plan.medical_record'),
             'description' => __('care-plan.extended_description'),
             'note' => __('care-plan.notes'),
             'informWith' => __('care-plan.inform_with'),

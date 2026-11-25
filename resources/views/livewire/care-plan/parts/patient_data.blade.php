@@ -134,21 +134,22 @@
             <div class="form-group group">
                 <input
                     type="text"
-                    name="medical_number"
-                    id="medical_number"
+                    name="medicalNumber"
+                    id="medicalNumber"
                     class="input peer"
                     placeholder=" "
                     autocomplete="off"
-                    wire:model="form.medical_number"
+                    wire:model="form.medicalNumber"
+                    @error('form.medicalNumber') aria-describedby="error-form-medicalNumber" @enderror
                     readonly
                     required
                 />
 
-                <label for="medical_number" class="label">
+                <label for="medicalNumber" class="label">
                     {{ __('care-plan.medical_number') ?? 'Медичний запис №' }}
                 </label>
-                @error('form.medical_number')
-                    <p class="text-error" id="error-form-medical_number">{{ $message }}</p>
+                @error('form.medicalNumber')
+                    <p class="text-error" id="error-form-medicalNumber">{{ $message }}</p>
                 @enderror
             </div>
         </div>

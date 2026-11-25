@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 class CarePlanForm extends BaseForm
 {
     public string $patient = '';
-    public string $medical_number = '';
+    public string $medicalNumber = '';
     public string $author = '';
     public array $coAuthors = [];
     public string $category = '';

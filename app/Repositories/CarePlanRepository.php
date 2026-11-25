@@ -19,6 +19,7 @@ use App\Enums\Person\EncounterStatus;
 use App\Enums\Person\ObservationStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
+use App\Exceptions\MedicalEvents\ClinicalStorageException;
 use App\Jobs\CarePlanInpatientApprovalProcessing;
 use App\Jobs\RemoteEHealthLinksProcessing;
 use App\Models\CarePlan;
@@ -54,7 +55,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
-use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 use Throwable;
 
 class CarePlanRepository extends MedicalEventsBaseRepository
@@ -65,37 +65,34 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /**
-     * Insert prepared local drafts in one transaction. A repeat submission returns the same row.
+     * Insert prepared local drafts and their relations within one database transaction.
+     * A retry returns the row with the same UUID, patient and facility without updating it.
      *
-     * @param DataCollection<int, CarePlanData> $items
-     * @param callable(CarePlan): void $guard
+     * @param  DataCollection<int, CarePlanData>  $items
      * @return DataCollection<int, CarePlan>
+     * @throws ClinicalStorageException
      */
-    public function saveLocally(DataCollection $items, ObjectMapperInterface $mapper, callable $guard): DataCollection
+    public function saveLocally(DataCollection $items): DataCollection
     {
-        $this->assertFhirStorageReady();
-
-        return $this->storageTransaction(function () use ($items, $mapper, $guard): DataCollection {
-            return $items->map(function (CarePlanData $data) use ($mapper, $guard): CarePlan {
+        return $this->storageTransaction(function () use ($items): DataCollection {
+            return $items->map(function (CarePlanData $data): CarePlan {
                 // Serialize retries before this form's UUID has a corresponding row to lock.
                 Person::whereKey($data->personId)->lockForUpdate()->firstOrFail();
                 $plan = CarePlan::whereUuid($data->uuid)
                     ->wherePersonId($data->personId)
                     ->whereLegalEntityId($data->legalEntityId)
                     ->lockForUpdate()
-                    ->first() ?? new CarePlan();
+                    ->first();
 
-                $guard($plan);
-
-                return $plan->exists ? $plan : $this->save($data, $plan, $mapper);
+                return $plan ?? $this->save($data, new CarePlan());
             });
         });
     }
 
     /** Persist the draft's attributes and relations within saveLocally's transaction. */
-    protected function save(CarePlanData $data, CarePlan $plan, ObjectMapperInterface $mapper): CarePlan
+    protected function save(CarePlanData $data, CarePlan $plan): CarePlan
     {
-        $mapper->map($data, $plan);
+        objectMapper()->map($data, $plan);
         $concepts = MedicalEventsRepository::codeableConcept();
         $identifiers = MedicalEventsRepository::identifier();
 
@@ -847,11 +844,12 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             ->get(['id', 'uuid', 'person_id', 'preperson_id', 'status', 'performer_id', 'episode_id', 'ehealth_inserted_at'])
             ->filter(function (Encounter $encounter) use ($person, $user, $forDraftCreation): bool {
                 $isDirect = (int) $encounter->getAttribute('person_id') === $person->id;
-                if (($forDraftCreation || !$isDirect) && ($user === null || $user->cannot('view', [$encounter, $person]))) {
+                if ($forDraftCreation && !$user?->can('useEncounterForDraft', [CarePlan::class, $encounter, $person])) {
                     return false;
                 }
 
-                return $isDirect || $this->mergedEncounterIsEligible($encounter, $person);
+                return $isDirect || ($user?->can('view', [$encounter, $person])
+                    && $this->mergedEncounterIsEligible($encounter, $person));
             })
             ->values();
         $episodeUuids = $encounters->pluck('episode.value')

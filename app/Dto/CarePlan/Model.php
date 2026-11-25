@@ -17,7 +17,13 @@ use Symfony\Component\ObjectMapper\Attribute\Map;
 use Symfony\Component\ObjectMapper\Condition\TargetClass;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
-/** Validated local form projected into the care plan's attributes and clinical relations. */
+/**
+ * Map the validated form to the attributes and relations of a local CarePlan draft.
+ *
+ * Persisted attributes need explicit target mappings because Eloquent exposes them
+ * through attribute access instead of declared properties. The remaining values
+ * are used to build the related concepts, identifiers and period.
+ */
 #[Map(source: CarePlanForm::class)]
 #[Map(target: CarePlan::class)]
 class Model

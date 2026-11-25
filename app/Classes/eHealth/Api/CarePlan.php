@@ -261,6 +261,9 @@ class CarePlan extends Request
             $rules[$field . '.display_value'] ??= 'sometimes|string';
         }
 
+        // eHealth can return an organization display name without its identifier.
+        $rules['managing_organization.identifier'] = 'sometimes|array';
+
         foreach (['inserted_at', 'updated_at'] as $field) {
             $rules[$field] = 'required|string|date';
         }

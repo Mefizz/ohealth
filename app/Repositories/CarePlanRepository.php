@@ -492,6 +492,10 @@ class CarePlanRepository extends MedicalEventsBaseRepository
             $plan->{$relation}()->associate($this->syncCodeableConcept($existing, $concept?->toArray(), $relation));
         }
         foreach ($data->remoteReferences as $relation => $reference) {
+            if ($relation === 'managingOrganization' && !isset($reference['identifier']['value'])) {
+                continue;
+            }
+
             $plan->{$relation}()->associate($this->syncIdentifier($existing, $reference, $relation));
         }
         $plan->detailsSyncedAt = now();

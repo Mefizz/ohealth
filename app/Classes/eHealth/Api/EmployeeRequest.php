@@ -17,6 +17,7 @@ use App\Models\Division;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class EmployeeRequest extends EHealthRequest
 {
@@ -60,7 +61,8 @@ class EmployeeRequest extends EHealthRequest
         $partyData = $sourceData['party'] ?? [];
 
         $professionalData = [];
-        foreach (['doctor', 'med_admin', 'med_coordinator', 'pharmacist', 'specialist', 'assistant', 'laborant'] as $key) {
+        $professionalKey = strtolower(Arr::get($sourceData, 'employee_request_data.employee_type', 'doctor'));
+        foreach (array_unique([$professionalKey, 'doctor', 'med_admin', 'med_coordinator', 'pharmacist', 'specialist', 'assistant', 'laborant']) as $key) {
             if (isset($sourceData[$key])) {
                 $professionalData = $sourceData[$key];
                 break;
@@ -99,7 +101,11 @@ class EmployeeRequest extends EHealthRequest
     {
         $getEndpoint = '/api/employee_requests';
 
-        $this->setValidator(fn (EHealthResponse $response): EmployeeRequestGetMany => $this->validateMany($response, !isset($filters['id'])));
+        $this->setValidator(fn (EHealthResponse $response): EmployeeRequestGetMany => $this->validateMany(
+            $response,
+            !isset($filters['id']),
+            isset($filters['id']) ? null : $page,
+        ));
 
         if (!isset($filters['id'])) {
             $this->setDefaultPageSize();
@@ -140,7 +146,7 @@ class EmployeeRequest extends EHealthRequest
      * @param  EHealthResponse  $response  The response from the eHealth API.
      * @return array The validated data.
      */
-    protected function validateMany(EHealthResponse $response, bool $paginated = true): EmployeeRequestGetMany
+    protected function validateMany(EHealthResponse $response, bool $paginated = true, ?int $page = null): EmployeeRequestGetMany
     {
         $envelopeRules = [
             'data' => 'present|array|list',
@@ -155,6 +161,9 @@ class EmployeeRequest extends EHealthRequest
                 'paging.total_entries' => 'required|integer|min:0',
                 'paging.total_pages' => 'required|integer|min:0',
             ];
+            if ($page !== null) {
+                $envelopeRules['paging.page_number'] = ['required', 'integer', 'min:1', Rule::in([$page])];
+            }
         }
         Validator::make($response->json(), $envelopeRules)->validate();
 

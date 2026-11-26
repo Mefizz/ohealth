@@ -96,6 +96,10 @@ class EmployeeRequestProcessor
 
         $request->refresh();
 
+        if ($request->status === LocalStatus::APPROVED && $request->syncStatus === JobStatus::PARTIAL->value) {
+            throw new RuntimeException(__('employees.sync.employee_request_not_applied'));
+        }
+
         return match ($request->status->value) {
             LocalStatus::APPROVED->value => self::OUTCOME_APPROVED,
             LocalStatus::REJECTED->value => self::OUTCOME_REJECTED,

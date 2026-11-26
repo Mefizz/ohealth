@@ -11,6 +11,7 @@ use GuzzleHttp\Promise\PromiseInterface;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class Employee extends EHealthRequest
 {
@@ -33,7 +34,7 @@ class Employee extends EHealthRequest
      */
     public function getMany(array $filters, int $page = 1, bool $withIdentity = false): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(fn (EHealthResponse $response): array => $this->validateMany($response, $withIdentity));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateMany($response, $withIdentity, $page));
         $this->setDefaultPageSize();
 
         $mergedQuery = array_merge(
@@ -84,7 +85,7 @@ class Employee extends EHealthRequest
      * @param  EHealthResponse  $response  The response from the eHealth API.
      * @return array The validated and transformed data.
      */
-    protected function validateMany(EHealthResponse $response, bool $withIdentity = false): array
+    protected function validateMany(EHealthResponse $response, bool $withIdentity = false, int $page = 1): array
     {
         if ($withIdentity) {
             // A missing page cursor must not turn a partial identity search into a unique match.
@@ -99,7 +100,7 @@ class Employee extends EHealthRequest
                 'data.*.legal_entity' => 'sometimes|nullable|array|required_array_keys:id',
                 'data.*.legal_entity.id' => 'sometimes|uuid',
                 'paging' => 'required|array',
-                'paging.page_number' => 'required|integer|min:1',
+                'paging.page_number' => ['required', 'integer', 'min:1', Rule::in([$page])],
                 'paging.page_size' => 'required|integer|min:1|max:300',
                 'paging.total_entries' => 'required|integer|min:0',
                 'paging.total_pages' => 'required|integer|min:0',

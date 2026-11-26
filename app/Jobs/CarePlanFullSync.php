@@ -23,11 +23,12 @@ use App\Core\Arr;
 use App\Repositories\Repository;
 use App\Repositories\MedicalEvents\Repository as MedicalEventsRepository;
 use Illuminate\Validation\ValidationException;
-use App\Dto\CarePlan\Model as CarePlanData;
+use App\Traits\SynchronizesCarePlans;
 use App\Enums\JobStatus;
 
 class CarePlanFullSync extends PatientEHealthJob
 {
+    use SynchronizesCarePlans;
 
     public const string BATCH_NAME = 'CarePlanFullSync';
 
@@ -152,7 +153,7 @@ class CarePlanFullSync extends PatientEHealthJob
         }
         if ($this->isPatientRegistrySync() && $this->resourceUuid === null) {
             // Queue one full aggregate per job; a long patient history never runs in one HTTP request.
-            $summaries = $response->validate()->toResources();
+            $summaries = $response->validate();
             Repository::carePlan()->storeSummaries($summaries, $this->personId, $this->legalEntity->id);
             $jobs = self::detailJobs($summaries, $this->legalEntity, $this->patientContext);
             if ($jobs !== []) {
@@ -161,16 +162,18 @@ class CarePlanFullSync extends PatientEHealthJob
 
             return;
         }
-        $validatedData = $response->validate();
-        $repository = Repository::carePlan();
-        $mapper = objectMapper();
+        $validatedData = $response?->validate();
+        if (empty($validatedData)) {
+            return;
+        }
         if ($this->isPatientRegistrySync() && $this->resourceUuid !== null) {
-            $patient = $repository->resolvePatientContext($this->personId, $this->patientUuid);
-            $data = $mapper->map($validatedData, CarePlanData::class);
-            $data->prepareResponse($validatedData);
+            if (($validatedData['id'] ?? null) !== $this->resourceUuid) {
+                throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
+            }
+            $patient = Repository::carePlan()->resolvePatientContext($this->personId, $this->patientUuid);
             try {
-                $activities = EHealth::carePlanActivity()->withToken($this->token)->allDetails($patient['uuid'], $this->resourceUuid);
-                $plan = $repository->storeAggregate($data, $activities, $patient['id'], $this->legalEntity->id);
+                $activities = $this->fetchAllActivityResources($patient['uuid'], $this->resourceUuid, token: $this->token);
+                $plan = Repository::carePlan()->storeAggregate($validatedData, $activities, $patient['id'], $this->legalEntity->id);
                 if ((($this->batch()?->options ?? []) + $this->patientContext)['care_plan_approvals'] ?? false) {
                     MedicalEventsRepository::approval()->syncApprovals(
                         $plan,
@@ -183,7 +186,7 @@ class CarePlanFullSync extends PatientEHealthJob
                 if ($exception->getCode() !== 403) {
                     throw $exception;
                 }
-                $repository->saveConfirmed($data, $patient['id'], $this->legalEntity->id);
+                Repository::carePlan()->storeResource($validatedData, $patient['id'], $this->legalEntity->id);
                 $key = 'care-plan-sync-denied:'.$this->batch()->id;
                 Cache::add($key, 0, now()->addDay());
                 Cache::increment($key);
@@ -192,16 +195,7 @@ class CarePlanFullSync extends PatientEHealthJob
 
             return;
         }
-        $api = EHealth::carePlan()->withToken($this->token);
-        $activitiesApi = EHealth::carePlanActivity()->withToken($this->token);
-        foreach ($validatedData as $summary) {
-            $patient = $repository->resolvePatientContext($this->personId, $this->patientUuid ?? data_get($summary->native, 'subject.identifier.value'));
-            $details = $api->getDetails($patient['uuid'], $summary->get('id'))->validate();
-            $plan = $mapper->map($details, CarePlanData::class);
-            $plan->prepareResponse($details);
-            $activities = $activitiesApi->allDetails($patient['uuid'], $plan->uuid);
-            $repository->storeAggregate($plan, $activities, $patient['id'], $this->legalEntity->id);
-        }
+        $this->synchronizeResources($validatedData, $this->personId, $this->legalEntity->id, $this->patientUuid, $this->token);
     }
 
     private function isPatientRegistrySync(): bool

@@ -128,7 +128,7 @@ class DeviceRequestLifecycleService extends EHealthRequestLifecycleService imple
             $this->invalid('activity', __('care-plan.full_sync_required'));
         }
         Gate::authorize('manageActivities', $localPlan);
-        $plan = EHealth::carePlan()->getDetails($person->uuid, $carePlanUuid)->validate()->native;
+        $plan = \App\Core\Arr::toSnakeCase(EHealth::carePlan()->getDetails($person->uuid, $carePlanUuid)->validate());
         $activity = \App\Core\Arr::toSnakeCase(EHealth::carePlanActivity()->getDetails($person->uuid, $carePlanUuid, $activityUuid)->validate());
         $detail = $activity['detail'] ?? $activity;
         if (($plan['status'] ?? '') !== 'active'

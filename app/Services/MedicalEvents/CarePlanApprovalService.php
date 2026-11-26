@@ -8,7 +8,6 @@ use App\Enums\Person\AuthenticationMethod;
 
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
-use App\Enums\CarePlanStatus;
 use App\Enums\CarePlanTermsOfService;
 use App\Enums\Person\ApprovalStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
@@ -68,20 +67,6 @@ class CarePlanApprovalService
         }
 
         return $payload;
-    }
-
-    /** A registered plan grants activity access only after the applicable approval. */
-    public function permitsActivityAccess(CarePlan $carePlan, User $user): bool
-    {
-        $status = CarePlanStatus::fromStored($carePlan->status);
-        if ($status === CarePlanStatus::DRAFT || $status->isTerminal()) {
-            return false;
-        }
-
-        $employee = $user->getCarePlanWriterEmployee($carePlan->termsOfServiceCode());
-
-        return $employee !== null && ($this->skipsPatientOtp($carePlan)
-            || $carePlan->hasGrantedApprovalForEmployeeUuid($employee->uuid));
     }
 
     /**

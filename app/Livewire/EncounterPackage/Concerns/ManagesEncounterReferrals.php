@@ -11,7 +11,7 @@ use App\Enums\MedicalProgram\Type as MedicalProgramType;
 use App\Enums\Person\EncounterStatus;
 use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Jobs\RemoteEHealthLinksProcessing;
+use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\MedicalEvents\Sql\Encounter;
 use App\Models\MedicalEvents\Sql\ServiceRequestRequest;
@@ -40,6 +40,7 @@ use Throwable;
 
 trait ManagesEncounterReferrals
 {
+    use SubmitsClinicalOperations;
 
     // Uses ResolvesEncounterStandaloneContext via EncounterEdit.
 
@@ -542,10 +543,8 @@ trait ManagesEncounterReferrals
 
             $this->assertEncounterReferralPeriod($dbData);
             $requestRecord = MedicalEventsRepository::serviceRequest()->storeResource($resource, (int) $encounter->person_id, $requestRecord->employeeId, $requestRecord->divisionId);
-            $finalResponse = RemoteEHealthLinksProcessing::submitOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
+            $finalResponse = $this->submitClinicalOperation($requestRecord, ['status' => 'active'], fn () => SubmissionApi::serviceRequest()->createSigned($person->uuid, ['signed_data' => $signedContent, 'signed_data_encoding' => 'base64']));
             if ($finalResponse === null) {
-                $this->showSignatureModal = false;
-
                 return;
             }
 

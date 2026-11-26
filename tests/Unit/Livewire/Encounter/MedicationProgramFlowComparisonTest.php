@@ -17,7 +17,7 @@ use Illuminate\Support\ViewErrorBag;
 use DOMDocument;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
-use App\Livewire\CarePlan\CarePlanDetailsComponent;
+use App\Livewire\CarePlan\CarePlanComponent;
 use App\Livewire\CarePlan\Concerns\ManagesCarePlanActivities;
 use App\Livewire\EncounterPackage\Concerns\ManagesEncounterEPrescription;
 use App\Services\Dictionary\DictionaryManager;
@@ -304,7 +304,7 @@ class MedicationProgramFlowComparisonTest extends TestCase
     }
 }
 
-class CarePlanMedicationProgramHarness extends CarePlanDetailsComponent
+class CarePlanMedicationProgramHarness extends CarePlanComponent
 {
     use ManagesCarePlanActivities;
 

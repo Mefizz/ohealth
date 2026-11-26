@@ -5,32 +5,29 @@ declare(strict_types=1);
 namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
-use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
-use App\Classes\eHealth\Errors\MedicalEventsErrorTranslator;
-use App\Contracts\ApiErrorTranslator;
+use App\Core\Arr;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
-use App\Models\CarePlan as CarePlanModel;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class CarePlan extends Request
 {
+    protected const string PATIENTS_URL = '/api/patients';
+
     protected const string URL = '/api/care_plans';
 
     /** Submit signed creation content. Validation returns details on 201 or a job receipt on 202. */
     public function create(string $patientId, array $payload, ?string $planId = null): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('create');
         $this->setValidator(fn (EHealthResponse $response): CarePlanDetails|array => $this->validateSubmission($response, $planId, $patientId));
 
-        return $this->post("/api/patients/$patientId/care_plans", $payload);
+        return $this->post(self::PATIENTS_URL . "/$patientId/care_plans", $payload);
     }
 
     /**
@@ -42,7 +39,6 @@ class CarePlan extends Request
      */
     public function getMany(array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('search');
         $this->setValidator($this->validateMany(...));
 
         return $this->get(self::URL, $query);
@@ -57,12 +53,11 @@ class CarePlan extends Request
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function getDetails(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
+    public function getDetails(string $patientId, string $id, array $query = [], bool $preserveApiKeys = false): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('viewAny');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanDetails => $this->validateResponse($response, $id, $patientId));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, $preserveApiKeys));
 
-        return $this->get("/api/patients/{$patientId}/care_plans/{$id}", $query);
+        return $this->get(self::PATIENTS_URL . "/$patientId/care_plans/$id", $query);
     }
 
     /**
@@ -78,10 +73,9 @@ class CarePlan extends Request
      */
     public function cancel(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('cancel');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanDetails|array => $this->validateSubmission($response, $id, $personId));
+        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
 
-        return $this->patch("/api/patients/$personId/care_plans/$id/actions/cancel", $payload);
+        return $this->patch(self::PATIENTS_URL . "/$personId/care_plans/$id/actions/cancel", $payload);
     }
 
     /**
@@ -97,10 +91,9 @@ class CarePlan extends Request
      */
     public function complete(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('complete');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanDetails|array => $this->validateSubmission($response, $id, $personId));
+        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
 
-        return $this->patch("/api/patients/$personId/care_plans/$id/actions/complete", $payload);
+        return $this->patch(self::PATIENTS_URL . "/$personId/care_plans/$id/actions/complete", $payload);
     }
 
     /**
@@ -112,10 +105,9 @@ class CarePlan extends Request
      */
     public function getBySearchParams(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('search');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanGetMany => $this->validateMany($response, $patientId));
+        $this->setValidator($this->validateMany(...));
 
-        return $this->get("/api/patients/$patientId/care_plans", $query);
+        return $this->get(self::PATIENTS_URL . "/$patientId/care_plans", $query);
     }
 
     /**
@@ -130,91 +122,70 @@ class CarePlan extends Request
      */
     public function getSummary(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->authorizeOperation('getSummary');
-        $this->setValidator(fn (EHealthResponse $response): CarePlanGetMany => $this->validateMany($response, $patientId));
+        $this->setValidator($this->validateMany(...));
         $this->setDefaultPageSize();
 
         $mergedQuery = array_merge($this->options['query'], $query);
 
-        return $this->get("/api/patients/$patientId/summary/care_plans", $mergedQuery);
+        return $this->get(self::PATIENTS_URL . "/$patientId/summary/care_plans", $mergedQuery);
     }
 
-    protected function authorizeOperation(string $ability): void
+    protected function validateDetails(EHealthResponse $response, bool $preserveApiKeys = false): array
     {
-        // Queue workers use their previously authorized eHealth bearer token, independently of a web session.
-        if (Auth::check() || !filled($this->options['headers']['Authorization'] ?? null)) {
-            Gate::authorize($ability, CarePlanModel::class);
+        $native = $response->getData();
+        if (array_is_list($native) && count($native) === 1) {
+            $native = $native[0];
         }
-    }
+        $data = Arr::toCamelCase($native);
 
-    protected function errorTranslator(): ApiErrorTranslator
-    {
-        return new MedicalEventsErrorTranslator();
-    }
-
-    /** Validate the details response and its informing method. */
-    protected function validateResponse(EHealthResponse $response, string $id, string $patientId): CarePlanDetails
-    {
-        Validator::make(['statusCode' => $response->getStatusCode()] + (array) $response->json(), [
-            'statusCode' => 'required|in:200',
-            'data' => 'required|array',
-            'urgent' => 'required|array',
-            'urgent.informing_method_current' => 'required|array',
-            'urgent.informing_method_current.type' => 'required|in:OTP,OFFLINE,THIRD_PERSON',
-            'urgent.informing_method_current.phone_number' => 'sometimes|string',
-        ])->validate();
-
-        $data = $response->getData();
-        if (array_is_list($data) && count($data) === 1 && is_array($data[0])) {
-            $data = $data[0];
-        }
-
-        return $this->validateDetails($data, $id, $patientId);
-    }
-
-    /** Validate the short records used by patient lists and requisition search. */
-    protected function validateMany(EHealthResponse $response, ?string $patientId = null): CarePlanGetMany
-    {
-        Validator::make(['statusCode' => $response->getStatusCode()] + (array) $response->json(), [
-            'statusCode' => 'required|in:200',
-            'data' => 'present|array|list',
-            'paging' => 'sometimes|array',
-            'paging.page' => 'required_with:paging|integer|min:1',
-            'paging.page_size' => 'sometimes|integer|min:1',
-            'paging.total_pages' => 'sometimes|integer|min:0',
-            'paging.total_entries' => 'sometimes|integer|min:0',
-        ])->validate();
-
-        $rules = $this->validationRules(details: false);
-        if ($patientId === null) {
-            $rules += [
-                'identity' => 'required|array',
-                'identity.last_name' => 'required|string',
-                'identity.first_name' => 'required|string',
-                'identity.second_name' => 'present|string',
-                'identity.gender' => 'required|in:MALE,FEMALE',
-                'identity.age' => 'required|numeric',
-            ];
-        } else {
-            $rules['subject.identifier.value'] .= '|in:'.$patientId;
-        }
-
-        $itemRules = collect($rules)->mapWithKeys(
-            static fn (string $rule, string $key): array => ["*.$key" => str_replace('required_with:', 'required_with:*.', $rule)]
-        )->all();
-        $validator = Validator::make($response->getData(), ['*' => 'required|array', ...$itemRules]);
+        $validator = Validator::make($data, [
+            'id' => 'required|uuid',
+            'status' => 'required|string',
+            'title' => 'required|string',
+        ]);
 
         if ($validator->fails()) {
-            Log::channel('e_health_errors')->error('CarePlan list validation failed: ' . implode(', ', $validator->errors()->all()));
+            Log::channel('e_health_errors')->error(
+                'CarePlan details validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+            throw new ValidationException($validator);
         }
 
-        return new CarePlanGetMany($validator->validate());
+        // Signed snapshots retain the API's keys; both forms pass the same validator.
+        return $preserveApiKeys ? $native : $data;
+    }
+
+    protected function validateMany(EHealthResponse $response): array
+    {
+        $transformedData = [];
+        foreach ($response->getData() as $item) {
+            $transformedData[] = Arr::toCamelCase($item);
+        }
+
+        $validator = Validator::make($transformedData, [
+            '*' => 'array',
+            '*.id' => 'required|uuid',
+            '*.status' => 'required|string',
+            '*.title' => 'nullable|string',
+            '*.managingOrganization' => ['required', 'array'],
+            '*.managingOrganization.identifier.value' => ['required', 'uuid'],
+            '*.managingOrganization.displayValue' => ['required', 'string']
+        ]);
+
+        if ($validator->fails()) {
+            Log::channel('e_health_errors')->error(
+                'CarePlan validation failed: ' . implode(', ', $validator->errors()->all())
+            );
+            throw new ValidationException($validator);
+        }
+
+        return $transformedData;
     }
 
     /** Validate CarePlan details carried by a processed job or a synchronous response. */
-    public function validateDetails(array $data, ?string $id = null, ?string $patientId = null): CarePlanDetails
+    public function validateCreatedPlan(array $data, ?string $id = null, ?string $patientId = null): CarePlanDetails
     {
-        $rules = $this->validationRules();
+        $rules = $this->createdPlanRules();
         if ($id !== null) {
             $rules['id'] .= '|in:'.$id;
         }
@@ -227,14 +198,14 @@ class CarePlan extends Request
             Log::channel('e_health_errors')->error('CarePlan details validation failed: ' . implode(', ', $validator->errors()->all()));
         }
 
-        return new CarePlanDetails($validator->validate(), $data);
+        return new CarePlanDetails($validator->validate());
     }
 
-    /** Validate the resulting plan on 201 or the processing receipt on 202. */
+    /** Validate the created plan on 201 or the processing receipt on 202. */
     protected function validateSubmission(EHealthResponse $response, ?string $id, string $patientId): CarePlanDetails|array
     {
         if ($response->getStatusCode() === 201) {
-            return $this->validateDetails($response->getData(), $id, $patientId);
+            return $this->validateCreatedPlan($response->getData(), $id, $patientId);
         }
 
         Validator::make(['statusCode' => $response->getStatusCode()], ['statusCode' => 'required|in:202'])->validate();
@@ -244,7 +215,7 @@ class CarePlan extends Request
         return $data;
     }
 
-    protected function validationRules(bool $details = true): array
+    protected function createdPlanRules(): array
     {
         $rules = [
             'id' => 'required|uuid',
@@ -254,19 +225,19 @@ class CarePlan extends Request
             'period' => 'required|array',
             'period.start' => 'required|string|date',
             'period.end' => 'sometimes|string|date',
-            'title' => $details ? 'required|string' : 'sometimes|string',
+            'title' => 'required|string',
             'description' => 'sometimes|string',
             'note' => 'sometimes|string',
             'context' => 'sometimes|nullable|string',
             'inform_with' => 'sometimes|array',
             'inform_with.auth_method_id' => 'sometimes|uuid',
-            'addresses' => $details ? 'present|array' : 'sometimes|array',
+            'addresses' => 'present|array',
             'addresses.*' => 'required|array',
             'supporting_info' => 'sometimes|array',
             'supporting_info.*' => 'required|array',
             'contributor' => 'sometimes|array',
             'contributor.*' => 'required|array',
-            'status_history' => $details ? 'present|array' : 'sometimes|array',
+            'status_history' => 'present|array',
             'status_history.*' => 'required|array',
             'status_history.*.status' => 'required|string',
             'status_history.*.inserted_at' => 'required|string|date',
@@ -275,7 +246,7 @@ class CarePlan extends Request
         ];
 
         foreach (['category', 'terms_of_service', 'status_reason', 'addresses.*', 'status_history.*.status_reason'] as $field) {
-            $rules[$field] ??= ($field === 'terms_of_service' || ($details && $field === 'category')) ? 'required|array' : 'sometimes|array';
+            $rules[$field] ??= in_array($field, ['category', 'terms_of_service'], true) ? 'required|array' : 'sometimes|array';
             $rules[$field . '.coding'] = 'required_with:' . $field . '|array|min:1';
             $rules[$field . '.coding.*'] = 'required|array';
             $rules[$field . '.coding.*.system'] = 'required|string';
@@ -301,10 +272,10 @@ class CarePlan extends Request
         $rules['managing_organization.identifier'] = 'sometimes|array';
 
         foreach (['inserted_at', 'updated_at'] as $field) {
-            $rules[$field] = $details ? 'required|string|date' : 'sometimes|string|date';
+            $rules[$field] = 'required|string|date';
         }
         foreach (['inserted_by', 'updated_by'] as $field) {
-            $rules[$field] = $details ? 'required|uuid' : 'sometimes|uuid';
+            $rules[$field] = 'required|uuid';
         }
 
         return $rules;

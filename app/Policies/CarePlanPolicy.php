@@ -6,97 +6,107 @@ namespace App\Policies;
 
 use App\Enums\CarePlanStatus;
 use App\Models\CarePlan;
-use App\Models\LegalEntity;
 use App\Models\User;
-use App\Services\MedicalEvents\CarePlanApprovalService;
 use Illuminate\Auth\Access\Response;
 
 class CarePlanPolicy
 {
-    public function viewAny(User $user): Response
+    public function sync(User $user): Response
     {
-        return $this->search($user);
+        return $user->can('care_plan:read') && $user->activeEmployee() !== null
+            ? Response::allow()
+            : Response::deny(__('care-plan.sync_access_denied'));
     }
 
+    /**
+     * Determine whether the user can view the care plan.
+     */
     public function view(User $user, CarePlan $carePlan): Response
     {
-        return $this->viewAny($user)->allowed() && $this->belongsToCurrentFacility($carePlan)
-            ? Response::allow()
-            : Response::denyWithStatus(404);
-    }
-
-    public function updateAny(User $user, LegalEntity $legalEntity): Response
-    {
-        return $legalEntity->is(legalEntity()) && $this->viewAny($user)->allowed() && $user->can('care_plan:write')
-            ? Response::allow()
-            : Response::denyWithStatus(404);
-    }
-
-    public function update(User $user, CarePlan $carePlan): Response
-    {
-        $legalEntity = legalEntity();
-        if ($legalEntity === null || $this->updateAny($user, $legalEntity)->denied()
-            || $this->view($user, $carePlan)->denied()) {
+        if ($user->cannot('care_plan:read')) {
             return Response::denyWithStatus(404);
         }
 
-        return CarePlanStatus::fromStored($carePlan->status) === CarePlanStatus::DRAFT
-            ? Response::allow()
-            : Response::denyWithStatus(404);
+        if ((int) $carePlan->legalEntityId !== (int) legalEntity()?->id) {
+            return Response::denyWithStatus(404);
+        }
+
+        return Response::allow();
     }
 
-    /** Determine whether the user can search care plans in eHealth. */
-    public function search(User $user): Response
-    {
-        return $user->can('care_plan:read') ? Response::allow() : Response::denyWithStatus(404);
-    }
-
-    public function create(User $user): Response
-    {
-        return $user->can('care_plan:write')
-            ? Response::allow()
-            : Response::deny(__('care-plan.no_permission_create'));
-    }
-
-    public function getSummary(User $user): Response
-    {
-        return $user->can('patient_summary:read') ? Response::allow() : Response::denyWithStatus(404);
-    }
-
-    public function cancel(User $user): Response
-    {
-        return $user->can('care_plan:write') ? Response::allow() : Response::denyWithStatus(404);
-    }
-
-    public function complete(User $user): Response
-    {
-        return $user->can('care_plan:write') ? Response::allow() : Response::denyWithStatus(404);
-    }
-
+    /**
+     * Sign, cancel, complete, or issue requests on an already stored plan.
+     * Distinct from update(): eHealth keeps a signed plan in `new` until the first activity.
+     */
     public function manage(User $user, CarePlan $carePlan): Response
     {
-        return $user->can('care_plan:write') && $this->belongsToCurrentFacility($carePlan)
-            ? Response::allow()
-            : Response::denyWithStatus(404);
+        if ($user->cannot('care_plan:write')) {
+            return Response::denyWithStatus(404);
+        }
+
+        if ((int) $carePlan->legalEntityId !== (int) legalEntity()?->id) {
+            return Response::denyWithStatus(404);
+        }
+
+        return Response::allow();
     }
 
-    /** TODO: Move prescribing callers to their action policies when separating activity access. */
+    /** A plan's registration does not itself grant patient access for prescribing. */
     public function manageActivities(User $user, CarePlan $carePlan): Response
     {
         $permission = $this->manage($user, $carePlan);
         if ($permission->denied()) {
             return $permission;
         }
+        $legalEntity = legalEntity();
+        $employee = $user->getCarePlanWriterEmployee($carePlan->termsOfServiceCode());
+        $status = CarePlanStatus::fromStored($carePlan->status);
+        if ($employee === null || $legalEntity === null || $status === CarePlanStatus::DRAFT || $status->isTerminal()) {
+            return Response::deny(__('care-plan.prescribing_patient_access_required'));
+        }
+        $repository = app(\App\Repositories\CarePlanRepository::class);
+        if (app(\App\Services\MedicalEvents\CarePlanApprovalService::class)->skipsPatientOtp($carePlan, $legalEntity)
+            || $repository->hasGrantedApproval($carePlan, $employee->uuid)) {
+            return Response::allow();
+        }
 
-        return app(CarePlanApprovalService::class)->permitsActivityAccess($carePlan, $user)
-            ? Response::allow()
-            : Response::deny(__('care-plan.prescribing_patient_access_required'));
+        return Response::deny(__('care-plan.prescribing_patient_access_required'));
     }
 
-    protected function belongsToCurrentFacility(CarePlan $carePlan): bool
+    /**
+     * Determine whether the user can create care plan.
+     */
+    public function create(User $user): Response
     {
-        $facilityId = legalEntity()?->id;
+        if ($user->cannot('care_plan:write')) {
+            return Response::deny(__('care-plan.no_permission_create'));
+        }
 
-        return $facilityId !== null && (int) $carePlan->legalEntityId === (int) $facilityId;
+        return Response::allow();
+    }
+
+    /**
+     * Determine whether the user can update the care plan.
+     */
+    public function update(User $user, CarePlan $carePlan): Response
+    {
+        if ($user->cannot('care_plan:write')) {
+            return Response::denyWithStatus(404);
+        }
+
+        if ((int) $carePlan->legalEntityId !== (int) legalEntity()?->id) {
+            return Response::denyWithStatus(404);
+        }
+
+        if (\App\Repositories\Repository::carePlan()->hasPendingSubmission($carePlan)) {
+            return Response::denyWithStatus(404);
+        }
+
+        $status = CarePlanStatus::fromStored($carePlan->status);
+        if ($status !== CarePlanStatus::DRAFT) {
+            return Response::denyWithStatus(404);
+        }
+
+        return Response::allow();
     }
 }

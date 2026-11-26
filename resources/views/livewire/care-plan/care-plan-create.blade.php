@@ -28,7 +28,7 @@
             <div class="mt-8 flex items-center gap-4 pt-4">
                 <button
                     type="button"
-                    wire:click.prevent="{{ (isset($carePlan) && $carePlan->exists) ? 'delete' : 'cancel' }}"
+                    wire:click.prevent="{{ method_exists($this, 'delete') ? 'delete' : 'cancel' }}"
                     class="button-primary-outline-red px-6 py-2.5"
                 >
                     {{ __('forms.delete') }}
@@ -50,5 +50,6 @@
         </div>
     </div>
 
+    <x-signature-modal method="sign" />
     <x-forms.loading />
 </x-layouts.patient>

@@ -12,6 +12,7 @@ use App\Enums\Person\ServiceRequestStatus;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\Signature\SignatureException;
 use App\Exceptions\EHealth\EHealthValidationException;
+use App\Livewire\Concerns\SubmitsClinicalOperations;
 use App\Livewire\Referral\Forms\ServiceRequestForm;
 use App\Models\CarePlanActivity;
 use App\Models\MedicalEvents\Sql\DeviceRequestRequest;
@@ -41,6 +42,8 @@ use Throwable;
 
 trait ManagesCarePlanReferrals
 {
+    use SubmitsClinicalOperations;
+
     #[Computed]
     public function referralPriorityOptions(): array
     {

@@ -4,174 +4,102 @@ declare(strict_types=1);
 
 namespace App\Livewire\CarePlan;
 
-use App\Dto\CarePlan\Model as CarePlanData;
-use App\Enums\Episode\Status as EpisodeStatus;
-use App\Enums\Person\ProcedureStatus;
 use App\Models\CarePlan;
 use App\Models\LegalEntity;
-use App\Models\MedicalEvents\Sql\DiagnosticReport;
 use App\Models\MedicalEvents\Sql\Encounter;
-use App\Models\MedicalEvents\Sql\Episode;
-use App\Models\MedicalEvents\Sql\Procedure;
 use App\Models\Person\Person;
-use App\Models\User;
 use App\Repositories\Repository;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Livewire\Attributes\Locked;
 
-class CarePlanCreate extends CarePlanComponent
+class CarePlanCreate extends CarePlanDraftComponent
 {
-    #[Locked]
-    public ?string $draftUuid = null;
-
-    #[Locked]
-    public ?int $draftLegalEntityId = null;
-
-    #[Locked]
-    public ?int $draftOpenedById = null;
-
     public function mount(LegalEntity $legalEntity, $personId = null, $encounter = null, ?Person $person = null): void
     {
         $this->draftUuid = Str::uuid()->toString();
-        $this->draftLegalEntityId = $legalEntity->id;
-        $this->draftOpenedById = Auth::id();
 
-        $this->loadPatientForm($legalEntity, $personId, $person);
-    }
+        $routePersonId = $person?->id ?? request()->route('personId');
+        $personId ??= $routePersonId;
+        $encounterRouteParam = request()->route('encounter') ?? ($encounter ?? (request()->query('encounter') ?? request()->query('encounterId')));
+        $this->allowsPatientChange = empty($routePersonId) && empty($encounterRouteParam);
 
-    /**
-     * Save the form as a local CarePlan draft without sending it to eHealth.
-     *
-     * Check the form's access context, resolve the patient and encounter, and validate
-     * the fields and clinical selections. Map the accepted form to a Model DTO and
-     * hand it to the repository for a transactional write. Open the draft editor on
-     * success and report authorization, validation or storage errors in the form.
-     *
-     * @return void
-     */
-    public function save(): void
-    {
-        $draftId = $this->saveDraft();
-        if ($draftId !== null) {
-            Session::flash('success', __('care-plan.draft_saved'));
-            $this->redirectRoute('care-plans.edit', [legalEntity(), $draftId], navigate: true);
-        }
-    }
+        $resolvedPersonId = null;
+        $resolvedEncounter = null;
 
-    protected function saveDraftFromForm(): ?int
-    {
-        $user = Auth::user();
-        $legalEntity = legalEntity();
-        if ($user === null || $legalEntity === null || $this->draftUuid === null
-            || !$this->draftContextMatches($user) || $user->cannot('create', CarePlan::class)) {
-            Session::flash('error', __('care-plan.no_permission_create'));
+        // Try to resolve encounter from route parameters, query string or sequence-passed personId
 
-            return null;
+        if ($encounterRouteParam) {
+            if ($encounterRouteParam instanceof Encounter) {
+                $resolvedEncounter = $encounterRouteParam;
+            } elseif (is_string($encounterRouteParam) && Str::isUuid($encounterRouteParam)) {
+                $resolvedEncounter = Repository::carePlan()->findEncounter($encounterRouteParam);
+            } elseif (is_numeric($encounterRouteParam)) {
+                $resolvedEncounter = Repository::carePlan()->findEncounter((int) $encounterRouteParam);
+            }
+            if ($resolvedEncounter) {
+                $resolvedPersonId = $resolvedEncounter->person_id;
+            }
         }
 
-        $repository = Repository::carePlan();
-
-        $person = $repository->findPatient((int) $this->personId);
-        if ($person === null || !Str::isUuid((string) $person->uuid)) {
-            throw ValidationException::withMessages(['form.patient' => __('validation.required', [
-                'attribute' => __('care-plan.patient'),
-            ])]);
+        if ($person !== null && $encounterRouteParam) {
+            abort_unless($resolvedEncounter !== null && (int) $resolvedEncounter->person_id === $person->id, 404);
+            abort_unless(Auth::user()?->can('view', [$resolvedEncounter, $person]), 404);
         }
-        $encounter = $this->validateDraftEncounter($person);
 
+        // If personId was passed, use it, unless it was sequential mapping of encounter
+        if (!$resolvedPersonId && $personId && (!ctype_digit((string) $personId) || !Repository::carePlan()->findPatient((int) $personId))) {
+            // Check if $personId is actually an encounter ID or UUID
+            $possibleEncounter = null;
+            if (Str::isUuid((string) $personId)) {
+                $possibleEncounter = Repository::carePlan()->findEncounter($personId);
+            } elseif (is_numeric($personId)) {
+                $possibleEncounter = Repository::carePlan()->findEncounter((int) $personId);
+            }
+
+            if ($possibleEncounter) {
+                $resolvedEncounter = $possibleEncounter;
+                $resolvedPersonId = $possibleEncounter->person_id;
+            } else {
+                $resolvedPersonId = ctype_digit((string) $personId) ? (int) $personId : null;
+            }
+        }
+
+        $patientId = $resolvedPersonId ?? $personId;
+        $person = ctype_digit((string) $patientId)
+            ? Repository::carePlan()->findPatient((int) $patientId) ?? abort(404)
+            : null;
+        if ($person !== null) {
+            parent::mount($legalEntity, $person);
+        }
+        $this->initializeDraftForm($legalEntity, $person);
+
+        $conditionUuid = request()->query('conditionUuid');
+        $this->conditionUuid = is_string($conditionUuid) && Str::isUuid($conditionUuid) ? $conditionUuid : '';
+
+        if ($resolvedEncounter) {
+            $this->form->encounter = $resolvedEncounter->uuid;
+            $resolvedEncounter = $person ? $this->draftEncounter($person) : null;
+            abort_if($resolvedEncounter === null, 404);
+
+            $this->applyEncounterToForm($resolvedEncounter);
+        }
+
+        $this->form->periodStart = now()->format(config('app.date_format'));
+        $this->form->periodStartTime = now()->format('H:i');
         $this->synchronizeSystemFields();
-        $coAuthors = array_column($repository->doctors($legalEntity->id), 'uuid');
-        $episodes = $this->draftEpisodes($person, $encounter, $user);
-        $medicalRecords = $this->form->medicalRecords === [] ? collect() : $this->draftMedicalRecords($person, $encounter, $user);
-        $validated = $this->form->validateDraft($coAuthors, $episodes->keys()->all(), $medicalRecords->keys()->all());
-
-        $addresses = $this->draftAddresses($person, $encounter);
-        $author = $user->getCarePlanWriterEmployee($this->form->termsOfService);
-        if ($author === null || !Str::isUuid((string) $author->uuid)) {
-            throw ValidationException::withMessages(['form.author' => __('care-plan.referral_api_no_active_employee')]);
-        }
-
-        $mapper = objectMapper();
-        $draft = $mapper->map($this->form, CarePlanData::class);
-        $draft->uuid = $this->draftUuid;
-        $draft->personId = $person->id;
-        $draft->legalEntityId = $legalEntity->id;
-        $draft->authorId = $author->id;
-        $draft->encounterId = $encounter->id;
-        $draft->prepareLocal(
-            $mapper,
-            $person->uuid,
-            $author->uuid,
-            $legalEntity->uuid,
-            $addresses,
-            $validated['coAuthors'],
-            $validated['episodes'],
-            array_intersect_key($medicalRecords->all(), array_flip($validated['medicalRecords'])),
-        );
-
-        return $repository->saveLocally(collect([$draft]), $mapper)->first()?->id;
-    }
-
-    protected function draftContextMatches(User $user): bool
-    {
-        return $this->draftOpenedById === $user->id
-            && $this->draftLegalEntityId !== null
-            && $this->draftLegalEntityId === legalEntity()?->id;
-    }
-
-    protected function draftEpisodes(Person $person, Encounter $encounter, User $user): Collection
-    {
-        return $person->filterRecordsWithMerged(Episode::query())
-            ->where(fn ($query) => $query->whereStatus(EpisodeStatus::ACTIVE)->orWhere('uuid', $encounter->episode?->value))
-            ->get()
-            ->toBase()
-            ->filter(fn (Episode $episode): bool => $user->can('view', [$episode, $person]))
-            ->mapWithKeys(fn (Episode $episode): array => [$episode->uuid => $episode->name]);
-    }
-
-    protected function draftMedicalRecords(Person $person, Encounter $encounter, User $user): Collection
-    {
-        $procedures = $person->filterRecordsWithMerged(Procedure::forEncounter($encounter->uuid))
-            ->whereStatus(ProcedureStatus::COMPLETED)
-            ->with('code')->get()->toBase()
-            ->filter(fn (Procedure $record): bool => $user->can('view', [$record, $person]));
-        $reports = $person->filterRecordsWithMerged(DiagnosticReport::forEncounter($encounter->uuid))
-            ->final()
-            ->with('code')->get()->toBase()
-            ->filter(fn (DiagnosticReport $record): bool => $user->can('view', [$record, $person]));
-
-        return $procedures->concat($reports)->mapWithKeys(function (Procedure|DiagnosticReport $record): array {
-            $type = $record instanceof Procedure ? 'procedure' : 'diagnostic_report';
-            $label = $record->code?->displayValue ?: ($record->code?->value ?: $record->uuid);
-
-            return [$type.':'.$record->uuid => __('care-plan.emz_type.'.$type).' — '.$label];
-        });
+        $this->refreshCategoryOptions();
     }
 
     public function cancel(): void
     {
-        $encounterUuid = $this->form->encounter;
-        if ($encounterUuid) {
-            $encounter = Repository::carePlan()->findEncounter($encounterUuid, $this->personId);
-            if ($encounter) {
-                $this->redirectRoute('persons.encounters.package.show', [legalEntity(), $this->personId, $encounter->id], navigate: true);
-
-                return;
-            }
-        }
-        if ($this->personId > 0) {
-            $this->redirectRoute('persons.care-plans', [legalEntity(), $this->personId], navigate: true);
-
-            return;
-        }
-
-        $this->redirectRoute('care-plans.index', legalEntity(), navigate: true);
+        $encounter = $this->form->encounter === ''
+            ? null
+            : Repository::carePlan()->findEncounter($this->form->encounter, $this->personId);
+        $this->redirectToCarePlanContext($this->personId, $encounter?->id);
     }
 
     /**
@@ -179,7 +107,7 @@ class CarePlanCreate extends CarePlanComponent
      */
     public function searchForPatient(): void
     {
-        if (!$this->allowsPatientChange || !Auth::user()?->can('create', CarePlan::class)) {
+        if ($this->draftId !== null || !$this->allowsPatientChange || !Auth::user()?->can('create', CarePlan::class)) {
             return;
         }
 
@@ -208,7 +136,7 @@ class CarePlanCreate extends CarePlanComponent
      */
     public function selectPatient(int $personId): void
     {
-        if (!$this->allowsPatientChange || !Auth::user()?->can('create', CarePlan::class)) {
+        if ($this->draftId !== null || !$this->allowsPatientChange || !Auth::user()?->can('create', CarePlan::class)) {
             return;
         }
 
@@ -217,14 +145,13 @@ class CarePlanCreate extends CarePlanComponent
         $this->personId = $person->id;
         $this->uuid = $person->uuid;
         $this->patientFullName = $person->fullName;
-        $this->verificationStatus = $person->verificationStatus;
         $this->declarationNumber = $person->declarations->first()?->declarationNumber ?? null;
 
         $birthDate = $person->birth_date
             ? Carbon::parse($person->birth_date)->format(config('app.date_format'))
             : null;
         $this->form->patient = trim($person->fullName . ($birthDate ? ' · ' . $birthDate : ''));
-        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
+        $this->form->medicalNumber = Repository::carePlan()->nextDisplayNumber();
         $this->form->encounter = '';
         $this->form->category = '';
         $this->form->episodes = [];
@@ -245,14 +172,13 @@ class CarePlanCreate extends CarePlanComponent
      */
     public function clearSelectedPatient(): void
     {
-        if (!$this->allowsPatientChange || !Auth::user()?->can('create', CarePlan::class)) {
+        if ($this->draftId !== null || !$this->allowsPatientChange || !Auth::user()?->can('create', CarePlan::class)) {
             return;
         }
 
         $this->personId = 0;
         $this->uuid = '';
         $this->patientFullName = __('care-plan.new_care_plan');
-        $this->verificationStatus = '';
         $this->declarationNumber = null;
         $this->form->patient = '';
         $this->form->encounter = '';
@@ -266,7 +192,7 @@ class CarePlanCreate extends CarePlanComponent
         $this->availableEpisodes = [];
         $this->diagnoses = [];
         $this->patientSearchResults = [];
-        $this->displayMedicalNumber(Repository::carePlan()->nextDisplayNumber());
+        $this->form->medicalNumber = Repository::carePlan()->nextDisplayNumber();
     }
 
     public function render(): View

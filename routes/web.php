@@ -361,6 +361,7 @@ Route::middleware(['auth:ehealth', 'verified'])->group(function () {
                 ->name('care-plans.activities.show');
             Route::get('/care-plans/{carePlan}/edit', CarePlanEdit::class)
                 ->whereNumber('carePlan')
+                ->can('view', 'carePlan')
                 ->can('update', 'carePlan')
                 ->name('care-plans.edit');
 

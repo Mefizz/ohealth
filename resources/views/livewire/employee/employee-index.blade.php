@@ -27,7 +27,7 @@
          'employee_view' => $currentUser->can('employee:details') || $isElevated,
          'employee_write' => $currentUser->can('employee:write') || $isElevated,
          'employee_deactivate' => $currentUser->can('employee:deactivate') || $canDeactivateElevated,
-         'employee_admin_hr' => $this->canViewPartyVerificationMeta(),
+         'employee_admin_hr' => $isElevated,
          'request_view' => $currentUser->can('employee_request:read') || $isElevated,
          'request_write' => $currentUser->can('employee_request:write') || $isElevated,
          'request_delete' => $currentUser->can('employee_request:write') || $isElevated,

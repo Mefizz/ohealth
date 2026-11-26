@@ -9,17 +9,13 @@ use App\Enums\Employee\RequestStatus;
 use App\Enums\Employee\RevisionStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
-use App\Livewire\Actions\Logout;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
-use App\Models\Role as ModelsRole;
-use App\Models\User;
 use App\Repositories\Repository;
 use App\Traits\FormTrait;
 use Exception;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\Rule;
@@ -32,7 +28,6 @@ use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use RuntimeException;
 use Throwable;
-use Spatie\Permission\PermissionRegistrar;
 
 abstract class EmployeeComponent extends Component
 {
@@ -138,7 +133,6 @@ abstract class EmployeeComponent extends Component
                 $employment['end_date'] = $endDate;
             }
             Repository::employee()->saveDeactivatedEmployment($employee, $employment);
-            $this->deactivateEmployeeRole($employee);
         } catch (Throwable $exception) {
             Log::error('Employee deactivation failed', [
                 'employee_id' => $employee->id,
@@ -152,90 +146,6 @@ abstract class EmployeeComponent extends Component
         $this->closeModal();
 
         return $employee;
-    }
-
-    protected function afterEmployeeDeactivation(Employee $employee, bool $redirectToList = false): mixed
-    {
-        $sessionUser = Auth::guard('ehealth')->user() ?? Auth::guard('web')->user();
-        if ($sessionUser instanceof User && $employee->partyId !== null && (int) $employee->partyId === (int) $sessionUser->partyId) {
-            return app(Logout::class)(message: __('employees.dismissalSuccess'));
-        }
-
-        Session::flash('success', __('employees.dismissalSuccess'));
-
-        if ($redirectToList) {
-            $this->redirectRoute('employee.index', [legalEntity()], navigate: true);
-        }
-
-        return null;
-    }
-
-    /**
-     * Revoke the Spatie role of the deactivated employee type for linked users,
-     * unless another APPROVED employee of the same type remains in this legal entity.
-     * Also drops stale direct eHealth scopes so the next login can resync them.
-     */
-    protected function deactivateEmployeeRole(Employee $employee): void
-    {
-        $linkedUsers = $this->usersLinkedToEmployee($employee);
-
-        $employee->users()->detach();
-
-        if ($linkedUsers->isEmpty()) {
-            return;
-        }
-
-        $guards = array_keys((array) config('auth.guards'));
-        $savedGuard = Auth::getDefaultDriver();
-        $employeeType = $employee->employeeType;
-
-        setPermissionsTeamId($employee->legalEntityId);
-
-        foreach ($linkedUsers as $user) {
-            if (
-                is_string($employeeType)
-                && $employeeType !== ''
-                && !$employee->userHasOtherApprovedOfType((int) $user->id, (int) $employee->legalEntityId)
-            ) {
-                foreach ($guards as $guard) {
-                    Auth::shouldUse($guard);
-
-                    if ($user->hasRole($employeeType, $guard)) {
-                        $user->removeRole(ModelsRole::findByName($employeeType, $guard));
-                    }
-                }
-            }
-
-            // Direct eHealth scopes are synced on login only; drop stale rows after deactivate.
-            $user->syncPermissions([]);
-            $user->unsetRelation('roles')->unsetRelation('permissions');
-        }
-
-        Auth::shouldUse($savedGuard);
-        app(PermissionRegistrar::class)->forgetCachedPermissions();
-    }
-
-    /**
-     * Users bound to the employee via `user_id` or the `employee_users` pivot.
-     *
-     * @return Collection<int, User>
-     */
-    protected function usersLinkedToEmployee(Employee $employee): Collection
-    {
-        $users = collect();
-
-        if ($employee->userId) {
-            $owner = User::query()->without(['person'])->find($employee->userId);
-
-            if ($owner instanceof User) {
-                $users->push($owner);
-            }
-        }
-
-        return $users
-            ->concat($employee->users()->without(['person'])->get())
-            ->unique('id')
-            ->values();
     }
 
     /**

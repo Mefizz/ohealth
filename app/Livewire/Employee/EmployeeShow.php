@@ -9,6 +9,7 @@ use App\Models\LegalEntity;
 use Illuminate\View\View;
 use Livewire\Attributes\Locked;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Session;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use Throwable;
@@ -64,14 +65,14 @@ class EmployeeShow extends EmployeeComponent
         $this->openDeactivationModal($id === $this->employeeId ? $this->employee : null);
     }
 
-    public function deactivate()
+    public function deactivate(): void
     {
-        $employee = $this->deactivateEmployment();
-        if (!$employee) {
+        if (!$this->deactivateEmployment()) {
             return;
         }
 
-        return $this->afterEmployeeDeactivation($employee, redirectToList: true);
+        Session::flash('success', __('employees.dismissalSuccess'));
+        $this->redirectRoute('employee.index', [legalEntity()], navigate: true);
     }
 
     public function render(): View

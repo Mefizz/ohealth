@@ -23,7 +23,14 @@ enum RequestStatus: string
 
     public function label(): string
     {
-        return __('employees.request_status.' . strtolower($this->value));
+        return match ($this) {
+            self::NEW => 'Новий',
+            self::APPROVED => 'Підтверджено',
+            self::REJECTED => 'Відхилено',
+            // Legacy local-only; UI for pending uses isPendingEhealth() → «Новий».
+            self::SIGNED => 'Надіслано',
+            self::EXPIRED => 'Протермінований',
+        };
     }
 
     public function color(): string
@@ -57,7 +64,7 @@ enum RequestStatus: string
     {
         return [
             self::FILTER_DRAFT => __('forms.status.draft'),
-            self::NEW->value => self::NEW->label(),
+            self::NEW->value => __('forms.status.new'),
             self::APPROVED->value => self::APPROVED->label(),
             self::REJECTED->value => self::REJECTED->label(),
             self::EXPIRED->value => self::EXPIRED->label(),

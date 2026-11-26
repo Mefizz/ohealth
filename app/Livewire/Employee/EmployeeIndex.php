@@ -8,11 +8,14 @@ use AllowDynamicProperties;
 use App\Classes\eHealth\EHealth;
 use App\Enums\JobStatus;
 use App\Enums\Status;
+use App\Enums\User\Role;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Jobs\EmployeeSync;
+use App\Livewire\Actions\Logout;
 use App\Models\Employee\Employee;
 use App\Models\LegalEntity;
+use App\Models\Role as ModelsRole;
 use App\Models\User;
 use App\Notifications\EmployeeSyncCompleted;
 use App\Notifications\SyncNotification;
@@ -226,28 +229,22 @@ class EmployeeIndex extends EmployeeComponent
     /**
      * Party tax_id / verification_status in list UI — TZ 3.23.3.1 (elevated roles only).
      */
-    public function canViewPartyVerificationMeta(): bool
+    private function canViewPartyVerificationMeta(): bool
     {
         $user = Auth::user();
 
         return $user instanceof User
-            && $user->can('viewAnyVerification', Party::class);
+            && $user->hasAllowedRole([Role::ADMIN, Role::HR, Role::OWNER, Role::PHARMACY_OWNER]);
     }
 
     /** @return array<string, string> */
     public function statusFilterOptions(): array
     {
         $options = [];
-        foreach ([
-            Status::APPROVED,
-            Status::STOPPED,
-            Status::ENTERED_IN_ERROR,
-            Status::REORGANIZED,
-            Status::AUTODEACTIVATED,
-            Status::DISMISSED,
-            Status::DEACTIVATED,
-        ] as $status) {
-            $options[$status->value] = $status->employmentLabel();
+        foreach (Status::cases() as $status) {
+            if ($status->isEmploymentStatus()) {
+                $options[$status->value] = $status->employmentLabel();
+            }
         }
 
         return $options;
@@ -352,7 +349,14 @@ class EmployeeIndex extends EmployeeComponent
             return;
         }
 
-        return $this->afterEmployeeDeactivation($employee);
+        $this->deactivateEmployeeRole($employee);
+
+        $sessionUser = Auth::guard('ehealth')->user() ?? Auth::guard('web')->user();
+        if ($sessionUser instanceof User && $employee->partyId !== null && (int) $employee->partyId === (int) $sessionUser->partyId) {
+            return app(Logout::class)(message: __('employees.dismissalSuccess'));
+        }
+
+        Session::flash('success', __('employees.dismissalSuccess'));
     }
 
     /**
@@ -529,6 +533,74 @@ class EmployeeIndex extends EmployeeComponent
         if ($success) {
             $this->refreshTrigger++;
         }
+    }
+
+    /**
+     * Revoke the Spatie role of the deactivated employee type for linked users,
+     * unless another APPROVED employee of the same type remains in this legal entity.
+     * Also drops stale direct eHealth scopes so the next login can resync them.
+     */
+    protected function deactivateEmployeeRole(Employee $employee): void
+    {
+        $linkedUsers = $this->usersLinkedToEmployee($employee);
+
+        $employee->users()->detach();
+
+        if ($linkedUsers->isEmpty()) {
+            return;
+        }
+
+        $guards = array_keys((array) config('auth.guards'));
+        $savedGuard = Auth::getDefaultDriver();
+        $employeeType = $employee->employeeType;
+
+        setPermissionsTeamId($this->legalEntity->id);
+
+        foreach ($linkedUsers as $user) {
+            if (
+                is_string($employeeType)
+                && $employeeType !== ''
+                && !$employee->userHasOtherApprovedOfType((int) $user->id, (int) $this->legalEntity->id)
+            ) {
+                foreach ($guards as $guard) {
+                    Auth::shouldUse($guard);
+
+                    if ($user->hasRole($employeeType, $guard)) {
+                        $user->removeRole(ModelsRole::findByName($employeeType, $guard));
+                    }
+                }
+            }
+
+            // Direct eHealth scopes are synced on login only; drop stale rows after deactivate.
+            $user->syncPermissions([]);
+            $user->unsetRelation('roles')->unsetRelation('permissions');
+        }
+
+        Auth::shouldUse($savedGuard);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /**
+     * Users bound to the employee via `user_id` or the `employee_users` pivot.
+     *
+     * @return Collection<int, User>
+     */
+    protected function usersLinkedToEmployee(Employee $employee): Collection
+    {
+        $users = collect();
+
+        if ($employee->userId) {
+            $owner = User::query()->without(['person'])->find($employee->userId);
+
+            if ($owner instanceof User) {
+                $users->push($owner);
+            }
+        }
+
+        return $users
+            ->concat($employee->users()->without(['person'])->get())
+            ->unique('id')
+            ->values();
     }
 
     /**

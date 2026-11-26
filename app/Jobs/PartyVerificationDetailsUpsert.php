@@ -56,9 +56,14 @@ class PartyVerificationDetailsUpsert extends EHealthJob
             return;
         }
 
-        $data = $response->validate();
-        $this->processPartyVerificationDetail($this->party->uuid, $data, $this->legalEntity);
-        PartyVerificationCache::put($this->party->uuid, $data);
+        $this->processPartyVerificationDetail($this->party->uuid, $response, $this->legalEntity);
+
+        $payload = $response->json();
+        $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
+
+        if (is_array($data)) {
+            PartyVerificationCache::put($this->party->uuid, $data);
+        }
     }
 
     protected function getAdditionalMiddleware(): array

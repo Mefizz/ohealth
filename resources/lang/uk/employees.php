@@ -3,14 +3,6 @@
 declare(strict_types=1);
 
 return [
-    'request_status' => [
-        'new' => 'Очікує верифікації',
-        'approved' => 'Схвалено',
-        'rejected' => 'Відхилено',
-        'signed' => 'Надіслано',
-        'expired' => 'Прострочено',
-    ],
-
     'employment_status' => [
         'dismissed' => 'Звільнений',
         'deactivated' => 'Деактивований',

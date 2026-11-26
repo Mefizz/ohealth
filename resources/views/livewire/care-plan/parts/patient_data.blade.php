@@ -139,7 +139,11 @@
                     class="input peer"
                     placeholder=" "
                     autocomplete="off"
-                    wire:model="form.medical_number"
+                    @isset($displayMedicalNumber)
+                        value="{{ $displayMedicalNumber }}"
+                    @else
+                        wire:model="form.medical_number"
+                    @endisset
                     readonly
                     required
                 />

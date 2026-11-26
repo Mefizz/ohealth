@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace App\Livewire\Employee;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Employee\RequestStatus;
-use App\Enums\Employee\RevisionStatus;
+use App\Services\Employee\EmployeeRequestProcessor;
+use Exception;
+use RuntimeException;
 use App\Enums\Status;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
+use Illuminate\Support\Facades\Auth;
 use App\Traits\FormTrait;
 use Gate;
 use Livewire\Attributes\Computed;
@@ -243,7 +245,7 @@ abstract class EmployeeComponent extends Component
         try {
             $token = session()->get(config('ehealth.api.oauth.bearer_token'));
             if (!$token) {
-                throw new \RuntimeException('Сесія eHealth не активна. Будь ласка, перезайдіть.');
+                throw new RuntimeException('Сесія eHealth не активна. Будь ласка, перезайдіть.');
             }
 
             // 2. API Request
@@ -276,7 +278,7 @@ abstract class EmployeeComponent extends Component
 
             return true;
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Single Employee Sync Failed', [
                 'employee_id' => $employee->id,
                 'error' => $e->getMessage()
@@ -301,55 +303,21 @@ abstract class EmployeeComponent extends Component
      */
     protected function actualizePendingRequests(Employee $employee, string $token): void
     {
-        $pendingRequests = EmployeeRequest::query()
-            ->where('employee_id', $employee->id)
-            ->pendingEhealth()
-            ->get();
-
-        if ($pendingRequests->isEmpty()) {
+        // Employee synchronization is also available to roles without employee_request:read.
+        if (Auth::user()->cannot('viewAny', EmployeeRequest::class)) {
             return;
         }
 
+        $pendingRequests = EmployeeRequest::query()
+            ->where('employee_id', $employee->id)
+            ->filterByLegalEntityId($employee->legalEntityId)
+            ->whereNotNull('uuid')
+            ->pendingEhealth()
+            ->get();
+
+        $processor = app(EmployeeRequestProcessor::class);
         foreach ($pendingRequests as $request) {
-            try {
-                // Fetch specific request status from eHealth by UUID
-                $response = EHealth::employeeRequest()
-                    ->withToken($token)
-                    ->getMany(['id' => $request->uuid]);
-
-                $data = $response->validate();
-                $remoteRequestData = $data[0] ?? null;
-
-                if (!$remoteRequestData) {
-                    continue;
-                }
-
-                $remoteStatus = $remoteRequestData['status'] ?? null;
-
-                // Update local status based on remote status
-                if ($remoteStatus === 'APPROVED') {
-                    $request->update(
-                        [
-                            'status' => RequestStatus::APPROVED,
-                            'applied_at' => now(),
-                        ]
-                    );
-                    $request->revision?->update(['status' => RevisionStatus::APPLIED]);
-
-                } elseif (in_array($remoteStatus, ['REJECTED', 'EXPIRED'])) {
-                    $newStatus = ($remoteStatus === 'REJECTED') ? RequestStatus::REJECTED : RequestStatus::EXPIRED;
-                    $request->update(
-                        [
-                            'status' => $newStatus,
-                            'applied_at' => now(),
-                        ]
-                    );
-                }
-
-            } catch (\Exception $e) {
-                Log::warning("Failed to check status for request {$request->uuid}: " . $e->getMessage());
-                // Continue to next request without stopping the flow
-            }
+            $processor->syncSinglePendingRequest($request, $employee->legalEntity, $token);
         }
     }
 

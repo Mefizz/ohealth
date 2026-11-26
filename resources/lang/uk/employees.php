@@ -75,6 +75,7 @@ return [
         'employee_request_still_pending' => 'Заявка в ЕСОЗ ще очікує підтвердження email (статус NEW/SIGNED). Застосувати зміни в МІС можна лише після APPROVED.',
         'employee_request_status_updated' => 'Статус заявки оновлено: :status.',
         'employee_request_not_pending' => 'Синхронізувати можна лише заявки, надіслані в ЕСОЗ і ще без рішення.',
+        'employee_request_not_applied' => 'Заявку підтверджено в ЕСОЗ, але її зміни ще не застосовано в МІС. Повторіть синхронізацію.',
         'employee_request_not_found' => 'Заявку не знайдено.',
         'employee_request_forbidden' => 'Немає дозволу на синхронізацію цієї заявки.',
         'employee_request_failed' => 'Помилка синхронізації заявки: :error',

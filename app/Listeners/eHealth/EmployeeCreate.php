@@ -254,7 +254,8 @@ class EmployeeCreate
                     $dataFromRevision['educations'] ?? null,
                     $dataFromRevision['specialities'] ?? null,
                     $dataFromRevision['qualifications'] ?? null,
-                    $dataFromRevision['science_degree'] ?? null
+                    $dataFromRevision['science_degree'] ?? null,
+                    replaceScienceDegree: $dataFromRevision['has_science_degree']
                 );
 
                 if (!$user->partyId && $newEmployee->partyId) {

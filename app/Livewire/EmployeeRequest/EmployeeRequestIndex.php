@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\EmployeeRequest;
 
-use App\Exceptions\EHealth\EHealthConnectionException;
 use Auth;
+use Exception;
+use Throwable;
 use App\Models\User;
 use App\Enums\JobStatus;
 use Illuminate\Bus\Batch;
@@ -26,7 +27,6 @@ use App\Livewire\Employee\Concerns\DeletesEmployeeRequestDraft;
 use Illuminate\Pagination\LengthAwarePaginator;
 use App\Notifications\EmployeeRequestSyncCompleted;
 use App\Services\Employee\EmployeeRequestProcessor;
-use App\Exceptions\EHealth\EHealthResponseException;
 use App\Notifications\SyncNotification;
 
 class EmployeeRequestIndex extends EmployeeComponent
@@ -48,7 +48,7 @@ class EmployeeRequestIndex extends EmployeeComponent
      */
     public string $syncStatus = '';
 
-    private LegalEntity $legalEntity;
+    protected LegalEntity $legalEntity;
 
     /**
      * Index ACL flags for the Blade view (authorization lives in EmployeeRequestPolicy).
@@ -144,28 +144,19 @@ class EmployeeRequestIndex extends EmployeeComponent
             ->find($requestId);
 
         if (!$localRequest) {
-            $this->dispatch('flashMessage', [
-                'message' => __('employees.sync.employee_request_not_found'),
-                'type' => 'error',
-            ]);
+            session()->flash('error', __('employees.sync.employee_request_not_found'));
 
             return;
         }
 
         if (Auth::user()->cannot('viewAny', EmployeeRequest::class)) {
-            $this->dispatch('flashMessage', [
-                'message' => __('employees.sync.employee_request_forbidden'),
-                'type' => 'error',
-            ]);
+            session()->flash('error', __('employees.sync.employee_request_forbidden'));
 
             return;
         }
 
-        if (!$localRequest->isPendingEhealth()) {
-            $this->dispatch('flashMessage', [
-                'message' => __('employees.sync.employee_request_not_pending'),
-                'type' => 'warning',
-            ]);
+        if (!$localRequest->needsEhealthSync()) {
+            session()->flash('warning', __('employees.sync.employee_request_not_pending'));
 
             return;
         }
@@ -181,18 +172,12 @@ class EmployeeRequestIndex extends EmployeeComponent
                 default => 'error',
             };
 
-            $this->dispatch('flashMessage', [
-                'message' => $result['message'],
-                'type' => $type,
-            ]);
+            session()->flash($type, $result['message']);
 
             unset($this->requests);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('[SyncOne] ERROR: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            $this->dispatch('flashMessage', [
-                'message' => __('employees.sync.employee_request_failed', ['error' => $e->getMessage()]),
-                'type' => 'error',
-            ]);
+            session()->flash('error', __('employees.sync.employee_request_failed', ['error' => $e->getMessage()]));
         }
     }
 
@@ -203,7 +188,7 @@ class EmployeeRequestIndex extends EmployeeComponent
     public function sync(EmployeeRequestProcessor $processor): void
     {
         if (Auth::user()->cannot('viewAny', EmployeeRequest::class)) {
-            session()->flash('error', __('У вас немає дозволу на синхронізацію заявок'));
+            session()->flash('error', __('employees.sync.employee_request_forbidden'));
 
             return;
         }
@@ -216,6 +201,12 @@ class EmployeeRequestIndex extends EmployeeComponent
 
         $user = Auth::user();
         $token = session()->get(config('ehealth.api.oauth.bearer_token'));
+
+        if (!is_string($token) || $token === '') {
+            session()->flash('error', __('employees.sync.session_token_missing'));
+
+            return;
+        }
 
         // Try to resume previous sync if it was paused or failed
         if ($this->syncStatus === JobStatus::PAUSED->value || $this->syncStatus === JobStatus::FAILED->value) {
@@ -234,92 +225,41 @@ class EmployeeRequestIndex extends EmployeeComponent
             }
         }
 
-        // Notify start
-        $user->notify(new SyncNotification('employee_request', 'started'));
-
-        $this->dispatch('flashMessage', [
-            'message' => __('employees.sync.started'),
-            'type' => 'success'
-        ]);
-
         try {
-            // 1. Synchronous request for Page 1
-            $response = EHealth::employeeRequest()->getMany(['edrpou' => legalEntity()->edrpou]); // Page 1 is default
-        } catch (EHealthConnectionException $e) {
-            Log::error('Employee Request sync failed: No connection.', ['error' => $e->getMessage()]);
-            $this->dispatch('flashMessage', ['message' => 'Немає зв\'язку з ЕСОЗ', 'type' => 'error']);
+            $response = EHealth::employeeRequest()->getMany([
+                'edrpou' => $this->legalEntity->edrpou,
+                'status' => RequestStatus::NEW->value,
+            ]);
+            $processor->processBatch($response->validate(), $this->legalEntity);
 
-            return;
-        } catch (EHealthResponseException $e) {
-            Log::error('Employee Request sync failed: API error.', ['error' => $e->getMessage()]);
-            $this->dispatch('flashMessage', ['message' => 'Помилка API ЕСОЗ: ' . $e->getMessage(), 'type' => 'error']);
-
-            return;
-        } catch (\Exception $e) {
-            Log::error('Employee Request sync failed: Unexpected error.', ['error' => $e->getMessage()]);
-            $this->dispatch('flashMessage', ['message' => 'Виникла помилка при ініціалізації синхронізації', 'type' => 'error']);
-
-            return;
-        }
-
-        // 2. Process Page 1 immediately
-        $validatedData = $response->validate();
-        $processor->processBatch($validatedData, legalEntity());
-        // Store result for dispatched jobs
-        $batch = null;
-
-        // 3. Check if there are more pages
-        if ($response->isNotLast()) {
-            $batch = Bus::batch([
-                new EmployeeRequestsSyncAll(
-                    legalEntity: $this->legalEntity,
-                    page: 2,
-                    nextEntity: null
-                ),
-            ])
+            // Even one NEW page must continue with the complete APPROVED and REJECTED lists.
+            $job = new EmployeeRequestsSyncAll(
+                legalEntity: $this->legalEntity,
+                page: $response->isNotLast() ? 2 : 1,
+                requestStatus: $response->isNotLast() ? RequestStatus::NEW : RequestStatus::APPROVED,
+            );
+            $this->legalEntity->setEntityStatus(JobStatus::PROCESSING, LegalEntity::ENTITY_EMPLOYEE_REQUEST);
+            Bus::batch([$job])
                 ->withOption('legal_entity_id', $this->legalEntity->id)
                 ->withOption('token', Crypt::encryptString($token))
                 ->withOption('user', $user)
                 ->withOption('sync_entity', LegalEntity::ENTITY_EMPLOYEE_REQUEST)
-                ->catch(callback: function (Batch $batch, \Throwable $e) use ($user) {
-                    $message = __('employees.sync.failed');
+                ->catch(function (Batch $batch, Throwable $e) use ($user): void {
                     Log::error('EmployeeRequest sync batch failed.', ['batch_id' => $batch->id, 'exception' => $e]);
-                    $user->notify(new EmployeeRequestSyncCompleted($message, 'error'));
+                    $user->notify(new EmployeeRequestSyncCompleted(__('employees.sync.failed'), 'error'));
                 })
                 ->onQueue('sync')
                 ->name(self::BATCH_NAME)
                 ->dispatch();
-        } else {
-            $batch = Bus::batch($this->getEmployeeRequestDetailsStartJob($this->legalEntity, null))
-                ->withOption('legal_entity_id', $this->legalEntity->id)
-                ->withOption('token', Crypt::encryptString($token))
-                ->withOption('user', $user)
-                ->withOption('sync_entity', LegalEntity::ENTITY_EMPLOYEE_REQUEST)
-                ->catch(callback: function (Batch $batch, \Throwable $e) use ($user) {
-                    $message = __('employees.sync.failed');
-                    Log::error('Employee sync batch failed.', ['batch_id' => $batch->id, 'exception' => $e]);
-                    $user->notify(new EmployeeRequestSyncCompleted($message, 'error'));
-                })
-                ->onQueue('sync')
-                ->name(self::DEPENDENT_BATCH_NAME)
-                ->dispatch();
-        }
 
-        if ($batch?->totalJobs > 0) {
-            legalEntity()?->setEntityStatus(JobStatus::PROCESSING, LegalEntity::ENTITY_EMPLOYEE_REQUEST);
-
-            $message = __('Сторінка 1 оброблена. Решта завантажується фоново.');
-
-            // Force refresh of the table
+            $user->notify(new SyncNotification('employee_request', 'started'));
+            session()->flash('success', __('employees.sync.started'));
             $this->resetPage();
-        } else {
-            $message = __('Немає нових заявок для синхронізації');
+        } catch (Throwable $e) {
+            $this->legalEntity->setEntityStatus(JobStatus::FAILED, LegalEntity::ENTITY_EMPLOYEE_REQUEST);
+            Log::error('Employee Request sync failed.', ['exception' => $e]);
+            session()->flash('error', __('employees.sync.employee_request_failed', ['error' => $e->getMessage()]));
         }
-
-        $this->dispatch('flashMessage', [
-            'message' => $message,
-            'type' => 'success'
-        ]);
     }
 
     /**
@@ -353,10 +293,7 @@ class EmployeeRequestIndex extends EmployeeComponent
                     legalEntity(),
                     fn () => legalEntity()?->setEntityStatus(JobStatus::PROCESSING, LegalEntity::ENTITY_EMPLOYEE_REQUEST)
                 )) {
-                    $this->dispatch('flashMessage', [
-                        'message' => __('forms.success.sync_resumed'),
-                        'type' => 'success'
-                    ]);
+                    session()->flash('success', __('forms.success.sync_resumed'));
 
                     return true;
                 }

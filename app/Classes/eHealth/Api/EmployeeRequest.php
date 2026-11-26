@@ -6,20 +6,18 @@ namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\EHealthRequest;
 use App\Classes\eHealth\EHealthResponse;
-use App\Enums\Status;
+use App\Classes\eHealth\Api\Responses\Collections\EmployeeRequestDetails;
+use App\Classes\eHealth\Api\Responses\Collections\EmployeeRequestGetMany;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use App\Exceptions\EHealth\EHealthConnectionException;
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use App\Models\Division;
-use App\Models\LegalEntity;
-use Carbon\Carbon;
-use Illuminate\Validation\Rule;
-use Log;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
-use Validator;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class EmployeeRequest extends EHealthRequest
 {
@@ -62,89 +60,32 @@ class EmployeeRequest extends EHealthRequest
     {
         $partyData = $sourceData['party'] ?? [];
 
-        // 1. Determining where professional data lies (Strategy Pattern)
-        // The EHR can return data in one of these keys depending on the type of
-        $professionalData = $sourceData['doctor']
-            ?? $sourceData['med_admin']
-            ?? $sourceData['pharmacist']
-            ?? $sourceData['specialist'] // Just in case, although it is usually a doctor
-            ?? $sourceData['assistant']
-            ?? $sourceData['laborant']
-            ?? [];
+        $professionalData = [];
+        $professionalKey = strtolower(Arr::get($sourceData, 'employee_request_data.employee_type', 'doctor'));
+        foreach (array_unique([$professionalKey, 'doctor', 'med_admin', 'med_coordinator', 'pharmacist', 'specialist', 'assistant', 'laborant']) as $key) {
+            if (isset($sourceData[$key])) {
+                $professionalData = $sourceData[$key];
+                break;
+            }
+        }
 
         // 2.  sometimes the API returns education (singular) instead of educations (plural)
         $educations = $professionalData['educations']
-            ?? $professionalData['education'] // fallback for old/crooked entries
-            ?? [];
+            ?? ($professionalData['education'] ?? null);
 
         return [
             'employee' => Arr::get($sourceData, 'employee_request_data', []),
             'party' => Arr::except($partyData, ['documents', 'phones', 'email']),
-            'documents' => $sourceData['documents'] ?? [],
-            'phones' => $sourceData['phones'] ?? [],
+            'documents' => $sourceData['documents'] ?? null,
+            'phones' => $sourceData['phones'] ?? null,
 
             // We use the found universal data
             'educations' => $educations,
-            'specialities' => $professionalData['specialities'] ?? [],
-            'qualifications' => $professionalData['qualifications'] ?? [],
+            'specialities' => $professionalData['specialities'] ?? null,
+            'qualifications' => $professionalData['qualifications'] ?? null,
             'science_degree' => $professionalData['science_degree'] ?? null,
+            'has_science_degree' => array_key_exists('science_degree', $professionalData),
         ];
-    }
-
-    // Trasform Employee Request data received from eHealth to the format suitable for save to DB
-    public function mapRequestCreate(array $ehealthData, LegalEntity $legalEntity, ?int $userId = null, ?int $partyId = null): array
-    {
-        $mappedData['legal_entity_id'] = $legalEntity->id;
-        $mappedData['user_id'] = $userId;
-        $mappedData['party_id'] = $partyId;
-        $mappedData['division_id'] = null;
-
-        foreach ($ehealthData as $key => $value) {
-            switch ($key) {
-                case 'uuid':
-                    $mappedData['uuid'] = $value;
-                    break;
-                case 'division_uuid':
-                    $mappedData['division_uuid'] = $value;
-
-                    $mappedData['division_id'] = Division::where('uuid', $value)->first()?->id;
-
-                    break;
-                case 'legal_entity_uuid':
-                    $mappedData['legal_entity_uuid'] = $value;
-                    break;
-                case 'position':
-                    $mappedData['position'] = $value;
-                    break;
-                case 'start_date':
-                    $mappedData['start_date'] = $value;
-                    break;
-                case 'end_date':
-                    $mappedData['end_date'] = $value;
-                    break;
-                case 'employee_type':
-                    $mappedData['employee_type'] = $value;
-                    break;
-                case 'email':
-                    $mappedData['email'] = $value;
-                    break;
-                case 'inserted_at':
-                    $mappedData['inserted_at'] = Carbon::parse($value)->format('Y-m-d H:i:s');
-                    $mappedData['created_at'] = $value;
-                    break;
-                case 'status':
-                    $mappedData['status'] = $value;
-                    break;
-                case 'applied_at':
-                    $mappedData['applied_at'] = $value;
-                    break;
-                default:
-                    // Ignore other keys
-                    break;
-            }
-        }
-
-        return $mappedData;
     }
 
     /**
@@ -160,7 +101,11 @@ class EmployeeRequest extends EHealthRequest
     {
         $getEndpoint = '/api/employee_requests';
 
-        $this->setValidator($this->validateMany(...));
+        $this->setValidator(fn (EHealthResponse $response): EmployeeRequestGetMany => $this->validateMany(
+            $response,
+            !isset($filters['id']),
+            isset($filters['id']) ? null : $page,
+        ));
 
         if (!isset($filters['id'])) {
             $this->setDefaultPageSize();
@@ -179,17 +124,15 @@ class EmployeeRequest extends EHealthRequest
 
     /**
      * Retrieves full details of a specific Employee Request by UUID.
-     * Essential for obtaining the 'employee_id' field after approval.
+     * The user-token detail contract does not promise the resulting employee UUID.
      *
      * @param  string  $uuid
-     * @return Response|PromiseInterface
+     * @return EHealthResponse|PromiseInterface
      * @throws EHealthConnectionException
      */
-    public function getDetails(string $uuid): PromiseInterface|Response
+    public function getDetails(string $uuid): PromiseInterface|EHealthResponse
     {
         $this->setValidator($this->validate(...));
-
-        $this->setMapper($this->mapRequestCreate(...));
 
         $getEndpoint = '/api/employee_requests';
         $url = $getEndpoint . '/' . $uuid;
@@ -203,16 +146,30 @@ class EmployeeRequest extends EHealthRequest
      * @param  EHealthResponse  $response  The response from the eHealth API.
      * @return array The validated data.
      */
-    protected function validateMany(EHealthResponse $response): array
+    protected function validateMany(EHealthResponse $response, bool $paginated = true, ?int $page = null): EmployeeRequestGetMany
     {
-        Log::info('[EHealth API] Received EmployeeRequest list structure:', [
-            'count' => count($response->getData()),
-            'raw_payload' => $response->json()
-        ]);
+        $envelopeRules = [
+            'data' => 'present|array|list',
+            'data.*' => 'required|array',
+            'data.*.id' => 'required|uuid',
+        ];
+        if ($paginated || $response->json('paging') !== null) {
+            $envelopeRules += [
+                'paging' => 'required|array',
+                'paging.page_number' => 'required|integer|min:1',
+                'paging.page_size' => 'required|integer|min:1|max:300',
+                'paging.total_entries' => 'required|integer|min:0',
+                'paging.total_pages' => 'required|integer|min:0',
+            ];
+            if ($page !== null) {
+                $envelopeRules['paging.page_number'] = ['required', 'integer', 'min:1', Rule::in([$page])];
+            }
+        }
+        Validator::make($response->json(), $envelopeRules)->validate();
 
         $transformedData = [];
         foreach ($response->getData() as $item) {
-            $transformedData[] = self::replaceEHealthPropNames($item);
+            $transformedData[] = $this->replaceEHealthPropNames($item);
         }
 
         $validator = Validator::make($transformedData, [
@@ -235,28 +192,83 @@ class EmployeeRequest extends EHealthRequest
             $validator->validate();
         }
 
-        return $validator->validated();
+        return new EmployeeRequestGetMany($validator->validated());
     }
 
-    protected function validate(EHealthResponse $response): array
+    protected function validate(EHealthResponse $response): EmployeeRequestDetails
     {
-        $transformedData = self::replaceEHealthPropNames($response->getData());
+        Validator::make($response->json(), ['data' => 'required|array', 'data.id' => 'required|uuid'])->validate();
+        $transformedData = $this->replaceEHealthPropNames($response->getData());
 
-        $validator = Validator::make($transformedData, [
+        $rules = [
             'employee_type' => 'required|string',
             'division_uuid' => 'nullable|uuid',
             'uuid' => 'required|uuid',
-            'employee_id' => 'nullable|uuid',
-            'inserted_at' => 'required|date',
-            'created_at' => 'required|date', // The same as 'inserted_at' date
-            'legal_entity_uuid' => 'required|uuid',
-            'party' => 'required|array',
-            'email' => 'required|string',
+            'inserted_at' => 'sometimes|date',
+            'created_at' => 'sometimes|date',
+            'legal_entity_uuid' => 'sometimes|uuid',
+            'party' => 'sometimes|array|required_array_keys:first_name,last_name,birth_date,gender',
+            'party.first_name' => 'required_with:party|string',
+            'party.last_name' => 'required_with:party|string',
+            'party.birth_date' => 'required_with:party|date',
+            'party.gender' => 'required_with:party|string',
+            'party.second_name' => 'sometimes|nullable|string',
+            'party.tax_id' => 'sometimes|nullable|string',
+            'party.no_tax_id' => 'sometimes|boolean',
+            'party.email' => 'sometimes|string',
+            'party.working_experience' => 'sometimes|numeric',
+            'party.about_myself' => 'sometimes|nullable|string',
+            'party.documents' => 'sometimes|array|list',
+            'party.documents.*' => 'required|array',
+            'party.documents.*.type' => 'required|string',
+            'party.documents.*.number' => 'required|string',
+            'party.documents.*.issued_by' => 'sometimes|nullable|string',
+            'party.documents.*.issued_at' => 'sometimes|nullable|date',
+            'party.documents.*.expiration_date' => 'sometimes|nullable|date',
+            'party.phones' => 'sometimes|array|list',
+            'party.phones.*' => 'required|array',
+            'party.phones.*.type' => 'required|string',
+            'party.phones.*.number' => 'required|string',
+            'email' => 'sometimes|string',
             'position' => 'required|string',
             'start_date' => 'nullable|date',
-            'status' => ['required', Rule::enum(Status::class)],
-            'updated_at' => 'required|date',
-        ]);
+            'end_date' => 'sometimes|nullable|date',
+            'status' => 'required|string|in:NEW,REJECTED,APPROVED,EXPIRED',
+            'updated_at' => 'sometimes|date',
+        ];
+
+        foreach (['doctor', 'med_admin', 'med_coordinator', 'pharmacist', 'specialist', 'assistant', 'laborant'] as $professionalKey) {
+            $rules[$professionalKey] = 'sometimes|array';
+            foreach (['educations', 'specialities'] as $relation) {
+                $presence = $professionalKey === 'doctor' && array_key_exists($professionalKey, $transformedData) ? 'present' : 'sometimes';
+                $rules["$professionalKey.$relation"] = "$presence|array|list";
+            }
+            $rules["$professionalKey.qualifications"] = 'sometimes|array|list';
+            $rules["$professionalKey.science_degree"] = 'sometimes|nullable|array|required_array_keys:country,city,degree,institution_name,diploma_number,speciality';
+
+            foreach ([
+                'educations' => ['country', 'city', 'institution_name', 'diploma_number', 'degree', 'speciality'],
+                'qualifications' => ['type', 'institution_name', 'speciality', 'issued_date', 'certificate_number'],
+                'specialities' => ['speciality', 'speciality_officio', 'level', 'qualification_type', 'attestation_name', 'attestation_date', 'certificate_number'],
+                'science_degree' => ['country', 'city', 'degree', 'institution_name', 'diploma_number', 'speciality'],
+            ] as $relation => $requiredFields) {
+                $path = "$professionalKey.$relation" . ($relation === 'science_degree' ? '' : '.*');
+                if ($relation !== 'science_degree') {
+                    $rules[$path] = 'required|array';
+                }
+                foreach ($requiredFields as $field) {
+                    $type = $field === 'speciality_officio' ? 'boolean' : (str_ends_with($field, '_date') ? 'date' : 'string');
+                    $rules["$path.$field"] = "required_with:$path|$type";
+                }
+            }
+
+            foreach (['educations.*.issued_date', 'qualifications.*.valid_to', 'specialities.*.valid_to_date', 'science_degree.issued_date'] as $field) {
+                $rules["$professionalKey.$field"] = 'sometimes|nullable|date';
+            }
+            $rules["$professionalKey.qualifications.*.additional_info"] = 'sometimes|nullable|string';
+        }
+
+        $validator = Validator::make($transformedData, $rules);
 
         if ($validator->fails()) {
             Log::channel('e_health_errors')->error(
@@ -265,7 +277,7 @@ class EmployeeRequest extends EHealthRequest
             $validator->validate();
         }
 
-        return $validator->validated();
+        return new EmployeeRequestDetails($validator->validated());
     }
 
     /**
@@ -274,7 +286,7 @@ class EmployeeRequest extends EHealthRequest
      * @param  array  $properties  Raw properties from a single API item.
      * @return array Properties with application-friendly names.
      */
-    protected static function replaceEHealthPropNames(array $properties): array
+    protected function replaceEHealthPropNames(array $properties): array
     {
         $replaced = [];
 
@@ -295,7 +307,9 @@ class EmployeeRequest extends EHealthRequest
                     break;
                 case 'party':
                     $replaced['party'] = $value;
-                    $replaced['email'] = $value['email'];
+                    if (is_array($value) && array_key_exists('email', $value)) {
+                        $replaced['email'] = $value['email'];
+                    }
                     break;
                 default:
                     $replaced[$name] = $value;
@@ -604,57 +618,4 @@ class EmployeeRequest extends EHealthRequest
         ];
     }
 
-    public function mapRevisionData(EHealthResponse $response): array
-    {
-        foreach ($response->getData() as $key => $value) {
-
-            switch ($key) {
-                case 'position':
-                    $mappedData['employee_request_data'][$key] = $value;
-                    break;
-                case 'employee_type':
-                    $mappedData['employee_request_data'][$key] = $value;
-                    break;
-                case 'start_date':
-                    $mappedData['employee_request_data'][$key] = $value;
-                    break;
-                case 'end_date':
-                    $mappedData['employee_request_data'][$key] = $value;
-                    break;
-                case 'division_id':
-                    $mappedData['employee_request_data'][$key] = Division::where('uuid', $value)->first()?->id;
-                    break;
-                case 'party':
-                    $mappedData['party']['last_name'] = $value['last_name'];
-                    $mappedData['party']['first_name'] = $value['first_name'];
-                    $mappedData['party']['second_name'] = $value['second_name'] ?? null;
-                    $mappedData['party']['gender'] = $value['gender'];
-                    $mappedData['party']['birth_date'] = $value['birth_date'];
-                    $mappedData['party']['tax_id'] = $value['tax_id'];
-                    $mappedData['party']['no_tax_id'] = $value['no_tax_id'] ?? null;
-                    $mappedData['party']['email'] = $value['email'];
-                    $mappedData['party']['working_experience'] = $value['working_experience'] ?? null;
-                    $mappedData['party']['about_myself'] = $value['about_myself'] ?? null;
-
-                    $mappedData['documents'] = $value['documents'];
-
-                    $mappedData['phones'] = $value['phones'];
-
-                    break;
-                case 'doctor':
-                case 'assistant':
-                case 'specialist':
-                case 'med_admin':
-                case 'pharmacist':
-                case 'laborant':
-                    $mappedData[$key] = $value;
-
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        return $mappedData;
-    }
 }

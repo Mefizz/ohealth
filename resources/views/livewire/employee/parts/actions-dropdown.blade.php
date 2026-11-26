@@ -1,9 +1,11 @@
-@php
-    use App\Enums\User\Role;
+@use('App\Enums\User\Role')
+@use('App\Models\Employee\Employee')
+@use('App\Models\Employee\EmployeeRequest')
 
+@php
     $user = auth()->user();
-    $isEmployee = $position instanceof \App\Models\Employee\Employee;
-    $isRequest = $position instanceof \App\Models\Employee\EmployeeRequest;
+    $isEmployee = $position instanceof Employee;
+    $isRequest = $position instanceof EmployeeRequest;
     $status = $position->status?->value ?? null;
 
     // Checking if the employee is the owner
@@ -26,7 +28,7 @@
     $showSync = !$linksOnly && $canWrite && (
         $isEmployee
             ? !empty($position->uuid)
-            : $position->isPendingEhealth()
+            : $position->needsEhealthSync()
     );
     // Delete only local drafts (no eHealth UUID). Policy also enforces isLocalDraft().
     $showDelete = !$linksOnly

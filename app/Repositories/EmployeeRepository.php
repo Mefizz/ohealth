@@ -17,12 +17,113 @@ use App\Models\MedicalEvents\Sql\Approval;
 use App\Exceptions\MedicalEvents\ApprovalVerificationException;
 use Illuminate\Support\Facades\DB;
 use App\Enums\Employee\RequestStatus;
+use App\Enums\Employee\RevisionStatus;
+use App\Enums\JobStatus;
+use App\Dto\EmployeeRequest\Model as EmployeeRequestData;
+use App\Classes\eHealth\Api\Responses\Collections\EmployeeRequestGetMany;
+use Carbon\Carbon;
 use App\Models\Employee\EmployeeRequest;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 
 readonly class EmployeeRepository
 {
+    public function syncRequestSummaries(EmployeeRequestGetMany $summaries, LegalEntity $legalEntity): void
+    {
+        DB::transaction(function () use ($summaries, $legalEntity): void {
+            // Serialize discovery for the facility so concurrent status pages cannot insert duplicate UUIDs.
+            LegalEntity::whereKey($legalEntity->id)->lockForUpdate()->firstOrFail();
+            foreach ($summaries as $summary) {
+                if ($summary['edrpou'] !== $legalEntity->edrpou) {
+                    throw new UnexpectedValueException('Employee request list belongs to another legal entity.');
+                }
+                $request = EmployeeRequest::query()->whereLegalEntityId($legalEntity->id)
+                    ->whereUuid($summary['uuid'])->with('revision')->first();
+                if (!$request) {
+                    EmployeeRequest::create([
+                        'uuid' => $summary['uuid'],
+                        'status' => $summary['status'],
+                        'legal_entity_id' => $legalEntity->id,
+                        'inserted_at' => Carbon::parse($summary['inserted_at']),
+                        'created_at' => Carbon::parse($summary['inserted_at']),
+                        'sync_status' => JobStatus::PARTIAL->value,
+                    ]);
+                    continue;
+                }
+
+                if ($request->isPendingEhealth() || !$request->revision
+                    || $request->status->value !== $summary['status']
+                    || ($request->status === RequestStatus::APPROVED && $request->employeeId === null
+                        && $request->revision->status !== RevisionStatus::OUTDATED)) {
+                    $request->update(['sync_status' => JobStatus::PARTIAL->value]);
+                }
+            }
+        });
+    }
+
+    /** Save the request and its revision together; failed application remains PARTIAL for retry. */
+    public function saveRequestDetails(
+        EmployeeRequestData $data,
+        EmployeeRequest $request,
+        LegalEntity $legalEntity,
+        RevisionStatus $revisionStatus,
+        JobStatus $syncStatus,
+        array $response,
+    ): EmployeeRequest {
+        return DB::transaction(function () use ($data, $request, $legalEntity, $revisionStatus, $syncStatus, $response): EmployeeRequest {
+            $request = EmployeeRequest::query()
+                ->whereKey($request->id)
+                ->whereLegalEntityId($legalEntity->id)
+                ->whereUuid($data->uuid)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($data->legalEntityUuid !== null && $data->legalEntityUuid !== $legalEntity->uuid) {
+                throw new UnexpectedValueException('Employee request belongs to another legal entity.');
+            }
+
+            // Preserve a terminal decision when an older pending response arrives concurrently.
+            if ($data->status === RequestStatus::NEW->value && !$request->isPendingEhealth() && $request->revision !== null) {
+                return $request->load(['revision', 'employee', 'party', 'division']);
+            }
+            $alreadyApplied = $data->status === RequestStatus::APPROVED->value
+                && $request->revision?->status === RevisionStatus::APPLIED
+                && $request->employeeId !== null;
+            if ($alreadyApplied) {
+                $revisionStatus = RevisionStatus::APPLIED;
+                $syncStatus = JobStatus::COMPLETED;
+            } elseif ($data->status === RequestStatus::APPROVED->value && $request->revision?->status === RevisionStatus::OUTDATED) {
+                $revisionStatus = RevisionStatus::OUTDATED;
+                $syncStatus = JobStatus::COMPLETED;
+            }
+
+            $data->toModel($request);
+            if (in_array('division_uuid', $data->providedFields, true)) {
+                $request->divisionId = $data->divisionUuid === null
+                    ? null
+                    : $legalEntity->divisions()->whereUuid($data->divisionUuid)->value('id');
+            }
+            if ($request->userId === null && filled($request->email)) {
+                $request->userId = User::whereEmail($request->email)->value('id');
+            }
+            $request->syncStatus = $syncStatus->value;
+            if (!$alreadyApplied) {
+                $request->appliedAt = in_array($data->status, [RequestStatus::REJECTED->value, RequestStatus::EXPIRED->value], true)
+                    ? ($data->updatedAt === null ? now() : Carbon::parse($data->updatedAt))
+                    : null;
+            }
+            $request->saveOrFail();
+
+            Repository::revision()->saveRevision($request, [
+                'data' => $data->toRevisionData($request->revision?->data ?? [], $request->divisionId),
+                'ehealth_response' => $response,
+                'status' => $revisionStatus,
+            ]);
+
+            return $request->load(['revision', 'employee', 'party', 'division']);
+        });
+    }
+
     public function hasPartyInLegalEntity(int $partyId, int $legalEntityId): bool
     {
         return Employee::wherePartyId($partyId)->whereLegalEntityId($legalEntityId)->exists();
@@ -72,6 +173,16 @@ readonly class EmployeeRepository
         $employee = $request->employee;
 
         return $employee && $this->requestMatchesEmployee($request, $employee) ? $employee : null;
+    }
+
+    public function hasNewerAppliedRequest(EmployeeRequest $request, Employee $employee): bool
+    {
+        return $request->insertedAt !== null && EmployeeRequest::query()
+            ->whereEmployeeId($employee->id)
+            ->whereLegalEntityId($request->legalEntityId)
+            ->where('inserted_at', '>', $request->insertedAt)
+            ->whereHas('revision', fn (Builder $revision) => $revision->where('status', RevisionStatus::APPLIED))
+            ->exists();
     }
 
     public function latestDraftForEmployee(Employee $employee): ?EmployeeRequest
@@ -191,30 +302,32 @@ readonly class EmployeeRepository
     /**
      * @param  Employee|EmployeeRequest  $employee  the model or identifier (ID or UUID) of the employee to update
      * @param  array  $party
-     * @param  array  $documents
-     * @param  array  $phones
+     * @param  array|null  $documents
+     * @param  array|null  $phones
      * @param  array|null  $educations
      * @param  array|null  $specialities
      * @param  array|null  $qualifications
      * @param  array|null  $scienceDegree
      * @param  array{uuid: string, status: string, end_date?: string|null}|null  $employment  Selected position from Get Employee details.
+     * @param  bool  $replaceScienceDegree  False when the source omitted the optional science_degree section.
      * @return Employee|EmployeeRequest Updated employee
      * @throws Throwable
      */
     public function updateDetails(
         Employee|EmployeeRequest $employee,
         array $party,
-        array $documents,
-        array $phones,
+        ?array $documents,
+        ?array $phones,
         ?array $educations = null,
         ?array $specialities = null,
         ?array $qualifications = null,
         ?array $scienceDegree = null,
         ?array $employment = null,
+        bool $replaceScienceDegree = true,
     ): Employee|EmployeeRequest {
         $model = $employee;
 
-        DB::transaction(function () use ($model, $party, $documents, $phones, $educations, $specialities, $qualifications, $scienceDegree, $employment) {
+        DB::transaction(function () use ($model, $party, $documents, $phones, $educations, $specialities, $qualifications, $scienceDegree, $employment, $replaceScienceDegree) {
             if ($model instanceof Employee && $employment !== null) {
                 $status = Status::tryFrom(str_replace(' ', '_', $employment['status']));
                 if (!$status?->isEmploymentStatus()) {
@@ -243,10 +356,12 @@ readonly class EmployeeRepository
             $model->syncMany('specialities', $specialities);
             $model->syncMany('qualifications', $qualifications);
 
-            if (!empty($scienceDegree)) {
-                $model->scienceDegree()->updateOrCreate([], $scienceDegree);
-            } else {
-                $model->scienceDegree()->delete();
+            if ($replaceScienceDegree) {
+                if (!empty($scienceDegree)) {
+                    $model->scienceDegree()->updateOrCreate([], $scienceDegree);
+                } else {
+                    $model->scienceDegree()->delete();
+                }
             }
         });
 

@@ -8,6 +8,8 @@ use App\Classes\eHealth\EHealth;
 use App\Models\Employee\EmployeeRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use BackedEnum;
+use Throwable;
 
 /**
  * Shared matching rules for linking local employee requests to eHealth employees.
@@ -17,7 +19,7 @@ class EmployeeRequestMatcher
 {
     public static function remoteDivisionUuid(array $employee): ?string
     {
-        return $employee['division']['uuid'] ?? $employee['division_id'] ?? null;
+        return $employee['division']['uuid'] ?? ($employee['division_id'] ?? null);
     }
 
     /**
@@ -25,7 +27,7 @@ class EmployeeRequestMatcher
      */
     public static function isRemoteStillPending(mixed $status): bool
     {
-        $value = $status instanceof \BackedEnum ? $status->value : $status;
+        $value = $status instanceof BackedEnum ? $status->value : $status;
 
         return is_string($value) && in_array($value, ['NEW', 'SIGNED'], true);
     }
@@ -42,7 +44,7 @@ class EmployeeRequestMatcher
 
         try {
             return Carbon::parse($localDate)->isSameDay(Carbon::parse($remoteDate));
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -68,6 +70,9 @@ class EmployeeRequestMatcher
         $matches = [];
 
         foreach ($employeesList as $remoteEmp) {
+            if (($remoteEmp['status'] ?? null) !== 'APPROVED') {
+                continue;
+            }
             if (!isset($remoteEmp['uuid'])) {
                 Log::warning('[EmployeeRequestMatcher] Skipping remote employee record without uuid.');
 
@@ -104,7 +109,8 @@ class EmployeeRequestMatcher
     public function findApprovedForRequest(
         EmployeeRequest $request,
         string $taxId,
-        string $legalEntityUuid
+        string $legalEntityUuid,
+        ?string $token = null,
     ): ?array {
         Log::info("[EmployeeRequestMatcher] Searching eHealth for Employee by TaxID: {$taxId}");
 
@@ -127,7 +133,19 @@ class EmployeeRequestMatcher
                 $params['employee_type'] = $employeeType;
             }
 
-            $employeesList = EHealth::employee()->getMany($params, withIdentity: true)->validate();
+            $employeesList = [];
+            $page = 1;
+            do {
+                $client = EHealth::employee();
+                if ($token !== null) {
+                    $client->withToken($token);
+                }
+                $response = $client->getMany($params, $page, withIdentity: true);
+                foreach ($response->validate() as $employee) {
+                    $employeesList[$employee['uuid']] = $employee;
+                }
+                $page++;
+            } while ($response->isNotLast());
 
             if (empty($employeesList)) {
                 Log::warning(
@@ -138,13 +156,13 @@ class EmployeeRequestMatcher
             }
 
             return $this->pickFromApprovedList($request, $employeesList);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error(
                 '[EmployeeRequestMatcher] Search failed: ' . $e->getMessage(),
                 ['exception' => $e, 'tax_id' => $taxId]
             );
 
-            return null;
+            throw $e;
         }
     }
 }

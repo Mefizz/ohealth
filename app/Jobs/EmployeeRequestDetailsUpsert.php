@@ -6,18 +6,12 @@ namespace App\Jobs;
 
 use App\Exceptions\EHealth\EHealthConnectionException;
 use Throwable;
-use App\Core\Arr;
-use Carbon\Carbon;
-use App\Models\User;
+use App\Services\Employee\EmployeeRequestProcessor;
 use App\Core\EHealthJob;
-use App\Enums\JobStatus;
 use App\Models\LegalEntity;
-use App\Repositories\Repository;
 use App\Classes\eHealth\EHealth;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use App\Classes\eHealth\EHealthResponse;
-use App\Enums\Employee\RevisionStatus;
 use App\Models\Employee\EmployeeRequest;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -62,47 +56,12 @@ class EmployeeRequestDetailsUpsert extends EHealthJob
      */
     protected function processResponse(?EHealthResponse $response): void
     {
-        $validatedData = $response->validate();
-
-        $validatedData['inserted_at'] = Carbon::parse($validatedData['inserted_at'])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s');
-
-        Log::info('Processing EmployeeRequestDetailsUpsert for employee_request:' . $this->employeeRequest->id . ', LE:' . ($this->legalEntity->id ?? 'N/A'));
-
-        $this->employeeRequest->legalEntityUuid = $this->legalEntity?->uuid;
-
-        $userEmail = Arr::get($validatedData, 'party.email');
-
-        $employeeRequestUser = User::where('email', $userEmail)->first();
-
-        $employeeRequestPartyId = $employeeRequestUser?->partyId;
-
-        $remoteStatus = $validatedData['status'] ?? null;
-        $isTerminal = in_array($remoteStatus, ['APPROVED', 'REJECTED', 'EXPIRED'], true);
-
-        $fillData = array_merge(
-            $response->map($validatedData, $this->legalEntity, $employeeRequestUser?->id ?? null, $employeeRequestPartyId ?? null),
-            [
-                'sync_status' => JobStatus::COMPLETED->value,
-                'inserted_at' => Carbon::parse($validatedData['inserted_at'])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s') ?? Carbon::now(),
-            ]
+        app(EmployeeRequestProcessor::class)->syncRequestDetails(
+            $this->employeeRequest,
+            $this->legalEntity,
+            $response,
+            $this->token,
         );
-
-        // Only terminal eHealth decisions get applied_at — not details refresh of still-NEW rows.
-        if ($isTerminal) {
-            $fillData['applied_at'] = Carbon::parse($validatedData['updated_at'] ?? now())
-                ->setTimezone(config('app.timezone'))
-                ->format('Y-m-d H:i:s');
-        }
-
-        $this->employeeRequest->fill($fillData);
-
-        $this->employeeRequest->save();
-
-        $revisionData['data'] = Ehealth::employeeRequest()->mapRevisionData($response);
-        $revisionData['ehealth_response'] = [ 'data' => $response->getData()];
-        $revisionData['status'] = RevisionStatus::APPLIED->value;
-
-        Repository::revision()->saveRevision($this->employeeRequest, $revisionData);
     }
 
     /**

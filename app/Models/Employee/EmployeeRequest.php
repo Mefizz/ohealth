@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Revision;
 use App\Casts\EHealthDateCast;
 use App\Enums\Employee\RequestStatus;
+use App\Enums\JobStatus;
 use App\Models\Relations\ScienceDegree;
 use App\Models\Relations\Education;
 use App\Models\Relations\Qualification;
@@ -130,6 +131,13 @@ class EmployeeRequest extends BaseEmployee
         return $this->status === RequestStatus::NEW && filled($this->uuid);
     }
 
+    public function needsEhealthSync(): bool
+    {
+        return filled($this->uuid) && ($this->isPendingEhealth()
+            || $this->syncStatus === JobStatus::PARTIAL->value
+            || !$this->revision);
+    }
+
     /**
      * Local draft: NEW without eHealth UUID (same rules as isLocalDraft()).
      *
@@ -159,6 +167,16 @@ class EmployeeRequest extends BaseEmployee
                         ->where('status', RequestStatus::NEW)
                         ->whereNotNull('uuid');
                 });
+        });
+    }
+
+    /** Known pending UUIDs also cover EXPIRED, which is not an advertised list filter. */
+    public function scopeNeedingDetails(Builder $query): Builder
+    {
+        return $query->whereNotNull('uuid')->where(function (Builder $pending): void {
+            $pending->where('sync_status', JobStatus::PARTIAL->value)
+                ->orWhere(fn (Builder $submitted) => $submitted->pendingEhealth())
+                ->orWhereDoesntHave('revision');
         });
     }
 

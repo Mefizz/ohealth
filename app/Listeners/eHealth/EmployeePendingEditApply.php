@@ -51,7 +51,7 @@ class EmployeePendingEditApply implements ShouldQueue
 
     public int $tries = 2;
 
-    public function __construct(private EmployeeRequestProcessor $processor)
+    public function __construct(protected EmployeeRequestProcessor $processor)
     {
     }
 
@@ -77,7 +77,7 @@ class EmployeePendingEditApply implements ShouldQueue
             ->with(['revision', 'employee', 'party', 'division'])
             ->filterByLegalEntityId($event->legalEntity->id)
             ->where('email', $user->email)
-            ->pendingEhealth()
+            ->needingDetails()
             ->whereNotNull('employee_id')
             ->whereNotNull('uuid')
             ->orderByDesc('created_at')

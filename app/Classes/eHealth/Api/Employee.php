@@ -86,6 +86,26 @@ class Employee extends EHealthRequest
      */
     protected function validateMany(EHealthResponse $response, bool $withIdentity = false): array
     {
+        if ($withIdentity) {
+            // A missing page cursor must not turn a partial identity search into a unique match.
+            Validator::make($response->json(), [
+                'data' => 'present|array|list',
+                'data.*' => 'required|array',
+                'data.*.id' => 'required|uuid',
+                'data.*.party' => 'sometimes|array|required_array_keys:id,first_name,last_name,verification_status,minfin_validation_status',
+                'data.*.party.id' => 'required_with:data.*.party|uuid',
+                'data.*.division' => 'sometimes|nullable|array|required_array_keys:id',
+                'data.*.division.id' => 'sometimes|uuid',
+                'data.*.legal_entity' => 'sometimes|nullable|array|required_array_keys:id',
+                'data.*.legal_entity.id' => 'sometimes|uuid',
+                'paging' => 'required|array',
+                'paging.page_number' => 'required|integer|min:1',
+                'paging.page_size' => 'required|integer|min:1|max:300',
+                'paging.total_entries' => 'required|integer|min:0',
+                'paging.total_pages' => 'required|integer|min:0',
+            ])->validate();
+        }
+
         $transformedData = [];
         foreach ($response->getData() as $item) {
             $transformedData[] = self::replaceEHealthPropNames($item);
@@ -117,11 +137,26 @@ class Employee extends EHealthRequest
         ];
 
         if ($withIdentity) {
-            $rules += [
+            $rules = [
+                '*' => 'required|array',
+                '*.uuid' => 'required|uuid',
+                '*.status' => 'required|string|in:APPROVED,REORGANIZED,STOPPED,ENTERED IN ERROR,AUTODEACTIVATED',
+                '*.position' => 'required|string',
+                '*.minfin_validation_status' => 'required|string',
+                '*.start_date' => 'required|date',
+                '*.end_date' => 'sometimes|nullable|date',
+                '*.employee_type' => 'sometimes|string',
+                '*.party' => 'sometimes|array|required_array_keys:uuid,first_name,last_name,verification_status,minfin_validation_status',
+                '*.party.uuid' => 'required_with:*.party|uuid',
+                '*.party.first_name' => 'required_with:*.party|string',
+                '*.party.last_name' => 'required_with:*.party|string',
+                '*.party.verification_status' => 'required_with:*.party|string',
+                '*.party.minfin_validation_status' => 'required_with:*.party|string',
+                '*.party.no_tax_id' => 'sometimes|boolean',
+                '*.party.tax_id' => 'sometimes|nullable|string',
                 '*.division' => 'sometimes|nullable|array',
                 '*.division.uuid' => 'sometimes|uuid',
                 '*.division_id' => 'sometimes|nullable|uuid',
-                '*.party.tax_id' => 'sometimes|nullable|string',
             ];
         }
 

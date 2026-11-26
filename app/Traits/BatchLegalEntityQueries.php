@@ -387,7 +387,9 @@ trait BatchLegalEntityQueries
         $previousJob = $nextEntity;
 
         $models = EmployeeRequest::filterByLegalEntityId($legalEntity->id)
-            ->filterBySyncStatus(JobStatus::PARTIAL)
+            ->needingDetails()
+            ->orderBy('inserted_at')
+            ->orderBy('id')
             ->get();
 
         foreach ($models->reverse() as $index => $model) {

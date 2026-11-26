@@ -1,3 +1,4 @@
+@use('App\Enums\Party\VerificationStatus')
 @use('App\Enums\Status')
 @use('App\Enums\User\Role')
 @use('App\Enums\JobStatus')
@@ -5,7 +6,7 @@
 @use('App\Models\Employee\EmployeeRequest')
 
 <div>
-    <livewire:components.x-message :key="(string) str()->uuid()" />
+    <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
     @php
         $currentUser = auth()->user();
         // We cache the hospital ID so as not to call the legalEntity() function 100 times in a loop
@@ -222,7 +223,7 @@
                                             class="input peer text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                                         >
                                             <option value="">{{ __('forms.all_verification_statuses') }}</option>
-                                            @foreach (\App\Enums\Party\VerificationStatus::cases() as $verificationStatus)
+                                            @foreach (VerificationStatus::cases() as $verificationStatus)
                                                 <option value="{{ $verificationStatus->value }}">
                                                     {{ $verificationStatus->label() }}
                                                 </option>
@@ -261,7 +262,7 @@
                         $positions = $this->positionsForParty($party);
 
                         $hasAnyActionInTable = $positions->contains(function ($pos) use ($permissions) {
-                            $status = $pos->status instanceof \UnitEnum ? $pos->status->value : $pos->status;
+                            $status = $pos->status instanceof UnitEnum ? $pos->status->value : $pos->status;
 
                             return $permissions['employee_view'] ||
                                    $permissions['employee_write'] ||
@@ -287,7 +288,7 @@
                                 @endif
                                 @if ($party->verification_status)
                                     @php
-                                        $partyVerification = \App\Enums\Party\VerificationStatus::tryFrom($party->verification_status);
+                                        $partyVerification = VerificationStatus::tryFrom($party->verification_status);
                                         $verificationDetails = $this->partyVerificationDetails($party);
                                     @endphp
                                     <span class="flex items-center gap-1"
@@ -504,22 +505,10 @@
                                                 </td>
 
                                                 <td class="td-input overflow-hidden align-middle">
-                                                    @php
-                                                        $employeeStatus = $position->status?->value ?? '';
-                                                        $statusEnum = Status::tryFrom($employeeStatus);
-                                                        $badgeClass = '!me-0 inline-block w-min whitespace-normal text-left leading-tight';
-                                                    @endphp
-
-                                                    @if ($statusEnum)
-                                                        @if ($statusEnum === Status::APPROVED)
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ __('forms.status.active') }}</span>
-                                                        @elseif ($statusEnum === Status::STOPPED || $statusEnum === Status::DISMISSED)
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ __('forms.status.stopped') }}</span>
-                                                        @elseif ($statusEnum === Status::NEW || $statusEnum === Status::SIGNED)
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ __('forms.status.new') }}</span>
-                                                        @else
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ $statusEnum->label() }}</span>
-                                                        @endif
+                                                    @if ($position->status)
+                                                        <span class="{{ $position->status->color() }} !me-0 inline-block w-min whitespace-normal text-left leading-tight">
+                                                            {{ $position->status->employmentLabel() }}
+                                                        </span>
                                                     @endif
                                                 </td>
                                                 <td class="td-input shrink-0 text-center align-middle whitespace-nowrap">

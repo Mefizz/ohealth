@@ -2,6 +2,11 @@
     @use('App\Models\Employee\Employee')
     @use('App\Models\Employee\EmployeeRequest')
     @use('Illuminate\Support\Carbon')
+    @use('App\Services\Party\PartyVerificationCache')
+
+    @if ($employee instanceof Employee)
+        <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
+    @endif
     {{-- Header Navigation with shift-content class for alignment --}}
     <x-header-navigation class="breadcrumb-form shift-content">
         <x-slot name="title">
@@ -46,7 +51,9 @@
             <div>
                 <dt class="text-gray-500">{{ __('forms.status.label') }}</dt>
                 <dd>
-                    @if ($employee instanceof EmployeeRequest && $employee->isPendingEhealth())
+                    @if ($employee instanceof Employee)
+                        {{ $employee->status?->employmentLabel() ?? '—' }}
+                    @elseif ($employee->isPendingEhealth())
                         Підписано в ЄСОЗ
                     @else
                         {{ $employee->status?->label() ?? $employee->status }}
@@ -68,7 +75,7 @@
 
         @if ($employee instanceof Employee && $employee->party)
             @php
-                $verificationDetails = \App\Services\Party\PartyVerificationCache::get($employee->party->uuid ?? '')['details'] ?? [];
+                $verificationDetails = PartyVerificationCache::get($employee->party->uuid ?? '')['details'] ?? [];
                 $unverifiedStreams = collect(['drfo', 'dracs_death', 'dms_passport'])
                     ->filter(fn (string $stream) => ($verificationDetails[$stream]['verification_status'] ?? null) === 'NOT_VERIFIED');
             @endphp

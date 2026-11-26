@@ -16,6 +16,7 @@ enum Status: string
     case SIGNED = 'SIGNED';
     case DISMISSED = 'DISMISSED';
     case STOPPED = 'STOPPED';
+    case DEACTIVATED = 'DEACTIVATED';
     case AUTODEACTIVATED = 'AUTODEACTIVATED';
     case ACTIVE = 'ACTIVE';
     case INACTIVE = 'INACTIVE';
@@ -30,8 +31,19 @@ enum Status: string
     {
         return match ($this) {
             self::APPROVED, self::REORGANIZED, self::STOPPED, self::DISMISSED,
-            self::ENTERED_IN_ERROR, self::AUTODEACTIVATED => true,
+            self::ENTERED_IN_ERROR, self::DEACTIVATED, self::AUTODEACTIVATED => true,
             default => false,
+        };
+    }
+
+    public function employmentLabel(): string
+    {
+        return match ($this) {
+            self::APPROVED => __('forms.status.active'),
+            self::DISMISSED => __('employees.employment_status.dismissed'),
+            self::REORGANIZED => __('forms.reorganized'),
+            self::ENTERED_IN_ERROR => __('employees.employment_status.entered_in_error'),
+            default => $this->label(),
         };
     }
 
@@ -48,6 +60,7 @@ enum Status: string
             self::DRAFT => __('forms.status.draft'),
             self::UNSYNCED => __('forms.status.unsynced'),
             self::STOPPED => __('forms.status.stopped'),
+            self::DEACTIVATED => __('employees.employment_status.deactivated'),
             self::AUTODEACTIVATED => __('forms.status.autodeactivated'),
             self::REORGANIZED => __('forms.status.reorganized'),
             self::ENTERED_IN_ERROR => __('forms.status.entered_in_error'),
@@ -62,7 +75,7 @@ enum Status: string
             self::APPROVED, self::ACTIVE => 'badge-green',
             self::NEW, self::SIGNED, self::UNSYNCED, self::REORGANIZED, self::CONNECTED => 'badge-yellow',
             self::DRAFT, self::REJECTED, self::DISMISSED, self::STOPPED,
-            self::INACTIVE, self::ENTERED_IN_ERROR, self::AUTODEACTIVATED, self::EXPIRED => 'badge-red',
+            self::INACTIVE, self::ENTERED_IN_ERROR, self::DEACTIVATED, self::AUTODEACTIVATED, self::EXPIRED => 'badge-red',
         };
     }
 

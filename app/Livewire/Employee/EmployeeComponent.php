@@ -8,19 +8,25 @@ use App\Classes\eHealth\EHealth;
 use App\Enums\Employee\RequestStatus;
 use App\Enums\Employee\RevisionStatus;
 use App\Enums\Status;
+use App\Enums\User\Role;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
 use App\Traits\FormTrait;
-use Gate;
+use Exception;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use App\Livewire\Employee\Forms\EmployeeForm as Form;
-use Log;
+use Illuminate\Support\Facades\Log;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
+use RuntimeException;
 use Throwable;
 
 abstract class EmployeeComponent extends Component
@@ -49,6 +55,98 @@ abstract class EmployeeComponent extends Component
 
     #[Locked]
     public ?array $dictionaries = [];
+
+    public bool $showDeactivateModal = false;
+    #[Locked]
+    public ?int $employeeIdToDeactivate = null;
+    public ?string $employeeToDeactivateName = null;
+    public bool $isDoctorToDeactivate = false;
+    public string $deactivationEndDate = '';
+    public string $deactivationStatus = Status::STOPPED->value;
+
+    protected function openDeactivationModal(?Employee $employee): void
+    {
+        if (!$employee || Auth::user()->cannot('deactivate', $employee)) {
+            Session::flash('error', __('employees.policy.deactivate_denied'));
+
+            return;
+        }
+
+        $this->resetValidation(['deactivationStatus', 'deactivationEndDate']);
+        $this->employeeIdToDeactivate = $employee->id;
+        $this->employeeToDeactivateName = $employee->party?->fullName ?? $employee->positionLabel();
+        $this->isDoctorToDeactivate = $employee->employeeType === Role::DOCTOR->value;
+        $this->deactivationStatus = Status::STOPPED->value;
+        $this->deactivationEndDate = now('Europe/Kyiv')->toDateString();
+        $this->showDeactivateModal = true;
+    }
+
+    public function updatedDeactivationStatus(string $status): void
+    {
+        $this->resetValidation(['deactivationStatus', 'deactivationEndDate']);
+        $this->deactivationEndDate = $status === Status::STOPPED->value ? now('Europe/Kyiv')->toDateString() : '';
+    }
+
+    public function closeModal(): void
+    {
+        $this->reset([
+            'showDeactivateModal',
+            'employeeIdToDeactivate',
+            'employeeToDeactivateName',
+            'isDoctorToDeactivate',
+            'deactivationEndDate',
+            'deactivationStatus',
+        ]);
+        $this->resetValidation(['deactivationStatus', 'deactivationEndDate']);
+    }
+
+    protected function deactivateEmployment(): ?Employee
+    {
+        $employee = Employee::find($this->employeeIdToDeactivate);
+        if (!$this->showDeactivateModal || !$employee || Auth::user()->cannot('deactivate', $employee)) {
+            Session::flash('error', __('employees.policy.deactivate_denied'));
+
+            return null;
+        }
+
+        $this->validate(['deactivationStatus' => ['required', Rule::in([Status::STOPPED->value, Status::ENTERED_IN_ERROR->value])]]);
+
+        $endDate = null;
+        if ($this->deactivationStatus === Status::STOPPED->value) {
+            $dateRules = ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:' . now('Europe/Kyiv')->toDateString()];
+            if ($startDate = toIsoDate($employee->startDate)) {
+                $dateRules[] = 'after_or_equal:' . $startDate;
+            }
+
+            $this->validate(['deactivationEndDate' => $dateRules], [
+                'deactivationEndDate.before_or_equal' => __('employees.deactivation_end_date_in_future'),
+                'deactivationEndDate.after_or_equal' => __('employees.deactivation_end_date_before_start'),
+            ]);
+            $endDate = $this->deactivationEndDate;
+        }
+
+        try {
+            $response = EHealth::employee()->deactivate($employee->uuid, $endDate, $this->deactivationStatus);
+            $employment = $response->validate();
+            if ($endDate !== null && !array_key_exists('end_date', $employment)) {
+                // The response schema allows an omitted end_date. The operation confirmed the submitted transition.
+                $employment['end_date'] = $endDate;
+            }
+            Repository::employee()->saveDeactivatedEmployment($employee, $employment);
+        } catch (Throwable $exception) {
+            Log::error('Employee deactivation failed', [
+                'employee_id' => $employee->id,
+                'error' => $exception->getMessage(),
+            ]);
+            Session::flash('error', __('employees.dismissalEhealthError'));
+
+            return null;
+        }
+
+        $this->closeModal();
+
+        return $employee;
+    }
 
     /**
      * This is the single, public method that child components will call.
@@ -243,7 +341,7 @@ abstract class EmployeeComponent extends Component
         try {
             $token = session()->get(config('ehealth.api.oauth.bearer_token'));
             if (!$token) {
-                throw new \RuntimeException('Сесія eHealth не активна. Будь ласка, перезайдіть.');
+                throw new RuntimeException('Сесія eHealth не активна. Будь ласка, перезайдіть.');
             }
 
             // 2. API Request
@@ -276,7 +374,7 @@ abstract class EmployeeComponent extends Component
 
             return true;
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Single Employee Sync Failed', [
                 'employee_id' => $employee->id,
                 'error' => $e->getMessage()
@@ -346,7 +444,7 @@ abstract class EmployeeComponent extends Component
                     );
                 }
 
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 Log::warning("Failed to check status for request {$request->uuid}: " . $e->getMessage());
                 // Continue to next request without stopping the flow
             }

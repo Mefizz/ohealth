@@ -179,14 +179,9 @@ class PartyVerificationIndex extends Component
         foreach ($firstPage as $party) {
             try {
                 $response = EHealth::party()->getDetails($party->uuid);
-                $this->processPartyVerificationDetail($party->uuid, $response, $this->legalEntity);
-
-                $payload = $response->json();
-                $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
-
-                if (is_array($data)) {
-                    PartyVerificationCache::put($party->uuid, $data);
-                }
+                $data = $response->validate();
+                $this->processPartyVerificationDetail($party->uuid, $data, $this->legalEntity);
+                PartyVerificationCache::put($party->uuid, $data);
             } catch (Throwable $e) {
                 Log::warning('Failed to fetch party verification details during sync', [
                     'party_uuid' => $party->uuid,

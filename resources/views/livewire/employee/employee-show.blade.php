@@ -1,7 +1,13 @@
 <div>
+    @use('App\Enums\Employee\RequestStatus')
     @use('App\Models\Employee\Employee')
     @use('App\Models\Employee\EmployeeRequest')
     @use('Illuminate\Support\Carbon')
+    @use('App\Services\Party\PartyVerificationCache')
+
+    @if ($employee instanceof Employee)
+        <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
+    @endif
     {{-- Header Navigation with shift-content class for alignment --}}
     <x-header-navigation class="breadcrumb-form shift-content">
         <x-slot name="title">
@@ -46,10 +52,14 @@
             <div>
                 <dt class="text-gray-500">{{ __('forms.status.label') }}</dt>
                 <dd>
-                    @if ($employee instanceof EmployeeRequest && $employee->isPendingEhealth())
-                        Підписано в ЄСОЗ
+                    @if ($employee instanceof Employee)
+                        {{ $employee->status?->employmentLabel() ?? '—' }}
+                    @elseif ($employee->isLocalDraft())
+                        {{ __('forms.status.draft') }}
+                    @elseif ($employee->isPendingEhealth())
+                        {{ RequestStatus::NEW->label() }}
                     @else
-                        {{ $employee->status?->label() ?? $employee->status }}
+                        {{ $employee->status?->label() ?? '—' }}
                     @endif
                 </dd>
             </div>
@@ -68,7 +78,7 @@
 
         @if ($employee instanceof Employee && $employee->party)
             @php
-                $verificationDetails = \App\Services\Party\PartyVerificationCache::get($employee->party->uuid ?? '')['details'] ?? [];
+                $verificationDetails = PartyVerificationCache::get($employee->party->uuid ?? '')['details'] ?? [];
                 $unverifiedStreams = collect(['drfo', 'dracs_death', 'dms_passport'])
                     ->filter(fn (string $stream) => ($verificationDetails[$stream]['verification_status'] ?? null) === 'NOT_VERIFIED');
             @endphp
@@ -83,6 +93,23 @@
                             {{ __('employees.open_verification') }}
                         </a>
                     </div>
+                    <dl class="space-y-1 text-sm">
+                        <div>
+                            <dt class="font-medium">{{ __('party_verification.status') }}</dt>
+                            <dd>{{ $employee->party->verification_status ? __('dictionaries.party_verification_statuses.' . $employee->party->verification_status) : '—' }}</dd>
+                        </div>
+                        @foreach ($verificationDetails as $stream => $verification)
+                            @if (!empty($verification['verification_status']))
+                                <div>
+                                    <dt class="font-medium">{{ __('party_verification.types.' . $stream) }}</dt>
+                                    <dd>{{ __('dictionaries.party_verification_statuses.' . $verification['verification_status']) }}</dd>
+                                    @if (!empty($verification['verification_reason']))
+                                        <dd>{{ __('party_verification.reasons.' . $verification['verification_reason']) }}</dd>
+                                    @endif
+                                </div>
+                            @endif
+                        @endforeach
+                    </dl>
                     @if ($unverifiedStreams->isNotEmpty())
                         <div
                             class="rounded-lg bg-red-50 p-4 text-sm text-red-800 dark:bg-gray-800 dark:text-red-400"

@@ -7,13 +7,19 @@ namespace App\Classes\eHealth\Api;
 use App\Classes\eHealth\EHealthRequest;
 use App\Classes\eHealth\EHealthResponse;
 use App\Core\Arr;
-use GuzzleHttp\Promise\PromiseInterface;
+use App\Enums\Status;
 use App\Exceptions\EHealth\EHealthConnectionException;
+use App\Exceptions\EHealth\EHealthResponseException;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Enum;
 
 class Employee extends EHealthRequest
 {
+    protected const string EMPLOYMENT_DATE_FORMAT = 'date_format:Y-m-d,Y-m-d\TH:i:s.v\Z';
+
     public const string URL = '/api/employees';
 
     /**
@@ -57,7 +63,7 @@ class Employee extends EHealthRequest
     }
 
     /**
-     * Deactivate an employee with 'DISMISSED' status.
+     * Deactivate an approved employee and validate the confirmed employment state.
      *
      * @param  string  $id  The UUID of the employee.
      * @param  string  $endDate  The end date in 'Y-m-d' format.
@@ -75,6 +81,8 @@ class Employee extends EHealthRequest
             $payload['end_date'] = $endDate;
         }
 
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDeactivation($response, $id, $status));
+
         return $this->patch(self::URL . '/' . $id . '/actions/deactivate', $payload);
     }
 
@@ -86,20 +94,23 @@ class Employee extends EHealthRequest
      */
     protected function validateMany(EHealthResponse $response, bool $withIdentity = false): array
     {
-        $transformedData = [];
-        foreach ($response->getData() as $item) {
-            $transformedData[] = self::replaceEHealthPropNames($item);
-        }
+        $items = Validator::make($response->json() ?? [], ['data' => ['present', 'array', 'list'], 'data.*' => ['array']])
+            ->validated()['data'];
+        $transformedData = array_map(
+            fn (array $item): array => $this->normalizeEmploymentStatus(self::replaceEHealthPropNames($item)),
+            $items,
+        );
 
         $rules = [
             '*' => 'required|array',
             '*.uuid' => 'required|uuid',
-            '*.status' => 'required|string',
+            '*.status' => ['required', $this->employmentStatusRule()],
             '*.position' => 'required|string',
             '*.employee_type' => 'required|string',
-            '*.start_date' => 'required|date_format:Y-m-d',
-            '*.end_date' => 'nullable|date_format:Y-m-d',
-            '*.is_active' => 'required|boolean',
+            '*.start_date' => ['required', self::EMPLOYMENT_DATE_FORMAT],
+            '*.end_date' => ['nullable', self::EMPLOYMENT_DATE_FORMAT],
+            '*.is_active' => 'sometimes|required|boolean',
+            '*.division_id' => 'sometimes|nullable|uuid',
             '*.party' => 'required|array',
             '*.party.uuid' => 'required|uuid',
             '*.party.no_tax_id' => 'required|boolean',
@@ -120,7 +131,6 @@ class Employee extends EHealthRequest
             $rules += [
                 '*.division' => 'sometimes|nullable|array',
                 '*.division.uuid' => 'sometimes|uuid',
-                '*.division_id' => 'sometimes|nullable|uuid',
                 '*.party.tax_id' => 'sometimes|nullable|string',
             ];
         }
@@ -133,7 +143,7 @@ class Employee extends EHealthRequest
             );
         }
 
-        return $validator->validated();
+        return array_map($this->normalizeEmploymentDates(...), $validator->validated());
     }
 
     /**
@@ -144,19 +154,18 @@ class Employee extends EHealthRequest
      */
     protected function validateDetails(EHealthResponse $response): array
     {
-        $transformedData = self::replaceEHealthPropNames($response->getData());
+        $transformedData = $this->normalizeEmploymentStatus(self::replaceEHealthPropNames($response->getData()));
 
         $employeeTypeKey = strtolower($transformedData['employee_type'] ?? '');
         $medTypes = implode(',', config('ehealth.medical_employees', []));
-        $employmentDateFormat = 'date_format:Y-m-d,Y-m-d\TH:i:s.v\Z';
 
         $rules = [
             'uuid' => 'required|uuid',
-            'status' => 'required|string',
+            'status' => ['required', $this->employmentStatusRule()],
             'position' => 'required|string',
             'employee_type' => 'required|string',
-            'start_date' => ['required', $employmentDateFormat],
-            'end_date' => ['nullable', $employmentDateFormat],
+            'start_date' => ['required', self::EMPLOYMENT_DATE_FORMAT],
+            'end_date' => ['nullable', self::EMPLOYMENT_DATE_FORMAT],
             'is_active' => 'required|boolean',
 
             'division' => 'sometimes|nullable|array',
@@ -236,13 +245,7 @@ class Employee extends EHealthRequest
             );
         }
 
-        $validated = $validator->validated();
-
-        // Employment dates are stored as calendar dates, including when eHealth sends UTC timestamps.
-        $validated['start_date'] = substr($validated['start_date'], 0, 10);
-        if (isset($validated['end_date'])) {
-            $validated['end_date'] = substr($validated['end_date'], 0, 10);
-        }
+        $validated = $this->normalizeEmploymentDates($validator->validated());
 
         if (!$this->groupByEntities) {
             return $validated;
@@ -265,6 +268,50 @@ class Employee extends EHealthRequest
             'scienceDegree' => $doctorData['science_degree'] ?? [],
             'division' => $validated['division'] ?? null,
         ];
+    }
+
+    protected function validateDeactivation(EHealthResponse $response, string $id, string $status): array
+    {
+        $data = $this->normalizeEmploymentStatus($response->getData());
+
+        $data['id'] = is_string($data['id'] ?? null) ? strtolower($data['id']) : null;
+        $validated = Validator::make($data, [
+            'id' => ['required', 'uuid', Rule::in([strtolower($id)])],
+            'status' => ['required', Rule::in([$status])],
+            'is_active' => ['required', 'boolean'],
+            'end_date' => ['nullable', self::EMPLOYMENT_DATE_FORMAT],
+        ])->validated();
+
+        return $this->normalizeEmploymentDates($validated);
+    }
+
+    protected function normalizeEmploymentDates(array $data): array
+    {
+        // Store calendar dates without shifting the day of an API timestamp.
+        foreach (['start_date', 'end_date'] as $key) {
+            if (isset($data[$key])) {
+                $data[$key] = substr($data[$key], 0, 10);
+            }
+        }
+
+        return $data;
+    }
+
+    protected function normalizeEmploymentStatus(array $data): array
+    {
+        // Some eHealth schemas serialize this status with spaces.
+        if (($data['status'] ?? null) === 'ENTERED IN ERROR') {
+            $data['status'] = Status::ENTERED_IN_ERROR->value;
+        }
+
+        return $data;
+    }
+
+    protected function employmentStatusRule(): Enum
+    {
+        return Rule::enum(Status::class)->only(
+            array_values(array_filter(Status::cases(), fn (Status $status): bool => $status->isEmploymentStatus()))
+        );
     }
 
     /**

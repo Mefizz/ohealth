@@ -273,7 +273,8 @@ class EmployeeForm extends BaseForm
             ],
             'documents.*.issuedBy' => ['bail', 'required', 'string', 'regex:/\S/u'],
             'documents.*.issuedAt' => [
-                'nullable',
+                'bail',
+                'required',
                 new DateFormat(),
                 'before_or_equal:today',
                 new DocumentIssuedAfterBirthDate($this->party['birthDate'] ?? null),

@@ -79,7 +79,8 @@ class EmployeeDetailsUpsert extends EHealthJob
             $validatedData['educations'] ?? null,
             $validatedData['specialities'] ?? null,
             $validatedData['qualifications'] ?? null,
-            $validatedData['scienceDegree'] ?? null
+            $validatedData['scienceDegree'] ?? null,
+            employment: $validatedData['employee'],
         );
 
         $this->employee->setSyncStatus(JobStatus::COMPLETED);

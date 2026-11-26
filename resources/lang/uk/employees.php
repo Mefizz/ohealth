@@ -3,6 +3,20 @@
 declare(strict_types=1);
 
 return [
+    'request_status' => [
+        'new' => 'Очікує верифікації',
+        'approved' => 'Схвалено',
+        'rejected' => 'Відхилено',
+        'signed' => 'Надіслано',
+        'expired' => 'Прострочено',
+    ],
+
+    'employment_status' => [
+        'dismissed' => 'Звільнений',
+        'deactivated' => 'Деактивований',
+        'entered_in_error' => 'Внесений помилково',
+    ],
+
     'position_speciality' => 'Основна спеціальність за цією посадою',
     'additional_person_specialities' => 'Додаткові кваліфікації особи в ЕСОЗ',
     'additional_person_speciality' => 'Додаткова кваліфікація особи',

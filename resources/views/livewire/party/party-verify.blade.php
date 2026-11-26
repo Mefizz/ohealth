@@ -1,4 +1,5 @@
 <div x-data="{ showUpdateModal: false }" x-effect="showUpdateModal = $wire.showUpdateModal">
+    <livewire:components.x-message :consume-messages="true" :key="(string) str()->uuid()" />
     {{-- Breadcrumb Navigation --}}
     <x-header-navigation>
         <x-slot name="title">{{ __('party_verification.label') }} {{ $party->fullName ?? '' }}</x-slot>
@@ -18,7 +19,6 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {{-- String filtering occurs at the PHP level (drfo/dracs_death), so here we simply output --}}
                     @forelse ($verificationDetails['details'] ?? [] as $key => $details)
                         @php
                             $status = data_get($details, 'verification_status');

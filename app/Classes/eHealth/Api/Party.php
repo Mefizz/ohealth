@@ -6,10 +6,12 @@ namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\EHealthRequest;
 use App\Classes\eHealth\EHealthResponse;
+use App\Enums\Party\VerificationStatus;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -95,7 +97,7 @@ class Party extends EHealthRequest
      */
     public function update(string $uuid, array $data = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateDetails(...));
+        $this->setValidator(fn (EHealthResponse $response): array => $this->validateDetails($response, updating: true));
 
         return $this->patch(self::URL . '/' . $uuid . '/verification', $data);
     }
@@ -107,46 +109,28 @@ class Party extends EHealthRequest
      * @return array
      * @throws ValidationException
      */
-    protected function validateDetails(EHealthResponse $response): array
+    protected function validateDetails(EHealthResponse $response, bool $updating = false): array
     {
-        $data = $response->getData();
-
         $rules = [
-            'verification_status' => 'required|string',
-            'details' => 'required|array',
+            'verification_status' => ['required', Rule::enum(VerificationStatus::class)],
+            'details' => [$updating ? 'required' : 'sometimes', 'array'],
+        ];
 
-            // DRFO block
-            'details.drfo' => 'present|array',
-            'details.drfo.verification_status' => 'string',
-            'details.drfo.verification_reason' => 'nullable|string',
+        foreach (['drfo', 'dracs_death', 'mvs_passport', 'dms_passport', 'dracs_name_change'] as $stream) {
+            $key = 'details.' . $stream;
+            $rules[$key] = ['sometimes', 'array'];
+            $rules[$key . '.verification_status'] = ['required_with:' . $key, Rule::enum(VerificationStatus::class)];
+            $rules[$key . '.verification_reason'] = ['required_with:' . $key, 'string'];
+        }
+        $rules += [
             'details.drfo.result' => 'nullable|numeric',
-
-            // DRACS Death block
-            'details.dracs_death' => 'present|array',
-            'details.dracs_death.verification_status' => 'string',
-            'details.dracs_death.verification_reason' => 'nullable|string',
             'details.dracs_death.verification_comment' => 'nullable|string',
-
-            // MVS Passport block
-            'details.mvs_passport' => 'present|array',
-            'details.mvs_passport.verification_status' => 'string',
-            'details.mvs_passport.verification_reason' => 'nullable|string',
             'details.mvs_passport.status' => 'nullable|numeric',
-
-            // DMS Passport block
-            'details.dms_passport' => 'present|array',
-            'details.dms_passport.verification_status' => 'string',
-            'details.dms_passport.verification_reason' => 'nullable|string',
             'details.dms_passport.status' => 'nullable|numeric',
-
-            // DRACS Name Change block
-            'details.dracs_name_change' => 'present|array',
-            'details.dracs_name_change.verification_status' => 'string',
-            'details.dracs_name_change.verification_reason' => 'nullable|string',
             'details.dracs_name_change.verification_comment' => 'nullable|string',
         ];
 
-        return Validator::make($data, $rules)->validated();
+        return Validator::make($response->getData(), $rules)->validated();
     }
 
     /**

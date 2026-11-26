@@ -1,3 +1,4 @@
+@use('App\Enums\Employee\RequestStatus')
 @use('App\Enums\JobStatus')
 
 <div>
@@ -98,7 +99,7 @@
                                         @if ($request->isLocalDraft())
                                             <span class="badge-red inline-block whitespace-nowrap">{{ __('forms.status.draft') }}</span>
                                         @elseif ($request->isPendingEhealth())
-                                            <span class="{{ $request->status->color() }} inline-block whitespace-nowrap">{{ __('forms.status.new') }}</span>
+                                            <span class="{{ $request->status->color() }} inline-block whitespace-nowrap">{{ RequestStatus::NEW->label() }}</span>
                                         @elseif ($request->status)
                                             <span class="{{ $request->status->color() }} inline-block whitespace-nowrap">{{ $request->status->label() }}</span>
                                         @endif

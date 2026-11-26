@@ -9,6 +9,8 @@ use Throwable;
 use UnexpectedValueException;
 use App\Core\Arr;
 use App\Enums\Status;
+use App\Enums\JobStatus;
+use App\Models\Division;
 use App\Models\LegalEntity;
 use App\Models\User;
 use App\Models\Relations\Party;
@@ -23,6 +25,57 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 
 readonly class EmployeeRepository
 {
+    /** @param list<array> $employees Validated Get Employees List items. */
+    public function upsertSummaries(array $employees, int $legalEntityId): void
+    {
+        data_forget($employees, '*.party');
+        data_forget($employees, '*.doctor');
+        data_fill($employees, '*.legal_entity_id', $legalEntityId);
+        data_fill($employees, '*.sync_status', JobStatus::PARTIAL->value);
+
+        $divisionUuids = collect($employees)->pluck('division_id')->filter()->unique();
+        if ($divisionUuids->isNotEmpty()) {
+            $divisions = Division::where('legal_entity_id', $legalEntityId)
+                ->whereIn('uuid', $divisionUuids)->pluck('id', 'uuid');
+            foreach ($employees as $key => $employee) {
+                if (!empty($employee['division_id']) && isset($divisions[$employee['division_id']])) {
+                    $employees[$key]['division_id'] = $divisions[$employee['division_id']];
+                } elseif (!empty($employee['division_id'])) {
+                    unset($employees[$key]['division_id']);
+                }
+            }
+        }
+
+        // A summary may omit detail fields. Preserve local values for omitted attributes.
+        $groups = collect($employees)->groupBy(function (array $employee): string {
+            $keys = array_keys($employee);
+            sort($keys);
+
+            return implode(',', $keys);
+        });
+
+        DB::transaction(function () use ($groups): void {
+            foreach ($groups as $group) {
+                Employee::upsert($group->all(), uniqueBy: ['uuid']);
+            }
+        });
+    }
+
+    /** @param array{id: string, status: string, is_active: bool, end_date?: string|null} $employment */
+    public function saveDeactivatedEmployment(Employee $employee, array $employment): void
+    {
+        DB::transaction(function () use ($employee, $employment): void {
+            $current = $employee->newQuery()
+                ->whereKey($employee->id)
+                ->whereUuid($employment['id'])
+                ->whereIn('status', [Status::APPROVED->value, $employment['status']])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $current->update(Arr::only($employment, ['status', 'is_active', 'end_date']));
+        });
+    }
+
     public function hasPartyInLegalEntity(int $partyId, int $legalEntityId): bool
     {
         return Employee::wherePartyId($partyId)->whereLegalEntityId($legalEntityId)->exists();
@@ -197,7 +250,7 @@ readonly class EmployeeRepository
      * @param  array|null  $specialities
      * @param  array|null  $qualifications
      * @param  array|null  $scienceDegree
-     * @param  array{uuid: string, status: string, end_date?: string|null}|null  $employment  Selected position from Get Employee details.
+     * @param  array{uuid: string, status: string, is_active: bool, end_date?: string|null}|null  $employment  Selected position from Get Employee details.
      * @return Employee|EmployeeRequest Updated employee
      * @throws Throwable
      */
@@ -227,10 +280,11 @@ readonly class EmployeeRepository
                     ->whereUuid(strtolower($employment['uuid']))
                     ->where('status', $model->getRawOriginal('status'))
                     ->where('end_date', $model->getRawOriginal('end_date'))
+                    ->where('is_active', $model->getRawOriginal('is_active'))
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                $model->update(['status' => $status] + Arr::only($employment, ['end_date']));
+                $model->update(['status' => $status] + Arr::only($employment, ['end_date', 'is_active']));
             }
 
             $partyAttributes = array_diff_key($party, array_flip(['documents', 'phones']));

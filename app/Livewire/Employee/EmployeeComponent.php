@@ -8,20 +8,31 @@ use App\Classes\eHealth\EHealth;
 use App\Enums\Employee\RequestStatus;
 use App\Enums\Employee\RevisionStatus;
 use App\Enums\Status;
+use App\Enums\User\Role;
+use App\Livewire\Actions\Logout;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
+use App\Models\Role as ModelsRole;
+use App\Models\User;
 use App\Repositories\Repository;
 use App\Traits\FormTrait;
-use Gate;
+use Exception;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use App\Livewire\Employee\Forms\EmployeeForm as Form;
-use Log;
+use Illuminate\Support\Facades\Log;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
+use RuntimeException;
 use Throwable;
+use Spatie\Permission\PermissionRegistrar;
 
 abstract class EmployeeComponent extends Component
 {
@@ -49,6 +60,183 @@ abstract class EmployeeComponent extends Component
 
     #[Locked]
     public ?array $dictionaries = [];
+
+    public bool $showDeactivateModal = false;
+    #[Locked]
+    public ?int $employeeIdToDeactivate = null;
+    public ?string $employeeToDeactivateName = null;
+    public bool $isDoctorToDeactivate = false;
+    public string $deactivationEndDate = '';
+    public string $deactivationStatus = Status::STOPPED->value;
+
+    protected function openDeactivationModal(?Employee $employee): void
+    {
+        if (!$employee || Auth::user()->cannot('deactivate', $employee)) {
+            Session::flash('error', __('employees.policy.deactivate_denied'));
+
+            return;
+        }
+
+        $this->resetValidation(['deactivationStatus', 'deactivationEndDate']);
+        $this->employeeIdToDeactivate = $employee->id;
+        $this->employeeToDeactivateName = $employee->party?->fullName ?? $employee->positionLabel();
+        $this->isDoctorToDeactivate = $employee->employeeType === Role::DOCTOR->value;
+        $this->deactivationStatus = Status::STOPPED->value;
+        $this->deactivationEndDate = now('Europe/Kyiv')->toDateString();
+        $this->showDeactivateModal = true;
+    }
+
+    public function updatedDeactivationStatus(string $status): void
+    {
+        $this->resetValidation(['deactivationStatus', 'deactivationEndDate']);
+        $this->deactivationEndDate = $status === Status::STOPPED->value ? now('Europe/Kyiv')->toDateString() : '';
+    }
+
+    public function closeModal(): void
+    {
+        $this->reset([
+            'showDeactivateModal',
+            'employeeIdToDeactivate',
+            'employeeToDeactivateName',
+            'isDoctorToDeactivate',
+            'deactivationEndDate',
+            'deactivationStatus',
+        ]);
+        $this->resetValidation(['deactivationStatus', 'deactivationEndDate']);
+    }
+
+    protected function deactivateEmployment(): ?Employee
+    {
+        $employee = Employee::find($this->employeeIdToDeactivate);
+        if (!$this->showDeactivateModal || !$employee || Auth::user()->cannot('deactivate', $employee)) {
+            Session::flash('error', __('employees.policy.deactivate_denied'));
+
+            return null;
+        }
+
+        $this->validate(['deactivationStatus' => ['required', Rule::in([Status::STOPPED->value, Status::ENTERED_IN_ERROR->value])]]);
+
+        $endDate = null;
+        if ($this->deactivationStatus === Status::STOPPED->value) {
+            $dateRules = ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:' . now('Europe/Kyiv')->toDateString()];
+            if ($startDate = toIsoDate($employee->startDate)) {
+                $dateRules[] = 'after_or_equal:' . $startDate;
+            }
+
+            $this->validate(['deactivationEndDate' => $dateRules], [
+                'deactivationEndDate.before_or_equal' => __('employees.deactivation_end_date_in_future'),
+                'deactivationEndDate.after_or_equal' => __('employees.deactivation_end_date_before_start'),
+            ]);
+            $endDate = $this->deactivationEndDate;
+        }
+
+        try {
+            $response = EHealth::employee()->deactivate($employee->uuid, $endDate, $this->deactivationStatus);
+            $employment = $response->validate();
+            if ($endDate !== null && !array_key_exists('end_date', $employment)) {
+                // The response schema allows an omitted end_date. The operation confirmed the submitted transition.
+                $employment['end_date'] = $endDate;
+            }
+            Repository::employee()->saveDeactivatedEmployment($employee, $employment);
+            $this->deactivateEmployeeRole($employee);
+        } catch (Throwable $exception) {
+            Log::error('Employee deactivation failed', [
+                'employee_id' => $employee->id,
+                'error' => $exception->getMessage(),
+            ]);
+            Session::flash('error', __('employees.dismissalEhealthError'));
+
+            return null;
+        }
+
+        $this->closeModal();
+
+        return $employee;
+    }
+
+    protected function afterEmployeeDeactivation(Employee $employee, bool $redirectToList = false): mixed
+    {
+        $sessionUser = Auth::guard('ehealth')->user() ?? Auth::guard('web')->user();
+        if ($sessionUser instanceof User && $employee->partyId !== null && (int) $employee->partyId === (int) $sessionUser->partyId) {
+            return app(Logout::class)(message: __('employees.dismissalSuccess'));
+        }
+
+        Session::flash('success', __('employees.dismissalSuccess'));
+
+        if ($redirectToList) {
+            $this->redirectRoute('employee.index', [legalEntity()], navigate: true);
+        }
+
+        return null;
+    }
+
+    /**
+     * Revoke the Spatie role of the deactivated employee type for linked users,
+     * unless another APPROVED employee of the same type remains in this legal entity.
+     * Also drops stale direct eHealth scopes so the next login can resync them.
+     */
+    protected function deactivateEmployeeRole(Employee $employee): void
+    {
+        $linkedUsers = $this->usersLinkedToEmployee($employee);
+
+        $employee->users()->detach();
+
+        if ($linkedUsers->isEmpty()) {
+            return;
+        }
+
+        $guards = array_keys((array) config('auth.guards'));
+        $savedGuard = Auth::getDefaultDriver();
+        $employeeType = $employee->employeeType;
+
+        setPermissionsTeamId($employee->legalEntityId);
+
+        foreach ($linkedUsers as $user) {
+            if (
+                is_string($employeeType)
+                && $employeeType !== ''
+                && !$employee->userHasOtherApprovedOfType((int) $user->id, (int) $employee->legalEntityId)
+            ) {
+                foreach ($guards as $guard) {
+                    Auth::shouldUse($guard);
+
+                    if ($user->hasRole($employeeType, $guard)) {
+                        $user->removeRole(ModelsRole::findByName($employeeType, $guard));
+                    }
+                }
+            }
+
+            // Direct eHealth scopes are synced on login only; drop stale rows after deactivate.
+            $user->syncPermissions([]);
+            $user->unsetRelation('roles')->unsetRelation('permissions');
+        }
+
+        Auth::shouldUse($savedGuard);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /**
+     * Users bound to the employee via `user_id` or the `employee_users` pivot.
+     *
+     * @return Collection<int, User>
+     */
+    protected function usersLinkedToEmployee(Employee $employee): Collection
+    {
+        $users = collect();
+
+        if ($employee->userId) {
+            $owner = User::query()->without(['person'])->find($employee->userId);
+
+            if ($owner instanceof User) {
+                $users->push($owner);
+            }
+        }
+
+        return $users
+            ->concat($employee->users()->without(['person'])->get())
+            ->unique('id')
+            ->values();
+    }
 
     /**
      * This is the single, public method that child components will call.
@@ -243,7 +431,7 @@ abstract class EmployeeComponent extends Component
         try {
             $token = session()->get(config('ehealth.api.oauth.bearer_token'));
             if (!$token) {
-                throw new \RuntimeException('Сесія eHealth не активна. Будь ласка, перезайдіть.');
+                throw new RuntimeException('Сесія eHealth не активна. Будь ласка, перезайдіть.');
             }
 
             // 2. API Request
@@ -276,7 +464,7 @@ abstract class EmployeeComponent extends Component
 
             return true;
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Single Employee Sync Failed', [
                 'employee_id' => $employee->id,
                 'error' => $e->getMessage()
@@ -346,7 +534,7 @@ abstract class EmployeeComponent extends Component
                     );
                 }
 
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 Log::warning("Failed to check status for request {$request->uuid}: " . $e->getMessage());
                 // Continue to next request without stopping the flow
             }

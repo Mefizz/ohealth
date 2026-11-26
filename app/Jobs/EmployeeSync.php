@@ -8,12 +8,11 @@ use App\Core\EHealthJob;
 use App\Enums\JobStatus;
 use App\Models\LegalEntity;
 use App\Classes\eHealth\EHealth;
-use App\Models\Employee\Employee;
+use App\Repositories\Repository;
 use App\Traits\BatchLegalEntityQueries;
 use GuzzleHttp\Promise\PromiseInterface;
 use App\Classes\eHealth\EHealthResponse;
 use Illuminate\Queue\Middleware\RateLimited;
-use Illuminate\Support\Facades\Log;
 use Spatie\Permission\PermissionRegistrar;
 
 class EmployeeSync extends EHealthJob
@@ -41,32 +40,9 @@ class EmployeeSync extends EHealthJob
      */
     protected function processResponse(?EHealthResponse $response): void
     {
-        if ($response) {
-            Log::info('[EHealth Sync] Received Employee data structure:', [
-                'legal_entity_id' => $this->legalEntity->id,
-                'page' => $this->page,
-                'data' => $response->json('data')
-            ]);
-        }
-
         $employees = $response->validate();
 
-        data_forget($employees, '*.party');
-        data_forget($employees, '*.doctor');
-        data_fill($employees, '*.legal_entity_id', $this->legalEntity->id);
-        data_fill($employees, '*.sync_status', JobStatus::PARTIAL->value);
-
-        $divisionUuids = collect($employees)->pluck('division_id')->filter(fn ($id) => is_string($id) && strlen($id) === 36)->unique();
-        if ($divisionUuids->isNotEmpty()) {
-            $divisions = \App\Models\Division::whereIn('uuid', $divisionUuids)->pluck('id', 'uuid');
-            foreach ($employees as &$emp) {
-                if (!empty($emp['division_id']) && is_string($emp['division_id']) && isset($divisions[$emp['division_id']])) {
-                    $emp['division_id'] = $divisions[$emp['division_id']];
-                }
-            }
-        }
-
-        Employee::upsert($employees, uniqueBy: ['uuid']);
+        Repository::employee()->upsertSummaries($employees, $this->legalEntity->id);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }

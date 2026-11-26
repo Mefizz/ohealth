@@ -90,17 +90,10 @@ trait ProcessesPartyVerificationResponses
      */
     private function processPartyVerificationDetail(
         string $partyUuid,
-        EHealthResponse $response,
+        array $data,
         LegalEntity $legalEntity
     ): void {
-        $payload = $response->json();
-        $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
-
-        $verificationStatus = data_get($data, 'verification_status');
-
-        if (!is_string($verificationStatus) || $verificationStatus === '') {
-            return;
-        }
+        $verificationStatus = $data['verification_status'];
 
         $party = Party::query()
             ->where('uuid', $partyUuid)

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Traits;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealth;
 use App\Core\Arr;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Repositories\Repository;
 use Illuminate\Validation\ValidationException;
 
@@ -23,11 +25,14 @@ trait SynchronizesCarePlans
                 $planApi->withToken($token);
             }
             $details = $planApi->getDetails($patient['uuid'], $summary['id'])->validate();
-            $resource = Arr::toCamelCase(Arr::from($details));
-            if ($resource['id'] !== $summary['id']) {
+            $resource = $details instanceof CarePlanDetails
+                ? objectMapper()->map($details, CarePlanData::class)
+                : Arr::toCamelCase(Arr::from($details));
+            $uuid = $resource instanceof CarePlanData ? $resource->uuid : ($resource['id'] ?? null);
+            if ($uuid !== $summary['id']) {
                 throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
             }
-            $activities = $this->fetchAllActivityResources($patient['uuid'], $resource['id'], token: $token);
+            $activities = $this->fetchAllActivityResources($patient['uuid'], $uuid, token: $token);
             $repository->storeAggregate($resource, $activities, $patient['id'], $legalEntityId);
         }
     }

@@ -12,6 +12,7 @@ use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -29,7 +30,7 @@ class CarePlan extends Request
      */
     public function create(string $patientId, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator($this->validateSubmission(...));
 
         return $this->post("/api/patients/{$patientId}/care_plans", $payload);
     }
@@ -59,7 +60,7 @@ class CarePlan extends Request
      */
     public function getDetails(string $patientId, string $id, array $query = []): PromiseInterface|EHealthResponse
     {
-        $this->setValidator($this->validateDetails(...));
+        $this->setValidator($this->validateResponse(...));
 
         return $this->get("/api/patients/{$patientId}/care_plans/{$id}", $query);
     }
@@ -77,7 +78,7 @@ class CarePlan extends Request
      */
     public function cancel(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator($this->validateSubmission(...));
 
         return $this->patch("/api/patients/$personId/care_plans/$id/actions/cancel", $payload);
     }
@@ -95,7 +96,7 @@ class CarePlan extends Request
      */
     public function complete(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
     {
-        $this->setValidator(\App\Classes\eHealth\Api\Job::validateSubmissionResponse(...));
+        $this->setValidator($this->validateSubmission(...));
 
         return $this->patch("/api/patients/$personId/care_plans/$id/actions/complete", $payload);
     }
@@ -134,7 +135,10 @@ class CarePlan extends Request
         return $this->get("/api/patients/$patientId/summary/care_plans", $mergedQuery);
     }
 
-    protected function validateDetails(EHealthResponse $response): CarePlanDetails
+    /**
+     * Validate the full resource returned by get by ID and synchronous writes.
+     */
+    protected function validateResponse(EHealthResponse $response): CarePlanDetails
     {
         $data = $response->json(EHealthResponse::DATA_PATH);
         if (is_array($data) && array_is_list($data) && count($data) === 1) {
@@ -176,12 +180,15 @@ class CarePlan extends Request
             $rules += $this->referenceRules('data.' . $field);
         }
 
-        $this->validateData($data, $rules);
+        $validated = $this->validateData($data, $rules);
 
-        // Cancellation signs the complete original resource, including fields outside the projection.
-        return new CarePlanDetails($data);
+        // Cancellation signs the full GET snapshot, including server fields outside the projection.
+        return new CarePlanDetails($response->status() === 200 ? $data : $validated);
     }
 
+    /**
+     * Validate the search and patient summary lists against their shared short response shape.
+     */
     protected function validateMany(EHealthResponse $response): CarePlanGetMany
     {
         return $this->validateList($response);
@@ -209,6 +216,27 @@ class CarePlan extends Request
         ] + $this->validationRules('data.*.') + $itemRules);
 
         return new CarePlanGetMany($validated);
+    }
+
+    /**
+     * @return CarePlanDetails|Collection<string, mixed>
+     */
+    protected function validateSubmission(EHealthResponse $response): Collection
+    {
+        $status = $response->status();
+        if ($status === 201) {
+            return $this->validateResponse($response);
+        }
+
+        // A 202 receipt tracks background processing. Completion is confirmed by the job result.
+        $data = Job::validateSubmissionResponse($response);
+        if ($status === 202) {
+            $this->validateData($data, [
+                'data.status' => 'required|string',
+            ]);
+        }
+
+        return new Collection($data);
     }
 
     protected function validationRules(string $prefix): array

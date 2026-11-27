@@ -10,6 +10,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 
 class CarePlanForm extends BaseForm
 {
@@ -35,6 +36,26 @@ class CarePlanForm extends BaseForm
     public ?string $based_on = null;
     public ?string $part_of = null;
 
+    #[Locked]
+    public string $uuid = '';
+
+    #[Locked]
+    public string $authorUuid = '';
+
+    #[Locked]
+    public string $patientUuid = '';
+
+    #[Locked]
+    public string $legalEntityUuid = '';
+
+    /** @var list<array<string, mixed>> */
+    #[Locked]
+    public array $addresses = [];
+
+    /** @var array<string, string> */
+    #[Locked]
+    public array $medicalRecordLabels = [];
+
     /**
      * Get the default validation rules.
      */
@@ -57,10 +78,17 @@ class CarePlanForm extends BaseForm
         ];
     }
 
-    /** Validate the draft and its selections for the current patient and facility. */
-    public function validateDraft(array $authorUuids, array $episodeUuids, array $medicalRecordKeys): array
+    /**
+     * Validate the draft and its selections for the current patient and facility.
+     *
+     * @param  list<string>  $authorUuids  Employees who may be co-authors
+     * @param  list<string>  $episodeUuids  Episodes which may be attached
+     * @param  list<string>  $medicalRecordKeys  Medical records ("type:uuid") which may be attached
+     * @throws ValidationException
+     */
+    public function validateDraft(array $authorUuids, array $episodeUuids, array $medicalRecordKeys): void
     {
-        $validated = $this->validate([
+        $this->validate([
             ...$this->rules(),
             'context' => 'nullable|string|max:255',
             'title' => 'required|string|max:255',
@@ -80,22 +108,11 @@ class CarePlanForm extends BaseForm
             throw ValidationException::withMessages(['form.periodEnd' => __('care-plan.period_end_before_start')]);
         }
 
-        $validated['episodes'] = array_column($validated['episodes'], 'uuid');
-        $validated['medicalRecords'] = collect($validated['medicalRecords'])->map(static function (array $record): string {
-            $type = $record['type'] ?? data_get($record, 'identifier.type.coding.0.code', '');
-            $uuid = $record['uuid'] ?? data_get($record, 'identifier.value', '');
-
-            return is_string($type) && is_string($uuid) ? $type.':'.$uuid : '';
-        })->unique()->values()->all();
-        if (array_diff($validated['medicalRecords'], $medicalRecordKeys) !== []) {
+        if (array_diff($this->medicalRecordKeys(), $medicalRecordKeys) !== []) {
             throw ValidationException::withMessages(['form.medicalRecords' => __('validation.exists', [
                 'attribute' => __('care-plan.medical_record'),
             ])]);
         }
-
-        $validated['coAuthors'] = array_values(array_unique(array_filter($validated['coAuthors'])));
-
-        return $validated;
     }
 
     /**
@@ -104,6 +121,21 @@ class CarePlanForm extends BaseForm
     public function rulesForSigning(): array
     {
         return array_merge($this->rules(), $this->signingRules());
+    }
+
+    /**
+     * Attached medical records as "type:uuid" keys, the same keys their labels are stored under.
+     *
+     * @return list<string>
+     */
+    protected function medicalRecordKeys(): array
+    {
+        return collect($this->medicalRecords)->map(static function (array $record): string {
+            $type = $record['type'] ?? data_get($record, 'identifier.type.coding.0.code', '');
+            $uuid = $record['uuid'] ?? data_get($record, 'identifier.value', '');
+
+            return is_string($type) && is_string($uuid) ? $type.':'.$uuid : '';
+        })->unique()->values()->all();
     }
 
     public function periodStartIsoDate(): string

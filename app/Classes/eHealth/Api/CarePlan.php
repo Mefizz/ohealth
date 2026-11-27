@@ -6,13 +6,15 @@ namespace App\Classes\eHealth\Api;
 
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\Api\Responses\Collections\CarePlanGetMany;
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanJob;
 use App\Classes\eHealth\EHealthRequest as Request;
 use App\Classes\eHealth\EHealthResponse;
+use App\Classes\eHealth\Errors\MedicalEventsErrorTranslator;
+use App\Contracts\ApiErrorTranslator;
 use App\Exceptions\EHealth\EHealthConnectionException;
 use App\Exceptions\EHealth\EHealthResponseException;
 use App\Exceptions\EHealth\EHealthValidationException;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,25 +22,36 @@ class CarePlan extends Request
 {
     protected const string URL = '/api/care_plans';
 
+    protected const string PATIENTS_URL = '/api/patients';
+
+    protected const string ACTIONS_CANCEL = '/actions/cancel';
+
+    protected const string ACTIONS_COMPLETE = '/actions/complete';
+
     /**
      * Create a new Care Plan in eHealth.
+     * The response is validated as CarePlanDetails when the care plan is created at once (201),
+     * or as CarePlanJob when eHealth has created a job to process the request (202).
      *
      * @param  string  $patientId
-     * @param  array  $payload
+     * @param  array  $data  // Data for API request
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function create(string $patientId, array $payload): PromiseInterface|EHealthResponse
+    public function create(string $patientId, array $data): PromiseInterface|EHealthResponse
     {
         $this->setValidator($this->validateSubmission(...));
 
-        return $this->post("/api/patients/{$patientId}/care_plans", $payload);
+        return $this->post(self::PATIENTS_URL . "/$patientId/care_plans", $data);
     }
 
     /**
      * Get Care Plans by requisition.
      *
-     * @param  array  $query
+     * @param  array{
+     *     requisition?: string,
+     *     page?: int
+     * } $query
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
@@ -62,43 +75,45 @@ class CarePlan extends Request
     {
         $this->setValidator($this->validateResponse(...));
 
-        return $this->get("/api/patients/{$patientId}/care_plans/{$id}", $query);
+        return $this->get(self::PATIENTS_URL . "/$patientId/care_plans/$id", $query);
     }
 
     /**
      * Cancel a Care Plan.
      * Note: This requires a Digital Signature (DS).
      * The payload must contain 'signed_content' which is the Care Plan object (without activities) + status_reason, signed by KEП.
+     * The response is validated as CarePlanDetails or CarePlanJob, the same way as for create.
      *
-     * @param  string  $personId
+     * @param  string  $patientId
      * @param  string  $id
-     * @param  array  $payload
+     * @param  array  $data  // Data for API request
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function cancel(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
+    public function cancel(string $patientId, string $id, array $data): PromiseInterface|EHealthResponse
     {
         $this->setValidator($this->validateSubmission(...));
 
-        return $this->patch("/api/patients/$personId/care_plans/$id/actions/cancel", $payload);
+        return $this->patch(self::PATIENTS_URL . "/$patientId/care_plans/$id" . self::ACTIONS_CANCEL, $data);
     }
 
     /**
      * Complete a Care Plan.
      * Note: This does NOT require a Digital Signature (DS).
      * The payload just needs to contain 'status_reason'.
+     * The response is validated as CarePlanDetails or CarePlanJob, the same way as for create.
      *
-     * @param  string  $personId
+     * @param  string  $patientId
      * @param  string  $id
-     * @param  array  $payload
+     * @param  array  $data  // Data for API request
      * @return PromiseInterface|EHealthResponse
      * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
-    public function complete(string $personId, string $id, array $payload): PromiseInterface|EHealthResponse
+    public function complete(string $patientId, string $id, array $data): PromiseInterface|EHealthResponse
     {
         $this->setValidator($this->validateSubmission(...));
 
-        return $this->patch("/api/patients/$personId/care_plans/$id/actions/complete", $payload);
+        return $this->patch(self::PATIENTS_URL . "/$patientId/care_plans/$id" . self::ACTIONS_COMPLETE, $data);
     }
 
     /**
@@ -107,12 +122,13 @@ class CarePlan extends Request
      * @param  string  $patientId
      * @param  array  $query
      * @return PromiseInterface|EHealthResponse
+     * @throws EHealthConnectionException|EHealthValidationException|EHealthResponseException
      */
     public function getBySearchParams(string $patientId, array $query = []): PromiseInterface|EHealthResponse
     {
         $this->setValidator($this->validateMany(...));
 
-        return $this->get("/api/patients/$patientId/care_plans", $query);
+        return $this->get(self::PATIENTS_URL . "/$patientId/care_plans", $query);
     }
 
     /**
@@ -132,11 +148,24 @@ class CarePlan extends Request
 
         $mergedQuery = array_merge($this->options['query'], $query);
 
-        return $this->get("/api/patients/$patientId/summary/care_plans", $mergedQuery);
+        return $this->get(self::PATIENTS_URL . "/$patientId/summary/care_plans", $mergedQuery);
+    }
+
+    /**
+     * Get the translator of the errors the medical events resources return.
+     *
+     * @return ApiErrorTranslator
+     */
+    protected function errorTranslator(): ApiErrorTranslator
+    {
+        return new MedicalEventsErrorTranslator();
     }
 
     /**
      * Validate the full resource returned by get by ID and synchronous writes.
+     *
+     * @param  EHealthResponse  $response
+     * @return CarePlanDetails
      */
     protected function validateResponse(EHealthResponse $response): CarePlanDetails
     {
@@ -188,12 +217,21 @@ class CarePlan extends Request
 
     /**
      * Validate the search and patient summary lists against their shared short response shape.
+     *
+     * @param  EHealthResponse  $response
+     * @return CarePlanGetMany
      */
     protected function validateMany(EHealthResponse $response): CarePlanGetMany
     {
         return $this->validateList($response);
     }
 
+    /**
+     * Validate the requisition search, whose items also carry the identity of the patient.
+     *
+     * @param  EHealthResponse  $response
+     * @return CarePlanGetMany
+     */
     protected function validateRequisitionResults(EHealthResponse $response): CarePlanGetMany
     {
         return $this->validateList($response, [
@@ -206,6 +244,13 @@ class CarePlan extends Request
         ]);
     }
 
+    /**
+     * Validate a list of care plans; the item rules extend the ones shared by every list.
+     *
+     * @param  EHealthResponse  $response
+     * @param  array  $itemRules
+     * @return CarePlanGetMany
+     */
     protected function validateList(EHealthResponse $response, array $itemRules = []): CarePlanGetMany
     {
         $data = $response->json(EHealthResponse::DATA_PATH);
@@ -219,26 +264,44 @@ class CarePlan extends Request
     }
 
     /**
-     * @return CarePlanDetails|Collection<string, mixed>
+     * Validate the response to a write (create, cancel, complete). The flow splits by the status of the response:
+     * - 201: eHealth has processed the request at once and returns the care plan, validated as CarePlanDetails;
+     * - any other status (202): eHealth has created a job to process the request, validated as CarePlanJob.
+     *
+     * @param  EHealthResponse  $response
+     * @return CarePlanDetails|CarePlanJob
      */
-    protected function validateSubmission(EHealthResponse $response): Collection
+    protected function validateSubmission(EHealthResponse $response): CarePlanDetails|CarePlanJob
     {
-        $status = $response->status();
-        if ($status === 201) {
-            return $this->validateResponse($response);
-        }
+        return $response->status() === 201 ? $this->validateResponse($response) : $this->validateJob($response);
+    }
 
-        // A 202 receipt tracks background processing. Completion is confirmed by the job result.
+    /**
+     * Validate the job eHealth has created to process the request asynchronously.
+     * The care plan is not in the response: it is available only after the job has been completed successfully.
+     *
+     * @param  EHealthResponse  $response
+     * @return CarePlanJob
+     */
+    protected function validateJob(EHealthResponse $response): CarePlanJob
+    {
         $data = Job::validateSubmissionResponse($response);
-        if ($status === 202) {
+
+        if ($response->status() === 202) {
             $this->validateData($data, [
                 'data.status' => 'required|string',
             ]);
         }
 
-        return new Collection($data);
+        return new CarePlanJob($data);
     }
 
+    /**
+     * Validation rules shared by the full resource and the short list item.
+     *
+     * @param  string  $prefix  Path of the care plan in the validated data, e.g. `data.` or `data.*.`
+     * @return array
+     */
     protected function validationRules(string $prefix): array
     {
         $rules = [
@@ -269,6 +332,12 @@ class CarePlan extends Request
         return $rules;
     }
 
+    /**
+     * Validation rules of a reference to another resource (identifier with a type and a display value).
+     *
+     * @param  string  $field
+     * @return array
+     */
     protected function referenceRules(string $field): array
     {
         return [
@@ -284,6 +353,12 @@ class CarePlan extends Request
         ];
     }
 
+    /**
+     * Validation rules of a codeable concept.
+     *
+     * @param  string  $field
+     * @return array
+     */
     protected function conceptRules(string $field): array
     {
         return [
@@ -295,6 +370,13 @@ class CarePlan extends Request
         ];
     }
 
+    /**
+     * Validate the response data, logging every failure before the validation exception is thrown.
+     *
+     * @param  mixed  $data
+     * @param  array  $rules
+     * @return array
+     */
     protected function validateData(mixed $data, array $rules): array
     {
         $validator = Validator::make(['data' => $data], $rules);

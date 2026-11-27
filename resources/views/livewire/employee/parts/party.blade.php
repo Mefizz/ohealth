@@ -13,7 +13,6 @@
                     class="peer input text-gray-500"
                     placeholder=" "
                     required
-                    :disabled="$wire.isPersonalDataLocked || $wire.isPartyDataPartiallyLocked"
                 />
                 <label for="lastName" class="label">{{ __('forms.last_name') }}</label>
                 @error('form.party.lastName')
@@ -29,7 +28,6 @@
                     class="peer input text-gray-500"
                     placeholder=" "
                     required
-                    :disabled="$wire.isPersonalDataLocked || $wire.isPartyDataPartiallyLocked"
                 />
                 <label for="firstName" class="label">{{ __('forms.first_name') }}</label>
                 @error('form.party.firstName')

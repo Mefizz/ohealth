@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Livewire\Employee;
+namespace App\Livewire\EmployeeRequest;
 
+use App\Livewire\Employee\EmployeeComponent;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use Illuminate\Support\Collection;

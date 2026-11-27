@@ -2,7 +2,7 @@
     <fieldset
         class="fieldset"
         id="section-documents"
-        :disabled="$wire.isPersonalDataLocked ?? false"
+        :disabled="$wire.isPersonalDataLocked && ! $wire.onlyCompleteDocumentIssuance"
         x-data="{
                   documents: [],
                   openModal: false,
@@ -91,6 +91,7 @@
                             >
                                 <button
                                     x-ref="button"
+                                    :disabled="$wire.onlyCompleteDocumentIssuance && !!document.issuedBy?.trim() && !!document.issuedAt"
                                     @click="toggle()"
                                     :aria-expanded="openDropdown"
                                     :aria-controls="$id('dropdown-button')"
@@ -133,6 +134,7 @@
 
                                         <button
                                             type="button"
+                                            :disabled="$wire.isPersonalDataLocked"
                                             @click.prevent="
                                                 documents.splice(index, 1);
                                                 close($refs.button);
@@ -154,6 +156,7 @@
             {{-- Button to trigger the modal --}}
             <button
                 type="button"
+                :disabled="$wire.isPersonalDataLocked"
                 @click="
                         openModal = true; {{-- Open the Modal --}}
                         if (newDocument !== true) {
@@ -250,6 +253,7 @@
                                             id="documentType"
                                             class="input-modal"
                                             type="text"
+                                            :disabled="$wire.isPersonalDataLocked"
                                             required
                                         >
                                             <option value="">{{ __('forms.select_document_type') }}</option>
@@ -270,6 +274,7 @@
                                             name="documentNumber"
                                             id="documentNumber"
                                             class="input-modal"
+                                            :readonly="$wire.isPersonalDataLocked"
                                             required
                                         />
                                     </div>
@@ -285,6 +290,7 @@
                                             id="documentIssuedBy"
                                             class="input-modal"
                                             required
+                                            :readonly="$wire.onlyCompleteDocumentIssuance && !!documents[item]?.issuedBy?.trim()"
                                             pattern=".*\S.*"
                                             @invalid="issuerInvalid = true"
                                             @blur="issuerInvalid = ! $el.validity.valid"
@@ -312,6 +318,8 @@
                                             id="documentIssuedAt"
                                             class="input-modal datepicker-input"
                                             autocomplete="off"
+                                            :disabled="$wire.onlyCompleteDocumentIssuance && !!documents[item]?.issuedAt"
+                                            :required="!($wire.onlyCompleteDocumentIssuance && !!documents[item]?.issuedAt)"
                                         />
                                     </div>
                                 </div>

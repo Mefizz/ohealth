@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Livewire\Employee;
 
-use App\Livewire\Employee\EmployeeRequestShow;
+use App\Livewire\EmployeeRequest\EmployeeRequestShow;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionClass;
 use Tests\TestCase;

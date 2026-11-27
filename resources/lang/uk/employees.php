@@ -3,6 +3,13 @@
 declare(strict_types=1);
 
 return [
+    'employment_status' => [
+        'dismissed' => 'Звільнений',
+        'stopped' => 'Припинено',
+        'deactivated' => 'Деактивований',
+        'entered_in_error' => 'Внесений помилково',
+    ],
+
     'position_speciality' => 'Основна спеціальність за цією посадою',
     'additional_person_specialities' => 'Додаткові кваліфікації особи в ЕСОЗ',
     'additional_person_speciality' => 'Додаткова кваліфікація особи',

@@ -29,12 +29,9 @@ class EmployeeEdit extends AbstractEmployeeFormManager
         $this->employee = $employee;
         $this->employeeId = $employee->id;
 
-        // Check if the Party of this employee holds the Owner position
-        $isOwnerParty = $employee->party->employees()
-            ->where('employee_type', \App\Enums\User\Role::OWNER->value)
-            ->exists();
-
-        $this->isPersonalDataLocked = $isOwnerParty;
+        // Only the division and the professional blocks are editable here; personal data is edited via PartyEdit.
+        $this->isPersonalDataLocked = true;
+        $this->onlyCompleteDocumentIssuance = true;
         // Keep division / professional blocks editable; lock only immutable core fields via applyImmutableFieldLocks().
         $this->isPositionDataLocked = false;
         $this->loadDivisions($legalEntity);
@@ -62,6 +59,26 @@ class EmployeeEdit extends AbstractEmployeeFormManager
         if ($this->employeeId) {
             $this->employee = Employee::findOrFail($this->employeeId);
         }
+    }
+
+    protected function applyEmployeeTypeBusinessRules(): void
+    {
+        // Documents are locked: keep the stored ones and accept only issuance details that are empty in the database.
+        $submitted = collect($this->form->documents);
+        $this->form->documents = $this->employee->party->documents->map(function ($stored) use ($submitted): array {
+            $candidate = $submitted->first(
+                fn ($document): bool => ($document['type'] ?? null) === $stored->type && ($document['number'] ?? null) === $stored->number
+            );
+
+            return [
+                'type' => $stored->type,
+                'number' => $stored->number,
+                'issuedBy' => filled($stored->issuedBy) ? $stored->issuedBy : ($candidate['issuedBy'] ?? ''),
+                'issuedAt' => filled($stored->issuedAt) ? $stored->issuedAt : ($candidate['issuedAt'] ?? ''),
+            ];
+        })->all();
+
+        parent::applyEmployeeTypeBusinessRules();
     }
 
     protected function handleDraftPersistence(): EmployeeRequest

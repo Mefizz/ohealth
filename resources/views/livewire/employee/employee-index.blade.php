@@ -504,22 +504,10 @@
                                                 </td>
 
                                                 <td class="td-input overflow-hidden align-middle">
-                                                    @php
-                                                        $employeeStatus = $position->status?->value ?? '';
-                                                        $statusEnum = Status::tryFrom($employeeStatus);
-                                                        $badgeClass = '!me-0 inline-block w-min whitespace-normal text-left leading-tight';
-                                                    @endphp
-
-                                                    @if ($statusEnum)
-                                                        @if ($statusEnum === Status::APPROVED)
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ __('forms.status.active') }}</span>
-                                                        @elseif ($statusEnum === Status::STOPPED || $statusEnum === Status::DISMISSED)
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ __('forms.status.stopped') }}</span>
-                                                        @elseif ($statusEnum === Status::NEW || $statusEnum === Status::SIGNED)
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ __('forms.status.new') }}</span>
-                                                        @else
-                                                            <span class="{{ $statusEnum->color() }} {{ $badgeClass }}">{{ $statusEnum->label() }}</span>
-                                                        @endif
+                                                    @if ($position->status)
+                                                        <span class="{{ $position->status->color() }} !me-0 inline-block w-min whitespace-normal text-left leading-tight">
+                                                            {{ $position->status->employmentLabel() }}
+                                                        </span>
                                                     @endif
                                                 </td>
                                                 <td class="td-input shrink-0 text-center align-middle whitespace-nowrap">

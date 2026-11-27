@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Classes\eHealth\EHealth;
 use App\Classes\eHealth\EHealthResponse;
 use App\Contracts\SubmittedToEHealth;
@@ -31,6 +32,7 @@ use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Queue\Middleware\RateLimited;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -314,10 +316,16 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                     && !empty($responseData['links'])) {
                     // Medical Events jobs can return only links. Fetch the confirmed resource in the queue.
                     $plan = $record instanceof CarePlan ? $record : $record->carePlan;
-                    $responseData['response_data'] = $record instanceof CarePlan
-                        ? Arr::toCamelCase(Arr::from(EHealth::carePlan()->withToken($this->token)
-                            ->getDetails($plan->person->uuid, $plan->uuid)->validate()))
-                        : EHealth::carePlanActivity()->withToken($this->token)->getDetails($plan->person->uuid, $plan->uuid, $record->uuid)->validate();
+                    if ($record instanceof CarePlan) {
+                        $details = EHealth::carePlan()->withToken($this->token)
+                            ->getDetails($plan->person->uuid, $plan->uuid)->validate();
+                        $responseData['response_data'] = Arr::toCamelCase(
+                            $details instanceof CarePlanDetails ? $details->toArray() : Arr::from($details)
+                        );
+                    } else {
+                        $responseData['response_data'] = EHealth::carePlanActivity()->withToken($this->token)
+                            ->getDetails($plan->person->uuid, $plan->uuid, $record->uuid)->validate();
+                    }
                 }
                 if ($status === 'processed' && $record instanceof CarePlanActivity
                     && data_get($this->eHealthLink->job->request_data, 'changes.status') === 'scheduled') {
@@ -325,7 +333,9 @@ class RemoteEHealthLinksProcessing extends EHealthJob
                     $plan = $record->carePlan;
                     $details = EHealth::carePlan()->withToken($this->token)
                         ->getDetails($plan->person->uuid, $plan->uuid)->validate();
-                    $responseData['carePlanResource'] = Arr::toCamelCase(Arr::from($details));
+                    $responseData['carePlanResource'] = Arr::toCamelCase(
+                        $details instanceof CarePlanDetails ? $details->toArray() : Arr::from($details)
+                    );
                 }
                 if ($status === 'processed' && $record instanceof ServiceRequestRequest && !isset($responseData['response_data']) && !isset($responseData['result']) && !isset($responseData['data']) && !empty($responseData['links'])) {
                     $responseData['response_data'] = EHealth::serviceRequest()->withToken($this->token)
@@ -548,7 +558,8 @@ class RemoteEHealthLinksProcessing extends EHealthJob
             }
             throw $exception;
         }
-        $data = $response->validate();
+        $result = $response->validate();
+        $data = $result instanceof Collection ? $result->toArray() : $result;
         $status = strtolower((string) ($data['status'] ?? ''));
         if (isset($data['error']) || in_array($status, ['failed', 'rejected', 'error'], true)) {
             self::markSubmissionFailed($link);

@@ -326,8 +326,10 @@ class CarePlanRepository extends MedicalEventsBaseRepository
         }
     }
 
-    public function storeAggregate(array $resource, array $activities, int $personId, int $legalEntityId): CarePlan
+    public function storeAggregate(array|CarePlanData $resource, array $activities, int $personId, int $legalEntityId): CarePlan
     {
+        $resource = $resource instanceof CarePlanData ? $resource->toResource() : $resource;
+
         return $this->storageTransaction(function () use ($resource, $activities, $personId, $legalEntityId): CarePlan {
             $plan = $this->storeResource($resource, $personId, $legalEntityId);
             $activityRepository = Repository::carePlanActivity();
@@ -448,8 +450,9 @@ class CarePlanRepository extends MedicalEventsBaseRepository
     }
 
     /** Store a complete, normalized resource. This method performs no remote requests. */
-    public function storeResource(array $resource, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
+    public function storeResource(array|CarePlanData $resource, int $personId, int $legalEntityId, ?int $localId = null): CarePlan
     {
+        $resource = $resource instanceof CarePlanData ? $resource->toResource() : $resource;
         if (!isset($resource['id'], $resource['title'], $resource['status'], $resource['period']['start'])) {
             throw new InvalidArgumentException('A complete Care Plan requires id, title, status and period.start.');
         }

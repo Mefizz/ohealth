@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
+use App\Dto\CarePlan\Model as CarePlanData;
 use App\Core\EHealthJob;
 use App\Core\PatientEHealthJob;
 use App\Enums\CarePlanStatus;
@@ -163,8 +165,12 @@ class CarePlanFullSync extends PatientEHealthJob
             return;
         }
         if ($this->isPatientRegistrySync() && $this->resourceUuid !== null) {
-            $validatedData = Arr::toCamelCase(Arr::from($response->validate()));
-            if (($validatedData['id'] ?? null) !== $this->resourceUuid) {
+            $details = $response->validate();
+            $validatedData = $details instanceof CarePlanDetails
+                ? objectMapper()->map($details, CarePlanData::class)
+                : Arr::toCamelCase(Arr::from($details));
+            $uuid = $validatedData instanceof CarePlanData ? $validatedData->uuid : ($validatedData['id'] ?? null);
+            if ($uuid !== $this->resourceUuid) {
                 throw ValidationException::withMessages(['id' => 'Care Plan details do not match the requested resource.']);
             }
             $patient = Repository::carePlan()->resolvePatientContext($this->personId, $this->patientUuid);

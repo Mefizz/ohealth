@@ -7,7 +7,7 @@ namespace Tests\Feature\Employee;
 use App\Enums\Employee\RequestStatus;
 use App\Enums\Status;
 use App\Enums\User\Role;
-use App\Livewire\Employee\EmployeeRequestEdit;
+use App\Livewire\EmployeeRequest\EmployeeRequestEdit;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;

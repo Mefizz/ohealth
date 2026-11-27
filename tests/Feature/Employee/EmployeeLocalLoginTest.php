@@ -7,7 +7,7 @@ namespace Tests\Feature\Employee;
 use App\Enums\Status;
 use App\Livewire\Employee\EmployeeCreate;
 use App\Livewire\Employee\EmployeePositionAdd;
-use App\Livewire\Employee\EmployeeRequestEdit;
+use App\Livewire\EmployeeRequest\EmployeeRequestEdit;
 use App\Livewire\Employee\Forms\EmployeeForm;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;

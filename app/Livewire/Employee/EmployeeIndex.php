@@ -56,7 +56,6 @@ class EmployeeIndex extends EmployeeComponent
     public string $search = '';
     public array $status = [
         Status::APPROVED->value,
-        Status::NEW->value,
         Status::REORGANIZED->value,
     ];
     public array $filter = [
@@ -146,18 +145,6 @@ class EmployeeIndex extends EmployeeComponent
 
         // Set the sync status for Employee
         $this->syncStatus = $this->getSyncStatus();
-    }
-
-    public function hydrate(): void
-    {
-        $this->status = array_values(array_unique(array_map(
-            fn (string $status): string => match ($status) {
-                Status::SIGNED->value => Status::NEW->value,
-                Status::DISMISSED->value => Status::STOPPED->value,
-                default => $status,
-            },
-            $this->status,
-        )));
     }
 
     public function applyFilters(): void
@@ -257,45 +244,31 @@ class EmployeeIndex extends EmployeeComponent
     }
 
     /**
-     * Unique labels for the status multi-select (NEW covers SIGNED, STOPPED covers DISMISSED).
+     * Position statuses of the eHealth EMPLOYEE_STATUS dictionary.
      *
      * @return array<string, string>
      */
     public function statusFilterOptions(): array
     {
-        return [
-            Status::APPROVED->value => __('forms.status.active'),
-            Status::NEW->value => __('forms.status.new'),
-            Status::STOPPED->value => __('forms.status.stopped'),
-            Status::ENTERED_IN_ERROR->value => __('forms.status.entered_in_error'),
-            Status::REORGANIZED->value => __('forms.reorganized'),
-        ];
+        $options = [];
+        foreach ([
+            Status::APPROVED, Status::REORGANIZED, Status::STOPPED,
+            Status::DISMISSED, Status::ENTERED_IN_ERROR, Status::DEACTIVATED,
+        ] as $status) {
+            $options[$status->value] = $status->employmentLabel();
+        }
+
+        return $options;
     }
 
     /**
-     * Expand UI status keys to the values stored on employees / requests.
+     * Selected statuses restricted to the dictionary values.
      *
      * @return list<string>
      */
     public function statusesForQuery(): array
     {
-        if ($this->status === []) {
-            return [];
-        }
-
-        $expanded = [];
-        foreach ($this->status as $status) {
-            $expanded = [
-                ...$expanded,
-                ...match ($status) {
-                    Status::NEW->value, Status::SIGNED->value => [Status::NEW->value, Status::SIGNED->value],
-                    Status::STOPPED->value, Status::DISMISSED->value => [Status::STOPPED->value, Status::DISMISSED->value],
-                    default => [$status],
-                },
-            ];
-        }
-
-        return array_values(array_unique(array_diff($expanded, ['VERIFIED', 'NOT_VERIFIED'])));
+        return array_values(array_intersect(array_keys($this->statusFilterOptions()), $this->status));
     }
 
     /**
@@ -423,7 +396,6 @@ class EmployeeIndex extends EmployeeComponent
         $this->reset(['filter', 'status', 'search']);
         $this->status = [
             Status::APPROVED->value,
-            Status::NEW->value,
             Status::REORGANIZED->value,
         ];
         $this->resetPage();

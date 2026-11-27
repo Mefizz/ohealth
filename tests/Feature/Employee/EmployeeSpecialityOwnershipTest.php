@@ -13,7 +13,7 @@ use App\Jobs\EmployeeDetailsUpsert;
 use App\Listeners\eHealth\EmployeeCreate as EmployeeCreateListener;
 use App\Livewire\Employee\EmployeeEdit;
 use App\Livewire\Employee\EmployeePositionAdd;
-use App\Livewire\Employee\EmployeeRequestEdit;
+use App\Livewire\EmployeeRequest\EmployeeRequestEdit;
 use App\Livewire\Employee\EmployeeShow;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;

@@ -5,13 +5,12 @@ declare(strict_types=1);
 namespace App\Livewire\Employee;
 
 use App\Classes\eHealth\EHealth;
-use App\Enums\Employee\RequestStatus;
-use App\Enums\Employee\RevisionStatus;
 use App\Enums\Status;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;
 use App\Models\LegalEntity;
 use App\Repositories\Repository;
+use App\Services\Employee\EmployeeRequestProcessor;
 use App\Traits\FormTrait;
 use Gate;
 use Livewire\Attributes\Computed;
@@ -29,6 +28,10 @@ abstract class EmployeeComponent extends Component
 
     public Form $form;
     public bool $isPersonalDataLocked = false;
+
+    /** Locked documents may still get an issuing authority and date that are empty in the database. */
+    #[Locked]
+    public bool $onlyCompleteDocumentIssuance = false;
     public bool $isPositionDataLocked = false;
 
     // Locks only IMMUTABLE fields (Position, Type, StartDate)
@@ -306,49 +309,12 @@ abstract class EmployeeComponent extends Component
             ->pendingEhealth()
             ->get();
 
-        if ($pendingRequests->isEmpty()) {
-            return;
-        }
-
         foreach ($pendingRequests as $request) {
             try {
-                // Fetch specific request status from eHealth by UUID
-                $response = EHealth::employeeRequest()
-                    ->withToken($token)
-                    ->getMany(['id' => $request->uuid]);
-
-                $data = $response->validate();
-                $remoteRequestData = $data[0] ?? null;
-
-                if (!$remoteRequestData) {
-                    continue;
-                }
-
-                $remoteStatus = $remoteRequestData['status'] ?? null;
-
-                // Update local status based on remote status
-                if ($remoteStatus === 'APPROVED') {
-                    $request->update(
-                        [
-                            'status' => RequestStatus::APPROVED,
-                            'applied_at' => now(),
-                        ]
-                    );
-                    $request->revision?->update(['status' => RevisionStatus::APPLIED]);
-
-                } elseif (in_array($remoteStatus, ['REJECTED', 'EXPIRED'])) {
-                    $newStatus = ($remoteStatus === 'REJECTED') ? RequestStatus::REJECTED : RequestStatus::EXPIRED;
-                    $request->update(
-                        [
-                            'status' => $newStatus,
-                            'applied_at' => now(),
-                        ]
-                    );
-                }
-
-            } catch (\Exception $e) {
+                // The same import and apply flow as the single request sync and the queued job.
+                app(EmployeeRequestProcessor::class)->syncSinglePendingRequest($request, $employee->legalEntity);
+            } catch (Throwable $e) {
                 Log::warning("Failed to check status for request {$request->uuid}: " . $e->getMessage());
-                // Continue to next request without stopping the flow
             }
         }
     }

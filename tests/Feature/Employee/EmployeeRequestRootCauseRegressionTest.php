@@ -13,7 +13,7 @@ use App\Enums\Employee\RequestStatus;
 use App\Enums\Employee\RevisionStatus;
 use App\Enums\Status;
 use App\Listeners\eHealth\EmployeeCreate;
-use App\Livewire\Employee\EmployeeRequestEdit;
+use App\Livewire\EmployeeRequest\EmployeeRequestEdit;
 use App\Models\Division;
 use App\Models\Employee\Employee;
 use App\Models\Employee\EmployeeRequest;

@@ -8,6 +8,7 @@ use App\Classes\eHealth\Api\Responses\Collections\CarePlanDetails;
 use App\Core\Arr;
 use App\Dto\CodeableConcept\Model as CodeableConceptData;
 use App\Dto\Identifier\Model as IdentifierData;
+use App\Dto\Transform\Model\Reference;
 use App\Enums\CarePlanStatus;
 use App\Enums\ResourceType;
 use App\Livewire\CarePlan\Forms\CarePlanForm;
@@ -21,8 +22,8 @@ use Symfony\Component\ObjectMapper\Condition\TargetClass;
  * Map the validated draft form or full eHealth response to CarePlan attributes and relations.
  *
  * Persisted attributes need explicit target mappings because Eloquent exposes them
- * through attribute access instead of declared properties. The remaining values
- * are used to build the related concepts, identifiers and period.
+ * through attribute access instead of declared properties. The concepts, identifiers
+ * and period are built from the form while mapping, so no value is assigned afterwards.
  */
 #[Map(source: CarePlanDetails::class)]
 #[Map(source: CarePlanForm::class)]
@@ -30,6 +31,7 @@ use Symfony\Component\ObjectMapper\Condition\TargetClass;
 class Model
 {
     #[Map(source: '[id]', if: new SourceClass(CarePlanDetails::class))]
+    #[Map(source: 'uuid', if: new SourceClass(CarePlanForm::class))]
     public string $uuid;
 
     #[Map(source: '[status]', if: new SourceClass(CarePlanDetails::class))]
@@ -77,13 +79,16 @@ class Model
 
     /** @var list<array<string, mixed>> */
     #[Map(source: '[addresses]', if: new SourceClass(CarePlanDetails::class))]
+    #[Map(source: 'addresses', if: new SourceClass(CarePlanForm::class))]
     #[Map(if: new TargetClass(CarePlan::class))]
     public array $addresses = [];
 
     #[Map(source: '[category]', if: new SourceClass(CarePlanDetails::class), transform: [CodeableConceptData::class, 'map'])]
+    #[Map(source: 'category', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'category'])]
     public CodeableConceptData $categoryConcept;
 
     #[Map(source: '[terms_of_service]', if: new SourceClass(CarePlanDetails::class), transform: [CodeableConceptData::class, 'map'])]
+    #[Map(source: 'termsOfService', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'termsOfService'])]
     public CodeableConceptData $termsOfServiceConcept;
 
     #[Map(source: '[status_reason?]', if: new SourceClass(CarePlanDetails::class), transform: [CodeableConceptData::class, 'map'])]
@@ -137,18 +142,28 @@ class Model
     #[Map(source: '[updated_by]', if: new SourceClass(CarePlanDetails::class))]
     public string $ehealthUpdatedBy;
 
+    #[Map(source: 'authorUuid', if: new SourceClass(CarePlanForm::class), transform: new Reference(ResourceType::EMPLOYEE))]
     public IdentifierData $authorReference;
+
+    #[Map(source: 'patientUuid', if: new SourceClass(CarePlanForm::class), transform: new Reference(ResourceType::PATIENT))]
     public IdentifierData $subjectReference;
+
+    #[Map(source: 'encounter', if: new SourceClass(CarePlanForm::class), transform: new Reference(ResourceType::ENCOUNTER))]
     public IdentifierData $encounterIdentifier;
+
+    #[Map(source: 'legalEntityUuid', if: new SourceClass(CarePlanForm::class), transform: new Reference(ResourceType::LEGAL_ENTITY))]
     public IdentifierData $managingOrganization;
 
     /** @var Collection<int, IdentifierData> */
+    #[Map(source: 'episodes', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'supportingInfo'])]
     public Collection $supportingInfoReferences;
 
     /** @var array<string, string> */
-    public array $medicalRecordLabels;
+    #[Map(source: 'medicalRecordLabels', if: new SourceClass(CarePlanForm::class))]
+    public array $medicalRecordLabels = [];
 
     /** @var Collection<int, IdentifierData> */
+    #[Map(source: 'coAuthors', if: new SourceClass(CarePlanForm::class), transform: [self::class, 'contributors'])]
     public Collection $contributors;
 
     /**
@@ -191,51 +206,65 @@ class Model
     }
 
     /**
-     * Map validated local selections into the relations stored with the draft.
+     * Care plan category code from the form as a codeable concept of the care plan categories dictionary.
      *
-     * @param list<string> $coAuthors
-     * @param list<string> $episodeUuids
-     * @param array<string, string> $medicalRecordLabels
+     * @param  string  $category
+     * @return CodeableConceptData
      */
-    public function prepareLocal(
-        string $authorUuid,
-        string $patientUuid,
-        string $legalEntityUuid,
-        array $coAuthors,
-        array $episodeUuids,
-        array $medicalRecordLabels,
-    ): void {
-        $this->categoryConcept = CodeableConceptData::map([
-            'coding' => [['system' => 'eHealth/care_plan_categories', 'code' => $this->category]],
-        ]);
-        $this->termsOfServiceConcept = CodeableConceptData::map([
-            'coding' => [['system' => 'PROVIDING_CONDITION', 'code' => $this->termsOfService]],
-        ]);
-        $this->authorReference = $this->identifier($authorUuid, ResourceType::EMPLOYEE->value);
-        $this->subjectReference = $this->identifier($patientUuid, 'patient');
-        $this->encounterIdentifier = $this->identifier($this->encounter, 'encounter');
-        $this->managingOrganization = $this->identifier($legalEntityUuid, ResourceType::LEGAL_ENTITY->value);
-        $this->medicalRecordLabels = $medicalRecordLabels;
-        $this->contributors = collect($coAuthors)->map(
-            fn (string $uuid): IdentifierData => $this->identifier($uuid, ResourceType::EMPLOYEE->value)
-        );
-        $this->supportingInfoReferences = collect($episodeUuids)->map(
-            fn (string $uuid): IdentifierData => $this->identifier($uuid, 'episode_of_care')
-        )->concat(collect(array_keys($medicalRecordLabels))->map(function (string $key): IdentifierData {
-            [$type, $uuid] = explode(':', $key, 2);
-
-            return $this->identifier($uuid, $type);
-        }));
-        foreach (['context', 'description', 'note'] as $field) {
-            $this->{$field} = $this->{$field} === '' ? null : $this->{$field};
-        }
+    public static function category(string $category): CodeableConceptData
+    {
+        return CodeableConceptData::map(['coding' => [['system' => 'eHealth/care_plan_categories', 'code' => $category]]]);
     }
 
-    protected function identifier(string $uuid, string $type): IdentifierData
+    /**
+     * Terms of service code from the form as a codeable concept of the providing condition dictionary.
+     *
+     * @param  string  $termsOfService
+     * @return CodeableConceptData
+     */
+    public static function termsOfService(string $termsOfService): CodeableConceptData
     {
-        return IdentifierData::map([
-            'value' => $uuid,
-            'type' => ['coding' => [['system' => 'eHealth/resources', 'code' => $type]]],
-        ]);
+        return CodeableConceptData::map(['coding' => [['system' => 'PROVIDING_CONDITION', 'code' => $termsOfService]]]);
+    }
+
+    /**
+     * Co-author UUIDs from the form as identifiers of employees, skipping the empty and repeated ones.
+     * The form is passed along with the mapped value, since a transform receives the source too.
+     *
+     * @param  array  $coAuthors
+     * @param  CarePlanForm  $form
+     * @return Collection<int, IdentifierData>
+     */
+    public static function contributors(array $coAuthors, CarePlanForm $form): Collection
+    {
+        $reference = new Reference(ResourceType::EMPLOYEE);
+
+        return collect($coAuthors)->filter()->unique()->values()->map(
+            static fn (string $uuid): IdentifierData => $reference($uuid, $form, null)
+        );
+    }
+
+    /**
+     * Attached episodes and medical records from the form as identifiers of them.
+     * The medical records are read from the form, and each of them names its own resource type.
+     *
+     * @param  array  $episodes
+     * @param  CarePlanForm  $form
+     * @return Collection<int, IdentifierData>
+     */
+    public static function supportingInfo(array $episodes, CarePlanForm $form): Collection
+    {
+        $episodeReferences = collect($episodes)->map(
+            static fn (array $episode): IdentifierData => (new Reference(ResourceType::EPISODE_OF_CARE))($episode['uuid'], $form, null)
+        );
+
+        $recordReferences = collect($form->medicalRecords)->mapWithKeys(static function (array $record) use ($form): array {
+            $type = $record['type'] ?? data_get($record, 'identifier.type.coding.0.code');
+            $uuid = $record['uuid'] ?? data_get($record, 'identifier.value');
+
+            return ["$type:$uuid" => (new Reference(ResourceType::from($type)))($uuid, $form, null)];
+        });
+
+        return $episodeReferences->values()->concat($recordReferences->values());
     }
 }
